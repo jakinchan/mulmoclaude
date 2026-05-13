@@ -729,9 +729,37 @@ export async function startNewSession(page: Page): Promise<void> {
 }
 
 /**
+ * Snapshot every session id the server currently knows about. Used
+ * as the baseline for {@link startGuaranteedNewSession}'s
+ * "new-id-only" filter so a session that already existed on the
+ * server (and so could be the bootstrap-resume target) is filtered
+ * out even when the URL captured priorSessionId reads as `null`.
+ * Runs inside `page.evaluate` so the `<meta name="mulmoclaude-auth">`
+ * bearer is picked up the same way the live-mode UI fetches do.
+ */
+async function fetchExistingSessionIds(page: Page): Promise<Set<string>> {
+  const route = API_ROUTES.sessions.list;
+  const ids = await page.evaluate(async (sessionsListUrl) => {
+    const meta = document.querySelector('meta[name="mulmoclaude-auth"]');
+    const token = meta?.getAttribute("content") ?? "";
+    try {
+      const res = await fetch(sessionsListUrl, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return [];
+      const data = (await res.json()) as { sessions?: { id: string }[] };
+      return (data.sessions ?? []).map((session) => session.id);
+    } catch {
+      return [];
+    }
+  }, route);
+  return new Set(ids);
+}
+
+const SESSION_ID_FROM_PATH_RE = /\/chat\/([0-9a-f-]+)/;
+
+/**
  * Like {@link startNewSession} but waits until the URL settles on a
- * `/chat/<id>` that differs from whatever the SPA was sitting on
- * before the click, and returns the freshly-created session id.
+ * `/chat/<id>` that did NOT exist on the server before the click,
+ * and returns the freshly-created session id.
  *
  * Why this exists: `page.goto("/")` triggers the SPA's
  * "resume the most-recent session" redirect when one exists, so the
@@ -740,23 +768,29 @@ export async function startNewSession(page: Page): Promise<void> {
  * immediately on the *stale* URL, and a subsequent
  * `getCurrentSessionId(page)` returns the old session id — any
  * follow-up assertion that reads tool-trace by session id then
- * reads from the wrong file and sees zero matches. Specs that need
- * the new session id (e.g. to read its `conversations/chat/<id>.jsonl`)
- * should reach for this helper instead of pairing `startNewSession`
- * with `waitForURL(SESSION_URL_PATTERN)` by hand. Specs that follow
- * with `selectRole(...)` are not affected — `selectRole` spawns its
- * own fresh session, and their second wait already filters out the
- * old id.
+ * reads from the wrong file and sees zero matches.
+ *
+ * A naive "compare against priorSessionId captured between
+ * `goto("/")` and the click" still races: App.vue's bootstrap
+ * `resumeOrCreateChatSession()` runs asynchronously, so right after
+ * `goto` the URL may still read as `/` even though a redirect to
+ * `/chat/<existing>` is in flight; the post-click wait then accepts
+ * that bootstrap landing as the "new" id (Codex iter-5 review on
+ * PR #1345). To close that race we use the server's own session
+ * list as the baseline — any id present in that snapshot is, by
+ * definition, not the session this click created, so we skip past
+ * it. The only id that survives the filter is the freshly-created
+ * one.
  */
 export async function startGuaranteedNewSession(page: Page): Promise<string> {
   await page.goto("/");
-  const priorSessionId = getCurrentSessionId(page);
+  const baselineIds = await fetchExistingSessionIds(page);
   await page.getByTestId("new-session-btn").click();
-  if (priorSessionId === null) {
-    await page.waitForURL(SESSION_URL_PATTERN);
-  } else {
-    await page.waitForURL((url) => SESSION_URL_PATTERN.test(url.pathname) && !url.pathname.endsWith(priorSessionId));
-  }
+  await page.waitForURL((url) => {
+    const match = SESSION_ID_FROM_PATH_RE.exec(url.pathname);
+    if (!match) return false;
+    return !baselineIds.has(match[1]);
+  });
   const newSessionId = getCurrentSessionId(page);
   if (newSessionId === null) {
     throw new Error("startGuaranteedNewSession: URL did not settle on /chat/<id> after new-session-btn click");
