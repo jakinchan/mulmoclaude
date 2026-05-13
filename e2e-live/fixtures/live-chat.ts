@@ -812,27 +812,44 @@ const SESSION_ID_FROM_PATH_RE = /\/chat\/([0-9a-f-]+)/;
 export async function startGuaranteedNewSession(page: Page): Promise<string> {
   await page.goto("/");
   // Wait for App.vue's bootstrap navigation to settle BEFORE
-  // snapshotting the baseline. On a populated workspace
-  // `resumeOrCreateChatSession` redirects to `/chat/<resumed>`; on
-  // a clean workspace the same code path goes through
-  // `createNewSession` and lands on a freshly-minted
-  // `/chat/<bootstrap>`. Either way the URL settles on
-  // `/chat/<id>`. If we snapshot the baseline before this wait,
-  // the clean-workspace bootstrap session is NOT in the baseline
-  // (its server row only persists once bootstrap finishes), so the
-  // post-click filter accepts the bootstrap landing as the "new"
-  // session and the helper returns the wrong id (Codex GHA iter-6
-  // review on PR #1345). Gating on `waitForURL` ensures the
-  // bootstrap session has hit the server and shows up in the
-  // baseline snapshot, leaving only our click's creation as the
-  // truly-new id.
+  // capturing the pre-click landing or snapshotting the baseline.
+  // `resumeOrCreateChatSession` lands on `/chat/<resumed>` (populated
+  // workspace) or `/chat/<bootstrap>` (clean workspace via
+  // `createNewSession`); either way the URL settles on
+  // `/chat/<id>`.
   await page.waitForURL(SESSION_URL_PATTERN);
+  // Two complementary filters for the post-click wait:
+  //
+  // (1) `priorSessionId` — the URL right after bootstrap settles.
+  //     The post-click predicate refuses to resolve on this id, so
+  //     a `waitForURL` evaluation that runs while the URL still
+  //     reads as the pre-click value cannot return the stale id.
+  //
+  // (2) `baselineIds` — every session id the server has on disk
+  //     before our click. Filters out lookalike ids that may
+  //     appear during the click (e.g. a parallel test creating a
+  //     session, or any subsequent navigation that lands on
+  //     another existing chat).
+  //
+  // Filter (1) is the load-bearing one for the bootstrap race
+  // Codex flagged on iter-4 of cross-review: `/api/sessions` is
+  // disk-backed (readdir on `conversations/chat/*.jsonl`), so even
+  // after the URL settles the bootstrap session may not yet appear
+  // in baseline. Without (1), the predicate could resolve on the
+  // pre-click URL the moment it's evaluated and return the stale
+  // bootstrap id. Filter (2) stays as a defense-in-depth layer for
+  // the populated-workspace case.
+  const priorSessionId = getCurrentSessionId(page);
+  if (priorSessionId === null) {
+    throw new Error("startGuaranteedNewSession: SESSION_URL_PATTERN settled but getCurrentSessionId returned null — URL pattern likely drifted");
+  }
   const baselineIds = await fetchExistingSessionIds(page);
   await page.getByTestId("new-session-btn").click();
   await page.waitForURL((url) => {
     const match = SESSION_ID_FROM_PATH_RE.exec(url.pathname);
     if (!match) return false;
-    return !baselineIds.has(match[1]);
+    const [, candidateId] = match;
+    return candidateId !== priorSessionId && !baselineIds.has(candidateId);
   });
   const newSessionId = getCurrentSessionId(page);
   if (newSessionId === null) {
