@@ -113,7 +113,7 @@ Options:
 }
 
 if (args.includes("--version")) {
-  console.log("mulmoclaude 0.6.1");
+  console.log("mulmoclaude 0.6.2");
   process.exit(0);
 }
 
