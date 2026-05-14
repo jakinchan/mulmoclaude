@@ -830,14 +830,9 @@ async function startRuntimeServices(httpServer: ReturnType<typeof app.listen>, p
   // is forwarded in here so the rest of `startRuntimeServices` can
   // share the same instance.
 
-  // --- macOS Reminder side-channel ---
-  // Subscribe in-process to the engine so any `notifier.publish` —
-  // legacy wrapper or plugin-runtime — fires the Reminder push that
-  // used to live inline in `publishNotification()` pre PR 4. The
-  // adapter is a no-op outside darwin / when
-  // DISABLE_MACOS_REMINDER_NOTIFICATIONS=1, so unconditionally safe.
-  // (Bridge fan-out branch was dropped — no production caller.)
-  startMacosReminderAdapter();
+  // macOS Reminder adapter wiring lives in the `app.listen` callback,
+  // alongside `initNotifier`, so it's subscribed before the first
+  // await opens a publish-can-fire-but-no-one's-listening window.
 
   // --- Plugin META aggregator diagnostics ---
   // After the notifier engine is initialized so the wrapper has a
@@ -1149,6 +1144,14 @@ process.on("SIGTERM", () => {
     initNotifier({
       publish: (channel, payload) => earlyPubsub.publish(channel, payload),
     });
+    // Subscribe the macOS Reminder side-channel BEFORE the first
+    // await below — `initNotifier` opens the engine to publishes,
+    // and any boot-time diagnostic that lands during the
+    // `.server-port` write / `startRuntimeServices` setup would
+    // otherwise miss the Reminder fan-out (CodeRabbit review on
+    // PR #1358). The adapter is sync + no-op outside darwin, so
+    // wiring it here costs nothing.
+    startMacosReminderAdapter();
 
     // Publish the actually-bound port so the hook script can
     // address us — the requested PORT may have walked forward
