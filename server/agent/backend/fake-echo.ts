@@ -27,9 +27,18 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getCurrentToken } from "../../api/auth/token.js";
+import { makeUuid } from "../../utils/id.js";
+import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { EVENT_TYPES } from "../../../src/types/events.js";
 import type { AgentEvent } from "../stream.js";
 import type { AgentInput, LLMBackend } from "./types.js";
+
+interface PluginEnvelope {
+  data?: unknown;
+  message?: unknown;
+  instructions?: unknown;
+  [key: string]: unknown;
+}
 
 export interface FakeToolCall {
   toolName: string;
@@ -179,22 +188,45 @@ const PLUGIN_ENDPOINTS: Readonly<Record<string, string>> = {
   presentMulmoScript: "/api/mulmoScript/save",
 };
 
-async function dispatchToPlugin(call: FakeToolCall, port: number): Promise<string> {
+// Mirrors what server/agent/mcp-server.ts#handleToolCall does for
+// the real MCP bridge:
+//   1. POST to the plugin endpoint to get the envelope back
+//   2. If envelope.data is set, PUSH the envelope to
+//      /api/internal/tool-result — this is what surfaces the result
+//      to the canvas as a ToolResultComplete (toolName + uuid
+//      stamped by the bridge so the plugin can't impersonate).
+//   3. Return the text representation (message + instructions) so
+//      the matching `tool_call_result` event carries something
+//      meaningful for the tool-call history pane.
+async function dispatchToPlugin(call: FakeToolCall, port: number, chatSessionId: string): Promise<string> {
   if (call.result !== undefined) return call.result;
   const endpoint = PLUGIN_ENDPOINTS[call.toolName];
   if (!endpoint) return '{"ok":true}';
   const token = getCurrentToken();
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   try {
     const response = await fetch(`http://localhost:${port}${endpoint}`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify(call.args),
     });
-    const body = await response.text();
-    return body || '{"ok":true}';
+    if (!response.ok) {
+      const errBody = await response.text();
+      return JSON.stringify({ error: `plugin ${call.toolName} returned ${response.status}: ${errBody.slice(0, 200)}` });
+    }
+    const envelope = ((await response.json()) ?? {}) as PluginEnvelope;
+    if (envelope.data !== undefined) {
+      const toolResultUrl = `http://localhost:${port}${API_ROUTES.agent.internal.toolResult}?chatSessionId=${encodeURIComponent(chatSessionId)}`;
+      await fetch(toolResultUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({ ...envelope, toolName: call.toolName, uuid: makeUuid() }),
+      });
+    }
+    const text: string[] = [];
+    if (typeof envelope.message === "string") text.push(envelope.message);
+    if (typeof envelope.instructions === "string") text.push(envelope.instructions);
+    return text.length > 0 ? text.join("\n") : "Done";
   } catch (err) {
     // Don't tear down the chat turn on plugin-dispatch failure —
     // surface the error in the tool_result so the test sees it.
@@ -254,10 +286,10 @@ async function* runFakeEchoAgent(input: AgentInput): AsyncGenerator<AgentEvent> 
       toolName: call.toolName,
       args: call.args,
     };
-    // Run the actual plugin handler so the artifact lands on disk
-    // and the canvas mounts the View. The MCP bridge does the same
-    // thing under real Claude — we just bypass Claude here.
-    const content = await dispatchToPlugin(call, input.port);
+    // Run the actual plugin handler AND push the envelope to
+    // /api/internal/tool-result so the canvas mounts the View — same
+    // two-step the MCP bridge does for real Claude.
+    const content = await dispatchToPlugin(call, input.port, input.sessionId);
     yield {
       type: EVENT_TYPES.toolCallResult,
       toolUseId,
