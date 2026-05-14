@@ -216,12 +216,21 @@ async function dispatchToPlugin(call: FakeToolCall, port: number, chatSessionId:
     }
     const envelope = ((await response.json()) ?? {}) as PluginEnvelope;
     if (envelope.data !== undefined) {
-      const toolResultUrl = `http://localhost:${port}${API_ROUTES.agent.internal.toolResult}?chatSessionId=${encodeURIComponent(chatSessionId)}`;
-      await fetch(toolResultUrl, {
+      // Query key is `session`, not `chatSessionId` — matches the
+      // `getSessionQuery(req)` reader and what the MCP bridge's
+      // postJson(...) helper passes (`?session=${SESSION_ID}`).
+      const toolResultUrl = `http://localhost:${port}${API_ROUTES.agent.internal.toolResult}?session=${encodeURIComponent(chatSessionId)}`;
+      const pushRes = await fetch(toolResultUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ ...envelope, toolName: call.toolName, uuid: makeUuid() }),
       });
+      if (!pushRes.ok) {
+        const errBody = await pushRes.text();
+        // Don't fail the chat turn — log so the operator can diagnose.
+        // eslint-disable-next-line no-console
+        console.warn(`[fake-echo] tool-result push failed ${pushRes.status}: ${errBody.slice(0, 200)}`);
+      }
     }
     const text: string[] = [];
     if (typeof envelope.message === "string") text.push(envelope.message);
