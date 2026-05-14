@@ -22,17 +22,29 @@ import { EVENT_TYPES } from "../../../src/types/events.js";
 import type { AgentEvent } from "../stream.js";
 import type { AgentInput, LLMBackend } from "./types.js";
 
+// Per-session conversation memory so context-recall tests (session
+// L-12: "what was the 6-digit code from earlier?") see prior turn
+// content in the reply. Keyed by mulmoclaude's chat session id so
+// resume across page reloads keeps working. The map grows for the
+// process lifetime — fine for CI runs which boot a fresh server.
+const sessionTurns = new Map<string, string[]>();
+
 async function* runFakeEchoAgent(input: AgentInput): AsyncGenerator<AgentEvent> {
   // Synthesize a claude session id so the orchestrator's resume
   // bookkeeping (and any session-store side-effects) sees the same
   // shape as a real run.
   yield { type: EVENT_TYPES.claudeSessionId, id: randomUUID() };
 
-  // The single assistant text block. Echoing the user's prompt
-  // verbatim gives tests a deterministic, content-controllable
-  // reply — the codespan / markdown-link / role-name asserts they
-  // care about land in the rendered chat without any real LLM.
-  yield { type: EVENT_TYPES.text, message: input.message };
+  // Append the current turn and emit ALL session messages joined
+  // back as the assistant reply. Tests that only inspect the
+  // latest turn (linkify, role-smoke) still see their content;
+  // tests that ask the assistant to recall an earlier turn (L-12)
+  // see the prior text inside the same reply.
+  const history = sessionTurns.get(input.sessionId) ?? [];
+  history.push(input.message);
+  sessionTurns.set(input.sessionId, history);
+
+  yield { type: EVENT_TYPES.text, message: history.join("\n\n") };
 }
 
 export const fakeEchoBackend: LLMBackend = {

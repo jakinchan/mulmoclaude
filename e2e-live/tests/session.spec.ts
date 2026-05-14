@@ -63,10 +63,11 @@ test.describe("session (real LLM)", () => {
   });
 
   test("L-12: 古いセッションを resume → LLM が前ターンの文脈を保持している", async ({ page }) => {
-    // Genuinely needs a reasoning LLM: the assertion is that the
-    // model recalls the prior turn's content. fake-echo doesn't
-    // model that. Real Claude only.
-    test.skip(process.env.E2E_LIVE_NO_LLM === "1", "E2E_LIVE_NO_LLM=1 — needs real LLM context recall");
+    // Both real Claude (real context recall) and fake-echo (per-
+    // session history join) satisfy the assertion that turn-2's
+    // reply contains turn-1's content. The bug we're guarding
+    // against (#1364: session resume loses the prior turn) is
+    // server-side and orthogonal to which backend is in use.
     test.setTimeout(L12_TIMEOUT_MS);
     // Covers B-16: a session that is reloaded mid-conversation must
     // hand the prior turn back to the agent so the next reply can

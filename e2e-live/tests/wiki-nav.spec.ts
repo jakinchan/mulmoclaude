@@ -153,15 +153,17 @@ test.describe("wiki navigation (real workspace)", () => {
   });
 
   test("L-15b: 非 ASCII slug fuzzy resolve が衝突候補から正しい target を決定的に選ぶ (#1194)", async ({ page }, testInfo) => {
-    // TODO(#1364 follow-up): this test fails in CI but not locally —
-    // the wiki POST returns "not found" for the multibyte target slug
-    // even though placeWikiPage wrote the file. Likely tied to
-    // server-side `wikiSlugify` / `getPageIndex` behaviour on a fresh
-    // workspace where `data/wiki/index.md` has no entries yet (the
-    // title-match fallback can't fire). Skipping under the same env
-    // var as the Claude gate while it's under investigation; remove
-    // once root-caused.
-    test.skip(process.env.E2E_LIVE_NO_LLM === "1", "TODO #1364: fuzzy resolve fails in fresh-workspace CI");
+    // Expected-fail in fresh-workspace CI: the wiki POST returns
+    // "not found" for the multibyte target slug even though
+    // placeWikiPage wrote the file — likely a server-side quirk in
+    // `wikiSlugify` / `getPageIndex` when `data/wiki/index.md` has
+    // no entries yet, so the title-match fallback can't fire.
+    // Marked test.fail() so the job stays green AND the run
+    // actively probes: if root cause gets fixed, this case starts
+    // passing → playwright flags it as "unexpected pass" → forces a
+    // visit to remove the marker. Replaces an earlier `test.skip`
+    // which silently dropped #1194 coverage (codex review on #1364).
+    test.fail(process.env.CI === "true", "TODO: fresh-workspace fuzzy resolve fails in CI — see comment");
     // L-15 と同じ shape のテストなので timeout 定数も共用 (plan
     // file の方針)。
     test.setTimeout(L15_TIMEOUT_MS);
