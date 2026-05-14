@@ -47,6 +47,12 @@ const SINGLE_PLACEHOLDER = /^\$\{([A-Z0-9_]+)\}$/;
  *  (deepwiki is empty) — they fall through with `[]`. When a
  *  required HTTP header lands in the catalog, extend this helper. */
 export function findMissingRequiredEnv(entry: McpCatalogEntry, spec: McpServerSpec): string[] {
+  // Transport mismatch (e.g. catalog stdio entry but user pointed
+  // the same id at an HTTP URL) means the catalog's env template
+  // doesn't apply to this user spec — see `preflightUserServers`'s
+  // header comment for the rationale. Guard here too so callers that
+  // skip the wrapper still get the correct answer.
+  if (entry.spec.type !== spec.type) return [];
   if (entry.spec.type !== "stdio" || !entry.spec.env) return [];
   const fieldToEnvKey = buildFieldToEnvKeyMap(entry.spec.env);
   const userEnv = spec.type === "stdio" ? spec.env : undefined;
@@ -80,13 +86,37 @@ function isResolved(value: string | undefined): boolean {
 /** Filter user MCP servers by checking the catalog's required
  *  fields. Servers without a catalog match (= user-added custom
  *  servers) pass through — we have no metadata to validate them
- *  against. */
-export function preflightUserServers(userServers: Record<string, McpServerSpec>): McpPreflightResult {
+ *  against.
+ *
+ *  Two other shapes also pass through unvalidated:
+ *
+ *  - `enabled: false` entries (CodeRabbit review on #1355). They're
+ *    intentionally disabled by the user; running them through
+ *    preflight produces spurious "missing required config" warnings
+ *    AND skews the boot summary's `started` count. The downstream
+ *    `prepareUserServers` already drops disabled entries before
+ *    spawning anything, so we just forward them.
+ *
+ *  - Type-mismatched catalog hits. If the user's mcp.json has
+ *    `gmail: { type: "http", url: ... }` but the catalog's `gmail`
+ *    entry is `type: "stdio"` with env templates, the catalog's
+ *    requirement list doesn't apply to the user's spec — they've
+ *    pointed `gmail` at a different transport, effectively making it
+ *    a custom server. Treat as custom (no preflight) rather than
+ *    false-flagging missing env. */
+export function preflightUserServers(userServers: Record<string, McpServerSpec> | undefined | null): McpPreflightResult {
   const ready: Record<string, McpServerSpec> = {};
   const skipped: McpPreflightResult["skipped"] = [];
-  for (const [serverId, spec] of Object.entries(userServers)) {
+  // Defensive default (Sourcery review on #1355): a malformed
+  // mcp.json — or a future refactor that nulls `mcpServers` — would
+  // otherwise throw `Object.entries(null)` at boot.
+  for (const [serverId, spec] of Object.entries(userServers ?? {})) {
+    if (spec.enabled === false) {
+      ready[serverId] = spec;
+      continue;
+    }
     const entry = findCatalogEntry(serverId);
-    if (entry === null) {
+    if (entry === null || entry.spec.type !== spec.type) {
       ready[serverId] = spec;
       continue;
     }
