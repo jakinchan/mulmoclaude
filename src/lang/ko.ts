@@ -573,6 +573,7 @@ const koMessages = {
     yamlParseError: "YAML 을 파싱할 수 없습니다 — 'title' 이 포함되어 있는지 확인하세요",
     propLabel: "{key}:",
     moreCount: "+{count}개 더",
+    invalidRange: "잘못된 날짜 범위 (endDate: {endDate})",
     previewIcon: "📅",
     previewUpcoming: "예정 {count}개",
     previewAutomations: "자동화 {count}개",

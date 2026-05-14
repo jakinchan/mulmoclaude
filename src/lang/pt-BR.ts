@@ -575,6 +575,7 @@ const ptBRMessages = {
     yamlParseError: "Não foi possível analisar o YAML — verifique se 'title' está presente",
     propLabel: "{key}:",
     moreCount: "+{count} mais",
+    invalidRange: "Intervalo de datas inválido (endDate: {endDate})",
     previewIcon: "📅",
     previewUpcoming: "{count} próximos",
     previewAutomations: "{count} automação | {count} automações",

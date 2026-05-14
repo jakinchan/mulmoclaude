@@ -573,6 +573,7 @@ const jaMessages = {
     yamlParseError: "YAML を解析できません — 'title' が含まれているか確認してください",
     propLabel: "{key}:",
     moreCount: "他 {count} 件",
+    invalidRange: "日付範囲が不正です (endDate: {endDate})",
     previewIcon: "📅",
     previewUpcoming: "今後 {count} 件",
     previewAutomations: "オートメーション {count} 件",

@@ -28,32 +28,29 @@ export type SchedulerActionResult =
       jsonData: Record<string, unknown>;
     };
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-function isoDate(value: unknown): string | null {
-  return typeof value === "string" && ISO_DATE.test(value) ? value : null;
-}
-
-// Drops `endDate` when it would create an invalid range — either
-// the start `date` itself isn't a clean ISO string, or `endDate`
-// isn't ISO, or `endDate < date`. Single-day events (no `endDate`)
-// pass through unchanged. Returns a new object only when something
-// had to be removed.
+// Coerces the untrusted `props` payload into a safe-to-store
+// object. Two responsibilities:
 //
-// `req.body.props` is not runtime-validated upstream, so a payload
-// of `{ props: 1 }` or `{ props: null }` reaches us — accept
-// `unknown` and coerce non-object input to an empty props object
-// instead of letting `"endDate" in props` throw a TypeError that
-// the asyncHandler would surface as a 500.
+// 1. Non-object input (a number / string / array / null from
+//    untrusted JSON) becomes an empty props object — `"endDate"
+//    in 1` would otherwise throw a TypeError and surface as a
+//    500 via the asyncHandler.
+// 2. Non-string `endDate` (number / array / object) is dropped —
+//    downstream comparisons (`end < start`) only make sense for
+//    strings, and a stray number triggers a coercion bug.
+//
+// Notably we DO preserve malformed `endDate` STRINGS (e.g. "next
+// Friday", "2026-05-25" before a start of "2026-05-27"). The view
+// surfaces those as a "broken range" chip so the user/LLM gets
+// visible feedback instead of having the bad data silently erased.
 export function sanitizeProps(props: unknown): ScheduledItem["props"] {
   if (typeof props !== "object" || props === null || Array.isArray(props)) {
     return {};
   }
   const record = props as ScheduledItem["props"];
   if (!("endDate" in record)) return record;
-  const start = isoDate(record.date);
-  const end = isoDate(record.endDate);
-  if (start && end && end >= start) return record;
+  if (typeof record.endDate === "string") return record;
+  if (record.endDate === null) return record;
   const next = { ...record };
   Reflect.deleteProperty(next, "endDate");
   return next;

@@ -1,6 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { coversDay, eventColorClasses, eventRange, EVENT_PALETTE_SIZE, segmentPosition } from "../../../src/plugins/scheduler/multiDayHelpers.js";
+import {
+  coversDay,
+  eventColorClasses,
+  eventRange,
+  EVENT_PALETTE_SIZE,
+  isMalformedRange,
+  segmentPosition,
+} from "../../../src/plugins/scheduler/multiDayHelpers.js";
 import type { ScheduledItem } from "../../../src/plugins/scheduler/index.js";
 
 function makeItem(props: ScheduledItem["props"]): ScheduledItem {
@@ -111,6 +118,43 @@ describe("segmentPosition", () => {
     const malformed = makeItem({ date: "2026-05-27", endDate: "2026-05-25" });
     assert.equal(segmentPosition(malformed, "2026-05-27"), "only");
     assert.equal(segmentPosition(malformed, "2026-05-26"), null);
+  });
+});
+
+describe("isMalformedRange", () => {
+  it("returns false for a single-day event (no endDate)", () => {
+    assert.equal(isMalformedRange(makeItem({ date: "2026-05-27" })), false);
+  });
+
+  it("returns false for a well-formed multi-day range", () => {
+    assert.equal(isMalformedRange(makeItem({ date: "2026-05-27", endDate: "2026-05-29" })), false);
+  });
+
+  it("returns false for an equal-day endDate", () => {
+    assert.equal(isMalformedRange(makeItem({ date: "2026-05-27", endDate: "2026-05-27" })), false);
+  });
+
+  it("returns true when endDate is before date", () => {
+    assert.equal(isMalformedRange(makeItem({ date: "2026-05-27", endDate: "2026-05-25" })), true);
+  });
+
+  it("returns true when endDate is a non-ISO string", () => {
+    assert.equal(isMalformedRange(makeItem({ date: "2026-05-27", endDate: "next Friday" })), true);
+  });
+
+  it("returns true when start date is missing but endDate is present", () => {
+    assert.equal(isMalformedRange(makeItem({ endDate: "2026-05-29" })), true);
+  });
+
+  it("returns false for non-string endDate (sanitizeProps would have dropped it)", () => {
+    // Defence in depth: storage shouldn't contain non-string
+    // endDate, but if it leaks through, treat as 'not present'
+    // rather than 'broken' — there's nothing to render.
+    assert.equal(isMalformedRange(makeItem({ date: "2026-05-27", endDate: 20260525 })), false);
+  });
+
+  it("returns false for empty-string endDate", () => {
+    assert.equal(isMalformedRange(makeItem({ date: "2026-05-27", endDate: "" })), false);
   });
 });
 

@@ -582,6 +582,7 @@ const esMessages = {
     yamlParseError: "No se pudo analizar el YAML — asegúrate de que 'title' esté presente",
     propLabel: "{key}:",
     moreCount: "+{count} más",
+    invalidRange: "Rango de fechas no válido (endDate: {endDate})",
     previewIcon: "📅",
     previewUpcoming: "{count} próximos",
     previewAutomations: "{count} automatización | {count} automatizaciones",

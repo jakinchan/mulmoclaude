@@ -576,6 +576,7 @@ const frMessages = {
     yamlParseError: "Impossible d'analyser le YAML — vérifiez que « title » est présent",
     propLabel: "{key} :",
     moreCount: "+{count} de plus",
+    invalidRange: "Plage de dates invalide (endDate: {endDate})",
     previewIcon: "📅",
     previewUpcoming: "{count} à venir",
     previewAutomations: "{count} automatisation | {count} automatisations",

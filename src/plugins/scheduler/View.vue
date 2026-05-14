@@ -129,10 +129,11 @@
                 :key="item.id"
                 class="text-xs px-1.5 py-0.5 cursor-pointer truncate"
                 :class="[segmentClasses(item, day), selectedId === item.id ? 'bg-blue-500 text-white' : chipColorClasses(item)]"
-                :title="item.title"
+                :title="chipTitle(item)"
                 @click="selectItem(item)"
               >
-                <span v-if="itemTime(item)" class="font-medium">{{ itemTime(item) }} </span>{{ item.title }}
+                <span v-if="isBrokenChip(item)" class="font-medium">⚠ </span><span v-else-if="itemTime(item)" class="font-medium">{{ itemTime(item) }} </span
+                >{{ item.title }}
               </div>
             </div>
           </div>
@@ -175,10 +176,10 @@
                 :key="item.id"
                 class="text-[10px] leading-tight px-1 py-0.5 cursor-pointer truncate"
                 :class="[segmentClasses(item, day), selectedId === item.id ? 'bg-blue-500 text-white' : chipColorClasses(item)]"
-                :title="item.title"
+                :title="chipTitle(item)"
                 @click="selectItem(item)"
               >
-                {{ item.title }}
+                <span v-if="isBrokenChip(item)" class="font-medium">⚠ </span>{{ item.title }}
               </div>
               <div v-if="itemsForDay(day).length > MAX_MONTH_ITEMS" class="text-[10px] text-gray-400 px-1">
                 {{ t("pluginScheduler.moreCount", { count: itemsForDay(day).length - MAX_MONTH_ITEMS }) }}
@@ -261,7 +262,7 @@ import TasksTab from "./TasksTab.vue";
 import { isToday, formatShortDate, formatMonthYear } from "../../utils/format/date";
 import { errorMessage } from "../../utils/errors";
 import { SCHEDULER_VIEW, SCHEDULER_VIEW_MODES as VIEW_MODES, SCHEDULER_TAB, type SchedulerViewMode as ViewMode, type SchedulerTab } from "./viewModes";
-import { coversDay, eventColorClasses, segmentPosition, type SegmentPosition } from "./multiDayHelpers";
+import { coversDay, eventColorClasses, isMalformedRange, segmentPosition, type SegmentPosition } from "./multiDayHelpers";
 
 const { t } = useI18n();
 
@@ -383,8 +384,26 @@ function segmentClasses(item: ScheduledItem, day: Date): string {
   return pos ? SEGMENT_BASE[pos] : "rounded";
 }
 
+// Red dashed outline + warning-amber background screams "this is
+// wrong, click and fix it." Returns a class string when the event
+// has a broken range; empty when the event is well-formed and the
+// per-event palette colour should apply.
+const BROKEN_CLASSES = "bg-red-50 text-red-900 hover:bg-red-100 border border-dashed border-red-400";
+
 function chipColorClasses(item: ScheduledItem): string {
+  if (isMalformedRange(item)) return BROKEN_CLASSES;
   return eventColorClasses(item.id);
+}
+
+function chipTitle(item: ScheduledItem): string {
+  if (isMalformedRange(item)) {
+    return `⚠ ${t("pluginScheduler.invalidRange", { endDate: String(item.props.endDate) })} — ${item.title}`;
+  }
+  return item.title;
+}
+
+function isBrokenChip(item: ScheduledItem): boolean {
+  return isMalformedRange(item);
 }
 
 const unscheduledItems = computed(() => items.value.filter((item) => !item.props.date));

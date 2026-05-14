@@ -584,6 +584,7 @@ const deMessages = {
     yamlParseError: "YAML konnte nicht geparst werden — stellen Sie sicher, dass 'title' vorhanden ist",
     propLabel: "{key}:",
     moreCount: "+{count} weitere",
+    invalidRange: "Ungültiger Datumsbereich (endDate: {endDate})",
     previewIcon: "📅",
     previewUpcoming: "{count} anstehend",
     previewAutomations: "{count} Automatisierung | {count} Automatisierungen",

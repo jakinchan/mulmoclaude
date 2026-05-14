@@ -597,6 +597,7 @@ const enMessages = {
     yamlParseError: "Could not parse YAML — ensure 'title' is present",
     propLabel: "{key}:",
     moreCount: "+{count} more",
+    invalidRange: "Invalid date range (endDate: {endDate})",
     previewIcon: "📅",
     previewUpcoming: "{count} upcoming",
     previewAutomations: "{count} automation | {count} automations",

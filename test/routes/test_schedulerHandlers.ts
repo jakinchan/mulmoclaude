@@ -274,23 +274,24 @@ describe("multi-day events (endDate)", () => {
     assert.equal(sanitizeProps(props), props);
   });
 
-  it("sanitizeProps drops endDate when it is before date", () => {
-    const props = { date: "2026-05-27", endDate: "2026-05-25" };
-    const cleaned = sanitizeProps(props);
-    assert.equal(cleaned.endDate, undefined);
-    assert.equal(cleaned.date, "2026-05-27");
+  it("sanitizeProps preserves a malformed-but-string endDate (view surfaces it as 'broken')", () => {
+    // Earlier versions silently dropped these — but the user
+    // never noticed their typo. Keeping the raw bad string lets
+    // the view render a broken-chip UI so the user/LLM gets a
+    // visible cue to fix it.
+    const beforeStart = { date: "2026-05-27", endDate: "2026-05-25" };
+    assert.equal(sanitizeProps(beforeStart).endDate, "2026-05-25");
+
+    const noStart = { endDate: "2026-05-29" };
+    assert.equal(sanitizeProps(noStart).endDate, "2026-05-29");
+
+    const notIso = { date: "2026-05-27", endDate: "next Friday" };
+    assert.equal(sanitizeProps(notIso).endDate, "next Friday");
   });
 
-  it("sanitizeProps drops endDate when start date is missing", () => {
-    const props = { endDate: "2026-05-29" };
-    const cleaned = sanitizeProps(props);
-    assert.equal(cleaned.endDate, undefined);
-  });
-
-  it("sanitizeProps drops endDate when it is not an ISO string", () => {
-    const props = { date: "2026-05-27", endDate: "next Friday" };
-    const cleaned = sanitizeProps(props);
-    assert.equal(cleaned.endDate, undefined);
+  it("sanitizeProps drops non-string endDate (crash protection)", () => {
+    const numEnd = { date: "2026-05-27", endDate: 20260529 as unknown as string };
+    assert.equal(sanitizeProps(numEnd).endDate, undefined);
   });
 
   it("sanitizeProps keeps an equal-day endDate (single-day explicit range)", () => {
@@ -331,12 +332,12 @@ describe("multi-day events (endDate)", () => {
     assert.equal(result.items[0]?.props.endDate, "2026-05-29");
   });
 
-  it("handleAdd drops a malformed endDate but still saves the event", () => {
+  it("handleAdd preserves a malformed endDate string for the broken-chip UI", () => {
     const result = handleAdd([], { title: "Trip", props: { date: "2026-05-27", endDate: "2026-05-25" } });
     assert.equal(result.kind, "success");
     if (result.kind !== "success") return;
     assert.equal(result.items[0]?.props.date, "2026-05-27");
-    assert.equal(result.items[0]?.props.endDate, undefined);
+    assert.equal(result.items[0]?.props.endDate, "2026-05-25");
   });
 
   it("handleUpdate accepts a valid endDate patch", () => {
@@ -347,12 +348,12 @@ describe("multi-day events (endDate)", () => {
     assert.equal(result.items[0]?.props.endDate, "2026-05-29");
   });
 
-  it("handleUpdate drops an invalid endDate patch but keeps other patched props", () => {
+  it("handleUpdate preserves an invalid endDate patch string and applies other patched props", () => {
     const original = makeItem({ id: "a", props: { date: "2026-05-27" } });
     const result = handleUpdate([original], { id: "a", props: { endDate: "2026-05-25", location: "Tokyo" } });
     assert.equal(result.kind, "success");
     if (result.kind !== "success") return;
-    assert.equal(result.items[0]?.props.endDate, undefined);
+    assert.equal(result.items[0]?.props.endDate, "2026-05-25");
     assert.equal(result.items[0]?.props.location, "Tokyo");
   });
 
@@ -364,7 +365,7 @@ describe("multi-day events (endDate)", () => {
     assert.equal(result.items[0]?.props.endDate, undefined);
   });
 
-  it("handleReplace sanitizes every item", () => {
+  it("handleReplace preserves string endDate values for every item (view handles malformed)", () => {
     const good = makeItem({ id: "a", props: { date: "2026-05-27", endDate: "2026-05-29" } });
     const bad = makeItem({ id: "b", props: { date: "2026-05-27", endDate: "2026-05-25" } });
     const result = handleReplace([], { items: [good, bad] });
@@ -372,7 +373,7 @@ describe("multi-day events (endDate)", () => {
     if (result.kind !== "success") return;
     const byId = Object.fromEntries(result.items.map((i) => [i.id, i]));
     assert.equal(byId.a?.props.endDate, "2026-05-29");
-    assert.equal(byId.b?.props.endDate, undefined);
+    assert.equal(byId.b?.props.endDate, "2026-05-25");
   });
 });
 

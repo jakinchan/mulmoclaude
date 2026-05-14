@@ -566,6 +566,7 @@ const zhMessages = {
     yamlParseError: "无法解析 YAML — 请确保包含 'title'",
     propLabel: "{key}:",
     moreCount: "+还有 {count} 个",
+    invalidRange: "日期范围无效 (endDate: {endDate})",
     previewIcon: "📅",
     previewUpcoming: "即将 {count} 个",
     previewAutomations: "{count} 个自动化",
