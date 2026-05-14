@@ -17,6 +17,11 @@ export interface SseToolCallResult {
   type: typeof EVENT_TYPES.toolCallResult;
   toolUseId: string;
   content: string;
+  /** Set when the tool-result block carried `is_error: true` —
+   *  forwarded from `AgentEvent.toolCallResult.isError` so the
+   *  frontend can render the chip distinctly. Drives the MCP
+   *  failure monitor (#1353). */
+  isError?: boolean;
 }
 
 export interface SseStatus {

@@ -15,6 +15,7 @@ import { buildCliArgs, buildDockerSpawnArgs, buildUserMessageLine } from "../con
 import { resolveSandboxAuth } from "../sandboxMounts.js";
 import { getCachedReferenceDirs, referenceDirMountArgs } from "../../workspace/reference-dirs.js";
 import { createStreamParser, type AgentEvent, type RawStreamEvent } from "../stream.js";
+import { createMcpFailureMonitor } from "../mcpFailureMonitor.js";
 import { log } from "../../system/logger/index.js";
 import { EVENT_TYPES } from "../../../src/types/events.js";
 import { env } from "../../system/env.js";
@@ -100,6 +101,11 @@ async function* readAgentEvents(proc: ClaudeProc): AsyncGenerator<AgentEvent> {
   const parser = createStreamParser();
 
   const mcpTracker = createMcpTracker();
+  // Runtime failure monitor (#1353). Lives next to mcpTracker
+  // because they share the same event stream — the tracker spots
+  // the "MCP never invoked" pattern, the monitor spots the
+  // "MCP invoked but consistently failing" pattern.
+  const mcpFailureMonitor = createMcpFailureMonitor();
 
   let buffer = "";
   for await (const chunk of proc.stdout) {
@@ -117,6 +123,7 @@ async function* readAgentEvents(proc: ClaudeProc): AsyncGenerator<AgentEvent> {
       }
       for (const agentEvent of parser.parse(event)) {
         mcpTracker.track(agentEvent);
+        mcpFailureMonitor.track(agentEvent);
         yield agentEvent;
       }
     }

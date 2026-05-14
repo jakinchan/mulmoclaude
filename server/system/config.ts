@@ -292,10 +292,17 @@ export function isMcpServerSpec(value: unknown): value is McpServerSpec {
 
 // Workspace id must be slug-shaped so it survives being used as the
 // mcpServers map key and in the `mcp__<id>__<tool>` tool naming.
+//
+// Consecutive `__` is forbidden inside the id because `__` is the
+// delimiter in the tool-name encoding — a server id like `foo__bar`
+// produces `mcp__foo__bar__tool`, which is ambiguous between server
+// `foo` (tool `bar__tool`) and server `foo__bar` (tool `tool`).
+// Forbidding `__` in the id keeps the convention unambiguous
+// everywhere (Codex review on #1356).
 const MCP_ID_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 
 export function isMcpServerId(value: unknown): value is string {
-  return typeof value === "string" && MCP_ID_RE.test(value);
+  return typeof value === "string" && MCP_ID_RE.test(value) && !value.includes("__");
 }
 
 export function isMcpConfigFile(value: unknown): value is McpConfigFile {

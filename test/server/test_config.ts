@@ -243,6 +243,21 @@ describe("isMcpServerId", () => {
     assert.equal(mod.isMcpServerId("Foo"), false);
     assert.equal(mod.isMcpServerId("has space"), false);
   });
+
+  // Codex iter-2 on #1356: consecutive `__` is forbidden because the
+  // tool-naming encoding (`mcp__<server>__<tool>`) uses `__` as the
+  // delimiter — a server id like `foo__bar` produces a tool name
+  // ambiguous between server `foo` and server `foo__bar`. Single `_`
+  // is still allowed.
+  it("rejects ids containing consecutive `__` (delimiter collision)", () => {
+    assert.equal(mod.isMcpServerId("foo__bar"), false);
+    assert.equal(mod.isMcpServerId("a__b"), false);
+    assert.equal(mod.isMcpServerId("__leading"), false);
+    assert.equal(mod.isMcpServerId("trailing__"), false);
+    // Single `_` still accepted (regression guard).
+    assert.ok(mod.isMcpServerId("foo_bar"));
+    assert.ok(mod.isMcpServerId("a_b_c"));
+  });
 });
 
 describe("loadMcpConfig / saveMcpConfig", () => {

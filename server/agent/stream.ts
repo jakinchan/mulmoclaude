@@ -15,6 +15,11 @@ export type AgentEvent =
       type: typeof EVENT_TYPES.toolCallResult;
       toolUseId: string;
       content: string;
+      /** Anthropic's `tool_result` block carries `is_error: true` when
+       *  the MCP server (or other tool) reported an error. Surfaced
+       *  here so the failure monitor (#1353) can attribute repeated
+       *  errors to a specific MCP server and warn / notify. */
+      isError?: boolean;
     }
   | { type: typeof EVENT_TYPES.claudeSessionId; id: string };
 
@@ -27,6 +32,10 @@ export interface ClaudeContentBlock {
   content?: unknown;
   /** Text content — present in `text` type blocks. */
   text?: string;
+  /** Tool-result error flag from the Anthropic API. Present on
+   *  `tool_result` blocks when the tool itself reported failure
+   *  (MCP server returned an error, 401, ECONNREFUSED, …). */
+  is_error?: boolean;
 }
 
 export interface ClaudeMessage {
@@ -73,11 +82,13 @@ export function blockToEvent(block: ClaudeContentBlock): AgentEvent | null {
   if (block.type === "tool_result" && block.tool_use_id) {
     const raw = block.content;
     const content = typeof raw === "string" ? raw : raw === undefined ? "" : JSON.stringify(raw);
-    return {
+    const event: AgentEvent = {
       type: EVENT_TYPES.toolCallResult,
       toolUseId: block.tool_use_id,
       content,
     };
+    if (block.is_error === true) event.isError = true;
+    return event;
   }
   return null;
 }
