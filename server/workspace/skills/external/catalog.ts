@@ -20,24 +20,15 @@ import { workspacePath } from "../../workspace.js";
 import { WORKSPACE_DIRS } from "../../paths.js";
 import { parseSkillFrontmatter } from "../parser.js";
 import { log } from "../../../system/logger/index.js";
-import { deriveActiveId, isSafeRepoId } from "./id.js";
+import { deriveActiveId, isSafeRepoId, safeSkillFolder } from "./id.js";
 import { listInstalledRepos, type InstalledRepo } from "./install.js";
 
 const SOURCE_METADATA_FILE = ".source.json";
 
-// Allow the same shapes the install side accepts when copying folder
-// names into the catalog (lowercase / hyphens / underscores / digits
-// / mixed case). Mirrors `SAFE_SLUG_PATTERN` in `catalog.ts`.
-//
-// eslint-disable-next-line security/detect-unsafe-regex -- non-overlapping classes
-const SAFE_FOLDER_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9_-]*[a-zA-Z0-9])?$/;
-
-function safeFolderName(raw: string): string | null {
-  if (!SAFE_FOLDER_PATTERN.test(raw)) return null;
-  const basename = path.basename(raw);
-  if (basename !== raw) return null;
-  return basename;
-}
+// Folder-name validation is shared with install discovery via
+// `safeSkillFolder` (id.ts) so an accepted install is always
+// listable / star-able — see the comment on that function.
+const safeFolderName = safeSkillFolder;
 
 function externalRoot(workspaceRoot: string): string {
   return path.join(workspaceRoot, WORKSPACE_DIRS.skillsCatalog, "external");

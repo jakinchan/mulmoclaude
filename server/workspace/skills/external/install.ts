@@ -26,7 +26,7 @@ import { log } from "../../../system/logger/index.js";
 import { errorMessage } from "../../../utils/errors.js";
 import { writeFileAtomic } from "../../../utils/files/index.js";
 import { cloneOrUpdate, defaultCacheRoot, type CloneDeps, type CloneResult } from "./clone.js";
-import { deriveRepoId, safeRepoId, sanitiseSubpath, urlCacheKey } from "./id.js";
+import { deriveRepoId, safeRepoId, safeSkillFolder, sanitiseSubpath, urlCacheKey } from "./id.js";
 
 const SOURCE_METADATA_FILE = ".source.json";
 
@@ -131,11 +131,15 @@ async function scanOneLevel(scanRoot: string): Promise<DiscoveredSkill[]> {
   }
   const out: DiscoveredSkill[] = [];
   for (const entry of entries) {
-    if (entry.startsWith(".")) continue;
-    const candidate = path.join(scanRoot, entry);
+    // Same folder-name rule the read/star side uses (`safeSkillFolder`)
+    // so anything we accept here stays listable + addressable. Skips
+    // hidden / `.` / `..` / separator-bearing names too.
+    const folder = safeSkillFolder(entry);
+    if (folder === null) continue;
+    const candidate = path.join(scanRoot, folder);
     if (!(await isRealDirectory(candidate))) continue;
     if (!(await hasParseableSkill(candidate))) continue;
-    out.push({ folder: entry, sourceDir: candidate });
+    out.push({ folder, sourceDir: candidate });
   }
   // Stable order for deterministic test output.
   out.sort((left, right) => left.folder.localeCompare(right.folder));

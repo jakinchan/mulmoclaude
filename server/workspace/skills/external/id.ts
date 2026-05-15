@@ -136,6 +136,26 @@ export function safeRepoId(raw: string): string | null {
   return basename === raw ? basename : null;
 }
 
+/** Launder a skill-folder leaf name (the directory directly under a
+ *  repo / subpath that contains `SKILL.md`). This is the SINGLE rule
+ *  shared by install-time discovery AND read/star addressing — if the
+ *  two diverged (as they did: install accepted `v1.2` but the read
+ *  side's stricter regex dropped it), an install could succeed yet be
+ *  invisible/unaddressable in list/preview/star.
+ *
+ *  Permissive by design (mirrors what install discovery accepts: any
+ *  non-hidden one-level dir) but still traversal-safe: rejects empty,
+ *  `.`/`..`, leading-dot (hidden), separators, NUL, and anything that
+ *  isn't its own `path.basename` (CodeQL `js/path-injection`
+ *  sanitiser). Dots elsewhere (`v1.2`) are allowed. */
+export function safeSkillFolder(raw: string): string | null {
+  if (raw.length === 0 || raw === "." || raw === "..") return null;
+  if (raw.startsWith(".")) return null;
+  if (raw.includes("/") || raw.includes("\\") || raw.includes("\0")) return null;
+  const basename = path.basename(raw);
+  return basename === raw ? basename : null;
+}
+
 // A single safe path segment: alnum plus `.`, `-`, `_`. `..` is
 // rejected explicitly by the caller before this is consulted, so the
 // dot allowance can't yield a traversal token.

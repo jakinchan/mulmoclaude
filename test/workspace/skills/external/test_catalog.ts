@@ -193,4 +193,25 @@ describe("starExternalCatalogEntry", () => {
     const activeDir = path.join(workdir, ".claude/skills/anthropics-pdf-form-filler");
     assert.equal(existsSync(path.join(activeDir, ".source.json")), false);
   });
+
+  it("a dotted skill folder (e.g. v1.2) is listable, previewable, and star-able", async () => {
+    // Regression for the install/read divergence: install discovery
+    // accepts dotted folder names, so the read+star side must too.
+    seedRepo("foo-versioned", "https://github.com/foo/versioned", {
+      "v1.2/SKILL.md": "---\ndescription: versioned skill\n---\nbody",
+    });
+    const entries = await listExternalCatalogEntries({ workspaceRoot: workdir });
+    const dotted = entries.find((entry) => entry.repoId === "foo-versioned");
+    assert.ok(dotted, "dotted folder must appear in the catalog listing");
+    assert.equal(dotted.skillFolder, "v1.2");
+
+    const detail = await readExternalCatalogDetail("foo-versioned", "v1.2", { workspaceRoot: workdir });
+    assert.equal(detail.kind, "ok");
+
+    const starred = await starExternalCatalogEntry("foo-versioned", "v1.2", { workspaceRoot: workdir });
+    assert.equal(starred.kind, "starred");
+    if (starred.kind === "starred") {
+      assert.equal(existsSync(path.join(workdir, ".claude/skills", starred.activeId, "SKILL.md")), true);
+    }
+  });
 });
