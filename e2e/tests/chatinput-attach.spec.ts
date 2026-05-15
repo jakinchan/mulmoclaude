@@ -1,33 +1,23 @@
 // E2E coverage for ChatInput attachment discoverability (#499, PR #598).
 //
-// Three behaviours we care about:
-//  1. The placeholder advertises file attachment (drop / paste / attach).
-//  2. The paperclip button is present + wired to a hidden <input type="file">
+// Two behaviours we care about:
+//  1. The paperclip button is present + wired to a hidden <input type="file">
 //     with the right `accept` filter derived from ACCEPTED_MIME_*.
-//  3. Dropping an unsupported file type surfaces a visible error banner,
+//  2. Dropping an unsupported file type surfaces a visible error banner,
 //     instead of the pre-PR silent-drop.
+//
+// The placeholder used to spell out "drop / paste / attach", but was
+// shortened to "Message Claude…" — discoverability now rides on the
+// paperclip button (title) and the drop-overlay (`dropHint`), both
+// covered below.
 
 import { test, expect } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
-import { chatInput } from "../fixtures/chat";
 
 test.describe("ChatInput attach discoverability", () => {
   test.beforeEach(async ({ page }) => {
     await mockAllApis(page);
     await page.goto("/");
-  });
-
-  test("placeholder hints at file attachment", async ({ page }) => {
-    const placeholder = await chatInput(page).getAttribute("placeholder");
-    expect(placeholder).toBeTruthy();
-    if (placeholder === null) throw new Error("placeholder must be set");
-    // Either language: the three affordances we want the user to
-    // discover must all be named. Matches both EN ("drop / paste /
-    // attach") and JA ("ドロップ・ペースト・添付").
-    const lower = placeholder.toLowerCase();
-    const hasAllEn = lower.includes("drop") && lower.includes("paste") && lower.includes("attach");
-    const hasAllJa = placeholder.includes("ドロップ") && placeholder.includes("ペースト") && placeholder.includes("添付");
-    expect(hasAllEn || hasAllJa, `placeholder "${placeholder}" should mention drop/paste/attach`).toBeTruthy();
   });
 
   test("paperclip attach button is present with a title", async ({ page }) => {

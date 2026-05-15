@@ -89,7 +89,7 @@ test.describe("session navigation via URL", () => {
   test("direct URL to an existing session loads it", async ({ page }) => {
     await page.goto(`/chat/${SESSION_A.id}`);
     await page.waitForURL(new RegExp(SESSION_A.id));
-    await expect(page.getByText("MulmoClaude")).toBeVisible();
+    await expect(page.getByTestId("app-title")).toBeVisible();
   });
 
   test("direct URL to a non-existent session falls back to new session", async ({ page }) => {
@@ -98,7 +98,7 @@ test.describe("session navigation via URL", () => {
     await expect(async () => {
       expect(page.url()).not.toContain("nonexistent-session-xyz");
     }).toPass({ timeout: 10 * ONE_SECOND_MS });
-    await expect(page.getByText("MulmoClaude")).toBeVisible();
+    await expect(page.getByTestId("app-title")).toBeVisible();
   });
 
   test("page reload preserves the session URL", async ({ page }) => {
