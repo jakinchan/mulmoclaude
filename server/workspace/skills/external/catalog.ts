@@ -20,7 +20,7 @@ import { workspacePath } from "../../workspace.js";
 import { WORKSPACE_DIRS } from "../../paths.js";
 import { parseSkillFrontmatter } from "../parser.js";
 import { log } from "../../../system/logger/index.js";
-import { deriveActiveId } from "./id.js";
+import { deriveActiveId, isSafeRepoId } from "./id.js";
 import { listInstalledRepos, type InstalledRepo } from "./install.js";
 
 const SOURCE_METADATA_FILE = ".source.json";
@@ -172,13 +172,6 @@ export type ExternalCatalogDetailResult =
   | { kind: "invalid-id" }
   | { kind: "not-found"; repoId: string; skillFolder: string };
 
-// Matches `<owner>-<repo>` style ids written by `deriveRepoId`. The
-// two `[a-z0-9-]` segments around the required leading + trailing
-// alnum look like nested quantifiers but each segment reads from a
-// single bounded class — worst-case backtracking is linear.
-// eslint-disable-next-line security/detect-unsafe-regex -- non-overlapping classes
-const SAFE_REPO_ID_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
-
 interface ResolvedSource {
   repoId: string;
   skillFolder: string;
@@ -198,7 +191,7 @@ async function readRepoMetadata(repoDir: string): Promise<{ url: string } | null
 }
 
 async function resolveSource(repoIdRaw: string, skillFolderRaw: string, workspaceRoot: string): Promise<ResolvedSource | null> {
-  if (!SAFE_REPO_ID_RE.test(repoIdRaw)) return null;
+  if (!isSafeRepoId(repoIdRaw)) return null;
   const repoId = path.basename(repoIdRaw);
   if (repoId !== repoIdRaw) return null;
   const repoDir = path.join(externalRoot(workspaceRoot), repoId);
@@ -225,7 +218,7 @@ export async function readExternalCatalogDetail(
   const resolved = await resolveSource(repoIdRaw, skillFolderRaw, workspaceRoot);
   if (!resolved) {
     // Distinguish bad shape (rejected upstream) from missing-on-disk.
-    if (!SAFE_REPO_ID_RE.test(repoIdRaw)) return { kind: "invalid-id" };
+    if (!isSafeRepoId(repoIdRaw)) return { kind: "invalid-id" };
     if (skillFolderRaw !== "." && safeFolderName(skillFolderRaw) === null) return { kind: "invalid-id" };
     return { kind: "not-found", repoId: repoIdRaw, skillFolder: skillFolderRaw };
   }
@@ -285,7 +278,7 @@ export async function starExternalCatalogEntry(repoIdRaw: string, skillFolderRaw
   const workspaceRoot = opts.workspaceRoot ?? workspacePath;
   const resolved = await resolveSource(repoIdRaw, skillFolderRaw, workspaceRoot);
   if (!resolved) {
-    if (!SAFE_REPO_ID_RE.test(repoIdRaw)) return { kind: "invalid-id" };
+    if (!isSafeRepoId(repoIdRaw)) return { kind: "invalid-id" };
     if (skillFolderRaw !== "." && safeFolderName(skillFolderRaw) === null) return { kind: "invalid-id" };
     return { kind: "not-found", repoId: repoIdRaw, skillFolder: skillFolderRaw };
   }

@@ -16,7 +16,7 @@
 // star = fork, so users keep what they activated even after the
 // upstream repo is removed.
 
-import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { workspacePath } from "../../workspace.js";
@@ -24,8 +24,9 @@ import { WORKSPACE_DIRS } from "../../paths.js";
 import { parseSkillFrontmatter } from "../parser.js";
 import { log } from "../../../system/logger/index.js";
 import { errorMessage } from "../../../utils/errors.js";
+import { writeFileAtomic } from "../../../utils/files/index.js";
 import { cloneOrUpdate, defaultCacheRoot, type CloneDeps, type CloneResult } from "./clone.js";
-import { deriveRepoId, sanitiseSubpath, urlCacheKey } from "./id.js";
+import { deriveRepoId, isSafeRepoId, sanitiseSubpath, urlCacheKey } from "./id.js";
 
 const SOURCE_METADATA_FILE = ".source.json";
 
@@ -142,7 +143,7 @@ function pathsForRepo(workspaceRoot: string, repoId: string): ExtRepoPaths {
 }
 
 async function writeMetadata(metadataPath: string, payload: Omit<InstallResult, "repoId" | "skillCount">): Promise<void> {
-  await writeFile(metadataPath, `${JSON.stringify(payload, null, 2)}\n`, "utf-8");
+  await writeFileAtomic(metadataPath, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
 /** Copy the discovered skill folder into the catalog under
@@ -247,14 +248,11 @@ export async function installExternalRepo(opts: InstallRepoOptions, deps: Extern
 
 export type UninstallResult = { kind: "uninstalled"; repoId: string } | { kind: "not-found"; repoId: string } | { kind: "invalid-repo-id"; repoId: string };
 
-// eslint-disable-next-line security/detect-unsafe-regex -- non-overlapping classes, linear backtracking
-const SAFE_REPO_ID_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
-
 /** Uninstall a repo: remove `data/skills/catalog/external/<repoId>/`
  *  and the matching scratch clone keyed by the recorded URL. Active
  *  copies under `.claude/skills/` are left in place. */
 export async function uninstallExternalRepo(repoId: string, deps: ExternalInstallOptions = {}): Promise<UninstallResult> {
-  if (!SAFE_REPO_ID_RE.test(repoId)) return { kind: "invalid-repo-id", repoId };
+  if (!isSafeRepoId(repoId)) return { kind: "invalid-repo-id", repoId };
   const workspaceRoot = deps.workspaceRoot ?? workspacePath;
   const { repoDir, metadataPath } = pathsForRepo(workspaceRoot, repoId);
   if (!(await isDirectory(repoDir))) return { kind: "not-found", repoId };
@@ -327,7 +325,7 @@ export async function listInstalledRepos(deps: ExternalInstallOptions = {}): Pro
   const out: InstalledRepo[] = [];
   for (const entry of entries) {
     if (entry.startsWith(".")) continue;
-    if (!SAFE_REPO_ID_RE.test(entry)) continue;
+    if (!isSafeRepoId(entry)) continue;
     const repoDir = path.join(root, entry);
     if (!(await isDirectory(repoDir))) continue;
     const metadataPath = path.join(repoDir, SOURCE_METADATA_FILE);

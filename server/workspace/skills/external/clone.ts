@@ -22,7 +22,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { ONE_MINUTE_MS } from "../../../utils/time.js";
-import { urlCacheKey } from "./id.js";
+import { parseGitHubHttpsUrl, urlCacheKey } from "./id.js";
 
 const execFileP = promisify(execFile);
 
@@ -98,6 +98,13 @@ async function fetchAndResolveSha(cacheDir: string, ref: string, runGit: RunGit)
  *  return the cache dir + resolved SHA. Idempotent: a second call
  *  with the same URL only fetches new commits and re-checks-out. */
 export async function cloneOrUpdate(opts: CloneOptions, deps: CloneDeps = {}): Promise<CloneResult> {
+  // Defense-in-depth: the install layer already validates via
+  // `deriveRepoId`, but re-checking here keeps the function safe
+  // against direct callers (tests / future refactors) so an
+  // unvalidated URL can never reach `git`.
+  if (!parseGitHubHttpsUrl(opts.url)) {
+    throw new Error(`invalid GitHub HTTPS URL: ${opts.url}`);
+  }
   const runGit = deps.runGit ?? defaultRunGit;
   const cacheRoot = deps.cacheRoot ?? defaultCacheRoot();
   const cacheDir = path.join(cacheRoot, urlCacheKey(opts.url));

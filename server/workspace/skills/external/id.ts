@@ -103,6 +103,22 @@ export function urlCacheKey(url: string): string {
   return createHash("sha256").update(url).digest("hex").slice(0, 16);
 }
 
+// Shape of a `deriveRepoId` output (`<owner>-<repo>` lowercased). The
+// two `[a-z0-9-]` segments around the required leading + trailing
+// alnum look like nested quantifiers but each reads from a single
+// bounded class — worst-case backtracking is linear. Exported as the
+// single source of truth so the catalog reader + installer agree by
+// construction instead of duplicating the literal.
+// eslint-disable-next-line security/detect-unsafe-regex -- non-overlapping classes
+const SAFE_REPO_ID_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+
+/** True when `value` has the shape `deriveRepoId` produces. Used to
+ *  gate `readdir`-sourced directory names before they reach
+ *  `path.join`. */
+export function isSafeRepoId(value: string): boolean {
+  return SAFE_REPO_ID_RE.test(value);
+}
+
 // A single safe path segment: alnum plus `.`, `-`, `_`. `..` is
 // rejected explicitly by the caller before this is consulted, so the
 // dot allowance can't yield a traversal token.
