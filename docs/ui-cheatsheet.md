@@ -416,7 +416,10 @@ derived slug);
 `skill-catalog-add-repo` + `skill-add-repo-modal` /
 `skill-add-repo-url` / `skill-add-repo-subpath` /
 `skill-add-repo-submit` / `skill-add-repo-error` /
-`skill-add-repo-suggestion-{url}` for the add-repo modal.
+`skill-add-repo-suggestion-{url}` (click = prefill the URL/subpath
+form + expand its description, NOT install) /
+`skill-add-repo-suggestion-link-{url}` (opens the repo on GitHub in a
+new tab) for the add-repo modal.
 
 ## /roles — role configuration
 

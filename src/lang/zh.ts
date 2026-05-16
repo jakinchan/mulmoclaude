@@ -1105,6 +1105,7 @@ const zhMessages = {
     catalogAddRepoSuggestions: "推荐仓库",
     catalogUninstallRepo: "卸载仓库",
     catalogUpdateRepo: "更新仓库（重新获取最新）",
+    catalogRepoOpenLink: "在 GitHub 打开仓库（新标签页）",
     catalogUninstallConfirm: "卸载此仓库？已加星的技能仍保留在活动列表中。",
     catalogRepoInstalling: "安装中…",
     catalogRepoEmpty: "此仓库中未找到技能。",

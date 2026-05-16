@@ -542,7 +542,21 @@ test.describe("manageSkills plugin — external catalog (#1383 PR-C2)", () => {
 
     await page.getByTestId("skill-catalog-add-repo").click();
     await expect(page.getByTestId("skill-add-repo-modal")).toBeVisible();
+
+    // The repo link opens GitHub in a new tab and must NOT install.
+    const link = page.getByTestId("skill-add-repo-suggestion-link-https://github.com/anthropics/skills");
+    await expect(link).toHaveAttribute("href", "https://github.com/anthropics/skills");
+    await expect(link).toHaveAttribute("target", "_blank");
+    await expect(link).toHaveAttribute("rel", /noopener/);
+
+    // Clicking a suggestion prefills the form — it must NOT install.
     await page.getByTestId("skill-add-repo-suggestion-https://github.com/anthropics/skills").click();
+    await expect(page.getByTestId("skill-add-repo-url")).toHaveValue("https://github.com/anthropics/skills");
+    await expect(page.getByTestId("skill-add-repo-subpath")).toHaveValue("skills");
+    expect(calls.install.length).toBe(0);
+
+    // Explicit Install is what actually installs.
+    await page.getByTestId("skill-add-repo-submit").click();
     await expect.poll(() => calls.install.length).toBe(1);
     expect(calls.install[0]).toMatchObject({ url: "https://github.com/anthropics/skills", subpath: "skills" });
 

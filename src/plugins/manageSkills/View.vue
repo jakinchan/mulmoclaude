@@ -451,18 +451,39 @@
         </div>
         <div v-if="suggestions.length > 0">
           <p class="text-xs font-medium text-gray-600 mb-2">{{ t("pluginManageSkills.catalogAddRepoSuggestions") }}</p>
-          <button
+          <div
             v-for="suggestion in suggestions"
             :key="suggestion.url"
-            type="button"
-            :data-testid="`skill-add-repo-suggestion-${suggestion.url}`"
-            class="w-full text-left px-3 py-2 mb-1 text-sm rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40"
-            :disabled="addRepoBusy"
-            @click="installRepo(suggestion.url, suggestion.subpath)"
+            class="mb-1 rounded border"
+            :class="selectedSuggestionUrl === suggestion.url ? 'border-blue-400 bg-blue-50' : 'border-gray-200'"
           >
-            <div class="font-medium text-gray-700">{{ suggestion.displayName }}</div>
-            <div class="text-xs text-gray-500 truncate">{{ suggestion.description }}</div>
-          </button>
+            <div class="flex items-start">
+              <button
+                type="button"
+                :data-testid="`skill-add-repo-suggestion-${suggestion.url}`"
+                class="flex-1 min-w-0 text-left px-3 py-2 text-sm"
+                :aria-pressed="selectedSuggestionUrl === suggestion.url"
+                @click="selectSuggestion(suggestion)"
+              >
+                <div class="font-medium text-gray-700">{{ suggestion.displayName }}</div>
+                <div class="text-xs text-gray-500" :class="selectedSuggestionUrl === suggestion.url ? 'whitespace-normal break-words' : 'truncate'">
+                  {{ suggestion.description }}
+                </div>
+              </button>
+              <a
+                :href="suggestion.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                :data-testid="`skill-add-repo-suggestion-link-${suggestion.url}`"
+                class="h-8 w-8 shrink-0 flex items-center justify-center rounded text-gray-400 hover:text-blue-600"
+                :title="t('pluginManageSkills.catalogRepoOpenLink')"
+                :aria-label="t('pluginManageSkills.catalogRepoOpenLink')"
+                @click.stop
+              >
+                <span class="material-icons text-sm" aria-hidden="true">open_in_new</span>
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -620,6 +641,10 @@ const addRepoSubpath = ref("");
 const addRepoError = ref<string | null>(null);
 const addRepoBusy = ref(false);
 const suggestions = ref<ExternalSuggestion[]>([]);
+// Which suggestion the user picked: drives the form prefill + the
+// "expanded description" / highlight. Selecting never installs —
+// install stays explicit (Install button / Enter in the URL field).
+const selectedSuggestionUrl = ref<string | null>(null);
 const uninstallingRepoId = ref<string | null>(null);
 const updatingRepoId = ref<string | null>(null);
 // Single in-flight gate covers Star / Run once on the selected
@@ -754,6 +779,7 @@ watch(
     catalogError.value = null;
     addRepoOpen.value = false;
     addRepoError.value = null;
+    selectedSuggestionUrl.value = null;
     uninstallingRepoId.value = null;
     updatingRepoId.value = null;
   },
@@ -790,8 +816,19 @@ function openAddRepo(): void {
   addRepoUrl.value = "";
   addRepoSubpath.value = "";
   addRepoError.value = null;
+  selectedSuggestionUrl.value = null;
   addRepoOpen.value = true;
   if (suggestions.value.length === 0) void loadSuggestions();
+}
+
+// Pick a suggestion → prefill the form so the user can review and
+// then press Install. Deliberately does NOT install (avoids the
+// accidental one-click install footgun).
+function selectSuggestion(suggestion: ExternalSuggestion): void {
+  addRepoUrl.value = suggestion.url;
+  addRepoSubpath.value = suggestion.subpath ?? "";
+  addRepoError.value = null;
+  selectedSuggestionUrl.value = suggestion.url;
 }
 
 async function installRepo(url: string, subpath?: string): Promise<void> {

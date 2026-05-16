@@ -1113,6 +1113,7 @@ const ptBRMessages = {
     catalogAddRepoSuggestions: "Repositórios sugeridos",
     catalogUninstallRepo: "Desinstalar repositório",
     catalogUpdateRepo: "Atualizar repositório (rebuscar o mais recente)",
+    catalogRepoOpenLink: "Abrir o repositório no GitHub (nova aba)",
     catalogUninstallConfirm: "Desinstalar este repositório? As skills que você já marcou com estrela permanecem na sua lista ativa.",
     catalogRepoInstalling: "Instalando…",
     catalogRepoEmpty: "Nenhuma skill encontrada neste repositório.",

@@ -1128,6 +1128,7 @@ const deMessages = {
     catalogAddRepoSuggestions: "Vorgeschlagene Repositories",
     catalogUninstallRepo: "Repository deinstallieren",
     catalogUpdateRepo: "Repository aktualisieren (neueste Version erneut laden)",
+    catalogRepoOpenLink: "Repository auf GitHub öffnen (neuer Tab)",
     catalogUninstallConfirm: "Dieses Repository deinstallieren? Bereits mit Stern markierte Skills bleiben in deiner aktiven Liste.",
     catalogRepoInstalling: "Installiere…",
     catalogRepoEmpty: "In diesem Repository wurden keine Skills gefunden.",

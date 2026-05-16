@@ -1113,6 +1113,7 @@ const jaMessages = {
     catalogAddRepoSuggestions: "おすすめリポジトリ",
     catalogUninstallRepo: "リポジトリをアンインストール",
     catalogUpdateRepo: "リポジトリを更新（最新を再取得）",
+    catalogRepoOpenLink: "GitHub でリポジトリを開く（新しいタブ）",
     catalogUninstallConfirm: "このリポジトリをアンインストールしますか？ すでに★したスキルはアクティブ一覧に残ります。",
     catalogRepoInstalling: "インストール中…",
     catalogRepoEmpty: "このリポジトリにスキルが見つかりません。",

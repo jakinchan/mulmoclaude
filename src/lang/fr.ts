@@ -1118,6 +1118,7 @@ const frMessages = {
     catalogAddRepoSuggestions: "Dépôts suggérés",
     catalogUninstallRepo: "Désinstaller le dépôt",
     catalogUpdateRepo: "Mettre à jour le dépôt (récupérer la dernière version)",
+    catalogRepoOpenLink: "Ouvrir le dépôt sur GitHub (nouvel onglet)",
     catalogUninstallConfirm: "Désinstaller ce dépôt ? Les skills déjà mises en favori restent dans votre liste active.",
     catalogRepoInstalling: "Installation…",
     catalogRepoEmpty: "Aucune skill trouvée dans ce dépôt.",

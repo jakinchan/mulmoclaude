@@ -1113,6 +1113,7 @@ const koMessages = {
     catalogAddRepoSuggestions: "추천 저장소",
     catalogUninstallRepo: "저장소 제거",
     catalogUpdateRepo: "저장소 업데이트(최신 다시 가져오기)",
+    catalogRepoOpenLink: "GitHub에서 저장소 열기(새 탭)",
     catalogUninstallConfirm: "이 저장소를 제거할까요? 이미 별표한 스킬은 활성 목록에 남습니다.",
     catalogRepoInstalling: "설치 중…",
     catalogRepoEmpty: "이 저장소에서 스킬을 찾을 수 없습니다.",
