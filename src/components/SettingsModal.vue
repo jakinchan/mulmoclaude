@@ -9,7 +9,12 @@
       @click.stop
     >
       <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
-        <h2 id="settings-modal-title" class="text-base font-semibold text-gray-900">{{ t("settingsModal.title") }}</h2>
+        <div>
+          <h2 id="settings-modal-title" class="text-base font-semibold text-gray-900">{{ t("settingsModal.title") }}</h2>
+          <p v-if="appVersion" class="text-xs text-gray-600 mt-0.5" data-testid="settings-app-version">
+            {{ t("settingsModal.version", { version: appVersion }) }}
+          </p>
+        </div>
         <button class="text-gray-400 hover:text-gray-700" :title="t('common.close')" data-testid="settings-close-btn" @click="close">
           <span class="material-icons">close</span>
         </button>
@@ -236,6 +241,9 @@ const toolsText = ref("");
 const toolsSavedText = ref("");
 const mcpServers = ref<McpServerEntry[]>([]);
 const loadError = ref("");
+// App version (root package.json), surfaced from /api/health. Fetched
+// once on first open and kept — it can't change mid-process.
+const appVersion = ref("");
 const statusMessage = ref("");
 const statusError = ref(false);
 const toolsSaving = ref(false);
@@ -266,6 +274,18 @@ const invalidToolNames = computed(() => parsedToolNames.value.filter((name) => !
 
 function isBuiltIn(name: string): boolean {
   return ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch"].includes(name);
+}
+
+async function loadVersion(): Promise<void> {
+  if (appVersion.value) return;
+  // apiGet absorbs network + HTTP errors into `{ ok: false }` (see
+  // ApiResult contract in utils/api.ts — it never throws), so a
+  // try/catch would be unreachable. Both failure modes (network and
+  // !ok) are handled the same way on purpose: the version line is
+  // best-effort chrome, so on any failure we just leave it hidden.
+  const response = await apiGet<{ version?: string }>(API_ROUTES.health);
+  if (!response.ok || typeof response.data.version !== "string") return;
+  appVersion.value = response.data.version;
 }
 
 async function loadConfig(): Promise<void> {
@@ -398,6 +418,7 @@ watch(
       mcpInflight = Promise.resolve();
       activeTab.value = props.geminiAvailable ? "tools" : "gemini";
       loadConfig();
+      loadVersion();
       mapReloadToken.value += 1;
       photosReloadToken.value += 1;
       modelReloadToken.value += 1;
