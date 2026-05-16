@@ -2053,7 +2053,7 @@
   dependencies:
     uuid "*"
 
-"@types/which@^3.0.4":
+"@types/which@^3":
   version "3.0.4"
   resolved "https://npm.flatt.tech/@types/which/-/which-3.0.4.tgz#2c3a89be70c56a84a6957a7264639f39ae4340a1"
   integrity sha512-liyfuo/106JdlgSchJzXEQCVArk0CvevqPote8F8HgWgJ3dRCcTHgJIsLDuee0kxk/mhbInzIZk3QWSZJ8R+2w==

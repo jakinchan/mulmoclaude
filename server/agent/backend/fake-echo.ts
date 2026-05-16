@@ -30,6 +30,7 @@ import { getCurrentToken } from "../../api/auth/token.js";
 import { makeUuid } from "../../utils/id.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { EVENT_TYPES } from "../../../src/types/events.js";
+import { WORKSPACE_DIRS } from "../../workspace/paths.js";
 import type { AgentEvent } from "../stream.js";
 import type { AgentInput, LLMBackend } from "./types.js";
 
@@ -276,7 +277,7 @@ async function dispatchToPlugin(call: FakeToolCall, port: number, chatSessionId:
 // Returns null when the file is missing or the marker shape is
 // absent — caller falls through to default echo.
 async function replyFromSeededSkill(workspacePath: string, slug: string): Promise<string | null> {
-  const skillFile = path.join(workspacePath, ".claude/skills", slug, "SKILL.md");
+  const skillFile = path.join(workspacePath, WORKSPACE_DIRS.claudeSkills, slug, "SKILL.md");
   let body: string;
   try {
     body = await readFile(skillFile, "utf8");

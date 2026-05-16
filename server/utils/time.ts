@@ -36,6 +36,12 @@ export const DEV_PLUGIN_WATCH_DEBOUNCE_MS = 300;
  *  a fail-fast guarantee. */
 export const STARTUP_FAILURE_FORCE_EXIT_MS = 5 * ONE_SECOND_MS;
 
+/** Tiny grace after an uncaught exception / unhandled rejection so
+ *  the final `log.error` line flushes to disk before the process
+ *  bounces. Long enough for a synchronous append, short enough not
+ *  to delay a crash-restart loop. */
+export const FATAL_LOG_FLUSH_MS = 100;
+
 /** Heavy subprocess work (libreoffice conversion, etc.) */
 export const SUBPROCESS_WORK_TIMEOUT_MS = ONE_MINUTE_MS;
 

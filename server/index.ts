@@ -95,7 +95,7 @@ import { EVENT_TYPES } from "../src/types/events.js";
 import { SESSION_ORIGINS } from "../src/types/session.js";
 import { buildHtmlPreviewCsp } from "../src/utils/html/previewCsp.js";
 import { readAndInjectHtmlArtifact } from "./utils/html/htmlArtifactSplicer.js";
-import { ONE_SECOND_MS, ONE_MINUTE_MS, ONE_HOUR_MS, STARTUP_FAILURE_FORCE_EXIT_MS } from "./utils/time.js";
+import { ONE_SECOND_MS, ONE_MINUTE_MS, ONE_HOUR_MS, STARTUP_FAILURE_FORCE_EXIT_MS, FATAL_LOG_FLUSH_MS } from "./utils/time.js";
 import { isPortFree, findAvailablePort, MAX_PORT_PROBES } from "./utils/port.mjs";
 import { SCHEDULE_TYPES, MISSED_RUN_POLICIES } from "@receptron/task-scheduler";
 
@@ -121,19 +121,18 @@ const debugMode = process.argv.includes("--debug");
 //
 // `process.exit(1)` is non-zero so supervisors that branch on exit
 // code treat the bounce as an error condition.
-const FATAL_EXIT_DELAY_MS = 100;
 process.on("uncaughtException", (err) => {
   log.error("uncaughtException", err instanceof Error ? err.message : String(err), {
     stack: err instanceof Error ? err.stack : undefined,
   });
   // Tiny grace so the log line flushes to disk before we exit.
-  setTimeout(() => process.exit(1), FATAL_EXIT_DELAY_MS);
+  setTimeout(() => process.exit(1), FATAL_LOG_FLUSH_MS);
 });
 process.on("unhandledRejection", (reason) => {
   log.error("unhandledRejection", reason instanceof Error ? reason.message : String(reason), {
     stack: reason instanceof Error ? reason.stack : undefined,
   });
-  setTimeout(() => process.exit(1), FATAL_EXIT_DELAY_MS);
+  setTimeout(() => process.exit(1), FATAL_LOG_FLUSH_MS);
 });
 
 // Test-seam: CI runs without a Claude CLI / API key set the

@@ -163,8 +163,8 @@
               <p class="text-lg font-medium text-gray-700 mb-4">{{ sessionRoleName }}</p>
               <div v-if="sessionRoleQueries.length > 0" class="flex flex-wrap gap-2 justify-center max-w-xl">
                 <button
-                  v-for="query in sessionRoleQueries"
-                  :key="query"
+                  v-for="(query, queryIdx) in sessionRoleQueries"
+                  :key="`${queryIdx}-${query}`"
                   class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full px-4 py-2 border border-gray-300 transition-colors"
                   @click="sendMessage(query)"
                 >
