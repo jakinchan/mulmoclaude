@@ -63,7 +63,13 @@ export interface SessionSummary {
   isBookmarked?: boolean;
   // Live state from the server session store (present when the
   // session has an active in-memory entry on the server).
+  //
+  // `isRunning` — broad: agent turn live OR background generation
+  // pending. Drives the sidebar busy indicator.
+  // `liveIsRunning` — narrow: mirrors the DELETE 409 gate exactly
+  // (#1195). `false` ⇒ a DELETE on this session will be accepted.
   isRunning?: boolean;
+  liveIsRunning?: boolean;
   hasUnread?: boolean;
   statusMessage?: string;
 }

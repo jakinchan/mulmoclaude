@@ -79,7 +79,18 @@ export interface SessionSummary {
   isBookmarked?: boolean;
   // Live state from the in-memory session store. Absent when the
   // session has no active entry in the store (i.e. idle / historical).
+  //
+  // `isRunning` is the BROAD predicate: agent turn live OR any
+  // background generation (image/audio/movie) still pending. Drives
+  // the sidebar "busy" indicator that must stay lit across nav.
+  //
+  // `liveIsRunning` is the NARROW predicate: exactly the
+  // `DELETE /api/sessions/:id` 409 gate (`getSession()?.isRunning`).
+  // Exposed for cleanup-style callers (e2e-live `waitForSessionIdle`)
+  // that need to poll "is DELETE accepted yet" without over-waiting
+  // on lingering pendingGenerations. See issue #1195.
   isRunning?: boolean;
+  liveIsRunning?: boolean;
   hasUnread?: boolean;
   statusMessage?: string;
 }
@@ -149,6 +160,10 @@ function buildSessionSummary(
     // "busy" even when the agent turn has ended, so the sidebar
     // indicator stays lit across view navigation.
     summary.isRunning = live.isRunning || Object.keys(live.pendingGenerations).length > 0;
+    // Narrow predicate — must stay byte-identical to the DELETE
+    // 409 gate (`getSession(sessionId)?.isRunning`) so a caller
+    // polling this can trust "false ⇒ DELETE will be accepted".
+    summary.liveIsRunning = live.isRunning;
     summary.statusMessage = live.statusMessage;
   }
   return summary;

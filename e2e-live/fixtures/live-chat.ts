@@ -578,23 +578,16 @@ function shouldKeepSessions(): boolean {
  * 409 silently from the UI's point of view, the test passes, and
  * the file stays on disk.
  *
- * Predicate-asymmetry note (codex iter-2): the summary `isRunning`
- * we read here is `live.isRunning || pendingGenerations.length>0`
- * (server/api/routes/sessions.ts:150), but `DELETE /api/sessions/:id`
- * only checks `getSession()?.isRunning` proper (line 401), without
- * pendingGenerations. We intentionally wait on the STRICTER summary
- * predicate because:
- *   * the summary is the only `isRunning`-shaped field exposed on
- *     the public API today — querying just `live.isRunning` would
- *     need a server-side endpoint addition
- *   * waiting too long is the safe direction (we never delete
- *     before the server is ready); waiting too SHORT is the
- *     regression we are explicitly closing
- *   * for every spec in this suite, the test already waits for
- *     the user-visible artifact to render (Download Movie button
- *     for L-04, etc.) before reaching cleanup — by then
- *     pendingGenerations is empty in practice, so the stricter
- *     predicate doesn't add measurable wall time
+ * Predicate-asymmetry resolution (#1195): we now poll the summary's
+ * `liveIsRunning` field, which the server sets byte-identical to the
+ * `DELETE /api/sessions/:id` 409 gate (`getSession()?.isRunning`,
+ * server/api/routes/sessions.ts). The old broad `isRunning`
+ * (`live.isRunning || pendingGenerations.length>0`) is still
+ * exposed for the sidebar busy indicator but is NOT what we wait on
+ * here — waiting on it could over-block through image/movie
+ * post-processing even though DELETE was already safe. `false ⇒
+ * DELETE accepted` is now an exact guarantee, not a conservative
+ * over-approximation.
  *
  * Runs the fetch inside `page.evaluate` so the browser's bearer
  * header (read from `<meta name="mulmoclaude-auth">`) is reused
@@ -642,7 +635,7 @@ async function probeSessionIdle(args: { sid: string; listUrl: string; perAttempt
       signal: AbortSignal.timeout(perAttemptTimeoutMs),
     });
     if (!res.ok) return { ok: false as const, reason: `GET ${listUrl} returned HTTP ${res.status} ${res.statusText}` };
-    const data = (await res.json()) as { sessions?: { id: string; isRunning?: boolean }[] };
+    const data = (await res.json()) as { sessions?: { id: string; liveIsRunning?: boolean }[] };
     // Fail closed on a malformed payload (codex iter-4: missing /
     // null / non-array `sessions` field would otherwise let
     // `?.find()` return undefined → stillRunning=false → cleanup
@@ -651,8 +644,13 @@ async function probeSessionIdle(args: { sid: string; listUrl: string; perAttempt
     if (!Array.isArray(data.sessions)) {
       return { ok: false as const, reason: `GET ${listUrl} returned an unexpected payload (no sessions array)` };
     }
+    // Poll the NARROW predicate (#1195). `liveIsRunning` mirrors
+    // the DELETE 409 gate exactly, so `false` proves DELETE will be
+    // accepted — no over-waiting on lingering pendingGenerations
+    // (the old broad `isRunning` could stay true through movie /
+    // image post-processing even though DELETE was already safe).
     const session = data.sessions.find((row) => row.id === sid);
-    return { ok: true as const, stillRunning: session?.isRunning === true };
+    return { ok: true as const, stillRunning: session?.liveIsRunning === true };
   } catch (err) {
     // Network drop / AbortSignal timeout / JSON parse throw — anything
     // that would otherwise surface as an opaque page.evaluate failure
@@ -709,10 +707,11 @@ export async function deleteSession(page: Page, sessionId: string): Promise<void
     }
     // Then wait for the SERVER side to agree the session is no
     // longer running — `thinking-indicator` going hidden is a UI
-    // signal, but `live.isRunning || pendingGenerations` lingers a
-    // little longer on the server. Skipping this wait is exactly
-    // the regression that surfaced as a silent 409 inside the
-    // route handler while the UI dance reported success.
+    // signal, but the server's live.isRunning lingers a little
+    // longer. waitForSessionIdle polls `liveIsRunning` (#1195),
+    // which matches the DELETE 409 gate exactly. Skipping this
+    // wait is the regression that surfaced as a silent 409 inside
+    // the route handler while the UI dance reported success.
     await waitForSessionIdle(page, sessionId);
     // The session-row kebab menu lives inside the session-history
     // side panel, which is collapsed by default. Open it via the
