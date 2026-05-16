@@ -59,19 +59,45 @@ test.describe("wiki image coverage (real workspace)", () => {
     }
   });
 
-  // L-W-S-03 was originally framed as `<picture><source srcset>...<img></picture>`
-  // pending #1011 Stage B. Stage B did land (commit f3c52268,
-  // `feat: shared HTML URL-attr rewriter`) and widened the rewriter
-  // to `<source src>` / `<video poster|src>` / `<audio src>`, BUT
-  // `srcset` is explicitly deferred — see the deferred-list note on
-  // `RESOLVABLE_TAG_ATTRS` in `src/utils/image/htmlSrcAttrs.ts:21-24`.
-  // A `srcset` value is a comma-separated descriptor list (`url 1x, url2 2x`)
-  // and needs its own split/rewrite pass; the planned `<picture><source srcset>`
-  // canary stays blocked until that lands. Kept skipped so the spec
-  // file still surfaces the pending item in the report; rephrased
-  // owner trigger here so the next maintainer doesn't read the
-  // earlier comment and assume Stage B alone is sufficient.
-  test.skip("L-W-S-03: <picture><source srcset><img></picture> renders (waiting on srcset rewriter — Stage B deferred-list)", async () => {});
+  // L-W-S-03: the `srcset` rewriter (#1275, deferred from #1011
+  // Stage B) is now landed, so this canary is live. A `<picture>`
+  // with a workspace-relative `<source srcset>` must have its
+  // srcset URL rewritten to the `/api/files/raw` surface (not the
+  // raw `../../../` path, which 404s on a high-density screen), and
+  // the fallback `<img>` must still decode.
+  test("L-W-S-03: <picture><source srcset><img></picture> rewrites srcset + renders (#1275)", async ({ page }) => {
+    test.setTimeout(SPEC_TIMEOUT_MS);
+    const slug = "e2e-live-l-w-s-03";
+    const filename = "e2e-live-l-w-s-03.png";
+    const workspaceImageRel = `artifacts/images/${filename}`;
+    const rel = `../../../artifacts/images/${filename}`;
+    await placeFixtureInWorkspace("images/sample.png", workspaceImageRel);
+    await placeWikiPage(
+      slug,
+      ["# L-W-S-03", "", `<picture><source srcset="${rel} 1x, ${rel} 2x" /><img src="${rel}" alt="srcset" /></picture>`, ""].join("\n"),
+    );
+    try {
+      await navigateToWikiPage(page, slug);
+      await waitForImgInWiki(page, 'img[alt="srcset"]');
+      await assertImgDecodes(page, 'img[alt="srcset"]');
+      const sourceSrcset = await page.evaluate(
+        () => document.querySelector(".wiki-content picture source, .markdown-content picture source, picture source")?.getAttribute("srcset") ?? "",
+      );
+      // The wiki markdown surface resolves a workspace-relative
+      // `../../../artifacts/images/X` to the absolute static-mount
+      // form `/artifacts/images/X` (same target the L-W-S-01 `src`
+      // uses). The #1275 win is that the srcset URL is rewritten at
+      // all (was left as the broken `../../../` relative path) with
+      // its 1x/2x descriptors preserved — not the specific target.
+      expect(sourceSrcset, "the <source srcset> URL must be rewritten off the raw ../../../ path").not.toContain("../../../");
+      expect(sourceSrcset, "the rewritten srcset must resolve to the workspace image").toContain(`artifacts/images/${filename}`);
+      expect(sourceSrcset, "1x descriptor must be preserved").toMatch(/\b1x\b/);
+      expect(sourceSrcset, "2x descriptor must be preserved").toMatch(/\b2x\b/);
+    } finally {
+      await removeWikiPage(slug);
+      await removeFromWorkspace(workspaceImageRel);
+    }
+  });
 
   test("L-W-S-04: broken-prefix <img> is repaired by useGlobalImageErrorRepair", async ({ page }) => {
     test.setTimeout(SPEC_TIMEOUT_MS);

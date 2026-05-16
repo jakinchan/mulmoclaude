@@ -230,13 +230,13 @@ describe("rewriteMarkdownImageRefs — raw <img> tags (Stage A)", () => {
     assert.ok(out.includes("path=b.png"));
   });
 
-  it("rewrites an <img> nested in a <picture> wrapper (the inner <img> only)", () => {
-    // <source> tags are out of scope for Stage A.
+  it("rewrites an <img> nested in a <picture> wrapper + the <source srcset> (#1275)", () => {
     const html = '<picture><source srcset="alt.png"><img src="fallback.png"></picture>';
     const out = rewriteMarkdownImageRefs(html);
     assert.ok(out.includes("path=fallback.png"));
-    // <source> srcset is left untouched (Stage B / E).
-    assert.ok(out.includes('srcset="alt.png"'));
+    // <source srcset> is now rewritten too (#1275, was deferred).
+    assert.ok(!out.includes('srcset="alt.png"'), "raw srcset path must no longer appear verbatim");
+    assert.ok(/srcset="[^"]*\/api\/files\/raw\?path=[^"]*alt\.png"/.test(out), "srcset URL rewritten onto the raw-file API surface");
   });
 
   it("rewrites inline HTML <img> inside a paragraph", () => {
@@ -485,11 +485,12 @@ describe("rewriteImgSrcAttrsInHtml — adversarial input", () => {
     assert.ok(out.includes("path=b.png"));
   });
 
-  it("leaves srcset on a real <img> alone (Stage A scope = src only)", () => {
+  it("rewrites both src and srcset on a real <img> (#1275)", () => {
     const html = '<img src="x.png" srcset="y.png 2x">';
     const out = rewriteImgSrcAttrsInHtml(html, "");
     assert.ok(out.includes("path=x.png"));
-    assert.ok(out.includes('srcset="y.png 2x"'));
+    assert.ok(!out.includes('srcset="y.png 2x"'), "raw srcset must be rewritten");
+    assert.ok(/srcset="[^"]*\/api\/files\/raw\?path=[^"]*y\.png 2x"/.test(out), "srcset URL rewritten, 2x descriptor preserved");
   });
 
   it("idempotence: running twice gives the same result", () => {
@@ -707,10 +708,13 @@ describe("rewriteImgSrcAttrsInHtml — extended tag coverage (Stage B)", () => {
     assert.match(out, /src="\/api\/files\/raw\?path=data%2Fwiki%2Fpages%2Fmovie\.mp4"/);
   });
 
-  it("does NOT rewrite <source srcset> (deferred to follow-up)", () => {
+  it("rewrites every candidate in a <source srcset> descriptor list (#1275)", () => {
     const html = '<source srcset="hi.png 2x, lo.png 1x" type="image/png">';
     const out = rewriteImgSrcAttrsInHtml(html, "data/wiki/pages");
-    assert.equal(out, html, "srcset is comma-separated descriptor list — Stage B follow-up");
+    assert.equal(
+      out,
+      '<source srcset="/api/files/raw?path=data%2Fwiki%2Fpages%2Fhi.png 2x, /api/files/raw?path=data%2Fwiki%2Fpages%2Flo.png 1x" type="image/png">',
+    );
   });
 
   it("leaves <video poster> unchanged when http(s)", () => {

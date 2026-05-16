@@ -11,17 +11,16 @@
 // other doesn't. Single helper here, two callers, one tag list — the
 // drift becomes structurally impossible (#1011 Stage B).
 //
-// `srcset` (comma-separated descriptor list) and SVG `<image href>` /
-// CSS `url()` are deliberately out of scope — see the deferred-list
-// comment on `RESOLVABLE_TAG_ATTRS` below.
+// `srcset` is handled by a dedicated split/rewrite pass (it's a
+// comma-separated `url descriptor` list, not a single URL) — see
+// `SRCSET_TAG_ATTRS` + `rewriteSrcset` below. SVG `<image href>` /
+// CSS `url()` remain out of scope — see the deferred-list comment
+// on `RESOLVABLE_TAG_ATTRS` below.
 
 // Tag (lowercased) → URL-bearing attribute(s). Adding a row here
 // extends both Markdown and PDF surfaces simultaneously.
 //
 // Deferred (NOT here):
-//   - `srcset` on `<img>` / `<source>` — comma-separated list with
-//     descriptors (`url 1x, url2 2x`), needs a separate split/rewrite
-//     pass. Tracked under #1011 Stage B follow-up.
 //   - SVG `<image href>` — gap table item #9, low priority per plan
 //     §修正提案 P3-A.
 //   - CSS `url()` in `style=` attributes — gap table item #8, same
@@ -32,6 +31,98 @@ export const RESOLVABLE_TAG_ATTRS: Readonly<Record<string, readonly string[]>> =
   video: ["poster", "src"],
   audio: ["src"],
 };
+
+// `srcset`-bearing attributes (comma-separated `url descriptor`
+// list). Parsed/rewritten by `rewriteSrcset`, NOT the single-URL
+// path. Tag set is a subset of `RESOLVABLE_TAG_ATTRS`'s keys so the
+// outer tag regex already matches them — no alternation change
+// needed (#1275, deferred from #1011 Stage B).
+export const SRCSET_TAG_ATTRS: Readonly<Record<string, readonly string[]>> = {
+  img: ["srcset"],
+  source: ["srcset"],
+};
+
+function isSrcsetWs(char: string): boolean {
+  return char === " " || char === "\t" || char === "\n" || char === "\f" || char === "\r";
+}
+
+interface SrcsetCandidate {
+  url: string;
+  descriptor: string;
+}
+
+function stripTrailingCommas(token: string): string {
+  let end = token.length;
+  while (end > 0 && token[end - 1] === ",") end--;
+  return token.slice(0, end);
+}
+
+function skipWsAndCommas(input: string, from: number): number {
+  let pos = from;
+  while (pos < input.length && (isSrcsetWs(input[pos]) || input[pos] === ",")) pos++;
+  return pos;
+}
+
+// Read one `{ url, descriptor }` candidate starting at `from`.
+// Returns the candidate (or null when only whitespace remained) and
+// the position to resume from.
+function readCandidate(input: string, from: number): { candidate: SrcsetCandidate | null; next: number } {
+  let pos = from;
+  const urlStart = pos;
+  while (pos < input.length && !isSrcsetWs(input[pos])) pos++;
+  const rawUrl = input.slice(urlStart, pos);
+  const url = stripTrailingCommas(rawUrl);
+  if (url.length !== rawUrl.length) {
+    // Trailing comma(s) on the URL run → candidate separator, no
+    // descriptor. (`data:` internal commas are not trailing, so
+    // they stay part of the URL.)
+    return { candidate: url ? { url, descriptor: "" } : null, next: pos };
+  }
+  while (pos < input.length && isSrcsetWs(input[pos])) pos++;
+  const descStart = pos;
+  while (pos < input.length && input[pos] !== ",") pos++;
+  const descriptor = input.slice(descStart, pos).trim();
+  if (pos < input.length && input[pos] === ",") pos++;
+  return { candidate: url ? { url, descriptor } : null, next: pos };
+}
+
+// Split a `srcset` value into candidates per the WHATWG "parse a
+// srcset attribute" boundary rules. A naive `split(",")` corrupts
+// `data:` URIs (their base64 payload contains commas); the spec
+// collects the URL as a run of non-whitespace and treats only
+// *trailing* commas on that run as separators (Codex review). Pure
+// scan, no regex → ReDoS-safe.
+function splitSrcsetCandidates(input: string): SrcsetCandidate[] {
+  const candidates: SrcsetCandidate[] = [];
+  let pos = 0;
+  while (pos < input.length) {
+    pos = skipWsAndCommas(input, pos);
+    if (pos >= input.length) break;
+    const { candidate, next } = readCandidate(input, pos);
+    pos = next;
+    if (candidate) candidates.push(candidate);
+  }
+  return candidates;
+}
+
+// Rewrite the URL portion of every candidate in a `srcset` value,
+// preserving descriptors (`1x` / `2x` / `480w`). If no candidate's
+// URL is actually changed (every `transform` returned `null` or the
+// same string), the ORIGINAL value is returned byte-verbatim so a
+// no-op never normalises the author's whitespace (CodeRabbit
+// review). Boundary parsing is `data:`-URI-safe (see
+// `splitSrcsetCandidates`).
+export function rewriteSrcset(value: string, transform: (url: string) => string | null): string {
+  const candidates = splitSrcsetCandidates(value);
+  if (candidates.length === 0) return value;
+  let changed = false;
+  const rendered = candidates.map(({ url, descriptor }) => {
+    const replaced = transform(url);
+    const finalUrl = replaced === null || replaced === url ? url : ((changed = true), replaced);
+    return descriptor ? `${finalUrl} ${descriptor}` : finalUrl;
+  });
+  return changed ? rendered.join(", ") : value;
+}
 
 // Outer regex: scan any tag whose name appears in `RESOLVABLE_TAG_ATTRS`,
 // respecting quoted attribute values so `>` inside e.g. `alt="x>y"`
@@ -95,13 +186,20 @@ export function transformResolvableUrlsInHtml(html: string, transform: (url: str
   return html.replace(RESOLVABLE_TAG_OUTER_RE, (tag) => {
     const tagNameMatch = TAG_NAME_RE.exec(tag);
     if (!tagNameMatch) return tag;
-    const resolvableAttrs = RESOLVABLE_TAG_ATTRS[tagNameMatch[1].toLowerCase()];
-    if (!resolvableAttrs) return tag;
-    return tag.replace(ATTR_ITER_RE, (...captures: unknown[]) => replaceAttrIfResolvable(captures, resolvableAttrs, transform));
+    const tagName = tagNameMatch[1].toLowerCase();
+    const resolvableAttrs = RESOLVABLE_TAG_ATTRS[tagName];
+    const srcsetAttrs = SRCSET_TAG_ATTRS[tagName];
+    if (!resolvableAttrs && !srcsetAttrs) return tag;
+    return tag.replace(ATTR_ITER_RE, (...captures: unknown[]) => replaceAttrIfResolvable(captures, resolvableAttrs ?? [], srcsetAttrs ?? [], transform));
   });
 }
 
-function replaceAttrIfResolvable(captures: unknown[], resolvableAttrs: readonly string[], transform: (url: string) => string | null): string {
+function replaceAttrIfResolvable(
+  captures: unknown[],
+  resolvableAttrs: readonly string[],
+  srcsetAttrs: readonly string[],
+  transform: (url: string) => string | null,
+): string {
   const [full, leading, name, eqWithSpaces, , doubleQuoted, singleQuoted, bare] = captures as [
     string,
     string,
@@ -112,11 +210,17 @@ function replaceAttrIfResolvable(captures: unknown[], resolvableAttrs: readonly 
     string | undefined,
     string | undefined,
   ];
-  if (!eqWithSpaces || !resolvableAttrs.includes(name.toLowerCase())) return full;
+  if (!eqWithSpaces) return full;
+  const lowerName = name.toLowerCase();
+  const isSrcset = srcsetAttrs.includes(lowerName);
+  if (!isSrcset && !resolvableAttrs.includes(lowerName)) return full;
   const value = (doubleQuoted ?? singleQuoted ?? bare ?? "").trim();
   if (!value) return full;
-  const replacement = transform(value);
-  if (replacement === null) return full;
+  const replacement = isSrcset ? rewriteSrcset(value, transform) : transform(value);
+  // Single-URL: null means "leave verbatim". srcset: rewriteSrcset
+  // always returns a string (per-candidate nulls handled inside),
+  // and a no-op rewrite equal to the original is also left verbatim.
+  if (replacement === null || replacement === value) return full;
   const quote = doubleQuoted !== undefined ? '"' : singleQuoted !== undefined ? "'" : '"';
   return `${leading}${name}${eqWithSpaces}${quote}${replacement}${quote}`;
 }

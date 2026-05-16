@@ -275,10 +275,10 @@ describe("inlineImages — extended tag coverage (Stage B)", () => {
     assert.match(out, /src="data:image\/png;base64,/);
   });
 
-  it("does NOT touch <source srcset> (deferred)", () => {
+  it("inlines <source srcset> candidates as data URIs, preserving descriptors (#1275)", () => {
     const html = '<source srcset="/artifacts/images/2026/04/foo.png 2x" type="image/png">';
     const out = inlineImages(html, { workspaceRoot });
-    assert.equal(out, html);
+    assert.match(out, /^<source srcset="data:image\/png;base64,[A-Za-z0-9+/=]+ 2x" type="image\/png">$/);
   });
 
   it("does NOT inline <video src=mp4> — poster image is what shows in PDF", () => {
