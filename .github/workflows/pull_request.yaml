@@ -36,6 +36,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false  # no git push; zizmor artipacked
       - id: filter
         shell: bash
         run: |
@@ -61,6 +62,8 @@ jobs:
         os: [ubuntu-latest, windows-2022, macos-latest]
     steps:
     - uses: actions/checkout@v6
+      with:
+        persist-credentials: false  # no git push; zizmor artipacked
     - name: Use Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@v6
       with:
@@ -136,6 +139,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false  # no git push; zizmor artipacked
       - uses: actions/setup-node@v6
         with:
           node-version: 24.x
@@ -189,6 +194,8 @@ jobs:
         shard: [1, 2]
     steps:
     - uses: actions/checkout@v6
+      with:
+        persist-credentials: false  # no git push; zizmor artipacked
     - name: Use Node.js 22.x
       uses: actions/setup-node@v6
       with:
