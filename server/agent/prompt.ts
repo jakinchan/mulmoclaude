@@ -346,10 +346,6 @@ The user's browser timezone is ${sanitized}. Today's date in that timezone is ${
 When the user mentions a time without explicitly naming a city or timezone, assume their local timezone (${sanitized}) and proceed — do NOT ask for clarification. Only confirm when the user explicitly mentions another location or timezone (e.g. "3pm in New York", "JST", "UTC+5").`;
 }
 
-// Mirror the tool set installed by Dockerfile.sandbox. Kept here so a
-// prompt-level mention stays in sync with what the image actually
-// ships; if you add/remove a tool there, update this too.
-
 // Wrap a list of sub-entries under a single markdown heading, or
 // return null when the list is empty so the caller can skip the
 // whole section. Used for "## Reference Files" / "## Plugin
