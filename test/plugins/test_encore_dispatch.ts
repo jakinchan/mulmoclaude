@@ -205,6 +205,44 @@ describe("Encore dispatch — component tests", () => {
     assert.match(after[0].title, /Recovered/);
   });
 
+  it("snooze defers the bell and persists a snoozedSteps marker that survives the same-turn tick", async () => {
+    // Reproduces the bug github-actions flagged: previous snooze
+    // ran the tick immediately after dropping the ticket, which
+    // saw the step as un-fired and re-published. Now snooze must:
+    //   1. Clear the bell (drop the ticket).
+    //   2. Persist a snoozedSteps[stepId] marker.
+    //   3. NOT republish during the same turn.
+    const setup = (await dispatch({ kind: "setup", definition: hisayoDefinition })) as SetupResult;
+    const { cycleId } = setup;
+    if (!cycleId) throw new Error("setup should return cycleId");
+    const before = await listFor("encore");
+    assert.equal(before.length, 1, "setup should publish one bell entry");
+
+    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/pending-clear");
+    const entries = await fsPromises.readdir(pendingDir);
+    const ticket = JSON.parse(await fsPromises.readFile(path.join(pendingDir, entries[0]), "utf8")) as { pendingId: string };
+
+    await dispatch({
+      kind: "snooze",
+      obligationId: setup.obligationId,
+      cycleId,
+      targetId: "hisayo",
+      stepId: "pay",
+      pendingId: ticket.pendingId,
+    });
+
+    // Bell must be empty AND must stay empty — even after the next
+    // explicit tick within the snooze window (we don't advance the
+    // clock in this test, so the snooze should hold).
+    const after = await listFor("encore");
+    assert.equal(after.length, 0, `bell must clear after snooze; got ${after.length}`);
+
+    // The cycle file should carry the snoozedSteps marker.
+    const cyclePath = path.join(workspaceRoot, "data/plugins/encore/obligations", setup.obligationId ?? "", `${cycleId}.md`);
+    const cycleRaw = await fsPromises.readFile(cyclePath, "utf8");
+    assert.match(cycleRaw, /snoozedSteps:[\s\S]*?pay:/, "cycle file should contain snoozedSteps.pay marker");
+  });
+
   it("amendDefinition rejects a `type` change", async () => {
     const setup = (await dispatch({ kind: "setup", definition: hisayoDefinition })) as SetupResult;
     await assert.rejects(

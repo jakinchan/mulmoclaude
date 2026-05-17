@@ -78,11 +78,15 @@ export interface PendingClearTicket {
 export async function runTick(deps: TickDeps): Promise<void> {
   const log = deps.log ?? defaultLog;
   const todayIso = isoDate(deps.now);
+  // Full-precision timestamp for sub-day comparisons (snooze
+  // expiry). Date-only `todayIso` is still used for phase fire-date
+  // comparisons (those are date-only by DSL design).
+  const nowIso = deps.now.toISOString();
 
   const obligationIds = await readDir(OBLIGATIONS_DIRNAME);
   for (const obligationId of obligationIds) {
     try {
-      await tickOneObligation(obligationId, todayIso, log);
+      await tickOneObligation(obligationId, todayIso, nowIso, log);
     } catch (err) {
       log.warn("encore", "tick: obligation failed", { obligationId, error: err instanceof Error ? err.message : String(err) });
     }
@@ -91,7 +95,7 @@ export async function runTick(deps: TickDeps): Promise<void> {
   await pruneOrphanTickets(deps.now, log);
 }
 
-async function tickOneObligation(obligationId: string, todayIso: string, log: typeof defaultLog): Promise<void> {
+async function tickOneObligation(obligationId: string, todayIso: string, nowIso: string, log: typeof defaultLog): Promise<void> {
   const indexRaw = await readTextOrNull(obligationIndexPath(obligationId));
   if (indexRaw === null) return;
   const { dsl } = parseIndexFile(indexRaw);
@@ -120,7 +124,7 @@ async function tickOneObligation(obligationId: string, todayIso: string, log: ty
   }
 
   // Phase 2: publish for un-fired, not-closed (target, step) pairs.
-  const unfired = collectUnfired(dsl, state, activeByStepTarget, todayIso);
+  const unfired = collectUnfired(dsl, state, activeByStepTarget, todayIso, nowIso);
   for (const group of groupForBundling(unfired)) {
     await fireGroup(dsl, state, group, log);
   }
@@ -263,26 +267,36 @@ interface UnfiredPair {
 function isStepEligibleToFire(
   record: TargetRecord | undefined,
   step: StepDef,
-  todayIso: string,
+  nowIso: string,
   activeByStepTarget: Map<string, PendingClearTicket>,
   targetId: string,
 ): boolean {
   if (isStepClosed(record, step)) return false;
   if (activeByStepTarget.has(`${step.id}:${targetId}`)) return false;
   // A snoozed step is "open but defer firing" — skip until the
-  // snooze timestamp has passed.
+  // snooze timestamp has passed. Use the FULL ISO timestamp (not
+  // date-only `YYYY-MM-DD`) because the stored snoozedUntil is a
+  // full timestamp from `toISOString()`; comparing it against a
+  // date-only string would over-block by a day for any snooze that
+  // doesn't land on midnight.
   const snoozedUntil = record?.snoozedSteps?.[step.id];
-  if (snoozedUntil && snoozedUntil > todayIso) return false;
+  if (snoozedUntil && snoozedUntil > nowIso) return false;
   return true;
 }
 
-function collectUnfired(dsl: EncoreDsl, state: CycleState, activeByStepTarget: Map<string, PendingClearTicket>, todayIso: string): UnfiredPair[] {
+function collectUnfired(
+  dsl: EncoreDsl,
+  state: CycleState,
+  activeByStepTarget: Map<string, PendingClearTicket>,
+  todayIso: string,
+  nowIso: string,
+): UnfiredPair[] {
   const out: UnfiredPair[] = [];
   for (const target of dsl.targets) {
     const record = state.records[target.id];
     if (record?.skipped) continue;
     for (const step of dsl.steps) {
-      if (!isStepEligibleToFire(record, step, todayIso, activeByStepTarget, target.id)) continue;
+      if (!isStepEligibleToFire(record, step, nowIso, activeByStepTarget, target.id)) continue;
       const phase = currentPhaseFor(step, state, todayIso);
       if (!phase) continue;
       out.push({ targetId: target.id, stepId: step.id, stepDef: step, severity: phase.severity, fireDate: phase.fireDate });
