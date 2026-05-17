@@ -81,6 +81,10 @@ const esMessages = {
       'Los plugins "{first}" y "{second}" registran ambos el {dimension} "{key}". "{first}" lo reclamó primero, por lo que el registro de "{second}" se ignora.',
   },
   optionalDeps: {
+    // `title` genérico conservado por compatibilidad con entradas de
+    // historial persistidas antes de la división por motivo; las
+    // nuevas usan `titleNotFound` / `titleNotResponding`.
+    title: "Dependencia opcional no disponible",
     titleNotFound: "{command} no encontrado — funciones desactivadas",
     titleNotResponding: "{command} no responde — funciones desactivadas",
     notFound: "No se encontró {command} — las funciones relacionadas se han desactivado. Instálalo y reinicia para habilitarlas.",

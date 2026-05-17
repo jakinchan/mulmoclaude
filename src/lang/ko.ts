@@ -84,6 +84,9 @@ const koMessages = {
       '플러그인 "{first}"과(와) "{second}"이(가) 동일한 {dimension} "{key}"을(를) 등록합니다. "{first}"이(가) 먼저 등록했으므로 "{second}"의 등록은 무시됩니다.',
   },
   optionalDeps: {
+    // 영구 저장된 기존 히스토리 항목과의 호환을 위해 일반적인 `title` 키는
+    // 그대로 둔다. 새 발화는 `titleNotFound` / `titleNotResponding` 사용.
+    title: "선택적 의존성을 사용할 수 없습니다",
     titleNotFound: "{command}을(를) 찾을 수 없음 — 일부 기능 비활성화",
     titleNotResponding: "{command} 응답 없음 — 일부 기능 비활성화",
     notFound: "{command}을(를) 찾을 수 없습니다 — 관련 기능이 비활성화되었습니다. 설치 후 재시작하면 활성화됩니다.",

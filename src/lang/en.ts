@@ -97,6 +97,10 @@ const enMessages = {
     intraBody: 'Plugins "{first}" and "{second}" both register {dimension} "{key}". "{first}" claimed it first, so "{second}"\'s registration is ignored.',
   },
   optionalDeps: {
+    // Generic `title` kept for backward compatibility with persisted
+    // history entries published before the reason-aware split below;
+    // new code paths use `titleNotFound` / `titleNotResponding`.
+    title: "Optional dependency unavailable",
     titleNotFound: "{command} not found — features disabled",
     titleNotResponding: "{command} not responding — features disabled",
     notFound: "{command} not found — related features are disabled. Install it and restart to enable them.",

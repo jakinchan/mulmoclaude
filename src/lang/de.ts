@@ -77,6 +77,10 @@ const deMessages = {
       "Die Plugins „{first}“ und „{second}“ registrieren beide {dimension} „{key}“. „{first}“ hat ihn zuerst beansprucht, daher wird die Registrierung von „{second}“ ignoriert.",
   },
   optionalDeps: {
+    // Generischer `title` aus Abwärtskompatibilität für persistierte
+    // History-Einträge vor der Aufteilung nach Grund; neue Pfade
+    // verwenden `titleNotFound` / `titleNotResponding`.
+    title: "Optionale Abhängigkeit nicht verfügbar",
     titleNotFound: "{command} nicht gefunden — Funktionen deaktiviert",
     titleNotResponding: "{command} antwortet nicht — Funktionen deaktiviert",
     notFound: "{command} nicht gefunden — zugehörige Funktionen wurden deaktiviert. Installieren Sie es und starten Sie neu, um sie zu aktivieren.",
