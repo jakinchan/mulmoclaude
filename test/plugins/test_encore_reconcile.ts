@@ -23,6 +23,7 @@ import { _resetLockForTesting } from "../../server/encore/lock.js";
 import { dispatch, type EncoreDispatchResult } from "../../server/encore/dispatch.js";
 import { reconcileCycleNotifications } from "../../server/encore/reconcile.js";
 import { parseCycleFile, recordStepSnooze, serializeCycleFile } from "../../server/encore/cycle.js";
+import { runTick } from "../../server/encore/tick.js";
 
 let savedEncoreDescriptor: PropertyDescriptor | undefined;
 let workspaceRoot: string;
@@ -380,5 +381,68 @@ describe("Encore reconciler — unit tests", () => {
     assert.equal(after.length, 0, "inactive obligation must have no bell entries");
     const tickets = await pendingDirEntries();
     assert.equal(tickets.length, 0, "inactive obligation must have no pending-clear tickets");
+  });
+
+  it("runTick Phase 2: sweep revisits stuck tickets on non-latest cycles", async () => {
+    // Regression test for the interaction noted in PR review: with
+    // the new "keep ticket on clear failure" contract, a ticket
+    // stranded on cycle N can outlive the next tick if Phase 1 only
+    // visits the latest cycle (N+1). Phase 2's sweep walks every
+    // pending-clear ticket and reconciles its (obligationId, cycleId)
+    // so the strand is retried every tick instead of waiting 30 days
+    // for the age-based prune.
+    //
+    // Setup: create the obligation, then manually install a
+    // closed-cycle file + a leftover pending-clear ticket pointing at
+    // it. Phase 1 (latest cycle reconcile) won't touch the closed
+    // cycle's ticket; Phase 2 must.
+    const oneTargetDef = {
+      ...twoTargetDef,
+      targets: [{ id: "alice", displayName: "Alice" }],
+    };
+    const setup = (await dispatch({ kind: "setup", definition: oneTargetDef })) as SetupResult;
+    const { obligationId, cycleId: latestCycleId } = setup;
+    if (!obligationId || !latestCycleId) throw new Error("setup should return ids");
+
+    // Inject a closed predecessor cycle file (yesterday) directly on
+    // disk, plus a stranded pending-clear ticket pointing at it.
+    const stuckCycleId = "2026-05-16";
+    const stuckCycle = {
+      cycleId: stuckCycleId,
+      cycleStart: `${stuckCycleId}T00:00:00.000Z`,
+      cycleDeadline: `${stuckCycleId}T23:59:59.999Z`,
+      records: {
+        alice: { completedSteps: { pay: `${stuckCycleId}T12:00:00.000Z` } }, // closed
+      },
+    };
+    const stuckCyclePath = path.join(workspaceRoot, "data/plugins/encore/obligations", obligationId, `${stuckCycleId}.md`);
+    await fsPromises.writeFile(stuckCyclePath, serializeCycleFile(stuckCycle, ""));
+
+    const stuckTicket = {
+      pendingId: "stuck-pending-id",
+      obligationId,
+      cycleId: stuckCycleId,
+      notificationId: "stuck-notification-id", // no live bell entry — clear is a no-op
+      stepId: "pay",
+      targets: ["alice"],
+      severity: "info",
+      seedPrompt: "stuck",
+      createdAt: new Date().toISOString(),
+    };
+    const ticketPath = path.join(workspaceRoot, "data/plugins/encore/pending-clear", "stuck-pending-id.json");
+    await fsPromises.writeFile(ticketPath, JSON.stringify(stuckTicket, null, 2));
+
+    // Sanity: the stuck ticket is on disk and the latest is unrelated.
+    const beforeNames = await pendingDirEntries();
+    assert(beforeNames.includes("stuck-pending-id.json"), "test setup: stuck ticket must be on disk");
+    assert.notEqual(stuckCycleId, latestCycleId, "test setup: stuck cycle must differ from latest");
+
+    await runTick({ now: new Date() });
+
+    // Phase 2 reconciled (obligationId, stuckCycleId). All targets in
+    // the stuck cycle are closed → bundle drained → clear (no-op,
+    // succeeds) → ticket unlinked.
+    const afterNames = await pendingDirEntries();
+    assert(!afterNames.includes("stuck-pending-id.json"), `stuck ticket must be reaped by Phase 2 sweep; remaining: ${afterNames.join(", ")}`);
   });
 });

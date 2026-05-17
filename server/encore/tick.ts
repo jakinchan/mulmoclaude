@@ -4,8 +4,12 @@
 // That moved into `reconcile.ts` (the sole owner of bell state). The
 // tick is now a thin walker:
 //
-//   1. For every obligation directory, call reconcileCycleNotifications.
-//   2. Prune orphan pending-clear tickets older than 30 days.
+//   1. For every obligation directory, reconcile the latest cycle.
+//   2. Sweep stuck tickets — reconcile any (obligationId, cycleId)
+//      pair found in pending-clear/ that step 1 didn't cover. This
+//      retries clear failures on closed/non-latest cycles, which
+//      step 1 alone would skip (it only picks the latest cycle).
+//   3. Prune orphan pending-clear tickets older than 30 days.
 //
 // `PendingClearTicket` still lives here because dispatch.ts, reconcile.ts,
 // and the host UI all import the type — keeping it adjacent to the on-disk
@@ -64,7 +68,65 @@ export async function runTick(deps: TickDeps): Promise<void> {
       log.warn("encore", "tick: reconcile failed", { obligationId, error: err instanceof Error ? err.message : String(err) });
     }
   }
+  await sweepStuckTickets(new Set(obligationIds), deps.now, log);
   await pruneOrphanTickets(deps.now, log);
+}
+
+// ── stuck-ticket sweep (Phase 2) ──────────────────────────────────
+//
+// The per-obligation reconcile above only touches the obligation's
+// latest cycle (and its just-provisioned successor on cycle-close).
+// A ticket on a NON-latest cycle never gets revisited there — which
+// matters because `safeClearBell` failures are intentionally
+// non-destructive: when the clear fails, the reconciler keeps the
+// ticket so a later attempt can retry. Without this sweep, that
+// "later attempt" would never come for tickets on closed cycles
+// (until the 30-day age-based prune).
+//
+// This sweep collects every (obligationId, cycleId) pair present in
+// pending-clear/ and reconciles each. It overlaps Phase 1 for the
+// latest cycle, but reconcile is idempotent (proven by the
+// "idempotency" test in test_encore_reconcile.ts) so the redundancy
+// is cheap and the contract stays simple.
+
+async function sweepStuckTickets(knownObligationIds: Set<string>, now: Date, log: typeof defaultLog): Promise<void> {
+  const entries = await readDir(PENDING_CLEAR_DIRNAME);
+  const pairsToReconcile = await collectStuckCyclePairs(entries, knownObligationIds);
+  for (const pair of pairsToReconcile) {
+    try {
+      await reconcileCycleNotifications({ obligationId: pair.obligationId, cycleId: pair.cycleId, now, log });
+    } catch (err) {
+      log.warn("encore", "tick: stuck-ticket sweep failed", {
+        obligationId: pair.obligationId,
+        cycleId: pair.cycleId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
+async function collectStuckCyclePairs(entries: string[], knownObligationIds: Set<string>): Promise<{ obligationId: string; cycleId: string }[]> {
+  const seen = new Set<string>();
+  const out: { obligationId: string; cycleId: string }[] = [];
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    const raw = await readTextOrNull(path.join(PENDING_CLEAR_DIRNAME, entry));
+    if (!raw) continue;
+    let ticket: PendingClearTicket;
+    try {
+      ticket = JSON.parse(raw) as PendingClearTicket;
+    } catch {
+      continue;
+    }
+    // Skip tickets pointing at obligations that no longer exist on
+    // disk — those get cleaned up by the age-based prune below.
+    if (!knownObligationIds.has(ticket.obligationId)) continue;
+    const key = `${ticket.obligationId}::${ticket.cycleId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ obligationId: ticket.obligationId, cycleId: ticket.cycleId });
+  }
+  return out;
 }
 
 // ── orphan ticket sweep (time-driven, lives here not in reconcile) ──
