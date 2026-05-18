@@ -28,6 +28,7 @@
 
 import { test, expect, type Page } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
+import { ONE_SECOND_MS } from "../../server/utils/time.ts";
 
 interface NotifierEntryFixture {
   id: string;
@@ -253,9 +254,20 @@ interface NotifierHistoryFixture extends NotifierEntryFixture {
   terminalAt: string;
 }
 
+// Aligned with buildEntry's `createdAt` of 2026-04-25T06:00 — history
+// rows are stamped one hour later. Computing via Date arithmetic
+// instead of `0${index}` template concat keeps the helper safe past
+// index 9 (HISTORY_CAP is 50, so we need to handle two-digit indices).
+const HISTORY_BASE_MS = Date.parse("2026-04-25T07:00:00.000Z");
+
 function buildHistoryEntry(index: number): NotifierHistoryFixture {
   const base = buildEntry(`notif-hist-${index}`, `History entry ${index}`, "");
-  return { ...base, navigateTarget: undefined, terminalType: "cleared", terminalAt: `2026-04-25T07:00:0${index}.000Z` };
+  return {
+    ...base,
+    navigateTarget: undefined,
+    terminalType: "cleared",
+    terminalAt: new Date(HISTORY_BASE_MS + index * ONE_SECOND_MS).toISOString(),
+  };
 }
 
 async function primeNotifierHistory(page: Page, history: readonly NotifierHistoryFixture[]): Promise<void> {

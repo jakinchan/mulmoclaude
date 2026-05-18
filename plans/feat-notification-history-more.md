@@ -63,11 +63,16 @@ zh / ko / es / pt-BR / fr / de も同様に追加。placeholder `{count}` は全
 
 ## 検証コマンド
 
+リポジトリルート (または対応する worktree) で実行:
+
 ```bash
-cd /Users/yasutaka/local-workspace/mulmo/mulmoclaude-code/.claude/worktrees/feat-notification-history-more
-yarn format
-yarn lint
-yarn typecheck
-yarn build
-yarn test:e2e --grep "history more"
+yarn format && yarn lint && yarn typecheck && yarn build
+yarn test:e2e --grep "history more / less toggle"
+```
+
+Playwright を視覚確認したい場合は (global rule に従い `--debug` 付き):
+
+```bash
+cd <repo-root>/.claude/worktrees/feat-notification-history-more
+yarn test:e2e --debug --grep "history more / less toggle"
 ```
