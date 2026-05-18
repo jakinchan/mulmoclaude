@@ -150,10 +150,14 @@ This way the parameter shape carries the intent — no separate `kind: "setup" |
         "displayName": "Check in",
         "deadline": "cycle-deadline",
         "firingPlan": [{ "at": "cycle-start", "severity": "info" }],
-        "fields": []
+        "fields": ["note"]
       }
     ],
-    "formSchema": { "fields": [] }
+    "formSchema": {
+      "fields": [
+        { "name": "note", "type": "text", "label": "Notes", "required": false }
+      ]
+    }
   }
 }
 ```
@@ -161,6 +165,28 @@ This way the parameter shape carries the intent — no separate `kind: "setup" |
 Returns `{ ok: true, obligationId, cycleId, cyclePath, indexPath }`. Encore writes `obligations/<id>/index.md` plus the first cycle file and reconciles (so a `cycle-start` phase fires immediately).
 
 `dsl` is normally an **OBJECT** in the tool-call arguments. The handler also accepts a JSON-encoded string (it calls `JSON.parse` on the string before validating) so a `JSON.stringify`'d dsl won't error — but the object form is preferred.
+
+#### Obligation with nothing to record (placeholder field)
+
+The DSL requires **every obligation to have at least one formSchema field, and every formSchema field to be claimed by exactly one step.** For a "did I do it?" obligation that captures no real data, declare a single placeholder field (typical names: `note`, `done`, `time`) and claim it from your only step — exactly as the example above does.
+
+You **cannot** combine `step.fields: []` with `formSchema.fields: []` to opt out — `formSchema.fields` has `.min(1)` and `formSchema` is required. The LLM-trap to avoid:
+
+```json
+// ❌ FAILS: orphan field
+"steps": [{ "id": "shower", "fields": [], ... }],
+"formSchema": { "fields": [{ "name": "note", "type": "text", "label": "Notes" }] }
+
+// ❌ FAILS: empty array (formSchema.fields requires ≥1)
+"steps": [{ "id": "shower", "fields": [], ... }],
+"formSchema": { "fields": [] }
+
+// ✅ WORKS: placeholder claimed by the step
+"steps": [{ "id": "shower", "fields": ["note"], ... }],
+"formSchema": { "fields": [{ "name": "note", "type": "text", "label": "Notes", "required": false } ] }
+```
+
+If you hit "field X is not claimed by any step.fields[]", the fix is to **add** the field name to one step's `fields[]`, NOT to remove it from `formSchema`.
 
 ### setup — 409 collision behavior
 
@@ -233,19 +259,19 @@ Existing DSL has `steps: [pay, confirm]`, and you want to change `pay.firingPlan
       {
         "id": "pay",
         "displayName": "Pay",
-        "deadline": "@cycleDeadline",
+        "deadline": "cycle-deadline",
         "fields": ["amount"],
         "firingPlan": [
-          { "at": "@cycleDeadline-3d", "severity": "info" },
-          { "at": "@cycleDeadline", "severity": "urgent" }
+          { "at": "cycle-deadline-3d", "severity": "info" },
+          { "at": "cycle-deadline", "severity": "urgent" }
         ]
       },
       {
         "id": "confirm",
         "displayName": "Confirm receipt",
-        "deadline": "@cycleDeadline+1d",
+        "deadline": "cycle-deadline+1d",
         "fields": [],
-        "firingPlan": [{ "at": "@cycleDeadline+1d", "severity": "info" }]
+        "firingPlan": [{ "at": "cycle-deadline+1d", "severity": "info" }]
       }
     ]
   }
