@@ -56,7 +56,7 @@ const toolDefinition: ToolDefinition = {
   prompt:
     "Once an Encore obligation exists, use manageEncore to record what happened (markStepDone / markTargetSkipped / recordValues / appendNote), to defer reminders (snooze / unsnooze), or to query (query). " +
     "For composing a NEW obligation or amending an existing one's DSL, use the sibling defineEncore tool. " +
-    "Read `helps/encore-dsl.md` before calling — it documents every action's call shape and bell-clearing semantics.",
+    "Read `config/helps/encore-dsl.md` before calling — it documents every action's call shape and bell-clearing semantics.",
   description: "Record progress on existing Encore obligations — close steps, skip targets, snooze, query.",
   parameters: {
     type: "object",

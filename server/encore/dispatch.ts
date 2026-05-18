@@ -90,7 +90,10 @@ const SetupArgs = z.object({
 
 const AmendArgs = z.object({
   kind: z.literal("amendDefinition"),
-  obligationId: z.string(),
+  // `.min(1)` so an empty-string id is rejected at parse time with
+  // a clear 400, rather than crashing inside `obligationIndexPath("")`
+  // → `assertSafeSegment` and bubbling as an opaque 500.
+  obligationId: z.string().min(1),
   // `z.unknown()` instead of `z.record(...)` so the handler can also
   // accept a JSON-encoded string and parse it via `coerceDefinitionToObject`
   // — same tolerance as setup. The handler validates the resulting
@@ -170,8 +173,14 @@ const DefineArgs = z.object({
   dsl: z.unknown(),
   /** Present → amend the named obligation; absent → setup a new one.
    *  Discriminator chosen so the LLM never has to also pass a `kind`
-   *  inside the tool — "I have an id" / "I don't" is the intent. */
-  obligationId: z.string().optional(),
+   *  inside the tool — "I have an id" / "I don't" is the intent.
+   *
+   *  `.min(1)` rejects `""` at parse time with a clear 400 — without
+   *  it, an empty string would pass the `!== undefined` check in
+   *  `handleDefineEncore` and route to amend, where
+   *  `obligationIndexPath("")` would throw from `assertSafeSegment`
+   *  and surface as an opaque 500. */
+  obligationId: z.string().min(1).optional(),
 });
 
 // ── path / id helpers ─────────────────────────────────────────────
@@ -781,7 +790,9 @@ function safeParse<T>(schema: z.ZodType<T>, body: unknown, kind: string): T {
     return `${fieldPath}: ${issue.message}`;
   });
   const summary = issues.join("; ");
-  throw new EncoreError(400, `manageEncore(${kind}): invalid args — ${summary}. See helps/encore-dsl.md for the call shape.`, { issues: result.error.issues });
+  throw new EncoreError(400, `manageEncore(${kind}): invalid args — ${summary}. See config/helps/encore-dsl.md for the call shape.`, {
+    issues: result.error.issues,
+  });
 }
 
 async function dispatchInner(body: EncoreDispatchBody): Promise<EncoreDispatchResult> {

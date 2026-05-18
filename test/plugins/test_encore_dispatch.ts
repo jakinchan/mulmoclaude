@@ -336,6 +336,11 @@ describe("Encore dispatch — component tests", () => {
 
   it("defineEncore with obligationId amends the named obligation (amend path)", async () => {
     const created = (await dispatch({ kind: "defineEncore", dsl: hisayoDefinition })) as SetupResult;
+    // Guard: if SetupResult's shape regresses and obligationId is
+    // missing, the subsequent amend call would silently fall through
+    // to the setup branch (obligationId: undefined) and this test
+    // would pass for the wrong reason.
+    assert.ok(created.obligationId, "defineEncore setup should return obligationId");
     const result = await dispatch({
       kind: "defineEncore",
       obligationId: created.obligationId,
@@ -346,6 +351,15 @@ describe("Encore dispatch — component tests", () => {
     const { obligations } = queried;
     if (!obligations) throw new Error("query should return obligations[]");
     assert.equal(obligations[0].dsl.displayName, "Daily payment — Renamed via defineEncore");
+  });
+
+  it('defineEncore with `obligationId: ""` rejects at parse time (not opaque 500)', async () => {
+    // Boundary test for the `z.string().min(1).optional()` schema
+    // guard. Without the .min(1), an empty string would pass
+    // `!== undefined` in handleDefineEncore and route to amend, where
+    // `obligationIndexPath("")` throws from `assertSafeSegment` and
+    // bubbles as an internal error instead of a structured 4xx.
+    await assert.rejects(dispatch({ kind: "defineEncore", obligationId: "", dsl: hisayoDefinition }), /invalid args[\s\S]*obligationId/);
   });
 
   it("defineEncore accepts dsl as a JSON-encoded string (same tolerance as setup/amend)", async () => {

@@ -41,7 +41,7 @@ const toolDefinition: ToolDefinition = {
     "The `dsl` argument is an OBJECT LITERAL — never a JSON-encoded string. " +
     "Setup: provide the complete DSL document (version / displayName / type / cadence / targets / steps / formSchema). " +
     "Amend: provide ONLY the top-level fields you want to change — the server shallow-merges onto the existing DSL. " +
-    "Read `helps/encore-dsl.md` for the full grammar, severity rules, and worked examples.",
+    "Read `config/helps/encore-dsl.md` for the full grammar, severity rules, and worked examples.",
   description:
     "Compose a new Encore obligation, or amend an existing one (pass obligationId). Operational actions (markStepDone, snooze, query, …) live on the sibling manageEncore tool.",
   parameters: {
@@ -49,7 +49,7 @@ const toolDefinition: ToolDefinition = {
     properties: {
       kind: {
         type: "string",
-        enum: ["defineEncore"],
+        enum: [TOOL_NAME],
         description: "Fixed value; the tool's only kind.",
       },
       dsl: {
@@ -58,7 +58,7 @@ const toolDefinition: ToolDefinition = {
           "Encore DSL document (OBJECT LITERAL — do NOT pass a JSON-encoded string). " +
           "For setup (no obligationId): provide every required field shown in the schema. " +
           "For amend (with obligationId): provide ONLY the top-level fields you want to change — others are preserved from the existing DSL. " +
-          "See `helps/encore-dsl.md` for cross-field rules and worked examples.",
+          "See `config/helps/encore-dsl.md` for cross-field rules and worked examples.",
       },
       obligationId: {
         type: "string",
