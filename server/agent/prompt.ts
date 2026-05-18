@@ -123,7 +123,11 @@ export function buildMemoryManagementSection(snapshot: MemorySnapshot): string {
 
 function formatTopicFiles(files: readonly TopicMemoryFile[]): string | null {
   if (files.length === 0) return null;
-  return files.map(formatTopicFileForPrompt).join("\n\n---\n\n");
+  // One pointer line per topic → join with a single newline. The
+  // old `\n\n---\n\n` rule separated multi-line bodies; with
+  // index-only (#1432) it was 4 newlines + a rule per one-liner —
+  // pure token/visual bloat. A flat list reads fine.
+  return files.map(formatTopicFileForPrompt).join("\n");
 }
 
 // Index-only (#1432): emit the pointer line — `[type] <type>/<topic>.md
