@@ -76,9 +76,15 @@ const ptBRMessages = {
       'Os plugins "{first}" e "{second}" registram o mesmo {dimension} "{key}". "{first}" o reivindicou primeiro, portanto o registro de "{second}" é ignorado.',
   },
   optionalDeps: {
+    // `title` genérico mantido para compatibilidade com entradas do
+    // histórico persistidas antes da divisão por motivo; as novas
+    // usam `titleNotFound` / `titleNotResponding`.
     title: "Dependência opcional indisponível",
-    notFound: "{command} não encontrado — recursos relacionados foram desativados. Instale-o e reinicie para habilitá-los.",
-    notResponding: "{command} está instalado mas não responde — recursos relacionados foram desativados. Inicie-o e reinicie para habilitá-los.",
+    titleNotFound: "{command} não está instalado",
+    titleNotResponding: "{command} não está em execução",
+    notFound: "{command} não encontrado — recursos relacionados foram desativados. Instale {command} e reinicie o MulmoClaude para habilitá-los.",
+    notResponding:
+      "{command} está instalado mas não está em execução — recursos relacionados foram desativados. Inicie {command} e reinicie o MulmoClaude para habilitá-los.",
   },
   pluginErrorBoundary: {
     title: "O plugin {pkg} travou",

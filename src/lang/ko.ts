@@ -84,9 +84,14 @@ const koMessages = {
       '플러그인 "{first}"과(와) "{second}"이(가) 동일한 {dimension} "{key}"을(를) 등록합니다. "{first}"이(가) 먼저 등록했으므로 "{second}"의 등록은 무시됩니다.',
   },
   optionalDeps: {
+    // 영구 저장된 기존 히스토리 항목과의 호환을 위해 일반적인 `title` 키는
+    // 그대로 둔다. 새 발화는 `titleNotFound` / `titleNotResponding` 사용.
     title: "선택적 의존성을 사용할 수 없습니다",
-    notFound: "{command}을(를) 찾을 수 없습니다 — 관련 기능이 비활성화되었습니다. 설치 후 재시작하면 활성화됩니다.",
-    notResponding: "{command}이(가) 설치되어 있지만 응답하지 않습니다 — 관련 기능이 비활성화되었습니다. 시작한 후 재시작하면 활성화됩니다.",
+    titleNotFound: "{command}이(가) 설치되어 있지 않습니다",
+    titleNotResponding: "{command}이(가) 실행 중이 아닙니다",
+    notFound: "{command}을(를) 찾을 수 없습니다 — 관련 기능이 비활성화되었습니다. {command}을(를) 설치한 후 MulmoClaude를 재시작하면 활성화됩니다.",
+    notResponding:
+      "{command}은(는) 설치되어 있지만 실행 중이 아닙니다 — 관련 기능이 비활성화되었습니다. {command}을(를) 시작한 후 MulmoClaude를 재시작하면 활성화됩니다.",
   },
   pluginErrorBoundary: {
     title: "플러그인 {pkg}이(가) 충돌했습니다",

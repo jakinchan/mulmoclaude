@@ -83,9 +83,13 @@ const jaMessages = {
       "プラグイン「{first}」と「{second}」が同じ {dimension}「{key}」を登録しています。「{first}」が先に確保したため、「{second}」の登録は無視されます。",
   },
   optionalDeps: {
+    // 旧来の `title` キーは、永続化済み履歴エントリの後方互換のため残す。
+    // 新規発火は `titleNotFound` / `titleNotResponding` を使用。
     title: "任意の依存コマンドを利用できません",
-    notFound: "{command} が見つかりません — 関連機能を無効化しました。インストールして再起動すると有効になります。",
-    notResponding: "{command} はインストール済みですが応答しません — 関連機能を無効化しました。起動して再起動すると有効になります。",
+    titleNotFound: "{command} がインストールされていません",
+    titleNotResponding: "{command} が起動していません",
+    notFound: "{command} がインストールされていないため、関連機能を停止しています。{command} をインストールしてから MulmoClaude を再起動してください。",
+    notResponding: "{command} が起動していないため、関連機能を停止しています。{command} を起動してから MulmoClaude を再起動してください。",
   },
   pluginErrorBoundary: {
     title: "プラグイン {pkg} がクラッシュしました",

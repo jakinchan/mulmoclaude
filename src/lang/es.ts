@@ -81,9 +81,15 @@ const esMessages = {
       'Los plugins "{first}" y "{second}" registran ambos el {dimension} "{key}". "{first}" lo reclamó primero, por lo que el registro de "{second}" se ignora.',
   },
   optionalDeps: {
+    // `title` genérico conservado por compatibilidad con entradas de
+    // historial persistidas antes de la división por motivo; las
+    // nuevas usan `titleNotFound` / `titleNotResponding`.
     title: "Dependencia opcional no disponible",
-    notFound: "No se encontró {command} — las funciones relacionadas se han desactivado. Instálalo y reinicia para habilitarlas.",
-    notResponding: "{command} está instalado pero no responde — las funciones relacionadas se han desactivado. Inícialo y reinicia para habilitarlas.",
+    titleNotFound: "{command} no está instalado",
+    titleNotResponding: "{command} no está en ejecución",
+    notFound: "No se encontró {command} — las funciones relacionadas se han desactivado. Instala {command} y reinicia MulmoClaude para habilitarlas.",
+    notResponding:
+      "{command} está instalado pero no se está ejecutando — las funciones relacionadas se han desactivado. Inicia {command} y reinicia MulmoClaude para habilitarlas.",
   },
   pluginErrorBoundary: {
     title: "El plugin {pkg} se ha bloqueado",

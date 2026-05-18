@@ -77,10 +77,16 @@ const deMessages = {
       "Die Plugins „{first}“ und „{second}“ registrieren beide {dimension} „{key}“. „{first}“ hat ihn zuerst beansprucht, daher wird die Registrierung von „{second}“ ignoriert.",
   },
   optionalDeps: {
+    // Generischer `title` aus Abwärtskompatibilität für persistierte
+    // History-Einträge vor der Aufteilung nach Grund; neue Pfade
+    // verwenden `titleNotFound` / `titleNotResponding`.
     title: "Optionale Abhängigkeit nicht verfügbar",
-    notFound: "{command} nicht gefunden — zugehörige Funktionen wurden deaktiviert. Installieren Sie es und starten Sie neu, um sie zu aktivieren.",
+    titleNotFound: "{command} ist nicht installiert",
+    titleNotResponding: "{command} läuft nicht",
+    notFound:
+      "{command} nicht gefunden — zugehörige Funktionen wurden deaktiviert. Installieren Sie {command} und starten Sie MulmoClaude neu, um sie zu aktivieren.",
     notResponding:
-      "{command} ist installiert, antwortet aber nicht — zugehörige Funktionen wurden deaktiviert. Starten Sie es und starten Sie neu, um sie zu aktivieren.",
+      "{command} ist installiert, läuft aber nicht — zugehörige Funktionen wurden deaktiviert. Starten Sie {command} und starten Sie MulmoClaude neu, um sie zu aktivieren.",
   },
   pluginErrorBoundary: {
     title: "Plugin {pkg} ist abgestürzt",

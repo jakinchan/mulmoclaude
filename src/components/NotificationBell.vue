@@ -101,7 +101,7 @@ function asLegacy(entry: { pluginData?: unknown }): LegacyPluginDataShape | null
 
 function localizeTitle(entry: NotifierEntry | NotifierHistoryEntry): string {
   const legacy = asLegacy(entry);
-  if (legacy?.i18n) return t(legacy.i18n.titleKey);
+  if (legacy?.i18n) return t(legacy.i18n.titleKey, legacy.i18n.titleParams ?? {});
   return entry.title;
 }
 

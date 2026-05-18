@@ -80,9 +80,13 @@ const zhMessages = {
     intraBody: '插件 "{first}" 和 "{second}" 都注册了 {dimension} "{key}"。"{first}" 先注册,因此 "{second}" 的注册被忽略。',
   },
   optionalDeps: {
+    // 通用 `title` 键保留以便兼容已持久化的历史条目;新发布的通知改用
+    // `titleNotFound` / `titleNotResponding`。
     title: "可选依赖不可用",
-    notFound: "未找到 {command} — 相关功能已被禁用。安装后重启即可启用。",
-    notResponding: "{command} 已安装但无响应 — 相关功能已被禁用。启动后重启即可启用。",
+    titleNotFound: "未安装 {command}",
+    titleNotResponding: "{command} 未运行",
+    notFound: "未找到 {command} — 相关功能已被禁用。请安装 {command} 后重启 MulmoClaude 以启用。",
+    notResponding: "{command} 已安装但未运行 — 相关功能已被禁用。请启动 {command} 后重启 MulmoClaude 以启用。",
   },
   pluginErrorBoundary: {
     title: "插件 {pkg} 已崩溃",
