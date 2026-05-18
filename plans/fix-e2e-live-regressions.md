@@ -59,20 +59,31 @@ assistant の応答 (Japanese, real LLM):
 - slash command `/e2e-live-l22-...` は送信されている
 - だが Claude の skill 実行 (Agent SDK 経由) が失敗 → 自然言語で言い訳
 
-### 仮説 (更新: 2026-05-18 codex review iter-1)
+### 仮説 (更新: 2026-05-18 — root cause 判明)
 
-- L-22 の `placeProjectSkill` ([live-chat.ts:215-221](e2e-live/fixtures/live-chat.ts#L215-L221)) は `.claude/skills/<slug>/SKILL.md` に **直接** 書き込む。 staging (`data/skills/`) 経由ではないため、 hook dispatcher refactor (11fdf900) は経路外 → **候補から除外**
-- 残る最有力候補:
-  - PR **#1386** (external skill repos backend, 0135527e) で skill catalog/discovery が変わった影響 (medium confidence)
-  - skill slash-command dispatch 経路 (`server/skills/`, `server/api/routes/skills*`, agent SDK の skill execution wiring) のいずれか
-- 実行された slash command (`/<slug>`) は届いている (sidebar に `/e2e-live-l22-chromi` が出ている) — 失敗するのは Claude 側の skill 実行段階
+実際の session JSONL (`~/.claude/projects/-home-node-mulmoclaude/5612f40a-*.jsonl`) で観測した tool 呼び出し:
 
-### 次のアクション
+```json
+{"type":"tool_use","name":"Skill","input":{"skill":"e2e-live-l22-..."}}
+{"type":"tool_result","content":"Execute skill: e2e-live-l22-...","is_error":true}
+```
 
-- [ ] `git log --since='2026-05-10' -- server/skills server/api/routes/skills.ts` の差分を読む
-- [ ] PR #1386 の diff を全体俯瞰し、 `/api/skills/:name` (discovery / detail) を介した skill body の Claude SDK への引き渡し経路が変わっていないか確認
-- [ ] 失敗時の `.claude/skills/<slug>/SKILL.md` の中身を物理的に確認 (test cleanup されてしまうので run 中 trace 必須)
-- [ ] Claude SDK の skill 実行が返している具体的なエラー文字列を確認 (server log or session JSONL)
+→ **claude CLI 2.1.141+ で `Skill` ツールが regress している**。 過去 ~80 セッションを集計した結果:
+
+| version | Skill 呼び出し成功 | Skill 呼び出し失敗 |
+|---|---:|---:|
+| 2.1.119 | 18 件 | 0 |
+| 2.1.140 | 4 件 | 0 |
+| **2.1.141** | 0 | **3** |
+| **2.1.143** | 0 | **4** |
+
+mulmoclaude は `~/.local/share/claude/versions/` 配下の claude CLI を spawn するので、 自動アップデートで 2.1.141+ になった瞬間に L-22 が壊れる。
+
+### 修正方針 (実施済 `0c4a39a3`)
+
+`server/agent/config.ts` の `buildCliArgs` に `--disallowedTools Skill` を追加し、 claude CLI を inline-resolution 経路に固定。 これで Skill ツール経由ではなく SKILL.md body を直接プロンプトに展開する古い挙動になり、 全 version で安定。
+
+unit test (`test/agent/test_agent_config.ts`) で flag の存在を assert。 verbose comment で workaround の lifecycle と scope を明記済。
 
 ---
 
@@ -151,9 +162,13 @@ PR #1430 でロール分割が入ったが、 `mc-manage-skills` は skill prese
 
 - [x] worktree 作成 + deps install
 - [x] 初版 plans コミット (`797c7d04`)
-- [x] codex-cross-review iter-1 (2026-05-18) — 3 findings, L-31 仮説の層違い・L-22 経路再特定・L-ERR fixture バグ判明
-- [ ] L-22 / L-15b の breaking PR (or root cause) を特定 (L-ERR は fixture 取り替えで解決見込み)
-- [ ] 初回 PR (両モード fail 3 件) 修正
-- [ ] 初回 PR の codex-cross-review
-- [ ] 初回 PR マージ後に再度 e2e-live を 2 周
+- [x] codex-cross-review iter-1 (plans) — 3 findings 適用 (`9ff8834d`)
+- [x] L-ERR fix — `startGuaranteedNewSession` 置換 (`24abb8e6`)
+- [x] L-15b fix — testLabel lowercase (`1481a204`)
+- [x] L-22 fix — `--disallowedTools Skill` (`0c4a39a3`) + iter-2 review nits (`ae49b335`)
+- [x] codex-cross-review iter-2 (code) — LGTM (with 2 nits, 適用済)
+- [x] local checks (yarn format / lint / typecheck / build / test) — 全 pass
+- [ ] yarn dev 再起動 + L-ERR / L-15b / L-22 を実機で再走させて pass 確認 (server 変更があるため dev restart 必須)
+- [ ] PR 作成 (push 後 `gh pr create`)
+- [ ] PR マージ後に e2e-live 全量を 2 周再走 (回帰なし確認)
 - [ ] 2nd PR (L-SETTINGS-EFFORT, L-31) スコープ精査と修正
