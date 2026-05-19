@@ -6,14 +6,14 @@
 //
 //   1. For every obligation directory, reconcile the latest cycle.
 //   2. Sweep stuck tickets — reconcile any (obligationId, cycleId)
-//      pair found in pending-clear/ that step 1 didn't cover. This
+//      pair found in tickets/ that step 1 didn't cover. This
 //      retries clear failures on closed/non-latest cycles, which
 //      step 1 alone would skip (it only picks the latest cycle).
-//   3. Prune orphan pending-clear tickets older than 30 days.
+//   3. Prune orphan tickets older than 30 days.
 //
-// `PendingClearTicket` still lives here because dispatch.ts, reconcile.ts,
-// and the host UI all import the type — keeping it adjacent to the on-disk
-// shape (the only consumer is `pending-clear/*.json`) makes the locus of
+// `Ticket` still lives here because dispatch.ts, reconcile.ts, and
+// the host UI all import the type — keeping it adjacent to the on-disk
+// shape (the only consumer is `tickets/*.json`) makes the locus of
 // schema changes obvious.
 
 import path from "node:path";
@@ -21,8 +21,8 @@ import path from "node:path";
 import { log as defaultLog } from "../system/logger/index.js";
 import { ONE_DAY_MS } from "../utils/time.js";
 import type { Severity } from "../../src/types/encore-dsl/schema.js";
-import { PENDING_CLEAR_DIRNAME, OBLIGATIONS_DIRNAME } from "./paths.js";
-import { readDir, readTextOrNull, unlink } from "../utils/files/encore-io.js";
+import { TICKETS_DIRNAME, OBLIGATIONS_DIRNAME } from "./paths.js";
+import { readDir, readDirSubdirs, readTextOrNull, unlink } from "../utils/files/encore-io.js";
 import * as encoreNotifier from "./notifier.js";
 import { reconcileCycleNotifications } from "./reconcile.js";
 
@@ -33,12 +33,19 @@ export interface TickDeps {
   log?: typeof defaultLog;
 }
 
-/** Shape of a pending-clear ticket on disk. Authoritative record
- *  of every live Encore bell entry: which obligation+cycle+step it
- *  belongs to, which targets it covers, what severity it was
- *  published at (used for escalation diff), and the seed prompt
- *  resolveNotification will use to start the chat on user click. */
-export interface PendingClearTicket {
+/** Shape of a ticket on disk. Authoritative record of every live
+ *  Encore bell entry: which obligation+cycle+step it belongs to,
+ *  which targets it covers, what severity it was published at
+ *  (used for escalation diff), and the seed prompt
+ *  resolveNotification will use to start the chat on user click.
+ *
+ *  A ticket's existence asserts that a matching bell is alive and
+ *  awaiting a `clear` operation. Tickets are regeneratable cache
+ *  for everything except `chatSessionId` (the binding to a user's
+ *  open chat); a sweep of `tickets/*.json` plus the matching bell
+ *  entries leaves the system in a recoverable state — the
+ *  reconciler rebuilds from cycle files on the next tick. */
+export interface Ticket {
   pendingId: string;
   obligationId: string;
   cycleId: string;
@@ -60,7 +67,7 @@ export interface PendingClearTicket {
 
 export async function runTick(deps: TickDeps): Promise<void> {
   const log = deps.log ?? defaultLog;
-  const obligationIds = await readDir(OBLIGATIONS_DIRNAME);
+  const obligationIds = await readDirSubdirs(OBLIGATIONS_DIRNAME);
   for (const obligationId of obligationIds) {
     try {
       await reconcileCycleNotifications({ obligationId, now: deps.now, log });
@@ -84,13 +91,13 @@ export async function runTick(deps: TickDeps): Promise<void> {
 // (until the 30-day age-based prune).
 //
 // This sweep collects every (obligationId, cycleId) pair present in
-// pending-clear/ and reconciles each. It overlaps Phase 1 for the
+// tickets/ and reconciles each. It overlaps Phase 1 for the
 // latest cycle, but reconcile is idempotent (proven by the
 // "idempotency" test in test_encore_reconcile.ts) so the redundancy
 // is cheap and the contract stays simple.
 
 async function sweepStuckTickets(knownObligationIds: Set<string>, now: Date, log: typeof defaultLog): Promise<void> {
-  const entries = await readDir(PENDING_CLEAR_DIRNAME);
+  const entries = await readDir(TICKETS_DIRNAME);
   const pairsToReconcile = await collectStuckCyclePairs(entries, knownObligationIds);
   for (const pair of pairsToReconcile) {
     try {
@@ -110,11 +117,11 @@ async function collectStuckCyclePairs(entries: string[], knownObligationIds: Set
   const out: { obligationId: string; cycleId: string }[] = [];
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
-    const raw = await readTextOrNull(path.join(PENDING_CLEAR_DIRNAME, entry));
+    const raw = await readTextOrNull(path.join(TICKETS_DIRNAME, entry));
     if (!raw) continue;
-    let ticket: PendingClearTicket;
+    let ticket: Ticket;
     try {
-      ticket = JSON.parse(raw) as PendingClearTicket;
+      ticket = JSON.parse(raw) as Ticket;
     } catch {
       continue;
     }
@@ -131,17 +138,16 @@ async function collectStuckCyclePairs(entries: string[], knownObligationIds: Set
 
 // ── orphan ticket sweep (time-driven, lives here not in reconcile) ──
 //
-// Orphan tickets are pending-clear records older than 30 days that
-// somehow weren't trimmed by reconcile (e.g. the cycle file was
-// deleted manually, or a host crash left a ticket without its bell
-// counterpart). The sweep is age-based, not state-based, so it
-// belongs with the time-driven tick rather than the state-driven
-// reconciler.
+// Orphan tickets are records older than 30 days that somehow weren't
+// trimmed by reconcile (e.g. the cycle file was deleted manually,
+// or a host crash left a ticket without its bell counterpart). The
+// sweep is age-based, not state-based, so it belongs with the
+// time-driven tick rather than the state-driven reconciler.
 
 async function pruneOneTicket(rel: string, raw: string, now: Date, log: typeof defaultLog): Promise<void> {
-  let ticket: PendingClearTicket;
+  let ticket: Ticket;
   try {
-    ticket = JSON.parse(raw) as PendingClearTicket;
+    ticket = JSON.parse(raw) as Ticket;
   } catch {
     await unlink(rel);
     return;
@@ -162,10 +168,10 @@ async function pruneOneTicket(rel: string, raw: string, now: Date, log: typeof d
 }
 
 async function pruneOrphanTickets(now: Date, log: typeof defaultLog): Promise<void> {
-  const entries = await readDir(PENDING_CLEAR_DIRNAME);
+  const entries = await readDir(TICKETS_DIRNAME);
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
-    const rel = path.join(PENDING_CLEAR_DIRNAME, entry);
+    const rel = path.join(TICKETS_DIRNAME, entry);
     const raw = await readTextOrNull(rel);
     if (!raw) continue;
     await pruneOneTicket(rel, raw, now, log);

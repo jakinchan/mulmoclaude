@@ -3,7 +3,7 @@
 // Every state-mutating handler funnels through `reconcileCycleNotifications`,
 // and the time-driven tick walks all obligations through the same call. This
 // is the ONLY production code path that invokes `encoreNotifier.publish` /
-// `encoreNotifier.clear` and writes/unlinks pending-clear tickets — the one
+// `encoreNotifier.clear` and writes/unlinks tickets — the one
 // documented exception is `handleOrphanResolve` in dispatch.ts (recovery
 // path for a click that lost its ticket).
 //
@@ -25,10 +25,10 @@ import type { EncoreDsl, Severity, StepDef } from "../../src/types/encore-dsl/sc
 import { parseIndexFile } from "./obligation.js";
 import { buildCycleState, isStepSnoozed, parseCycleFile, serializeCycleFile, type CycleState, type TargetRecord } from "./cycle.js";
 import { isCycleClosed, isStepClosed } from "./closure.js";
-import { cycleFilePath, obligationDir, obligationIndexPath, pendingClearPath, PENDING_CLEAR_DIRNAME } from "./paths.js";
+import { cycleFilePath, obligationDir, obligationIndexPath, ticketPath, TICKETS_DIRNAME } from "./paths.js";
 import { exists, readDir, readTextOrNull, writeText, unlink } from "../utils/files/encore-io.js";
 import * as encoreNotifier from "./notifier.js";
-import type { PendingClearTicket } from "./tick.js";
+import type { Ticket } from "./tick.js";
 
 export interface ReconcileDeps {
   obligationId: string;
@@ -176,7 +176,7 @@ interface TicketSurvivor {
 async function trimOrEscalateTicket(
   dsl: EncoreDsl,
   state: CycleState,
-  ticket: PendingClearTicket,
+  ticket: Ticket,
   todayIso: string,
   nowIso: string,
   log: typeof defaultLog,
@@ -188,7 +188,7 @@ async function trimOrEscalateTicket(
     // clear failed, keep the ticket on disk so the next reconcile
     // retries — unlinking an un-cleared bell would orphan it.
     if (await safeClearBell(ticket.notificationId, "step removed", log)) {
-      await unlink(pendingClearPath(ticket.pendingId));
+      await unlink(ticketPath(ticket.pendingId));
     }
     return null;
   }
@@ -197,7 +197,7 @@ async function trimOrEscalateTicket(
 
   if (liveTargets.length === 0) {
     if (await safeClearBell(ticket.notificationId, "bundle drained", log)) {
-      await unlink(pendingClearPath(ticket.pendingId));
+      await unlink(ticketPath(ticket.pendingId));
     }
     return null;
   }
@@ -205,41 +205,22 @@ async function trimOrEscalateTicket(
   const phase = currentPhaseFor(stepDef, state, todayIso);
   const severityChanged = phase !== null && phase.severity !== ticket.severity;
   const targetsChanged = liveTargets.length !== ticket.targets.length;
+  // Ghost-ticket detection. The reconciler historically treated
+  // ticket-existence as proof of bell-existence, so a bell dismissed
+  // out-of-band by the host UI (or wiped by a crashed active.json)
+  // stayed gone until severity escalation or the 30-day orphan
+  // prune. Cross-checking the notifier here lets the next tick
+  // republish using the ticket's existing pendingId / seedPrompt /
+  // chatSessionId — the user sees the bell again, the chat
+  // continuity survives, and manual dismiss becomes a "see it next
+  // tick" gesture rather than an accidental silencer. `snooze` is
+  // still the explicit verb for time-bound silence.
+  const bellAlive = await encoreNotifier.bellExists(ticket.notificationId);
 
-  if (severityChanged) {
-    // Escalation. Clear the old bell entry and republish at the new
-    // severity with the trimmed bundle. If the clear failed, bail
-    // BEFORE publishing — otherwise the old bell would remain while
-    // we attach a fresh ticket to a new id, leaving a duplicate.
-    if (!(await safeClearBell(ticket.notificationId, "severity escalation", log))) {
-      log.warn("encore", "reconcile: skipping escalation; clear failed", {
-        pendingId: ticket.pendingId,
-        notificationId: ticket.notificationId,
-      });
-      return { targets: liveTargets };
-    }
-    const members = liveTargets.map((targetId) => ({ targetId }));
-    const title = bundleTitle(dsl, stepDef, members);
-    const body = bundleBody(dsl, stepDef, members);
-    const navigateTarget = encoreUrlFor(ticket.pendingId);
-    const { id: newId } = await encoreNotifier.publish({ severity: phase.severity, title, body, navigateTarget });
-    // Roll back the just-published bell entry if the ticket write
-    // fails — otherwise the bell would have no matching ticket and
-    // the next reconcile would see "un-fired" → publish a duplicate.
-    try {
-      await writeTicket({ ...ticket, notificationId: newId, severity: phase.severity, targets: liveTargets });
-    } catch (err) {
-      await safeClearBell(newId, "rollback: ticket write failed after escalation publish", log);
-      throw err;
-    }
-    log.info("encore", "reconcile: escalated", {
-      obligationId: dsl.id,
-      cycleId: state.cycleId,
-      stepId: stepDef.id,
-      from: ticket.severity,
-      to: phase.severity,
-      notificationId: newId,
-    });
+  if (severityChanged || !bellAlive) {
+    const reason = !bellAlive ? "ghost-ticket republish" : "severity escalation";
+    const newSeverity = phase?.severity ?? ticket.severity;
+    await clearAndRepublish({ dsl, state, ticket, stepDef, liveTargets, newSeverity, reason, bellAlive, log });
     return { targets: liveTargets };
   }
 
@@ -259,9 +240,67 @@ async function trimOrEscalateTicket(
   return { targets: liveTargets };
 }
 
-function dedupeTickets(tickets: PendingClearTicket[]): PendingClearTicket[] {
+/** Clear (if alive) and republish a ticket's bell with a fresh
+ *  notificationId. Used by both the severity-escalation path (bell
+ *  alive, new phase reached) and the ghost-ticket path (bell was
+ *  manually dismissed or wiped). Preserves the ticket's pendingId,
+ *  seedPrompt, createdAt, and chatSessionId — those are the chat-
+ *  continuity binding the user expects to survive.
+ *
+ *  Returns true on success, false if the alive-bell clear failed
+ *  (in which case the ticket is left as-is so a later reconcile
+ *  retries). A ghost clear can't fail meaningfully (the bell is
+ *  already gone) so we always proceed to publish in that case. */
+interface RepublishArgs {
+  dsl: EncoreDsl;
+  state: CycleState;
+  ticket: Ticket;
+  stepDef: StepDef;
+  liveTargets: string[];
+  newSeverity: Severity;
+  reason: string;
+  bellAlive: boolean;
+  log: typeof defaultLog;
+}
+
+async function clearAndRepublish(args: RepublishArgs): Promise<boolean> {
+  const { dsl, state, ticket, stepDef, liveTargets, newSeverity, reason, bellAlive, log } = args;
+  if (bellAlive && !(await safeClearBell(ticket.notificationId, reason, log))) {
+    log.warn("encore", "reconcile: skipping republish; clear failed", {
+      pendingId: ticket.pendingId,
+      notificationId: ticket.notificationId,
+      reason,
+    });
+    return false;
+  }
+  const members = liveTargets.map((targetId) => ({ targetId }));
+  const title = bundleTitle(dsl, stepDef, members);
+  const body = bundleBody(dsl, stepDef, members);
+  const navigateTarget = encoreUrlFor(ticket.pendingId);
+  const { id: newId } = await encoreNotifier.publish({ severity: newSeverity, title, body, navigateTarget });
+  // Roll back the just-published bell entry if the ticket write
+  // fails — otherwise the bell would have no matching ticket and
+  // the next reconcile would see "un-fired" → publish a duplicate.
+  try {
+    await writeTicket({ ...ticket, notificationId: newId, severity: newSeverity, targets: liveTargets });
+  } catch (err) {
+    await safeClearBell(newId, `rollback: ticket write failed after ${reason}`, log);
+    throw err;
+  }
+  log.info("encore", `reconcile: ${reason}`, {
+    obligationId: dsl.id,
+    cycleId: state.cycleId,
+    stepId: stepDef.id,
+    from: ticket.severity,
+    to: newSeverity,
+    notificationId: newId,
+  });
+  return true;
+}
+
+function dedupeTickets(tickets: Ticket[]): Ticket[] {
   const seen = new Set<string>();
-  const out: PendingClearTicket[] = [];
+  const out: Ticket[] = [];
   for (const ticket of tickets) {
     if (seen.has(ticket.pendingId)) continue;
     seen.add(ticket.pendingId);
@@ -330,7 +369,7 @@ async function fireGroup(dsl: EncoreDsl, state: CycleState, group: BundleGroup, 
   const title = bundleTitle(dsl, group.stepDef, group.members);
   const body = bundleBody(dsl, group.stepDef, group.members);
   const { id: notificationId } = await encoreNotifier.publish({ severity: group.severity, title, body, navigateTarget });
-  const ticket: PendingClearTicket = {
+  const ticket: Ticket = {
     pendingId,
     obligationId: dsl.id ?? "",
     cycleId: state.cycleId,
@@ -413,16 +452,16 @@ function slotFromCycleId(cadence: EncoreDsl["cadence"], cycleId: string): CycleS
 // ── clear-all helpers ─────────────────────────────────────────────
 
 async function clearAllForObligation(obligationId: string, reason: string, log: typeof defaultLog): Promise<void> {
-  const entries = await readDir(PENDING_CLEAR_DIRNAME);
+  const entries = await readDir(TICKETS_DIRNAME);
   let cleared = 0;
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
-    const rel = path.join(PENDING_CLEAR_DIRNAME, entry);
+    const rel = path.join(TICKETS_DIRNAME, entry);
     const raw = await readTextOrNull(rel);
     if (!raw) continue;
-    let ticket: PendingClearTicket;
+    let ticket: Ticket;
     try {
-      ticket = JSON.parse(raw) as PendingClearTicket;
+      ticket = JSON.parse(raw) as Ticket;
     } catch {
       continue;
     }
@@ -443,7 +482,7 @@ async function clearAllForCycle(obligationId: string, cycleId: string, reason: s
   let cleared = 0;
   for (const ticket of tickets) {
     if (await safeClearBell(ticket.notificationId, reason, log)) {
-      await unlink(pendingClearPath(ticket.pendingId));
+      await unlink(ticketPath(ticket.pendingId));
       cleared += 1;
     }
   }
@@ -562,19 +601,19 @@ function buildSeedPrompt(dsl: EncoreDsl, group: BundleGroup, pendingId: string, 
 
 // ── ticket I/O ────────────────────────────────────────────────────
 
-async function writeTicket(ticket: PendingClearTicket): Promise<void> {
-  await writeText(pendingClearPath(ticket.pendingId), JSON.stringify(ticket, null, 2));
+async function writeTicket(ticket: Ticket): Promise<void> {
+  await writeText(ticketPath(ticket.pendingId), JSON.stringify(ticket, null, 2));
 }
 
-async function ticketsForCycle(obligationId: string, cycleId: string): Promise<PendingClearTicket[]> {
-  const entries = await readDir(PENDING_CLEAR_DIRNAME);
-  const out: PendingClearTicket[] = [];
+async function ticketsForCycle(obligationId: string, cycleId: string): Promise<Ticket[]> {
+  const entries = await readDir(TICKETS_DIRNAME);
+  const out: Ticket[] = [];
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
-    const raw = await readTextOrNull(path.join(PENDING_CLEAR_DIRNAME, entry));
+    const raw = await readTextOrNull(path.join(TICKETS_DIRNAME, entry));
     if (!raw) continue;
     try {
-      const ticket = JSON.parse(raw) as PendingClearTicket;
+      const ticket = JSON.parse(raw) as Ticket;
       if (ticket.obligationId === obligationId && ticket.cycleId === cycleId) {
         out.push(ticket);
       }

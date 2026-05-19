@@ -8,7 +8,7 @@
 //
 // Per-test isolation:
 //   - `WORKSPACE_PATHS.encore` is redefined to a tmpdir so on-disk
-//     obligation/cycle/pending-clear files don't leak across cases.
+//     obligation/cycle/ticket files don't leak across cases.
 //   - The notifier engine is pointed at tmpdir paths via
 //     `_setFilePathsForTesting` so the bell writes go nowhere
 //     observable to the user.
@@ -219,7 +219,7 @@ describe("Encore dispatch — component tests", () => {
     const before = await listFor("encore");
     assert.equal(before.length, 1, "setup should publish one bell entry");
 
-    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/pending-clear");
+    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/tickets");
     const entries = await fsPromises.readdir(pendingDir);
     const ticket = JSON.parse(await fsPromises.readFile(path.join(pendingDir, entries[0]), "utf8")) as { pendingId: string };
 
@@ -253,7 +253,7 @@ describe("Encore dispatch — component tests", () => {
     const setup = (await dispatch({ kind: "setup", definition: hisayoDefinition })) as SetupResult;
     const { cycleId } = setup;
     if (!cycleId) throw new Error("setup should return cycleId");
-    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/pending-clear");
+    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/tickets");
     const initialPending = await fsPromises.readdir(pendingDir);
     const initialTicket = JSON.parse(await fsPromises.readFile(path.join(pendingDir, initialPending[0]), "utf8")) as { pendingId: string };
 
@@ -435,7 +435,7 @@ describe("Encore dispatch — component tests", () => {
     assert.equal(before.length, 1, "two targets must bundle into one bell entry");
 
     // Read the ticket — should list both targets.
-    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/pending-clear");
+    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/tickets");
     const entries = await fsPromises.readdir(pendingDir);
     const ticketRaw = await fsPromises.readFile(path.join(pendingDir, entries[0]), "utf8");
     const ticket = JSON.parse(ticketRaw) as { pendingId: string; targets: string[] };
@@ -484,7 +484,7 @@ describe("Encore dispatch — component tests", () => {
     const setup = (await dispatch({ kind: "setup", definition: hisayoDefinition })) as SetupResult;
     const { cycleId } = setup;
     if (!cycleId) throw new Error("setup should return cycleId");
-    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/pending-clear");
+    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/tickets");
     const entries = await fsPromises.readdir(pendingDir);
     const ticket = JSON.parse(await fsPromises.readFile(path.join(pendingDir, entries[0]), "utf8")) as { pendingId: string };
 
@@ -511,10 +511,10 @@ describe("Encore dispatch — component tests", () => {
 
   it("markStepDone closes the step and clears the bell", async () => {
     const setup = (await dispatch({ kind: "setup", definition: hisayoDefinition })) as SetupResult;
-    // After setup, the tick fired and a pending-clear ticket exists.
-    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/pending-clear");
+    // After setup, the tick fired and a ticket exists.
+    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/tickets");
     const entries = await fsPromises.readdir(pendingDir);
-    assert.equal(entries.length, 1, "expected one pending-clear ticket");
+    assert.equal(entries.length, 1, "expected one ticket");
     const ticketRaw = await fsPromises.readFile(path.join(pendingDir, entries[0]), "utf8");
     const ticket = JSON.parse(ticketRaw) as { pendingId: string; notificationId: string };
 
@@ -547,7 +547,7 @@ describe("Encore dispatch — component tests", () => {
     const setup = (await dispatch({ kind: "setup", definition: hisayoDefinition })) as SetupResult;
     const { cycleId } = setup;
     if (!cycleId) throw new Error("setup should return cycleId");
-    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/pending-clear");
+    const pendingDir = path.join(workspaceRoot, "data/plugins/encore/tickets");
     const initialEntries = await fsPromises.readdir(pendingDir);
     const initialTicket = JSON.parse(await fsPromises.readFile(path.join(pendingDir, initialEntries[0]), "utf8")) as { pendingId: string };
 

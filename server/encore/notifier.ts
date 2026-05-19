@@ -76,3 +76,16 @@ export async function publish(args: PublishArgs): Promise<{ id: string }> {
 export async function clear(entryId: string): Promise<void> {
   await engine.clearForPlugin(ENCORE_PLUGIN_PKG, entryId);
 }
+
+/** True iff a live bell with this id still exists in the notifier
+ *  AND belongs to Encore. Used by the reconciler to detect "ghost
+ *  tickets" — a ticket whose bell was dismissed out-of-band by the
+ *  host UI (or wiped by a crashed active.json) so that the next
+ *  tick republishes instead of trusting ticket-existence as proof
+ *  of bell-existence. Cross-plugin entries (theoretically
+ *  impossible since the notifier ids are namespaced, but defense
+ *  in depth) read as not-ours. */
+export async function bellExists(entryId: string): Promise<boolean> {
+  const entry = await engine.get(entryId);
+  return entry !== undefined && entry.pluginPkg === ENCORE_PLUGIN_PKG;
+}

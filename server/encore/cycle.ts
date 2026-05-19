@@ -13,9 +13,9 @@
 //   - `completedSteps[stepId]` — timestamp set by markStepDone
 //
 // Notification-bell tracking (`activeNotificationId`,
-// `lastPublishedSeverity`) lives in pending-clear tickets, NOT in
-// this file. One ticket = one live bell entry; the tick scans
-// `pending-clear/*.json` to know what's active.
+// `lastPublishedSeverity`) lives in tickets, NOT in this file.
+// One ticket = one live bell entry; the tick scans
+// `tickets/*.json` to know what's active.
 
 import { parseEncoreFrontmatter as parseFrontmatter, serializeEncoreFrontmatter as serializeWithFrontmatter } from "./yaml-fm.js";
 import type { EncoreDsl } from "../../src/types/encore-dsl/schema.js";

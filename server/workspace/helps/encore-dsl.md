@@ -150,10 +150,14 @@ This way the parameter shape carries the intent — no separate `kind: "setup" |
         "displayName": "Check in",
         "deadline": "cycle-deadline",
         "firingPlan": [{ "at": "cycle-start", "severity": "info" }],
-        "fields": []
+        "fields": ["note"]
       }
     ],
-    "formSchema": { "fields": [] }
+    "formSchema": {
+      "fields": [
+        { "name": "note", "type": "text", "label": "Notes", "required": false }
+      ]
+    }
   }
 }
 ```
@@ -161,6 +165,28 @@ This way the parameter shape carries the intent — no separate `kind: "setup" |
 Returns `{ ok: true, obligationId, cycleId, cyclePath, indexPath }`. Encore writes `obligations/<id>/index.md` plus the first cycle file and reconciles (so a `cycle-start` phase fires immediately).
 
 `dsl` is normally an **OBJECT** in the tool-call arguments. The handler also accepts a JSON-encoded string (it calls `JSON.parse` on the string before validating) so a `JSON.stringify`'d dsl won't error — but the object form is preferred.
+
+#### Obligation with nothing to record (placeholder field)
+
+The DSL requires **every obligation to have at least one formSchema field, and every formSchema field to be claimed by exactly one step.** For a "did I do it?" obligation that captures no real data, declare a single placeholder field (typical names: `note`, `done`, `time`) and claim it from your only step — exactly as the example above does.
+
+You **cannot** combine `step.fields: []` with `formSchema.fields: []` to opt out — `formSchema.fields` has `.min(1)` and `formSchema` is required. The LLM-trap to avoid:
+
+```json
+// ❌ FAILS: orphan field
+"steps": [{ "id": "shower", "fields": [], ... }],
+"formSchema": { "fields": [{ "name": "note", "type": "text", "label": "Notes" }] }
+
+// ❌ FAILS: empty array (formSchema.fields requires ≥1)
+"steps": [{ "id": "shower", "fields": [], ... }],
+"formSchema": { "fields": [] }
+
+// ✅ WORKS: placeholder claimed by the step
+"steps": [{ "id": "shower", "fields": ["note"], ... }],
+"formSchema": { "fields": [{ "name": "note", "type": "text", "label": "Notes", "required": false } ] }
+```
+
+If you hit "field X is not claimed by any step.fields[]", the fix is to **add** the field name to one step's `fields[]`, NOT to remove it from `formSchema`.
 
 ### setup — 409 collision behavior
 
@@ -185,6 +211,92 @@ For amend, only fill the fields you want to change — the server shallow-merges
 Cannot change `type` / `currency` / `cadence.type` — those are immutable. Path: retire the old obligation, create a new one.
 
 Encore clears active bell entries on amend and re-fires with the new title/text.
+
+#### Merge semantics — what "shallow merge at the top level" means
+
+Each top-level key you include is OVERWRITTEN whole on the stored DSL. Keys you omit are PRESERVED. There is no per-field merge inside an object or array — you're either replacing the whole top-level value or leaving it alone.
+
+| Top-level key | Type | What "amend it" means |
+|---|---|---|
+| `displayName`, `status`, `currency` (read-only via amend) | scalar | Replaced by the value you send. |
+| `cadence` | object | Replaced whole. Re-send all required cadence fields, except `cadence.type` (immutable). |
+| `targets` | array | Replaced whole. Send the FULL desired list — old entries you omit are gone. |
+| `steps` | array | Replaced whole. Same rule — old steps you omit are gone, and their per-step `firingPlan` goes with them. |
+| `formSchema` | object | Replaced whole. `formSchema.fields` (array) is part of that. |
+
+Note that there is NO deep-merge inside `targets[i]`, `steps[i]`, or `firingPlan[i]`. To change one step's `firingPlan`, you re-send the whole step (including the unchanged fields), inside the full `steps` array (including the unchanged steps).
+
+#### Worked example — add a target without losing the existing ones
+
+Existing DSL has `targets: [hisayo, kenta]`. To add `mei`, send the full new list:
+
+```json
+{
+  "kind": "defineEncore",
+  "obligationId": "daily-payment-hisayo",
+  "dsl": {
+    "targets": [
+      { "id": "hisayo", "displayName": "Hisayo" },
+      { "id": "kenta", "displayName": "Kenta" },
+      { "id": "mei", "displayName": "Mei" }
+    ]
+  }
+}
+```
+
+Sending only `{ targets: [{ id: "mei", ... }] }` would DROP hisayo and kenta — the array replaces whole, it does not append.
+
+#### Worked example — change one step's firingPlan without touching others
+
+Existing DSL has `steps: [pay, confirm]`, and you want to change `pay.firingPlan` only. Re-send the full steps array, with the full `pay` step (including the new `firingPlan`) and the full unchanged `confirm` step:
+
+```json
+{
+  "kind": "defineEncore",
+  "obligationId": "daily-payment-hisayo",
+  "dsl": {
+    "steps": [
+      {
+        "id": "pay",
+        "displayName": "Pay",
+        "deadline": "cycle-deadline",
+        "fields": ["amount"],
+        "firingPlan": [
+          { "at": "cycle-deadline-3d", "severity": "info" },
+          { "at": "cycle-deadline", "severity": "urgent" }
+        ]
+      },
+      {
+        "id": "confirm",
+        "displayName": "Confirm receipt",
+        "deadline": "cycle-deadline+1d",
+        "fields": [],
+        "firingPlan": [{ "at": "cycle-deadline+1d", "severity": "info" }]
+      }
+    ]
+  }
+}
+```
+
+You CANNOT send `{ steps: [{ id: "pay", firingPlan: [...] }] }` and expect the server to find the `pay` step and patch only its `firingPlan` — the whole `steps` array replaces, and `confirm` would be lost.
+
+#### Worked example — partial cadence update
+
+`cadence.type` is immutable, but its sibling fields (e.g. `day` on monthly, `dayOfWeek` on weekly, the `cycles` list on annual / biannual) are amendable. Re-send the full cadence object with the new value plus the unchanged `type`:
+
+```json
+{
+  "kind": "defineEncore",
+  "obligationId": "monthly-rent",
+  "dsl": { "cadence": { "type": "monthly", "day": 5 } }
+}
+```
+
+Sending `{ cadence: { day: 5 } }` (without `type`) will 400 with a Zod error — cadence is replaced whole, so the required discriminator field must be present.
+
+#### When NOT to use amend
+
+`type`, `currency` (for `type: "payment"`), and `cadence.type` are immutable — amend will 400. The path is retire-and-create: set `status: "retired"` (or `"paused"`) on the old obligation, then `defineEncore` (no `obligationId`) a new one with the desired type / currency / cadence-type. Bells on the old obligation clear automatically when status leaves `active`.
 
 ## manageEncore call shapes
 
