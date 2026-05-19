@@ -340,6 +340,9 @@ const enMessages = {
     parseError: "parse error",
     editJson: "Edit JSON",
     jsonEditorLabel: "JSON editor",
+    invalidJson: "Invalid JSON",
+    undo: "Undo",
+    redo: "Redo",
   },
   filesView: {
     chatPlaceholder: "Ask about this file…",

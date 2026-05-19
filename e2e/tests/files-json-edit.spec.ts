@@ -129,12 +129,14 @@ test.describe("Files Explorer — JSON inline editor (#833)", () => {
     await expect(page.getByTestId("files-json-edit-btn")).toBeVisible();
   });
 
-  test("invalid JSON: server 400 surfaces in the inline error banner, editor stays open", async ({ page }) => {
+  test("invalid JSON: Save is disabled client-side with an inline hint (no server round-trip)", async ({ page }) => {
+    let putCount = 0;
     await page.route(
       (url) => url.pathname === API_ROUTES.files.content,
       async (route, req) => {
         if (req.method() === "PUT") {
-          await route.fulfill({ status: 400, json: { error: "Invalid JSON: Unexpected end of JSON input" } });
+          putCount += 1;
+          await route.fulfill({ status: 400, json: { error: "should never be reached" } });
           return;
         }
         await route.fallback();
@@ -144,13 +146,39 @@ test.describe("Files Explorer — JSON inline editor (#833)", () => {
     await page.goto(`/files/${EDITABLE}`);
     await page.getByTestId("files-json-edit-btn").click();
     await setEditorContent(page, "{ broken");
-    await page.getByTestId("files-json-save-btn").click();
 
-    const banner = page.getByTestId("files-json-save-error");
-    await expect(banner).toBeVisible({ timeout: 5 * ONE_SECOND_MS });
-    await expect(banner).toContainText("Invalid JSON");
-    // Still in edit mode so the user can fix the value.
+    // Client guard: Save disabled + visible "Invalid JSON" hint, and
+    // the editor stays open so the user can fix it. The server check
+    // remains as defence in depth (covered by test_filesPutRoute.ts).
+    await expect(page.getByTestId("files-json-save-btn")).toBeDisabled();
+    await expect(page.getByTestId("files-json-invalid-hint")).toBeVisible();
     await expect(page.getByTestId("files-json-editor")).toBeVisible();
+
+    // Fixing the JSON re-enables Save (no PUT ever fired while invalid).
+    await setEditorContent(page, '{ "ok": true }');
+    await expect(page.getByTestId("files-json-save-btn")).toBeEnabled();
+    expect(putCount).toBe(0);
+  });
+
+  test("Undo / Redo buttons reflect history and round-trip an edit", async ({ page }) => {
+    await page.goto(`/files/${EDITABLE}`);
+    await page.getByTestId("files-json-edit-btn").click();
+
+    const undoBtn = page.getByTestId("files-json-undo-btn");
+    const redoBtn = page.getByTestId("files-json-redo-btn");
+    // Fresh editor: nothing to undo or redo.
+    await expect(undoBtn).toBeDisabled();
+    await expect(redoBtn).toBeDisabled();
+
+    await setEditorContent(page, '{ "edited": 1 }');
+    await expect(undoBtn).toBeEnabled();
+
+    await undoBtn.click();
+    await expect(page.getByTestId("files-json-editor")).not.toContainText('"edited"');
+    await expect(redoBtn).toBeEnabled();
+
+    await redoBtn.click();
+    await expect(page.getByTestId("files-json-editor")).toContainText('"edited"');
   });
 
   test("agent-managed JSON shows no Edit button", async ({ page }) => {

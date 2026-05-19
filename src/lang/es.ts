@@ -327,6 +327,9 @@ const esMessages = {
     parseError: "error al analizar",
     editJson: "Editar JSON",
     jsonEditorLabel: "Editor JSON",
+    invalidJson: "JSON no válido",
+    undo: "Deshacer",
+    redo: "Rehacer",
   },
   filesView: {
     chatPlaceholder: "Pregunta sobre este archivo…",

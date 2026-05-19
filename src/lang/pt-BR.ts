@@ -320,6 +320,9 @@ const ptBRMessages = {
     parseError: "erro de análise",
     editJson: "Editar JSON",
     jsonEditorLabel: "Editor JSON",
+    invalidJson: "JSON inválido",
+    undo: "Desfazer",
+    redo: "Refazer",
   },
   filesView: {
     chatPlaceholder: "Pergunte sobre este arquivo…",

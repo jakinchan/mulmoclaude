@@ -112,9 +112,14 @@
               >
                 {{ t("common.cancel") }}
               </button>
+              <span v-if="!jsonDraftValid" class="text-xs text-red-600 self-center" data-testid="files-json-invalid-hint">
+                {{ t("fileContentRenderer.invalidJson") }}
+              </span>
               <button
-                class="h-8 px-2.5 flex items-center gap-1 text-sm rounded bg-green-600 hover:bg-green-700 text-white"
+                class="h-8 px-2.5 flex items-center gap-1 text-sm rounded bg-green-600 hover:bg-green-700 text-white disabled:opacity-40 disabled:cursor-not-allowed"
                 data-testid="files-json-save-btn"
+                :disabled="!jsonDraftValid"
+                :title="jsonDraftValid ? undefined : t('fileContentRenderer.invalidJson')"
                 @click="saveJsonEdit"
               >
                 <span class="material-icons text-sm">save</span>
@@ -245,6 +250,18 @@ const jsonEditing = ref(false);
 const jsonDraft = ref("");
 
 const jsonEditable = computed(() => props.isJson && props.selectedPath !== null && props.content?.kind === "text" && jsonEditableByPolicy(props.selectedPath));
+
+// Client-side guard: block Save when the draft isn't valid JSON, so
+// the user gets immediate feedback instead of a server round-trip
+// ending in a 400. The server check stays as defence in depth.
+const jsonDraftValid = computed(() => {
+  try {
+    JSON.parse(jsonDraft.value);
+    return true;
+  } catch {
+    return false;
+  }
+});
 
 function startJsonEdit(): void {
   if (props.content?.kind !== "text") return;

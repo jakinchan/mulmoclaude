@@ -323,6 +323,9 @@ const jaMessages = {
     parseError: "パースエラー",
     editJson: "JSON を編集",
     jsonEditorLabel: "JSON エディタ",
+    invalidJson: "不正な JSON",
+    undo: "元に戻す",
+    redo: "やり直し",
   },
   filesView: {
     chatPlaceholder: "このファイルについて質問…",

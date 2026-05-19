@@ -325,6 +325,9 @@ const koMessages = {
     parseError: "파싱 오류",
     editJson: "JSON 편집",
     jsonEditorLabel: "JSON 편집기",
+    invalidJson: "잘못된 JSON",
+    undo: "실행 취소",
+    redo: "다시 실행",
   },
   filesView: {
     chatPlaceholder: "이 파일에 대해 질문하세요…",
