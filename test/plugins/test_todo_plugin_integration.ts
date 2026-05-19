@@ -638,6 +638,26 @@ describe("Todo plugin — priority-alert notifications", () => {
     assert.equal(after[0].title, beforeEntry.title, "idempotent reconcile must not rewrite the title");
   });
 
+  it("oversize note is clamped to the engine's body cap (no silent validation rejection)", async (ctx) => {
+    if (!existsSync(PLUGIN_DIST_INDEX)) {
+      ctx.skip("dist not built");
+      return;
+    }
+    // Regression for the Codex CHANGES REQUESTED finding: the engine
+    // rejects publish/update patches with body > 4000 chars by
+    // silently no-op'ing the update (no throw, no event). Without a
+    // plugin-side clamp, `safeUpdate` would falsely report success
+    // and the ticket would lie about being in sync. We clamp body
+    // to `BODY_MAX` in `buildBody` so this validation case can
+    // never fire — see priority-notifier.ts.
+    const plugin = await load();
+    const oversize = "x".repeat(5000);
+    await plugin.execute({}, { kind: "itemCreate", text: "Big note", note: oversize, priority: "urgent" });
+    const entries = await notifierEngine.listFor(PKG_NAME);
+    assert.equal(entries.length, 1, "publish must succeed on an oversized note (clamped)");
+    assert.ok((entries[0].body ?? "").length <= 4000, `body must be at or under engine bodyMax; got ${(entries[0].body ?? "").length}`);
+  });
+
   it("removing the note from an alerting todo clears the bell's body", async (ctx) => {
     if (!existsSync(PLUGIN_DIST_INDEX)) {
       ctx.skip("dist not built");

@@ -81,6 +81,14 @@ export interface PriorityNotifierApi {
 const PLUGIN_DATA_KIND = "todo-priority" as const;
 const NAVIGATE_TARGET = "/todos";
 const TITLE_MAX = 60;
+// Matches the host notifier engine's `bodyMax` cap. Clamping in the
+// plugin (rather than letting publish/update reject) means
+// `safeUpdate` / `safePublish` can't be tricked into committing a
+// ticket-as-synced for a patch the engine silently no-op'd — the
+// only remaining engine no-op case is unknown id (ghost bell), and
+// that's the accepted limitation documented in the file header.
+// Codex CHANGES REQUESTED on PR #1451.
+const BODY_MAX = 4000;
 const TICKETS_FILE = "urgent-tickets.json";
 
 // ── Ticket store (the plugin's own source of truth) ───────────────
@@ -185,11 +193,16 @@ function buildTitle(item: TodoItem): string {
 // to push. Empty body renders identically to no body in the bell
 // UI's v-if templates, so this is a presentation-equivalent
 // representation we can compare and persist without ambiguity.
+//
+// Output is clamped to `BODY_MAX` so the engine's publish/update
+// validation can never reject for body length — see the BODY_MAX
+// rationale above.
 function buildBody(item: TodoItem): string {
   const note = item.note?.trim();
-  if (note) return note;
-  if (item.dueDate) return `Due ${item.dueDate}`;
-  return "";
+  let body = "";
+  if (note) body = note;
+  else if (item.dueDate) body = `Due ${item.dueDate}`;
+  return body.length <= BODY_MAX ? body : `${body.slice(0, BODY_MAX - 1)}…`;
 }
 
 // ── Reconcile (the IO-bound entry point) ──────────────────────────
@@ -226,6 +239,21 @@ async function safeUpdate(
 ): Promise<boolean> {
   try {
     await notifier.update(notificationId, patch);
+    // `notifier.update` is silent on three engine-level no-ops:
+    //   1. unknown id (ghost bell — user dismissed via UI),
+    //   2. cross-plugin id (structurally impossible here — every id
+    //      we hold came from our own `notifier.publish`),
+    //   3. merged-shape validation failure (engine's
+    //      `validatePublishInput` rejects it).
+    // (1) is the documented ghost-bell limitation: we can't detect
+    // it without `engine.get` and we don't ship that on the
+    // runtime API. (2) can't happen by construction. (3) cannot
+    // happen either: title is clamped to TITLE_MAX, body to
+    // BODY_MAX, severity is always urgent/nudge, navigateTarget
+    // is the constant "/todos", and lifecycle is action — every
+    // field is constructed to pass validation. So a non-throwing
+    // call means the bell was updated (or it was a ghost-bell
+    // no-op which we accept).
     return true;
   } catch (err) {
     // Caller MUST consult the return value — committing a ticket
