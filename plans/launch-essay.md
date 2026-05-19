@@ -1,8 +1,8 @@
 # How AI-Native Applications Should Be Built
 
-The idea that AI is going to reshape application software is no longer controversial. Every conference keynote, every VC essay, every product roadmap agrees that the way users interact with business software is changing. The trade press has names for it — "the end of SaaS," "agent-first," "AI-native." But naming a thing is not the same as designing it. If you sit down today to build an AI-native application, the literature has remarkably little to say about what the architecture should look like, how the user should experience it, or what the contract between the agent and the screen should be.
+The idea that AI is going to reshape application software is no longer controversial. Every conference keynote, every VC essay, every product roadmap agrees that the way users interact with business software is changing. The trade press has names for it — "the end of SaaS," "agent-first," "AI-native." But naming a thing is not the same as designing it. If you sit down today to build an AI-native application, the literature has remarkably little to say about what the architecture should look like, how the user should experience it, or what the contract between the agent and the screen should be. MulmoClaude is an attempt to answer those questions in code.
 
-This essay is an attempt to answer those questions concretely, by describing a working application — MulmoClaude — that was built from scratch on a specific set of architectural commitments. It is not a thought experiment. The code is open-source under MIT, it runs on your laptop, and you can install it with one command. What follows is the design, and the reasoning behind it.
+It was built from scratch on a specific set of architectural commitments, not as a thought experiment. The code is open-source under MIT, it runs on your laptop, and you can install it with one command. What follows is the design, and the reasoning behind it.
 
 ## Three layers
 
@@ -20,7 +20,7 @@ The LLM-as-controller dissolves that boundary. In MulmoClaude, the agent does no
 
 This is what makes the LLM a **universal controller**, not just another controller. The unit of software the user interacts with is no longer the application. The unit is the agent, and the applications dissolve into the registry of plugins it composes across.
 
-### 2. The agent's interface is multi-modal — in both directions
+### 2. Chat summons GUIs
 
 When most products say "AI-native UX," what they mean is that *the user* types into a chatbox instead of clicking buttons. That is barely half of it. In an AI-native application, the interface is multi-modal in **both** directions: the agent picks the right format for what it sends *to* the user, and the right format for what it asks *from* the user.
 
@@ -28,7 +28,7 @@ When most products say "AI-native UX," what they mean is that *the user* types i
 
 **What the agent asks for.** The same logic runs in reverse. Sometimes a free-text reply is the right thing to ask for ("what did you mean by 'last week'?"). Often it is not. If the user says "I want to add a new recurring obligation," the agent does not have to extract six fields out of a back-and-forth conversation. It can invoke the `presentForm` plugin and ask the user to fill in a form with exactly the right shape — frequency, due date, category, amount. The form returns structured data the agent can act on directly. Chat is the default input modality, but the agent can choose a better one when the task demands it.
 
-This is what we mean by "chat summons GUIs": within chat, the input line is an address bar, and what arrives is whatever the content demands — sometimes prose, sometimes a chart, sometimes a form for the user to fill in. The GUI is not "the app." The GUI is what the agent renders when text is not the right modality, in either direction.
+This is what "chat summons GUIs" means in practice: within chat, the input line is an address bar, and what arrives is whatever the content demands — sometimes prose, sometimes a chart, sometimes a form for the user to fill in. The GUI is not "the app." The GUI is what the agent renders when text is not the right modality, in either direction.
 
 ### 3. The protocol is open — and it extends existing standards
 
@@ -62,7 +62,7 @@ This is the pattern for any application whose core is a precise, structured arti
 
 Look at what traditional SaaS calls a "premium" or "enterprise" feature. Multi-format export. PDF and PowerPoint reports. Spreadsheet downloads. BI dashboards. Cross-app workflow automation. Each of these costs the vendor real integration work — a reporting module, a Zapier connector, an export endpoint, a partnership with a chart library. And each of these is what the vendor charges money for. On a typical SaaS pricing page, the upcharge tier is almost always the integration tier.
 
-In an AI-native architecture, these are not features. They are what happens when a universal controller composes plugins. When the user says "give me a chart of Q1 revenue by category," the agent reads from the accounting plugin and writes to the chart plugin. When the user says "draft a one-page summary for the board," it reads from the accounting plugin and writes to the markdown plugin. When the user says "export this quarter as a spreadsheet I can hand to the CPA," it reads from the accounting plugin and writes to the spreadsheet plugin. When the user says "pull what we agreed with this vendor and turn it into a recurring obligation," it reads from the wiki plugin and writes to Encore.
+In an AI-native architecture, these are not features. They are what happens when a universal controller composes plugins. When the user says "give me a chart of Q1 revenue by category," the agent reads from the accounting plugin and writes to the chart plugin. When the user says "export this quarter as a spreadsheet I can hand to the CPA," it reads from the accounting plugin and writes to the spreadsheet plugin. When the user says "pull what we agreed with this vendor and turn it into a recurring obligation," it reads from the wiki plugin and writes to Encore.
 
 In each case the work happens in a single sentence, with no vendor contract, no integration code, no upgrade tier. Composition is first-class because plugins are MCP tools, and MCP tools compose. What used to be a premium SKU collapses into the default mode of operation.
 
@@ -74,7 +74,7 @@ MulmoClaude is MIT-licensed and open-source. Installation is one command: `npx m
 
 The thing to take away is not "use MulmoClaude." Most readers won't, and that is fine. The thing to take away is: this design is real, it works, and the three commitments above are achievable today. If you are building business software in 2026, you are going to have to decide whether your application is a traditional one with AI features bolted on, or a genuinely AI-native one. That decision has architectural consequences. The earlier you make it, the easier the rest of the design becomes.
 
-The funeral for SaaS has been going on for two years. The interesting work is at the architecture review.
+AI will not eliminate software. It will reorganize it. The interesting work is at the architecture review.
 
 — Satoshi Nakajima
 github.com/receptron/mulmoclaude · `npx mulmoclaude`
