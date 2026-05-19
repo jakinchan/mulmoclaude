@@ -4,7 +4,7 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInput } from "@codemirror/language";
@@ -25,6 +25,10 @@ let view: EditorView | null = null;
 // True only while we're pushing an external modelValue into the view,
 // so the resulting update doesn't echo back as an emit (feedback loop).
 let applyingExternal = false;
+// Holds the aria-label content attribute so it can be hot-swapped via
+// reconfigure when the locale (and thus editorLabel) changes while the
+// editor is open — parity with the old reactive `:aria-label`.
+const labelCompartment = new Compartment();
 
 function createState(doc: string): EditorState {
   return EditorState.create({
@@ -43,8 +47,9 @@ function createState(doc: string): EditorState {
       linter(jsonParseLinter()),
       lintGutter(),
       // Accessible name for the contenteditable (a11y; mirrors the
-      // old <textarea aria-label>).
-      EditorView.contentAttributes.of({ "aria-label": props.editorLabel }),
+      // old <textarea aria-label>). In a Compartment so a locale
+      // change can reconfigure it live.
+      labelCompartment.of(EditorView.contentAttributes.of({ "aria-label": props.editorLabel })),
       EditorView.theme({
         "&": { fontSize: "12px" },
         ".cm-content": { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" },
@@ -74,6 +79,15 @@ watch(
     applyingExternal = true;
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
     applyingExternal = false;
+  },
+);
+
+// Locale can change while the editor is open — keep the accessible
+// name in sync (parity with the old reactive `<textarea :aria-label>`).
+watch(
+  () => props.editorLabel,
+  (label) => {
+    view?.dispatch({ effects: labelCompartment.reconfigure(EditorView.contentAttributes.of({ "aria-label": label })) });
   },
 );
 
