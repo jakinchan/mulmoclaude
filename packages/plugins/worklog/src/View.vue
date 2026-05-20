@@ -686,7 +686,7 @@ async function saveEditCommitted(id: string) {
 }
 
 async function deleteCommitted(id: string) {
-  if (confirm("Are you sure you want to delete this worklog entry?")) {
+  if (confirm(t.value.confirmDelete)) {
     const result = await dispatch<RefreshResponse>({
       kind: "committedDelete",
       id,

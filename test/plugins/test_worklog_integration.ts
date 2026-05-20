@@ -42,6 +42,7 @@ interface WorklogActionResult {
   message?: string;
   jsonData?: Record<string, any>;
   data?: Record<string, any>;
+  instructions?: string;
 }
 
 describe("Worklog plugin — end-to-end integration through the loader", () => {
@@ -202,12 +203,15 @@ describe("Worklog plugin — end-to-end integration through the loader", () => {
       runtimeFactory: (pkgName) => makePluginRuntime({ pkgName, pubsub, locale: "en", taskManager: createTaskManager() }),
     });
 
-    assert.ok(plugin?.execute);
+    if (!plugin || !plugin.execute) {
+      throw new Error("Plugin failed to load or execute method is missing");
+    }
+    const execute = plugin.execute;
 
     // Launch multiple create requests concurrently.
     const CONCURRENCY = 5;
     const promises = Array.from({ length: CONCURRENCY }, (_, i) =>
-      plugin.execute(
+      execute(
         {},
         {
           action: "create",

@@ -27,4 +27,5 @@ export default {
   manual: "Manuell",
   editingEntry: "Eintrag bearbeiten",
   approvingEntry: "Eintrag genehmigen",
+  confirmDelete: "Sind Sie sicher, dass Sie diesen Arbeitsprotokolleintrag löschen möchten?",
 };

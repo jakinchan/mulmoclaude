@@ -27,4 +27,5 @@ export default {
   manual: "수동",
   editingEntry: "로그 편집",
   approvingEntry: "로그 승인",
+  confirmDelete: "이 작업 로그 항목을 삭제하시겠습니까?",
 };

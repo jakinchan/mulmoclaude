@@ -27,4 +27,5 @@ export default {
   manual: "Manual",
   editingEntry: "Editing Entry",
   approvingEntry: "Approving Entry",
+  confirmDelete: "Are you sure you want to delete this worklog entry?",
 };

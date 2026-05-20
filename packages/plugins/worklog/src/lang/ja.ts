@@ -27,4 +27,5 @@ export default {
   manual: "手動",
   editingEntry: "エントリーの編集",
   approvingEntry: "エントリーの承認",
+  confirmDelete: "この業務ログエントリーを削除してもよろしいですか？",
 };

@@ -86,14 +86,28 @@ function getStartOfWeek(offsetWeeks = 0): Date {
 }
 
 const thisWeekHours = computed(() => {
-  const start = getStartOfWeek(0).toISOString();
-  const end = getStartOfWeek(1).toISOString();
-  return committed.value.filter((e) => e.startTime >= start && e.startTime < end).reduce((sum, e) => sum + e.duration, 0) / 3600;
+  const start = getStartOfWeek(0).getTime();
+  const end = getStartOfWeek(1).getTime();
+  return (
+    committed.value
+      .filter((e) => {
+        const t = new Date(e.startTime).getTime();
+        return !isNaN(t) && t >= start && t < end;
+      })
+      .reduce((sum, e) => sum + e.duration, 0) / 3600
+  );
 });
 
 const lastWeekHours = computed(() => {
-  const start = getStartOfWeek(-1).toISOString();
-  const end = getStartOfWeek(0).toISOString();
-  return committed.value.filter((e) => e.startTime >= start && e.startTime < end).reduce((sum, e) => sum + e.duration, 0) / 3600;
+  const start = getStartOfWeek(-1).getTime();
+  const end = getStartOfWeek(0).getTime();
+  return (
+    committed.value
+      .filter((e) => {
+        const t = new Date(e.startTime).getTime();
+        return !isNaN(t) && t >= start && t < end;
+      })
+      .reduce((sum, e) => sum + e.duration, 0) / 3600
+  );
 });
 </script>

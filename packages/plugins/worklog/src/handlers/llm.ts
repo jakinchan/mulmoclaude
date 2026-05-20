@@ -142,12 +142,30 @@ export async function handleList(files: FileOps, input: LlmActionInput): Promise
 
   if (range) {
     if (range.from) {
-      const fromLimit = range.from;
-      entries = entries.filter((e) => e.startTime >= fromLimit);
+      let fromStr = range.from;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(fromStr)) {
+        fromStr = `${fromStr}T00:00:00.000Z`;
+      }
+      const fromTime = new Date(fromStr).getTime();
+      if (!isNaN(fromTime)) {
+        entries = entries.filter((e) => {
+          const t = new Date(e.startTime).getTime();
+          return !isNaN(t) && t >= fromTime;
+        });
+      }
     }
     if (range.to) {
-      const toLimit = range.to;
-      entries = entries.filter((e) => e.startTime <= toLimit);
+      let toStr = range.to;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(toStr)) {
+        toStr = `${toStr}T23:59:59.999Z`;
+      }
+      const toTime = new Date(toStr).getTime();
+      if (!isNaN(toTime)) {
+        entries = entries.filter((e) => {
+          const t = new Date(e.startTime).getTime();
+          return !isNaN(t) && t <= toTime;
+        });
+      }
     }
   }
 

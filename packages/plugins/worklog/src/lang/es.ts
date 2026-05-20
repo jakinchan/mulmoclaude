@@ -27,4 +27,5 @@ export default {
   manual: "Manual",
   editingEntry: "Editar Registro",
   approvingEntry: "Aprobar Registro",
+  confirmDelete: "¿Está seguro de que desea eliminar este registro de trabajo?",
 };

@@ -27,4 +27,5 @@ export default {
   manual: "手动",
   editingEntry: "编辑记录",
   approvingEntry: "批准记录",
+  confirmDelete: "您确定要删除此工作日志记录吗？",
 };

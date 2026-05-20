@@ -27,4 +27,5 @@ export default {
   manual: "Manuel",
   editingEntry: "Modifier l'Entrée",
   approvingEntry: "Approuver l'Entrée",
+  confirmDelete: "Êtes-vous sûr de vouloir supprimer cette entrée du registre de travail ?",
 };
