@@ -1,13 +1,6 @@
 import type { FileOps } from "gui-chat-protocol";
 import type { WorklogEntry, CandidateEntry } from "../types";
-import {
-  loadAllCommittedEntries,
-  appendCommittedEntries,
-  loadAllCandidates,
-  saveCandidate,
-  deleteCandidate,
-  resolveWorklogEntries,
-} from "../io";
+import { loadAllCommittedEntries, appendCommittedEntries, loadAllCandidates, saveCandidate, deleteCandidate, resolveWorklogEntries } from "../io";
 
 export interface LlmActionInput {
   clientId?: string;
@@ -206,7 +199,7 @@ export async function handleEdit(files: FileOps, input: LlmActionInput): Promise
   const newEntry: WorklogEntry = {
     id: nextId,
     clientId: clientId ?? oldEntry.clientId,
-    projectId: projectId !== undefined ? (projectId || undefined) : oldEntry.projectId,
+    projectId: projectId !== undefined ? projectId || undefined : oldEntry.projectId,
     startTime: finalStartTime,
     endTime: finalEndTime,
     duration,

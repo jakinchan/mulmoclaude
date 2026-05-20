@@ -1,21 +1,8 @@
 import { definePlugin } from "gui-chat-protocol";
 import { TOOL_DEFINITION } from "./definition";
 import { WriteMutex } from "./lock";
-import {
-  loadAllCommittedEntries,
-  loadAllCandidates,
-  resolveWorklogEntries,
-  saveCandidate,
-  deleteCandidate,
-} from "./io";
-import {
-  handleCreate,
-  handleApprove,
-  handleList,
-  handleEdit,
-  handleDelete,
-  type LlmActionInput,
-} from "./handlers/llm";
+import { loadAllCommittedEntries, loadAllCandidates, resolveWorklogEntries, saveCandidate, deleteCandidate } from "./io";
+import { handleCreate, handleApprove, handleList, handleEdit, handleDelete, type LlmActionInput } from "./handlers/llm";
 import type { WorklogEntry, CandidateEntry } from "./types";
 
 export { TOOL_DEFINITION };
@@ -37,21 +24,11 @@ interface LlmArgs extends LlmActionInput {
 }
 
 function isLlmArgs(value: unknown): value is LlmArgs {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "action" in value &&
-    typeof (value as { action: unknown }).action === "string"
-  );
+  return typeof value === "object" && value !== null && "action" in value && typeof (value as { action: unknown }).action === "string";
 }
 
 function isUiArgs(value: unknown): value is UiArgs {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "kind" in value &&
-    typeof (value as { kind: unknown }).kind === "string"
-  );
+  return typeof value === "object" && value !== null && "kind" in value && typeof (value as { kind: unknown }).kind === "string";
 }
 
 export default definePlugin((runtime) => {
@@ -138,10 +115,7 @@ export default definePlugin((runtime) => {
 
     switch (args.kind) {
       case "listAll": {
-        const [rawCommitted, candidates] = await Promise.all([
-          loadAllCommittedEntries(files.data),
-          loadAllCandidates(files.data),
-        ]);
+        const [rawCommitted, candidates] = await Promise.all([loadAllCommittedEntries(files.data), loadAllCandidates(files.data)]);
         const committed = resolveWorklogEntries(rawCommitted);
         return { data: { committed, candidates } };
       }
@@ -151,10 +125,7 @@ export default definePlugin((runtime) => {
           const { candidate } = args;
           await saveCandidate(files.data, candidate);
           pubsub.publish("changed", { reason: "candidate-save" });
-          const [rawCommitted, candidates] = await Promise.all([
-            loadAllCommittedEntries(files.data),
-            loadAllCandidates(files.data),
-          ]);
+          const [rawCommitted, candidates] = await Promise.all([loadAllCommittedEntries(files.data), loadAllCandidates(files.data)]);
           return { data: { committed: resolveWorklogEntries(rawCommitted), candidates } };
         });
       }
@@ -164,10 +135,7 @@ export default definePlugin((runtime) => {
           const { id } = args;
           await deleteCandidate(files.data, id);
           pubsub.publish("changed", { reason: "candidate-delete" });
-          const [rawCommitted, candidates] = await Promise.all([
-            loadAllCommittedEntries(files.data),
-            loadAllCandidates(files.data),
-          ]);
+          const [rawCommitted, candidates] = await Promise.all([loadAllCommittedEntries(files.data), loadAllCandidates(files.data)]);
           return { data: { committed: resolveWorklogEntries(rawCommitted), candidates } };
         });
       }
@@ -178,10 +146,7 @@ export default definePlugin((runtime) => {
           const res = await handleApprove(files.data, { candidateId: id });
           if (res.kind === "error") return { error: res.error, status: res.status };
           pubsub.publish("changed", { reason: "candidate-approve" });
-          const [rawCommitted, candidates] = await Promise.all([
-            loadAllCommittedEntries(files.data),
-            loadAllCandidates(files.data),
-          ]);
+          const [rawCommitted, candidates] = await Promise.all([loadAllCommittedEntries(files.data), loadAllCandidates(files.data)]);
           return { data: { committed: resolveWorklogEntries(rawCommitted), candidates } };
         });
       }
@@ -200,10 +165,7 @@ export default definePlugin((runtime) => {
           });
           if (res.kind === "error") return { error: res.error, status: res.status };
           pubsub.publish("changed", { reason: "committed-edit" });
-          const [rawCommitted, candidates] = await Promise.all([
-            loadAllCommittedEntries(files.data),
-            loadAllCandidates(files.data),
-          ]);
+          const [rawCommitted, candidates] = await Promise.all([loadAllCommittedEntries(files.data), loadAllCandidates(files.data)]);
           return { data: { committed: resolveWorklogEntries(rawCommitted), candidates } };
         });
       }
@@ -214,10 +176,7 @@ export default definePlugin((runtime) => {
           const res = await handleDelete(files.data, { worklogId: id });
           if (res.kind === "error") return { error: res.error, status: res.status };
           pubsub.publish("changed", { reason: "committed-delete" });
-          const [rawCommitted, candidates] = await Promise.all([
-            loadAllCommittedEntries(files.data),
-            loadAllCandidates(files.data),
-          ]);
+          const [rawCommitted, candidates] = await Promise.all([loadAllCommittedEntries(files.data), loadAllCandidates(files.data)]);
           return { data: { committed: resolveWorklogEntries(rawCommitted), candidates } };
         });
       }

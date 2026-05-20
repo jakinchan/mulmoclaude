@@ -1,10 +1,5 @@
 import type { FileOps } from "gui-chat-protocol";
-import {
-  type WorklogEntry,
-  type CandidateEntry,
-  WorklogEntrySchema,
-  CandidateEntrySchema,
-} from "./types";
+import { type WorklogEntry, type CandidateEntry, WorklogEntrySchema, CandidateEntrySchema } from "./types";
 
 /**
  * Reads and parses a monthly append-only JSONL file.

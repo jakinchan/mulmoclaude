@@ -5,7 +5,7 @@ export const WorklogEntrySchema = z.object({
   clientId: z.string(),
   projectId: z.string().optional(),
   startTime: z.string(), // ISO string with offset
-  endTime: z.string(),   // ISO string with offset
+  endTime: z.string(), // ISO string with offset
   duration: z.number().int().nonnegative(), // seconds
   billable: z.boolean().default(true),
   source: z.enum(["manual", "claude-session", "git", "document", "calendar"]).default("manual"),

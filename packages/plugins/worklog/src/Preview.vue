@@ -1,51 +1,20 @@
 <template>
-  <div class="p-3 text-sm flex flex-col gap-3 font-sans">
-    <!-- Header with badge if there are pending candidates -->
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-1.5 font-semibold text-gray-700 dark:text-gray-200">
-        <span aria-hidden="true" class="text-base text-indigo-500">⏱️</span>
-        <span>{{ t.title }}</span>
+  <div class="p-2 text-xs font-sans text-slate-800">
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <!-- Left side: Stats -->
+      <div class="flex items-center gap-1.5 flex-wrap">
+        <span
+          >{{ t.currWeek }}: <strong class="font-extrabold text-slate-950">{{ thisWeekHours.toFixed(1) }}h</strong></span
+        >
+        <span class="text-slate-300">|</span>
+        <span
+          >{{ t.prevWeek }}: <strong class="font-extrabold text-slate-950">{{ lastWeekHours.toFixed(1) }}h</strong></span
+        >
       </div>
-      <span
-        v-if="candidates.length > 0"
-        class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 animate-pulse"
-      >
-        {{ candidates.length }} {{ t.reviewBoard }}
-      </span>
-    </div>
-
-    <!-- Comparative stats bar chart -->
-    <div class="flex flex-col gap-2 bg-gray-50 dark:bg-gray-800/40 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800">
-      <div class="text-[11px] text-gray-400 font-medium uppercase tracking-wider">
-        {{ t.weekVsLastWeek }}
-      </div>
-
-      <!-- This Week -->
-      <div class="flex flex-col gap-1 mt-1">
-        <div class="flex justify-between text-xs font-medium text-gray-600 dark:text-gray-300">
-          <span>{{ t.currWeek }}</span>
-          <span class="font-bold text-indigo-600 dark:text-indigo-400">{{ thisWeekHours.toFixed(1) }}h</span>
-        </div>
-        <div class="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-          <div
-            class="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 dark:from-indigo-400 dark:to-indigo-500 rounded-full transition-all duration-500"
-            :style="{ width: `${thisWeekPercent}%` }"
-          ></div>
-        </div>
-      </div>
-
-      <!-- Last Week -->
-      <div class="flex flex-col gap-1 mt-2">
-        <div class="flex justify-between text-xs font-medium text-gray-500 dark:text-gray-400">
-          <span>{{ t.prevWeek }}</span>
-          <span class="font-bold text-gray-700 dark:text-gray-300">{{ lastWeekHours.toFixed(1) }}h</span>
-        </div>
-        <div class="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-          <div
-            class="h-full bg-gray-400 dark:bg-gray-500 rounded-full transition-all duration-500"
-            :style="{ width: `${lastWeekPercent}%` }"
-          ></div>
-        </div>
+      <!-- Right side: Review Board Alert -->
+      <div v-if="candidates.length > 0" class="flex items-center gap-1 shrink-0">
+        <span class="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" aria-hidden="true"></span>
+        <span class="font-bold text-amber-700"> {{ candidates.length }} {{ t.reviewBoard }} </span>
       </div>
     </div>
   </div>
@@ -110,7 +79,7 @@ function getStartOfWeek(offsetWeeks = 0): Date {
   const d = new Date();
   const day = d.getDay();
   // Adjust Monday as day 1, Sunday as day 7
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1) + (offsetWeeks * 7);
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1) + offsetWeeks * 7;
   const start = new Date(d.setDate(diff));
   start.setHours(0, 0, 0, 0);
   return start;
@@ -119,27 +88,12 @@ function getStartOfWeek(offsetWeeks = 0): Date {
 const thisWeekHours = computed(() => {
   const start = getStartOfWeek(0).toISOString();
   const end = getStartOfWeek(1).toISOString();
-  return committed.value
-    .filter((e) => e.startTime >= start && e.startTime < end)
-    .reduce((sum, e) => sum + e.duration, 0) / 3600;
+  return committed.value.filter((e) => e.startTime >= start && e.startTime < end).reduce((sum, e) => sum + e.duration, 0) / 3600;
 });
 
 const lastWeekHours = computed(() => {
   const start = getStartOfWeek(-1).toISOString();
   const end = getStartOfWeek(0).toISOString();
-  return committed.value
-    .filter((e) => e.startTime >= start && e.startTime < end)
-    .reduce((sum, e) => sum + e.duration, 0) / 3600;
-});
-
-// Relative percentage for bar visualization (max out at 40 hours standard)
-const thisWeekPercent = computed(() => {
-  const target = 40;
-  return Math.min(100, Math.max(5, (thisWeekHours.value / target) * 100));
-});
-
-const lastWeekPercent = computed(() => {
-  const target = 40;
-  return Math.min(100, Math.max(5, (lastWeekHours.value / target) * 100));
+  return committed.value.filter((e) => e.startTime >= start && e.startTime < end).reduce((sum, e) => sum + e.duration, 0) / 3600;
 });
 </script>

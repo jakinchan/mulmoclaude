@@ -103,12 +103,12 @@ describe("Worklog plugin — end-to-end integration through the loader", () => {
         endTime: "2026-05-20T12:00:00-07:00",
         notes: "Initial coding session",
         billable: true,
-      }
+      },
     )) as WorklogActionResult;
 
     assert.ok(!res.error, `Create failed: ${res.error}`);
     assert.ok(res.jsonData?.candidateId);
-    const candidateId = res.jsonData.candidateId;
+    const { candidateId } = res.jsonData;
 
     assert.equal(published.length, 1, "Should publish once on create");
     assert.equal(published[0].channel, `plugin:${PKG_NAME}:changed`);
@@ -123,7 +123,7 @@ describe("Worklog plugin — end-to-end integration through the loader", () => {
     res = (await plugin.execute({}, { action: "approve", candidateId })) as WorklogActionResult;
     assert.ok(!res.error, `Approve failed: ${res.error}`);
     assert.ok(res.jsonData?.worklogId);
-    const worklogId = res.jsonData.worklogId;
+    const { worklogId } = res.jsonData;
 
     assert.equal(published.length, 2, "Should publish again on approve");
     assert.equal(published[1].channel, `plugin:${PKG_NAME}:changed`);
@@ -149,7 +149,7 @@ describe("Worklog plugin — end-to-end integration through the loader", () => {
         worklogId,
         notes: "Initial coding session with minor bug fixes",
         billable: true,
-      }
+      },
     )) as WorklogActionResult;
 
     assert.ok(!res.error, `Edit failed: ${res.error}`);
@@ -202,8 +202,8 @@ describe("Worklog plugin — end-to-end integration through the loader", () => {
           startTime: "2026-05-20T10:00:00-07:00",
           endTime: "2026-05-20T11:00:00-07:00",
           notes: `Session ${i}`,
-        }
-      )
+        },
+      ),
     );
 
     await Promise.all(promises);
