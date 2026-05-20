@@ -65,6 +65,21 @@ function onClick(event: MouseEvent) {
   color: #2563eb;
   text-decoration: underline;
 }
+/* Interaction + visited states for external / markdown-rendered
+   anchors. `.wiki-link` (internal cross-refs) has its own hover
+   rule above; this covers all other anchors inside the wiki body
+   so keyboard focus and visit history are visible to the user.
+   (Sourcery follow-up on #1453.) */
+.wiki-content :deep(a:hover) {
+  color: #1d4ed8;
+}
+.wiki-content :deep(a:visited) {
+  color: #6d28d9;
+}
+.wiki-content :deep(a:focus-visible) {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
 .wiki-content :deep(h1) {
   font-size: 1.5rem;
   font-weight: 700;
