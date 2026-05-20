@@ -148,6 +148,12 @@ describe("Worklog plugin — end-to-end integration through the loader", () => {
     assert.equal(presentRes.message, "Presented the Worklog Review Board and committed logs.");
     assert.equal(presentRes.instructions, "Show the Worklog Review Board and committed logs.");
 
+    // 6b. MCP Present action handles optional query parameters gracefully without throwing.
+    const presentFilteredRes = (await plugin.execute({}, { action: "present", clientId: "Acme Corp", weekOffset: -1 })) as WorklogActionResult;
+    assert.ok(!presentFilteredRes.error);
+    assert.ok(presentFilteredRes.data);
+    assert.equal(presentFilteredRes.message, "Presented the Worklog Review Board and committed logs.");
+
     // 7. Edit the committed log (action: "edit").
     res = (await plugin.execute(
       {},
