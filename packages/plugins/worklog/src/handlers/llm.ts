@@ -154,9 +154,14 @@ export async function handleList(files: FileOps, input: LlmActionInput): Promise
   const totalDuration = entries.reduce((acc, e) => acc + e.duration, 0);
   const totalHours = (totalDuration / 3600).toFixed(2);
 
+  let message = `Listed ${entries.length} active committed worklog entries (total: ${totalHours} hours).`;
+  if (entries.length > 0) {
+    message += `\n\n\`\`\`json\n${JSON.stringify(entries, null, 2)}\n\`\`\``;
+  }
+
   return {
     kind: "success",
-    message: `Listed ${entries.length} active committed worklog entries (total: ${totalHours} hours).`,
+    message,
     jsonData: { entries, totalHours },
     data: { entries },
   };
