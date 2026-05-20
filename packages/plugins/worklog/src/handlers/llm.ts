@@ -27,9 +27,13 @@ export type LlmActionResult =
     };
 
 /**
- * Validates ISO 8601 string.
+ * Validates ISO 8601 string strictly (enforces explicit timezone/offset).
  */
 function isValidDate(dateStr: string): boolean {
+  const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:?\d{2})$/;
+  if (!iso8601Regex.test(dateStr)) {
+    return false;
+  }
   const d = new Date(dateStr);
   return !isNaN(d.getTime());
 }
@@ -128,6 +132,57 @@ export async function handleApprove(files: FileOps, input: LlmActionInput): Prom
 }
 
 /**
+ * Helper to parse and normalize date bounds into numeric timestamps.
+ * Normalizes YYYY-MM-DD to start-of-day/end-of-day UTC or parses direct ISO strings.
+ * Throws Error on invalid bounds.
+ */
+export function parseRange(range: { from?: string; to?: string }): { fromTime?: number; toTime?: number } {
+  const result: { fromTime?: number; toTime?: number } = {};
+  if (range.from) {
+    let fromStr = range.from;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fromStr)) {
+      fromStr = `${fromStr}T00:00:00.000Z`;
+    }
+    const fromTime = new Date(fromStr).getTime();
+    if (isNaN(fromTime)) {
+      throw new Error(`Invalid range.from format: "${range.from}"`);
+    }
+    result.fromTime = fromTime;
+  }
+  if (range.to) {
+    let toStr = range.to;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(toStr)) {
+      toStr = `${toStr}T23:59:59.999Z`;
+    }
+    const toTime = new Date(toStr).getTime();
+    if (isNaN(toTime)) {
+      throw new Error(`Invalid range.to format: "${range.to}"`);
+    }
+    result.toTime = toTime;
+  }
+  return result;
+}
+
+/**
+ * Helper to filter active committed entries by parsed date range bounds.
+ */
+export function filterEntriesByRange(entries: WorklogEntry[], parsedRange: { fromTime?: number; toTime?: number }): WorklogEntry[] {
+  return entries.filter((e) => {
+    const t = new Date(e.startTime).getTime();
+    if (isNaN(t)) {
+      return false;
+    }
+    if (parsedRange.fromTime !== undefined && t < parsedRange.fromTime) {
+      return false;
+    }
+    if (parsedRange.toTime !== undefined && t > parsedRange.toTime) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/**
  * Action Handler: list (queries active committed logs)
  */
 export async function handleList(files: FileOps, input: LlmActionInput): Promise<LlmActionResult> {
@@ -141,31 +196,11 @@ export async function handleList(files: FileOps, input: LlmActionInput): Promise
   }
 
   if (range) {
-    if (range.from) {
-      let fromStr = range.from;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(fromStr)) {
-        fromStr = `${fromStr}T00:00:00.000Z`;
-      }
-      const fromTime = new Date(fromStr).getTime();
-      if (!isNaN(fromTime)) {
-        entries = entries.filter((e) => {
-          const t = new Date(e.startTime).getTime();
-          return !isNaN(t) && t >= fromTime;
-        });
-      }
-    }
-    if (range.to) {
-      let toStr = range.to;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(toStr)) {
-        toStr = `${toStr}T23:59:59.999Z`;
-      }
-      const toTime = new Date(toStr).getTime();
-      if (!isNaN(toTime)) {
-        entries = entries.filter((e) => {
-          const t = new Date(e.startTime).getTime();
-          return !isNaN(t) && t <= toTime;
-        });
-      }
+    try {
+      const parsedRange = parseRange(range);
+      entries = filterEntriesByRange(entries, parsedRange);
+    } catch (err: any) {
+      return { kind: "error", status: 400, error: err.message };
     }
   }
 

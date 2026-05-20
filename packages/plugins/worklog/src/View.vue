@@ -43,7 +43,7 @@
         <div class="flex items-center justify-between flex-wrap gap-3">
           <h2 class="text-sm font-bold text-gray-900 flex items-center gap-1.5">
             <span class="material-icons text-base text-gray-500">analytics</span>
-            <span>{{ t.weeklyRollup }} Summary</span>
+            <span>{{ t.weeklyRollup }} {{ t.summary }}</span>
           </h2>
           
           <div class="flex items-center gap-3">
@@ -53,9 +53,10 @@
               type="button"
               @click="weekOffset = 0"
               class="h-7 px-2.5 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-[10px] font-bold text-gray-500 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50/40 active:scale-95 transition-all duration-150 uppercase tracking-wider shadow-sm"
-              title="Current Week"
+              :title="t.thisWeek"
+              :aria-label="t.thisWeek"
             >
-              This Week
+              {{ t.thisWeek }}
             </button>
 
             <div class="flex items-center gap-1.5">
@@ -63,7 +64,8 @@
                 type="button"
                 @click="weekOffset--"
                 class="h-7 w-7 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50/40 active:scale-95 transition-all duration-150"
-                title="Previous Week"
+                :title="t.prevWeekTooltip"
+                :aria-label="t.prevWeekTooltip"
               >
                 <span class="material-icons text-base leading-none">chevron_left</span>
               </button>
@@ -76,7 +78,8 @@
                 type="button"
                 @click="weekOffset++"
                 class="h-7 w-7 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50/40 active:scale-95 transition-all duration-150"
-                title="Next Week"
+                :title="t.nextWeekTooltip"
+                :aria-label="t.nextWeekTooltip"
               >
                 <span class="material-icons text-base leading-none">chevron_right</span>
               </button>
@@ -88,9 +91,10 @@
               type="button"
               @click="weekOffset = 0"
               class="h-7 px-2.5 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-[10px] font-bold text-gray-500 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50/40 active:scale-95 transition-all duration-150 uppercase tracking-wider shadow-sm"
-              title="Current Week"
+              :title="t.thisWeek"
+              :aria-label="t.thisWeek"
             >
-              This Week
+              {{ t.thisWeek }}
             </button>
           </div>
         </div>
@@ -146,7 +150,7 @@
         <div class="flex flex-col gap-3 mt-2">
           <h3 class="text-sm font-bold text-gray-900 flex items-center gap-1.5">
             <span class="material-icons text-base text-gray-500">list</span>
-            <span>Details</span>
+            <span>{{ t.details }}</span>
           </h3>
 
           <div class="flex flex-col gap-3">
@@ -235,13 +239,13 @@
                       class="px-2 py-0.5 rounded-full text-[10px] font-bold"
                       :class="entry.billable ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-50 text-gray-600'"
                     >
-                      {{ entry.billable ? t.billable : "Non-billable" }}
+                      {{ entry.billable ? t.billable : t.nonBillable }}
                     </span>
                   </div>
                   <div class="text-xs text-gray-400 flex items-center gap-1.5">
                     <span>{{ formatTimeRange(entry.startTime, entry.endTime) }}</span>
                     <span>•</span>
-                    <span class="font-bold text-gray-600">{{ (entry.duration / 3600).toFixed(2) }} hrs</span>
+                    <span class="font-bold text-gray-600">{{ (entry.duration / 3600).toFixed(2) }} {{ t.hrs }}</span>
                   </div>
                   <p v-if="entry.notes" class="text-xs text-gray-600 mt-1 pl-2 border-l border-gray-200">
                     {{ entry.notes }}
@@ -254,6 +258,7 @@
                     @click="startEditCommitted(entry)"
                     class="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-indigo-600 hover:bg-gray-50 transition-all flex items-center justify-center"
                     :title="t.edit"
+                    :aria-label="t.edit"
                   >
                     <span class="material-icons text-base">edit</span>
                   </button>
@@ -261,6 +266,7 @@
                     @click="deleteCommitted(entry.id)"
                     class="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-rose-600 hover:bg-gray-50 transition-all flex items-center justify-center"
                     :title="t.delete"
+                    :aria-label="t.delete"
                   >
                     <span class="material-icons text-base">delete</span>
                   </button>
@@ -285,11 +291,11 @@
           <p class="text-sm">{{ t.noCandidates }}</p>
         </div>
 
-        <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div v-else class="flex flex-wrap gap-4">
           <div
             v-for="candidate in candidates"
             :key="candidate.id"
-            class="p-5 rounded-xl border border-gray-200 bg-white flex flex-col gap-4 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden"
+            class="flex-1 min-w-[280px] max-w-[550px] p-5 rounded-xl border border-gray-200 bg-white flex flex-col gap-4 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden"
           >
             <!-- Inferred confidence tag -->
             <div class="absolute top-0 right-0 w-24 h-24 pointer-events-none overflow-hidden">
@@ -307,13 +313,13 @@
                   v-model="candidate.clientId"
                   type="text"
                   class="font-bold text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:border-indigo-500 focus:outline-none text-sm px-1 py-0.5"
-                  placeholder="Client"
+                  :placeholder="t.clientPlaceholder"
                 />
                 <input
                   v-model="candidate.projectId"
                   type="text"
                   class="text-xs text-gray-500 bg-transparent border-b border-dashed border-gray-300 focus:border-indigo-500 focus:outline-none px-1 py-0.5 w-32"
-                  placeholder="Project (optional)"
+                  :placeholder="t.projectOptionalPlaceholder"
                 />
               </div>
 
@@ -330,8 +336,8 @@
             </div>
 
             <!-- Time Ranges block -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-gray-50 p-3 rounded-xl border border-gray-100">
-              <div>
+            <div class="flex flex-wrap gap-3 text-xs bg-gray-50 p-3 rounded-xl border border-gray-100">
+              <div class="flex-1 min-w-[140px]">
                 <label class="block text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">{{ t.startTime }}</label>
                 <input
                   v-model="candidate.startTime"
@@ -340,7 +346,7 @@
                   @change="updateCandidateDuration(candidate)"
                 />
               </div>
-              <div>
+              <div class="flex-1 min-w-[140px]">
                 <label class="block text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">{{ t.endTime }}</label>
                 <input
                   v-model="candidate.endTime"
@@ -349,9 +355,9 @@
                   @change="updateCandidateDuration(candidate)"
                 />
               </div>
-              <div class="sm:col-span-2 pt-1 border-t border-gray-200/20 flex justify-between items-center text-[10px] text-gray-400 font-medium">
+              <div class="w-full pt-1 border-t border-gray-200/20 flex justify-between items-center text-[10px] text-gray-400 font-medium">
                 <span>{{ t.duration }}:</span>
-                <span class="font-bold text-indigo-600 text-xs"> {{ (candidate.duration / 3600).toFixed(2) }} hours </span>
+                <span class="font-bold text-indigo-600 text-xs"> {{ (candidate.duration / 3600).toFixed(2) }} {{ t.hours }} </span>
               </div>
             </div>
 
@@ -374,32 +380,32 @@
                   :key="idx"
                   class="px-2 py-0.5 rounded-full text-[9px] font-semibold bg-indigo-50 text-indigo-600 border border-indigo-100"
                 >
-                  {{ ev.kind || "activity" }}
+                  {{ ev.kind || t.activity }}
                 </span>
               </div>
             </div>
 
             <!-- Action Buttons inside Card -->
-            <div class="flex justify-between items-center gap-3 mt-2 pt-3 border-t border-gray-100">
+            <div class="flex flex-wrap justify-between items-center gap-3 mt-2 pt-3 border-t border-gray-100">
               <button
                 @click="deleteCandidateDraft(candidate.id)"
-                class="px-3 py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-semibold transition-all duration-200 flex items-center gap-1"
+                class="px-3 py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-semibold transition-all duration-200 flex items-center gap-1 shrink-0"
               >
                 <span class="material-icons text-xs leading-none">delete</span>
                 <span>{{ t.delete }}</span>
               </button>
 
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <button
                   @click="saveCandidateDraft(candidate)"
-                  class="px-3 py-1.5 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50 text-xs font-semibold transition-all duration-200 flex items-center gap-1"
+                  class="px-3 py-1.5 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50 text-xs font-semibold transition-all duration-200 flex items-center gap-1 shrink-0"
                 >
                   <span class="material-icons text-xs leading-none">save</span>
                   <span>{{ t.save }}</span>
                 </button>
                 <button
                   @click="approveCandidateDraft(candidate.id)"
-                  class="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all duration-200 flex items-center gap-1"
+                  class="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all duration-200 flex items-center gap-1 shrink-0"
                 >
                   <span class="material-icons text-xs leading-none">check</span>
                   <span>{{ t.approve }}</span>
@@ -463,19 +469,23 @@ async function refresh(): Promise<void> {
   }
 }
 
+function syncActiveTab(action: string | undefined, candidateCount: number) {
+  activeTab.value = action === "create" || candidateCount > 0 ? "review" : "rollup";
+}
+
 let unsub: (() => void) | undefined;
 onMounted(() => {
-  void refresh();
-  unsub = pubsub.subscribe("changed", () => {
-    void refresh();
+  syncActiveTab(props.selectedResult?.args?.action, candidates.value.length);
+  
+  void refresh().then(() => {
+    syncActiveTab(props.selectedResult?.args?.action, candidates.value.length);
   });
-
-  // If action is create or there are candidates waiting on first load, open the Review board
-  if (props.selectedResult?.args?.action === "create") {
-    activeTab.value = "review";
-  } else if (candidates.value.length > 0) {
-    activeTab.value = "review";
-  }
+  
+  unsub = pubsub.subscribe("changed", () => {
+    void refresh().then(() => {
+      syncActiveTab(props.selectedResult?.args?.action, candidates.value.length);
+    });
+  });
 });
 onUnmounted(() => unsub?.());
 
@@ -485,14 +495,23 @@ watch(
     committed.value = props.selectedResult.data?.committed ?? [];
     candidates.value = props.selectedResult.data?.candidates ?? [];
     weekOffset.value = 0;
-    if (props.selectedResult?.args?.action === "create") {
-      activeTab.value = "review";
-    }
-    void refresh();
+    
+    syncActiveTab(props.selectedResult?.args?.action, candidates.value.length);
+    
+    void refresh().then(() => {
+      syncActiveTab(props.selectedResult?.args?.action, candidates.value.length);
+    });
   },
 );
 
 // Date Helpers
+function toLocalYMD(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function getStartOfWeek(offsetWeeks = 0): Date {
   const d = new Date();
   const day = d.getDay();
@@ -505,11 +524,19 @@ function getStartOfWeek(offsetWeeks = 0): Date {
 const weekDays = computed(() => {
   const base = getStartOfWeek(weekOffset.value);
   const days: { dateStr: string; label: string }[] = [];
-  const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const weekdays = [
+    t.value.mon || "Mon",
+    t.value.tue || "Tue",
+    t.value.wed || "Wed",
+    t.value.thu || "Thu",
+    t.value.fri || "Fri",
+    t.value.sat || "Sat",
+    t.value.sun || "Sun",
+  ];
   for (let i = 0; i < 7; i++) {
     const d = new Date(base.getTime() + i * 24 * 3600 * 1000);
     days.push({
-      dateStr: d.toISOString().substring(0, 10),
+      dateStr: toLocalYMD(d),
       label: weekdays[i],
     });
   }
@@ -544,11 +571,13 @@ function formatTimeRange(startIso: string, endIso: string): string {
 
 // Group entries in current week
 const thisWeekCommitted = computed(() => {
-  const start = getStartOfWeek(weekOffset.value).toISOString().substring(0, 10);
-  const end = new Date(getStartOfWeek(weekOffset.value).getTime() + 7 * 24 * 3600 * 1000).toISOString().substring(0, 10);
+  const start = toLocalYMD(getStartOfWeek(weekOffset.value));
+  const end = toLocalYMD(new Date(getStartOfWeek(weekOffset.value).getTime() + 7 * 24 * 3600 * 1000));
   return committed.value
     .filter((e) => {
-      const dStr = e.startTime.substring(0, 10);
+      const d = new Date(e.startTime);
+      if (isNaN(d.getTime())) return false;
+      const dStr = toLocalYMD(d);
       return dStr >= start && dStr < end;
     })
     .sort((a, b) => b.startTime.localeCompare(a.startTime));
@@ -564,10 +593,12 @@ interface RollupRow {
 const rollupRows = computed(() => {
   const days = weekDays.value;
   const start = days[0].dateStr;
-  const end = new Date(new Date(days[6].dateStr).getTime() + 24 * 3600 * 1000).toISOString().substring(0, 10);
+  const end = toLocalYMD(new Date(new Date(days[6].dateStr).getTime() + 24 * 3600 * 1000));
 
   const weekEntries = committed.value.filter((e) => {
-    const dStr = e.startTime.substring(0, 10);
+    const d = new Date(e.startTime);
+    if (isNaN(d.getTime())) return false;
+    const dStr = toLocalYMD(d);
     return dStr >= start && dStr < end;
   });
 
@@ -575,7 +606,9 @@ const rollupRows = computed(() => {
 
   for (const e of weekEntries) {
     const key = e.projectId ? `${e.clientId} / ${e.projectId}` : e.clientId;
-    const dateStr = e.startTime.substring(0, 10);
+    const d = new Date(e.startTime);
+    if (isNaN(d.getTime())) continue;
+    const dateStr = toLocalYMD(d);
     const hrs = e.duration / 3600;
 
     if (!rowMap.has(key)) {
