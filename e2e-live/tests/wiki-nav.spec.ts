@@ -618,12 +618,29 @@ test.describe("wiki navigation (real workspace)", () => {
       const testLabel = testInfo.title.split(":")[0].trim().toLowerCase();
       const nonce = `${testLabel}-${Date.now()}-${randomUUID().slice(0, 6)}`;
       const bogusSlug = `e2e-live-wiki-lint-missing-${testInfo.project.name}-${nonce}`;
+      // Sentinel page so `pages/` is non-empty when the lint route
+      // runs. `collectLintIssues` (server/api/routes/wiki.ts) short-
+      // circuits with a single "Wiki `pages/` directory does not
+      // exist yet" message when `slugs.size === 0` — bypassing
+      // `findMissingFiles` entirely. Locally this never fires
+      // because the developer workspace usually has user-owned wiki
+      // pages, but CI starts from a fresh workspace; by the time
+      // this serial-block test runs, the parallel block's
+      // transient pages have all been cleaned up and L-16's seeded
+      // pair is also already removed, so pages/ is empty. Seeding a
+      // single sentinel here keeps the guard off the critical path.
+      // The sentinel itself shows up as an Orphan-page diagnostic
+      // (it's not in our synthetic index), which does not collide
+      // with the Missing-file assertion below (different slug,
+      // different diagnostic phrase).
+      const sentinelSlug = `e2e-live-wiki-lint-missing-sentinel-${testInfo.project.name}-${nonce}`;
       // Bullet-link form is what `parseBulletLinkRow` reads to
       // recover entry.slug from the href — same shape L-16 uses.
       const newIndex = ["# Wiki Index", "", `- [${bogusSlug} title](pages/${bogusSlug}.md) — missing-file canary`, ""].join("\n");
       let originalIndex: string | null = null;
       let replacedIndex = false;
       try {
+        await placeWikiPage(sentinelSlug, [`# sentinel ${nonce}`, ``, `keeps data/wiki/pages/ non-empty`, ``].join("\n"));
         originalIndex = await replaceWikiIndex(newIndex);
         replacedIndex = true;
         await navigateToWikiLintReport(page);
@@ -638,6 +655,7 @@ test.describe("wiki navigation (real workspace)", () => {
         ).toHaveCount(1);
       } finally {
         if (replacedIndex) await restoreWikiIndex(originalIndex);
+        await removeWikiPage(sentinelSlug);
       }
     });
 
