@@ -42,7 +42,11 @@ export function parseYaml(yamlText: string): any {
       } else if (currentObj) {
         root[currentObjKey] = currentObj;
       } else {
-        root[currentObjKey] = [];
+        // Empty-value key with no nested content (e.g. `expectedDeliverables: `)
+        // is an empty string, not an empty array — matches what serialiseProject /
+        // serialiseClient produce for empty string fields. Returning [] here makes
+        // Zod reject the record and the row gets silently dropped from listings.
+        root[currentObjKey] = "";
       }
       currentObjKey = null;
       currentObj = null;

@@ -264,4 +264,68 @@ describe("Client plugin — end-to-end integration through the loader", () => {
     const conflictCands = listRes.candidates.filter((cand: any) => cand.data.id === "client-conflict");
     assert.equal(conflictCands.length, CONCURRENCY, "Should save all conflict candidate records safely");
   });
+
+  it("listProjects returns an approved project whose expectedDeliverables/notes are empty (regression: dashboard showed zero)", async (ctx) => {
+    if (!existsSync(PLUGIN_DIST_INDEX)) {
+      ctx.skip("dist not built");
+      return;
+    }
+
+    const { pubsub } = makeRecordingPubSub();
+    const plugin = await loadPluginFromCacheDir(PKG_NAME, VERSION, PLUGIN_DIR, {
+      runtimeFactory: (pkgName) => makePluginRuntime({ pkgName, pubsub, locale: "en", taskManager: createTaskManager() }),
+    });
+    assert.ok(plugin);
+    const { execute } = plugin;
+    assert.ok(execute);
+
+    // Commit a client first (approveProject refuses to commit if the client doesn't exist).
+    const createClientRes = (await execute({}, { action: "create", id: "acme", patch: { name: "Acme" } })) as any;
+    assert.ok(createClientRes.ok);
+    const approveClientRes = (await execute({}, { action: "approveClient", candidateId: createClientRes.candidateId })) as any;
+    assert.ok(approveClientRes.ok);
+
+    // Create a project candidate with empty deliverables and notes — the path that used to break.
+    const createProjRes = (await execute(
+      {},
+      {
+        action: "createProject",
+        id: "acme",
+        projectId: "design",
+        projectPatch: {
+          name: "Design",
+          feeModel: "hour",
+          rate: { amount: 150, currency: "USD", unit: "hour" },
+          startDate: "2026-05-21",
+          expectedDeliverables: "",
+          notes: "",
+        },
+      },
+    )) as any;
+    assert.ok(createProjRes.ok);
+
+    const approveProjRes = (await execute({}, { action: "approveProject", candidateId: createProjRes.candidateId })) as any;
+    assert.ok(approveProjRes.ok, "approveProject must succeed even when expectedDeliverables is empty");
+
+    // The original bug: file was on disk but listProjects returned [] because deserialiseProject
+    // returned null after parseYaml treated `expectedDeliverables: ` as [] and Zod rejected it.
+    const listProjRes = (await execute({}, { action: "listProjects" })) as any;
+    assert.ok(listProjRes.ok);
+    assert.equal(listProjRes.projects.length, 1, "approved project must appear in listProjects — empty-string fields no longer drop the record");
+    assert.equal(listProjRes.projects[0].id, "design");
+    assert.equal(listProjRes.projects[0].expectedDeliverables, "");
+    assert.equal(listProjRes.projects[0].notes, "");
+
+    // Same record must surface via the client-scoped variant too.
+    const scopedListRes = (await execute({}, { action: "listProjects", id: "acme" })) as any;
+    assert.ok(scopedListRes.ok);
+    assert.equal(scopedListRes.projects.length, 1);
+    assert.equal(scopedListRes.projects[0].id, "design");
+
+    // And via `show` which aggregates projects per client.
+    const showRes = (await execute({}, { action: "show", id: "acme" })) as any;
+    assert.ok(showRes.ok);
+    assert.equal(showRes.projects.length, 1);
+    assert.equal(showRes.projects[0].id, "design");
+  });
 });
