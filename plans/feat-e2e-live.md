@@ -117,82 +117,17 @@ e2e-live/
 | `docker-only` | Docker サンドボックス起動状態でしか発生しないバグの検証 |
 | `manual-l4` | 自動化困難（OS 依存等）、人手チェックリストへ |
 
-## 30 シナリオ詳細
+## 未実装シナリオ詳細
+
+> 実装済シナリオ (L-01〜L-09 のうち L-10 以外、 L-11〜L-12、 L-14〜L-16 + L-WIKI-* 4 件、 L-18〜L-22、 L-23 / L-26 / L-28、 加えて後付け追加した L-31 / L-32 / L-EDIT / L-LINKIFY-CODESPAN / L-SETTINGS-EFFORT* / L-W-S-03) の初期設計仕様は [`plans/done/feat-e2e-live-history.md`](done/feat-e2e-live-history.md) の 「設計仕様 archive (実装済シナリオ、 plan 起票時 2026-04-29 の初期設計)」 を参照。
+> 実装結果の詳細 (採用した assertion / helper / 罠回避) は本体の 「実装ステータス」 表の備考、 もしくは各 spec ファイルが正規ソース。
+> ここには 「未実装 + manual-l4 + 対象外推奨」 = 8 件のみ残す。 各シナリオの現在の評価は 「未実装シナリオの再評価 (2026-05-23)」 を参照。
 
 凡例:
 - 重要度: **S** = 致命級, **A** = 高, **B** = 中
 - 画像: 「fixture」= repo 既存ファイル参照、「生成」= 実 generateImage 経由、「不要」= 画像を扱わない
 
-### media（5）
-
-#### L-01: presentHtml の画像が描画される ★最重要 ✅ 実装済
-
-- カバー: B-17, B-18
-- 重要度: **S** / Docker: `both` / 画像: fixture
-- 実装: `e2e-live/tests/media.spec.ts`
-- 操作: 新規セッション → fixture 画像を `artifacts/images/e2e-live-l01.png` に配置 → 「`<img src="../../../images/e2e-live-l01.png">` を含む HTML を presentHtml で」と LLM に依頼（PR #982 で導入された **相対パス convention** に従う）
-- 検証:
-  - presentHtml の iframe 内に `<img>` が visible
-  - `src` 属性が `e2e-live-l01.png` を含む（リテラル一致）
-  - `src` が `/artifacts/...` で始まら**ない**（LLM が新ルール違反していないかの guard）
-  - `naturalWidth > 0`（HTML mount + 画像 mount + path-traversal guard を抜けて実際に描画される）
-- 失敗例: B-18（path-traversal 防御の副作用で 404 → naturalWidth 0）、 LLM が古い絶対パス convention に戻る
-
-#### L-02: Markdown 応答を PDF DL ✅ 実装済
-
-- カバー: B-19, B-20
-- 重要度: **S** / Docker: `both` / 画像: 不要（textResponse 経由なので workspace 配置なし）
-- 実装: `e2e-live/tests/media.spec.ts`、textResponse の PDF ボタン (`text-response-pdf-button`) 経由
-- 操作: 新規セッション → 「次の Markdown を **そのまま** 1 ターンの返信本文として返してください」と LLM に依頼 → textResponse view 表示後 PDF DL ボタンクリック
-- 検証:
-  - DL ファイルが `%PDF-` magic bytes を含む（`readPdfDownload` helper）
-  - PDF サイズが 500 bytes 以上（明らかな空 stub を除外）
-- 注: 「PDF に画像が inline されている」確認は scope 外（pdf-parse 等の追加依存が要るので別 PR）
-
-#### L-03: mulmoScript 生成 → 動画 DL 成功
-
-- カバー: B-21
-- 重要度: **A** / Docker: `both` / 画像: fixture
-- 操作: 短い mulmoScript（2〜3 beat）を生成依頼、画像は fixture を指定 → `/api/mulmo-script/download-movie` で DL
-- 検証: 認証ヘッダ付きで 200 応答、動画ファイルのマジックバイト確認
-
-#### L-04: mulmoScript animation:true で映像生成失敗しない
-
-- カバー: B-46
-- 重要度: **B** / Docker: `both` / 画像: fixture
-- 操作: animation:true を含む短い mulmoScript を生成 → render
-- 検証: audio → image の順で生成され、エラーが出ない
-
-#### L-05: generateImage プラグインで実画像が返る
-
-- カバー: 一般
-- 重要度: **A** / Docker: `both` / 画像: **生成（このテストだけ）**
-- 操作: 「猫の絵を 1 枚描いて」と送信 → generateImage tool が呼ばれる
-- 検証: 返ってきた画像 URL が 200、画像として描画される
-
-### roles（5）
-
-#### L-06: General ロールで sample query → 完走
-
-- カバー: B-15, B-41
-- 重要度: **A** / Docker: `both` / 画像: fixture or 不要
-- 操作: General ロール選択 → sample query を 1 つ実行
-- 検証: tool 呼び出し成功、最終応答が UI に表示される
-
-#### L-07: Office ロールで sample query → 完走
-
-- カバー: B-41
-- 重要度: **A** / Docker: `both` / 画像: 不要
-
-#### L-08: Tutor ロールで sample query → 完走
-
-- カバー: B-41
-- 重要度: **B** / Docker: `both` / 画像: 不要
-
-#### L-09: Storyteller ロールで sample query → 完走
-
-- カバー: B-41
-- 重要度: **B** / Docker: `both` / 画像: 不要
+### roles
 
 #### L-10: Gemini key 未設定でも General ロールが disabled にならない
 
@@ -201,21 +136,7 @@ e2e-live/
 - 操作: GEMINI_API_KEY を一時 unset → General 選択
 - 検証: 入力欄が enabled、警告バナー表示、generateImage 以外の機能は動く
 
-### session（3）
-
-#### L-11: 新規セッション → 1 ターン → reload → 履歴復元
-
-- カバー: B-14
-- 重要度: **A** / Docker: `both` / 画像: 不要
-- 操作: 新規セッション開始 → メッセージ送信 → 応答受信 → ページ reload
-- 検証: 履歴が UI に復元、session ID 一致
-
-#### L-12: 古いセッションを resume → LLM が文脈保持
-
-- カバー: B-16
-- 重要度: **B** / Docker: `both` / 画像: 不要
-- 操作: 既存セッションを開く → 「さっき何の話してた？」と送信
-- 検証: 過去の文脈を引いた応答が返る
+### session
 
 #### L-13: サーバ再起動後も bridge が再接続できる
 
@@ -224,58 +145,7 @@ e2e-live/
 - 操作: bridge 接続中にサーバ再起動 → 再接続待機
 - 検証: 固定 token で再接続成功
 
-### wiki（7）
-
-#### L-14: Wiki ページ生成 → 内部リンクを踏める
-
-- カバー: B-23, B-24, B-25
-- 重要度: **A** / Docker: `both` / 画像: 不要
-- 操作: 「Wiki に X というページを作って Y にリンクして」と依頼
-- 検証: リンククリックで `/chat` にリダイレクトされず、対象 Wiki ページが開く
-
-#### L-15: 日本語タイトルの Wiki ページ → URL slug が壊れない
-
-- カバー: B-26, B-27
-- 重要度: **B** / Docker: `both` / 画像: 不要
-- 操作: 「『日本語タイトル』という Wiki ページを作って」
-- 検証: URL slug 化が成功、リンクから正しく開ける
-
-#### L-16: Wiki index から各ページへのリンクが機能
-
-- カバー: B-23
-- 重要度: **B** / Docker: `both` / 画像: 不要
-- 操作: 複数ページ生成 → `/wiki` 直下の index を開く → 各リンクをクリック
-- 検証: すべて 404 にならず開ける
-
-#### L-WIKI-PIPE: `[[slug|alias]]` 形式リンクのクリック → URL に `|alias` が混入しない
-
-- カバー: issue #1297 / PR #1312
-- 重要度: **A** / Docker: `both` / 画像: 不要
-- 操作: source / target の 2 ページ seed → source 側に `[[<targetSlug>|<日本語表示>]]` を埋める → クリック
-- 検証: `data-page` が target slug のみ、 表示テキストが alias のみ、 クリック後 URL に `%7C` (`\|`) が含まれない、 target の body marker が表示される
-
-#### L-WIKI-LINT-PIPE-CLEAN: lint レポートで `[[slug|alias]]` が broken link に出ない
-
-- カバー: issue #1297 / PR #1312 (lint UI 側)
-- 重要度: **A** / Docker: `both` / 画像: 不要
-- 操作: source / target の 2 ページ seed → source 側に `[[<targetSlug>|<日本語表示>]]` を埋める → `/wiki/lint-report` を開く
-- 検証: lint 出力 `<li>` の中に source ページ名 + alias ASCII token + `not found` を全て含む行が 0 件 (pre-fix の false positive shape の sentinel)
-
-#### L-WIKI-LINT-EMPTY-TARGET: lint レポートで bare `[[Japanese]]` が "empty target" 診断に出る
-
-- カバー: PR #1312 で追加された新診断カテゴリ
-- 重要度: **B** / Docker: `both` / 画像: 不要
-- 操作: source ページ 1 件 seed (target 不在で resolver が解決不能にする) → `[[日本語のみのターゲット記号終端タイトル]]` (ASCII フリーの固定文字列、 nonce を入れない) を埋める → `/wiki/lint-report` を開く
-- 検証: lint 出力に source + bare Japanese target + `empty target` を含む `<li>` が 1 件、 同条件で `not found` を含む行は 0 件 (新診断と broken-link 診断が混ざらないこと)
-
-#### L-WIKI-LINT-BROKEN: lint レポートで `[[bogus-slug]]` が broken link 診断に出る
-
-- カバー: 既存 broken-link 診断の sanity (#1312 の周辺退化検出)
-- 重要度: **B** / Docker: `both` / 画像: 不要
-- 操作: source ページ 1 件 seed (bogus target は seed しない) → `[[<bogus-slug>]]` を埋める → `/wiki/lint-report` を開く
-- 検証: lint 出力に source + `<bogus-slug>.md not found` を含む `<li>` が 1 件 (一般的な broken-link diagnostic shape)
-
-### ui（4）
+### ui
 
 #### L-17: bridge メッセージ受信 → 通知が二重表示されない
 
@@ -284,51 +154,7 @@ e2e-live/
 - 操作: bridge から外部メッセージを送信
 - 検証: 通知 bell バッジは更新されず、history バッジのみ更新
 
-#### L-18: presentForm 表示時に i18n キーが直接出ない
-
-- カバー: B-34
-- 重要度: **B** / Docker: `both` / 画像: 不要
-- 操作: presentForm を呼ぶシナリオを実行
-- 検証: `pluginPresentForm.submit` のような raw key が UI に出ていない
-
-#### L-19: Tool Call History が reload 後も復元
-
-- カバー: B-31
-- 重要度: **B** / Docker: `both` / 画像: 不要
-- 操作: tool 実行 → reload → Tool Call History を開く
-- 検証: 履歴が消えず表示される
-
-#### L-20: Files view reload で `?path=` がクリーンアップ
-
-- カバー: B-30
-- 重要度: **B** / Docker: `both` / 画像: 不要
-- 操作: Files view で markdown を開く → reload
-- 検証: `?path=` が URL から消えている、Files view に戻らない
-
-### skills（2）
-
-#### L-21: ToolSearch + skill 経由で期待した tool が呼ばれる
-
-- カバー: B-41
-- 重要度: **A** / Docker: `both` / 画像: 不要
-- 操作: deferred tool を要求するクエリを送信（例: presentMulmoScript）
-- 検証: ToolSearch 経由で tool スキーマ取得 → 実 tool 呼び出し成功
-
-#### L-22: 自作 skill を実行して結果が出る
-
-- カバー: B-08
-- 重要度: **B** / Docker: `both` / 画像: 不要
-- 操作: 既存 skill（例: `/audit-unclosed-issues` の dry-run）を実行
-- 検証: skill が dangling link 等で失敗せず、結果が UI に表示される
-
-### docker（8、うち 2 は manual-l4）
-
-#### L-23: X MCP が Docker 内で .env から key を読める
-
-- カバー: B-01
-- 重要度: **A** / Docker: `docker-only` / 画像: 不要
-- 操作: Docker サンドボックス起動 → MCP 一覧確認
-- 検証: X MCP が disable 状態でなく、key が認識されている
+### docker
 
 #### L-24: `yarn sandbox:login` 前に image が build されている
 
@@ -336,6 +162,7 @@ e2e-live/
 - 重要度: **B** / Docker: `docker-only` / 画像: 不要
 - 操作: クリーン環境で `yarn sandbox:login` を実行
 - 検証: image not found エラーが出ず、login プロンプトに到達
+- 注: plan の理解と現実装が乖離 (`yarn sandbox:login` は keychain export スクリプトに変更済)。 「未実装シナリオの再評価」 を参照。 シナリオ再定義が前提
 
 #### L-25: sandbox 内のファイル所有者が non-root（**Linux のみ**）
 
@@ -343,25 +170,11 @@ e2e-live/
 - 重要度: **B** / Docker: `manual-l4`（Playwright で再現困難）
 - 扱い: `docs/manual-testing.md` のチェックリストに追加
 
-#### L-26: Docker 内 cwd 変更後も session resume できる
-
-- カバー: B-04
-- 重要度: **A** / Docker: `docker-only` / 画像: 不要
-- 操作: Docker サンドボックス内で過去セッションを resume
-- 検証: 「No conversation found」エラーが出ない
-
 #### L-27: Mac keychain credential が container に渡る（**macOS のみ**）
 
 - カバー: B-05
 - 重要度: **A** / Docker: `manual-l4`（OS 依存、Playwright で再現困難）
 - 扱い: `docs/manual-testing.md` のチェックリストに追加
-
-#### L-28: Docker 内で git/gh 認証が通る
-
-- カバー: B-06
-- 重要度: **B** / Docker: `docker-only` / 画像: 不要
-- 操作: Docker 内で `gh auth status` を実行
-- 検証: 認証成功（SSH agent forward / token mount）
 
 #### L-29: Docker 環境で MCP server が crash しない
 
@@ -369,6 +182,7 @@ e2e-live/
 - 重要度: **A** / Docker: `docker-only` / 画像: 不要
 - 操作: Docker サンドボックス起動 → 各 MCP tool を順次呼ぶ
 - 検証: MCP server が crash せず最後まで応答
+- 注: PR #429 で fix 済、 現コードで再現不能。 unit test (`test/agent/test_agent_config.ts` の `buildDockerSpawnArgs`) で構造的退行は cover 済。 e2e-live への移植は tautology spec で 「対象外推奨」。 「未実装シナリオの再評価」 を参照
 
 #### L-30: skill symlink が Docker 内で dangling にならない
 
@@ -376,6 +190,7 @@ e2e-live/
 - 重要度: **A** / Docker: `docker-only` / 画像: 不要
 - 操作: `~/.claude/skills` を symlink で管理した状態で Docker 起動 → skill 一覧確認
 - 検証: skill が表示され、各 sample query が実行可能
+- 注: 階層 1 (spec scope 局所 seed) で再現可能 — host `~/.claude/skills/` を触らず、 共有 workspace の `.claude/skills/<test-nonce>` を broken symlink で seed → finally で削除。 「未実装シナリオの再評価」 + 「環境を壊さず再現する設計指針」 を参照
 
 ## メンテ skill 化済 — `/make-e2e-live` を起点にする
 
