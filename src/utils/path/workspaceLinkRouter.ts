@@ -32,9 +32,15 @@ export function classifyWorkspacePath(href: string): WorkspaceLinkTarget | null 
   const cleaned = stripFragmentAndQuery(href);
   if (cleaned.length === 0) return null;
 
-  // marked.parse() percent-encodes multibyte chars in <a href> output.
-  // Decode once so the downstream router doesn't double-encode (turning
-  // `%E4%BD%9C` into `%25E4%25BD%259C`, breaking the file API lookup).
+  // marked.parse() percent-encodes multibyte chars and spaces in
+  // <a href> output. `safeDecode` decodes those per segment so the
+  // downstream router doesn't double-encode (turning `%E4%BD%9C` into
+  // `%25E4%25BD%259C`, breaking the file API lookup). Segments that
+  // contain `%2F` are preserved opaque because the plugin convention
+  // stores npm-scoped packages as one literal on-disk directory
+  // (data/plugins/%40<scope>%2F<name>/...) — decoding `%2F` to `/`
+  // there would split that one segment into two and break server
+  // file resolution (#1473).
   const decoded = safeDecode(cleaned);
 
   // Normalize path (collapse ./ and ../, reject root-escape)
@@ -78,14 +84,32 @@ export function resolveWikiHref(href: string, baseDir: string): string {
   return href;
 }
 
-// Decode a percent-encoded path once. Falls back to the raw input on
-// malformed sequences (truncated UTF-8, lone `%`) so a bad link still
-// routes — Files view will surface its own 404 if the path is unreachable.
+// Decode a percent-encoded path *per segment*. Each `/`-separated
+// segment is decoded independently — except segments that contain
+// `%2F`, which are kept opaque because the plugin naming convention
+// stores npm-scoped packages as a SINGLE on-disk directory whose
+// literal name carries `%40` and `%2F` characters
+// (data/plugins/%40<scope>%2F<name>/...). Decoding `%2F` to `/` there
+// would collapse one directory into two segments and break server
+// file resolution (#1473).
+//
+// Everything else round-trips via `decodeURIComponent`: multibyte
+// (UTF-8) sequences emitted by marked.parse, transport-encoded spaces
+// (`%20`), and encoded `..` (`%2E%2E`) — the last one decodes to the
+// literal `..` token that `normalizePath` then catches as a
+// workspace-root escape. Malformed sequences (truncated UTF-8, lone
+// `%`) fall back to the raw bytes so a bad link still routes — Files
+// view surfaces its own 404 if the path is unreachable.
 function safeDecode(str: string): string {
+  return str.split("/").map(decodeSegment).join("/");
+}
+
+function decodeSegment(seg: string): string {
+  if (/%2[fF]/.test(seg)) return seg;
   try {
-    return decodeURIComponent(str);
+    return decodeURIComponent(seg);
   } catch {
-    return str;
+    return seg;
   }
 }
 
