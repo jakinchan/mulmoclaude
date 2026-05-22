@@ -33,8 +33,15 @@ export function classifyWorkspacePath(href: string): WorkspaceLinkTarget | null 
   if (cleaned.length === 0) return null;
 
   // marked.parse() percent-encodes multibyte chars in <a href> output.
-  // Decode once so the downstream router doesn't double-encode (turning
-  // `%E4%BD%9C` into `%25E4%25BD%259C`, breaking the file API lookup).
+  // Decode only the multibyte (high-byte) sequences so the downstream
+  // router doesn't double-encode (turning `%E4%BD%9C` into
+  // `%25E4%25BD%259C`, breaking the file API lookup). ASCII percent
+  // encodings (%40 '@', %2F '/', %20 ' ', etc.) are preserved as
+  // literal characters because the plugin convention stores them
+  // literally on disk (data/plugins/%40<scope>%2F<name>/...). Decoding
+  // %2F to '/' here would collapse a single plugin-scope directory
+  // name into two segments and break server-side file resolution
+  // (#1473).
   const decoded = safeDecode(cleaned);
 
   // Normalize path (collapse ./ and ../, reject root-escape)
@@ -78,15 +85,21 @@ export function resolveWikiHref(href: string, baseDir: string): string {
   return href;
 }
 
-// Decode a percent-encoded path once. Falls back to the raw input on
-// malformed sequences (truncated UTF-8, lone `%`) so a bad link still
-// routes — Files view will surface its own 404 if the path is unreachable.
+// Decode only multibyte (high-byte UTF-8) percent sequences. ASCII
+// percent encodings (%40 / %2F / %20 / %2E / etc.) are preserved as
+// literal characters so the plugin naming convention
+// (data/plugins/%40<scope>%2F<name>/...) survives the click → router →
+// file API round-trip. Malformed sequences (truncated UTF-8, lone
+// `%`) fall back to the raw bytes so a bad link still routes — Files
+// view surfaces its own 404 if the path is unreachable.
 function safeDecode(str: string): string {
-  try {
-    return decodeURIComponent(str);
-  } catch {
-    return str;
-  }
+  return str.replace(/(?:%[89A-Fa-f][0-9A-Fa-f])+/g, (match) => {
+    try {
+      return decodeURIComponent(match);
+    } catch {
+      return match;
+    }
+  });
 }
 
 function stripFragmentAndQuery(str: string): string {

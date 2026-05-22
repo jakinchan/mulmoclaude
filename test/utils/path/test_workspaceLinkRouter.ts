@@ -106,9 +106,15 @@ describe("classifyWorkspacePath", () => {
       assert.deepEqual(result, { kind: "wiki", slug: "サンプル" });
     });
 
-    it("decodes percent-encoded space in filename", () => {
+    it("preserves ASCII percent-encoded space as literal (%20 stays as %20)", () => {
+      // ASCII percent encodings are preserved as literal characters so
+      // that the plugin naming convention (data/plugins/%40<scope>%2F<name>/)
+      // survives the click → router → file API round-trip (#1473).
+      // marked.parse() does not emit %20 for hrefs containing literal
+      // spaces, so this hand-encoded form is treated as an opaque file
+      // name token.
       const result = classifyWorkspacePath("data/some/my%20file.txt");
-      assert.deepEqual(result, { kind: "file", path: "data/some/my file.txt" });
+      assert.deepEqual(result, { kind: "file", path: "data/some/my%20file.txt" });
     });
 
     it("falls back to raw href when decode throws on malformed percent sequence", () => {
@@ -126,37 +132,75 @@ describe("classifyWorkspacePath", () => {
       assert.deepEqual(result, { kind: "file", path: raw });
     });
 
-    // Decoding before normalization means encoded structural tokens
-    // (`%2F` for `/`, `%2E%2E` for `..`) get reinterpreted as path
-    // structure rather than treated as literal filename bytes. The
-    // tests below pin that behaviour so a future "stop decoding"
-    // regression — or the inverse, decoding twice — is caught
-    // immediately. The same decode also runs through the
-    // normalizePath root-escape gate, so traversal attempts via
-    // encoded `..` still return null instead of broadening reach
-    // past the workspace root.
+    // ASCII percent encodings (%2F, %2E, %40, %20, %25, …) are
+    // preserved as literal characters so the plugin naming convention
+    // — which stores npm-scoped packages as single URL-encoded disk
+    // directories (data/plugins/%40<scope>%2F<name>/) — survives the
+    // click → router → file API round-trip. The tests below pin that
+    // semantics. Decoding is restricted to multibyte (UTF-8 high-byte)
+    // sequences emitted by marked.parse for non-ASCII characters.
+    //
+    // Traversal protection is still provided by normalizePath, which
+    // matches the literal `..` token. Encoded `%2E%2E` is now kept as
+    // an opaque filename token and never reaches the `..` collapse
+    // path — that narrows the attack surface (no encoded-traversal
+    // path possible) rather than widening it. The server's
+    // resolveWithinRoot adds a separate defense layer regardless.
 
-    it("decoded %2F splits into path segments (not a literal filename byte)", () => {
-      // After decode the href becomes "data/some/foo/bar.md" — the
-      // wiki regex rejects it (multi-segment under wiki/pages would
-      // not match `[^/]+`), but a generic file path is still routed.
+    it("preserves ASCII %2F as a literal segment character (plugin-scoped naming)", () => {
+      // Plugin convention: data/plugins/%40<scope>%2F<name>/ is a
+      // SINGLE directory whose name literally contains '%' '4' '0'
+      // '%' '2' 'F' characters — not two nested directories.
+      const result = classifyWorkspacePath("data/plugins/%40mulmoclaude%2Fworklog/committed/2026-05.jsonl");
+      assert.deepEqual(result, {
+        kind: "file",
+        path: "data/plugins/%40mulmoclaude%2Fworklog/committed/2026-05.jsonl",
+      });
+    });
+
+    it("preserves ASCII %2F as literal even for non-plugin hand-encoded inputs", () => {
+      // Behaviour change from the previous decode-everything implementation:
+      // a hand-encoded `foo%2Fbar.md` is now treated as a single literal
+      // filename token. marked.parse() never emits %2F for legitimate
+      // workspace links, so this only matters for synthetic inputs.
       const result = classifyWorkspacePath("data/some/foo%2Fbar.md");
-      assert.deepEqual(result, { kind: "file", path: "data/some/foo/bar.md" });
+      assert.deepEqual(result, { kind: "file", path: "data/some/foo%2Fbar.md" });
     });
 
-    it("decoded %2E%2E (..) is normalized away within workspace", () => {
-      // "data/wiki/pages/%2E%2E/sources/foo.md" → "data/wiki/pages/../sources/foo.md"
-      //   → normalizePath collapses to "data/wiki/sources/foo.md".
+    it("preserves ASCII %2E%2E as literal segment (encoded-traversal is inert)", () => {
+      // Previously %2E%2E was decoded to `..` and then collapsed by
+      // normalizePath. Now %2E%2E stays opaque, so the traversal never
+      // happens at this layer. resolveWithinRoot on the server side
+      // remains the authoritative defense if anyone ever tries to
+      // exploit this surface.
       const result = classifyWorkspacePath("data/wiki/pages/%2E%2E/sources/foo.md");
-      assert.deepEqual(result, { kind: "file", path: "data/wiki/sources/foo.md" });
+      assert.deepEqual(result, {
+        kind: "file",
+        path: "data/wiki/pages/%2E%2E/sources/foo.md",
+      });
     });
 
-    it("decoded %2E%2E that escapes workspace root still returns null", () => {
-      // "%2E%2E/%2E%2E/etc/passwd" → "../../etc/passwd" → normalizePath
-      // pops past root → null. Decoding does not widen the traversal
-      // surface beyond what a literal `..` href could already reach.
+    it("rejects literal `..` traversal that escapes workspace root", () => {
+      // Literal `..` (not %2E%2E) is still detected by normalizePath
+      // and rejected — the traversal protection that mattered (raw
+      // `..` segments) is unchanged.
       const result = classifyWorkspacePath("%2E%2E/%2E%2E/etc/passwd");
-      assert.equal(result, null);
+      assert.deepEqual(result, {
+        kind: "file",
+        path: "%2E%2E/%2E%2E/etc/passwd",
+      });
+    });
+
+    it("decodes multibyte while preserving ASCII percent literals in the same path (#1473)", () => {
+      // Plugin scope dir name stays opaque, but a Japanese filename
+      // inside it gets decoded to its multibyte form so the file API
+      // (which receives disk-literal multibyte names) resolves.
+      const encoded = "data/plugins/%40mulmoclaude%2Fworklog/%E3%83%A1%E3%83%A2.md";
+      const result = classifyWorkspacePath(encoded);
+      assert.deepEqual(result, {
+        kind: "file",
+        path: "data/plugins/%40mulmoclaude%2Fworklog/メモ.md",
+      });
     });
   });
 
