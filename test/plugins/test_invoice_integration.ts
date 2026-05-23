@@ -41,29 +41,29 @@ interface TestInvoiceResultData {
     candidateId: string;
     clientId?: string;
   };
-  candidates?: Array<{
+  candidates?: {
     candidateId: string;
     clientId?: string;
-  }>;
+  }[];
   invoice?: {
     id: string;
     notes: string;
     status: string;
     paymentRef?: string;
   };
-  invoices?: Array<{
+  invoices?: {
     id: string;
     notes: string;
     status: string;
     paymentRef?: string;
-  }>;
+  }[];
   settings?: {
     companyName: string;
   };
-  clients?: Array<{
+  clients?: {
     id: string;
     name: string;
-  }>;
+  }[];
   prompt?: string;
   chatId?: string;
 }

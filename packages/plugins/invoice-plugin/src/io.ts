@@ -174,11 +174,27 @@ export async function fetchActiveClients(log: { error: (msg: string, details: Re
   try {
     const fileNames = await fsPromises.readdir(clientsDir);
     const clientsList: ParsedClient[] = [];
+    const realClientsDir = await fsPromises.realpath(clientsDir);
+
     for (const fileName of fileNames) {
       if (!fileName.endsWith(".md")) continue;
       try {
         const clientPath = path.join(clientsDir, fileName);
-        const content = await fsPromises.readFile(clientPath, "utf-8");
+
+        // Security: Prevent path traversal via symbolic link
+        const stat = await fsPromises.lstat(clientPath);
+        if (stat.isSymbolicLink()) {
+          log.error("Skipped symbolic link to prevent path traversal", { file: fileName });
+          continue;
+        }
+
+        const realClientPath = await fsPromises.realpath(clientPath);
+        if (!realClientPath.startsWith(realClientsDir)) {
+          log.error("Skipped path traversal client file", { file: fileName });
+          continue;
+        }
+
+        const content = await fsPromises.readFile(realClientPath, "utf-8");
         const clientSlug = fileName.replace(/\.md$/, "");
         const parsed = parseClientFrontmatter(content, clientSlug);
         clientsList.push(parsed);
