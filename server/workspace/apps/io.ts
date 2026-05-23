@@ -3,21 +3,67 @@
 // atomic; deletes are idempotent enough to expose a clear 404 when
 // the file is missing.
 
-import { mkdir, open, readdir, readFile, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, readFile, unlink } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { log } from "../../system/logger/index.js";
 import { writeFileAtomic } from "../../utils/files/atomic.js";
-import { isContainedInWorkspace, itemFilePath, safeSlugName } from "./paths.js";
+import { workspacePath } from "../workspace.js";
+import { isContainedInRoot, itemFilePath, safeSlugName } from "./paths.js";
 import type { AppItem } from "./types.js";
 
+export interface IoOptions {
+  /** Override the workspace root for containment checks. Default:
+   *  the live `workspacePath`. Tests point this at a `mkdtempSync`
+   *  tree so the realpath-based escape detection can be exercised
+   *  without touching `~/mulmoclaude/`. Same pattern as
+   *  `server/workspace/skills/catalog.ts#CatalogOptions`. */
+  workspaceRoot?: string;
+}
+
+/** True iff `filePath` exists and is a regular file (NOT a symlink).
+ *  Defends `listItems` / `readItem` against `*.json` symlinks placed
+ *  inside an otherwise-contained data dir — without this, a record
+ *  file could symlink to /etc/passwd and the detail endpoint would
+ *  happily serve it. Returns false on ENOENT and on any other lstat
+ *  failure so the caller's "missing" branch covers those cases too. */
+async function isRegularFile(filePath: string): Promise<boolean> {
+  try {
+    const info = await lstat(filePath);
+    return info.isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** Read one JSON record file. Returns null when the file is missing,
+ *  is a symlink (file-disclosure defense), parses to a non-object,
+ *  or has a read/parse error. Caller logs the per-entry skip — this
+ *  helper just classifies. Split out to keep `listItems` under the
+ *  `sonarjs/cognitive-complexity` threshold. */
+async function tryReadRecord(filePath: string): Promise<AppItem | null> {
+  if (!(await isRegularFile(filePath))) return null;
+  try {
+    const raw = await readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as AppItem;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** Read every record under `dataDir`. Returns [] if the dir doesn't
- *  exist yet (legitimate first-use state). Malformed JSON files are
- *  logged and skipped so one bad record can't take down the listing.
- *  Re-validates the realpath containment to defend against a symlink
- *  appearing between discovery and use. */
-export async function listItems(dataDir: string): Promise<AppItem[]> {
-  if (!isContainedInWorkspace(dataDir)) {
+ *  exist yet (legitimate first-use state). Malformed JSON files and
+ *  symlinked records are skipped (the latter is a file-disclosure
+ *  defense — see `isRegularFile`). Re-validates the realpath
+ *  containment to defend against a symlinked data dir appearing
+ *  between discovery and use. */
+export async function listItems(dataDir: string, opts: IoOptions = {}): Promise<AppItem[]> {
+  const workspaceRoot = opts.workspaceRoot ?? workspacePath;
+  if (!isContainedInRoot(dataDir, workspaceRoot)) {
     log.warn("apps", "listItems refused: dataDir escapes workspace via symlink", { dataDir });
     return [];
   }
@@ -34,26 +80,27 @@ export async function listItems(dataDir: string): Promise<AppItem[]> {
     if (!name.endsWith(".json")) continue;
     if (name.startsWith(".")) continue;
     const filePath = path.join(dataDir, name);
-    try {
-      const raw = await readFile(filePath, "utf-8");
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        results.push(parsed as AppItem);
-      }
-    } catch (err) {
-      log.warn("apps", "failed to read item, skipping", { path: filePath, error: String(err) });
+    const record = await tryReadRecord(filePath);
+    if (record === null) {
+      log.warn("apps", "skipping record (missing, symlink, or unreadable)", { path: filePath });
+      continue;
     }
+    results.push(record);
   }
   return results;
 }
 
-/** Read one record by id. Returns null when the file is missing or
- *  when the resolved path escapes the workspace via a symlink. */
-export async function readItem(dataDir: string, itemId: string): Promise<AppItem | null> {
+/** Read one record by id. Returns null when the file is missing,
+ *  when the resolved path escapes the workspace via a symlink, or
+ *  when the record file itself is a symlink (file-disclosure
+ *  defense — see `isRegularFile`). */
+export async function readItem(dataDir: string, itemId: string, opts: IoOptions = {}): Promise<AppItem | null> {
   const safeId = safeSlugName(itemId);
   if (safeId === null) return null;
-  if (!isContainedInWorkspace(dataDir)) return null;
+  const workspaceRoot = opts.workspaceRoot ?? workspacePath;
+  if (!isContainedInRoot(dataDir, workspaceRoot)) return null;
   const filePath = itemFilePath(dataDir, safeId);
+  if (!(await isRegularFile(filePath))) return null;
   try {
     const raw = await readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw) as unknown;
@@ -68,7 +115,7 @@ export async function readItem(dataDir: string, itemId: string): Promise<AppItem
   }
 }
 
-export interface WriteItemOptions {
+export interface WriteItemOptions extends IoOptions {
   /** When true (POST/create), refuse to overwrite an existing file
    *  and return `kind: "conflict"`. Update flow (PUT) leaves it false. */
   refuseOverwrite?: boolean;
@@ -97,9 +144,19 @@ export type WriteItemResult =
 export async function writeItem(dataDir: string, itemId: string, item: AppItem, opts: WriteItemOptions = {}): Promise<WriteItemResult> {
   const safeId = safeSlugName(itemId);
   if (safeId === null) return { kind: "invalid-id", itemId };
+  const workspaceRoot = opts.workspaceRoot ?? workspacePath;
+  // Containment check runs BEFORE mkdir so we never create
+  // directories outside the workspace even if a symlink ancestor
+  // was swapped after discovery. We re-check AFTER mkdir to catch
+  // a symlink racing in between the two — belt + suspenders, cheap
+  // and the only honest defense against TOCTOU on directory creation.
+  if (!isContainedInRoot(dataDir, workspaceRoot)) {
+    log.warn("apps", "writeItem refused: dataDir escapes workspace via symlink (pre-mkdir)", { dataDir, itemId: safeId });
+    return { kind: "path-escape", itemId: safeId };
+  }
   await mkdir(dataDir, { recursive: true });
-  if (!isContainedInWorkspace(dataDir)) {
-    log.warn("apps", "writeItem refused: dataDir escapes workspace via symlink", { dataDir, itemId: safeId });
+  if (!isContainedInRoot(dataDir, workspaceRoot)) {
+    log.warn("apps", "writeItem refused: dataDir escapes workspace via symlink (post-mkdir)", { dataDir, itemId: safeId });
     return { kind: "path-escape", itemId: safeId };
   }
   const filePath = itemFilePath(dataDir, safeId);
@@ -132,10 +189,11 @@ export type DeleteItemResult =
   | { kind: "not-found"; itemId: string }
   | { kind: "path-escape"; itemId: string };
 
-export async function deleteItem(dataDir: string, itemId: string): Promise<DeleteItemResult> {
+export async function deleteItem(dataDir: string, itemId: string, opts: IoOptions = {}): Promise<DeleteItemResult> {
   const safeId = safeSlugName(itemId);
   if (safeId === null) return { kind: "invalid-id", itemId };
-  if (!isContainedInWorkspace(dataDir)) {
+  const workspaceRoot = opts.workspaceRoot ?? workspacePath;
+  if (!isContainedInRoot(dataDir, workspaceRoot)) {
     log.warn("apps", "deleteItem refused: dataDir escapes workspace via symlink", { dataDir, itemId: safeId });
     return { kind: "path-escape", itemId: safeId };
   }
