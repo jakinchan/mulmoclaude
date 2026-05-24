@@ -10,6 +10,8 @@ const frMessages = {
     dismiss: "Ignorer",
     add: "Ajouter",
     remove: "Supprimer",
+    yes: "Oui",
+    no: "Non",
     saving: "Enregistrement...",
     saved: "Enregistré",
     noResultsYet: "Aucun résultat pour le moment",

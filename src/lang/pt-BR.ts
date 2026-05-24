@@ -10,6 +10,8 @@ const ptBRMessages = {
     dismiss: "Dispensar",
     add: "Adicionar",
     remove: "Remover",
+    yes: "Sim",
+    no: "Não",
     saving: "Salvando...",
     saved: "Salvo",
     noResultsYet: "Ainda não há resultados",

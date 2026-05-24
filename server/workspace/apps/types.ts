@@ -9,7 +9,7 @@
 // tables / cross-collection refs / derived fields / actions are
 // deferred to follow-ups (see plans/feat-skill-driven-apps.md).
 
-export type AppFieldType = "string" | "text" | "email" | "number" | "date" | "markdown";
+export type AppFieldType = "string" | "text" | "email" | "number" | "date" | "boolean" | "markdown";
 
 export type AppSource = "user" | "project";
 

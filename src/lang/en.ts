@@ -30,6 +30,8 @@ const enMessages = {
     dismiss: "Dismiss",
     add: "Add",
     remove: "Remove",
+    yes: "Yes",
+    no: "No",
     saving: "Saving...",
     saved: "Saved",
     noResultsYet: "No results yet",

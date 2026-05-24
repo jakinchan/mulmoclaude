@@ -15,6 +15,8 @@ const esMessages = {
     dismiss: "Descartar",
     add: "Añadir",
     remove: "Quitar",
+    yes: "Sí",
+    no: "No",
     saving: "Guardando...",
     saved: "Guardado",
     noResultsYet: "Aún no hay resultados",

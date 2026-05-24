@@ -14,6 +14,8 @@ const zhMessages = {
     dismiss: "关闭",
     add: "添加",
     remove: "移除",
+    yes: "是",
+    no: "否",
     saving: "保存中...",
     saved: "已保存",
     noResultsYet: "暂无结果",

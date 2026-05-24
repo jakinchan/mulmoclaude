@@ -15,6 +15,8 @@ const jaMessages = {
     dismiss: "閉じる",
     add: "追加",
     remove: "削除",
+    yes: "はい",
+    no: "いいえ",
     saving: "保存中...",
     saved: "保存しました",
     noResultsYet: "まだ結果はありません",

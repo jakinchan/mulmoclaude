@@ -15,6 +15,8 @@ const koMessages = {
     dismiss: "닫기",
     add: "추가",
     remove: "삭제",
+    yes: "예",
+    no: "아니오",
     saving: "저장 중...",
     saved: "저장됨",
     noResultsYet: "아직 결과가 없습니다",

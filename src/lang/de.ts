@@ -10,6 +10,8 @@ const deMessages = {
     dismiss: "Verwerfen",
     add: "Hinzufügen",
     remove: "Entfernen",
+    yes: "Ja",
+    no: "Nein",
     saving: "Wird gespeichert...",
     saved: "Gespeichert",
     noResultsYet: "Noch keine Ergebnisse",

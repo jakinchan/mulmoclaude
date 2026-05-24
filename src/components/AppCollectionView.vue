@@ -50,7 +50,12 @@
         <tbody class="divide-y divide-gray-100">
           <tr v-for="item in items" :key="String(item[app.schema.primaryKey] ?? '')" class="hover:bg-gray-50">
             <td v-for="(field, key) in app.schema.fields" :key="key" class="px-4 py-2 text-gray-800 align-top max-w-xs">
-              <span class="block truncate">{{ formatCell(item[key], field.type) }}</span>
+              <span v-if="field.type === 'boolean'" class="block">
+                <span v-if="item[key] === true" class="material-icons text-green-600 text-base align-middle">check</span>
+                <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "—" is a universal "empty value" glyph already used in `formatCell` and reused here for the boolean=false case; translating it would diverge the two visual states across locales. -->
+                <span v-else class="text-gray-400">—</span>
+              </span>
+              <span v-else class="block truncate">{{ formatCell(item[key], field.type) }}</span>
             </td>
             <td class="px-4 py-2 text-right whitespace-nowrap">
               <button
@@ -101,10 +106,20 @@
               <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "*" is a universal required-field glyph; treating it as i18n copy would force eight translations of the same symbol. -->
               <span v-if="field.required" class="text-red-500">*</span>
             </label>
+            <label v-if="field.type === 'boolean'" class="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input
+                :id="`apps-field-${key}`"
+                v-model="editing.bool[key]"
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-400"
+                :data-testid="`apps-input-${key}`"
+              />
+              <span>{{ editing.bool[key] ? t("common.yes") : t("common.no") }}</span>
+            </label>
             <input
-              v-if="['string', 'email', 'number', 'date'].includes(field.type)"
+              v-else-if="['string', 'email', 'number', 'date'].includes(field.type)"
               :id="`apps-field-${key}`"
-              v-model="editing.draft[key]"
+              v-model="editing.text[key]"
               :type="inputTypeFor(field.type)"
               :required="isFieldRequiredInUi(field)"
               :disabled="field.primary === true && editing.mode === 'edit'"
@@ -114,7 +129,7 @@
             <textarea
               v-else
               :id="`apps-field-${key}`"
-              v-model="editing.draft[key]"
+              v-model="editing.text[key]"
               :rows="field.type === 'markdown' ? 6 : 3"
               :required="isFieldRequiredInUi(field)"
               class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-400 focus:outline-none"
@@ -155,7 +170,7 @@ import { PAGE_ROUTES } from "../router/pageRoutes";
 import ConfirmModal from "./ConfirmModal.vue";
 import { useConfirm } from "../composables/useConfirm";
 
-type FieldType = "string" | "text" | "email" | "number" | "date" | "markdown";
+type FieldType = "string" | "text" | "email" | "number" | "date" | "boolean" | "markdown";
 
 interface FieldSpec {
   type: FieldType;
@@ -194,7 +209,15 @@ interface ItemMutationResponse {
 
 interface EditState {
   mode: "create" | "edit";
-  draft: Record<string, string>;
+  /** Form drafts for text-like inputs. v-model on `<input type="text">`
+   *  / `<textarea>` / number / date / email all bind here as strings;
+   *  `draftToRecord` parses numbers and date strings before posting. */
+  text: Record<string, string>;
+  /** Form drafts for `boolean`-typed fields. v-model on `<input
+   *  type="checkbox">` binds here. Split from `text` so the v-model
+   *  generic stays unambiguous (string vs boolean) — vue-tsc complains
+   *  about `string | boolean` slots used as modelValue. */
+  bool: Record<string, boolean>;
   /** For edit mode: the original item id pinned to the URL. */
   originalId: string | null;
 }
@@ -268,22 +291,31 @@ function formatCell(value: unknown, type: FieldType): string {
 
 function openCreate(): void {
   if (!app.value) return;
-  const draft: Record<string, string> = {};
-  for (const key of Object.keys(app.value.schema.fields)) draft[key] = "";
-  editing.value = { mode: "create", draft, originalId: null };
+  const text: Record<string, string> = {};
+  const bool: Record<string, boolean> = {};
+  for (const [key, field] of Object.entries(app.value.schema.fields)) {
+    if (field.type === "boolean") bool[key] = false;
+    else text[key] = "";
+  }
+  editing.value = { mode: "create", text, bool, originalId: null };
   saveError.value = null;
 }
 
 function openEdit(item: AppItem): void {
   if (!app.value) return;
-  const draft: Record<string, string> = {};
-  for (const key of Object.keys(app.value.schema.fields)) {
+  const text: Record<string, string> = {};
+  const bool: Record<string, boolean> = {};
+  for (const [key, field] of Object.entries(app.value.schema.fields)) {
     const raw = item[key];
-    draft[key] = raw === undefined || raw === null ? "" : String(raw);
+    if (field.type === "boolean") {
+      bool[key] = raw === true;
+    } else {
+      text[key] = raw === undefined || raw === null ? "" : String(raw);
+    }
   }
   const primaryRaw = item[app.value.schema.primaryKey];
   const originalId = typeof primaryRaw === "string" ? primaryRaw : String(primaryRaw ?? "");
-  editing.value = { mode: "edit", draft, originalId };
+  editing.value = { mode: "edit", text, bool, originalId };
   saveError.value = null;
 }
 
@@ -296,7 +328,14 @@ function closeEditor(): void {
 function draftToRecord(state: EditState, schema: AppSchema): AppItem {
   const record: AppItem = {};
   for (const [key, field] of Object.entries(schema.fields)) {
-    const raw = state.draft[key];
+    if (field.type === "boolean") {
+      // Always include boolean fields so unchecking persists as
+      // `false` rather than disappearing (= "field unset"). Booleans
+      // have an explicit two-state meaning the schema declared.
+      record[key] = state.bool[key] === true;
+      continue;
+    }
+    const raw = state.text[key];
     if (raw === undefined || raw === "") continue;
     if (field.type === "number") {
       const num = Number(raw);
@@ -326,7 +365,11 @@ async function saveEditor(): Promise<void> {
   for (const [key, field] of Object.entries(schema.fields)) {
     if (!field.required) continue;
     if (draft.mode === "create" && field.primary === true) continue;
-    if (!draft.draft[key]) {
+    // Booleans always have a value (`false` is a valid answer), so
+    // `required: true` on a boolean field is a no-op rather than a
+    // gate. Skip the empty check for them.
+    if (field.type === "boolean") continue;
+    if (!draft.text[key]) {
       saveError.value = `${field.label}: ${t("appsView.requiredField")}`;
       return;
     }
