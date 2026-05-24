@@ -4,22 +4,22 @@
       <button
         type="button"
         class="h-8 w-8 flex items-center justify-center rounded text-gray-500 hover:bg-gray-100"
-        :title="t('appsView.backToIndex')"
-        :aria-label="t('appsView.backToIndex')"
-        data-testid="apps-back"
+        :title="t('collectionsView.backToIndex')"
+        :aria-label="t('collectionsView.backToIndex')"
+        data-testid="collections-back"
         @click="goBack"
       >
         <span class="material-icons text-base">arrow_back</span>
       </button>
-      <span v-if="app" class="material-icons text-blue-600">{{ app.icon }}</span>
+      <span v-if="collection" class="material-icons text-blue-600">{{ collection.icon }}</span>
       <h1 class="text-lg font-medium text-gray-900 flex-1 min-w-0 truncate">
-        {{ app?.title ?? t("appsView.title") }}
+        {{ collection?.title ?? t("collectionsView.title") }}
       </h1>
       <button
-        v-if="app"
+        v-if="collection"
         type="button"
         class="h-8 px-2.5 flex items-center gap-1 rounded border border-gray-300 bg-white hover:bg-gray-50 text-sm"
-        data-testid="apps-add-item"
+        data-testid="collections-add-item"
         @click="openCreate"
       >
         <span class="material-icons text-base">add</span>
@@ -31,25 +31,25 @@
       <div v-if="loading" class="p-6 text-sm text-gray-500">{{ t("common.loading") }}</div>
 
       <div v-else-if="loadError" class="m-6 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-        {{ loadError === "not-found" ? t("appsView.appNotFound") : `${t("appsView.loadFailed")}: ${loadError}` }}
+        {{ loadError === "not-found" ? t("collectionsView.notFound") : `${t("collectionsView.loadFailed")}: ${loadError}` }}
       </div>
 
-      <div v-else-if="!app">
-        <!-- defensive: loading=false, error=null, app=null -->
+      <div v-else-if="!collection">
+        <!-- defensive: loading=false, error=null, collection=null -->
       </div>
 
-      <div v-else-if="items.length === 0" class="p-6 text-sm text-gray-500">{{ t("appsView.itemsEmpty") }}</div>
+      <div v-else-if="items.length === 0" class="p-6 text-sm text-gray-500">{{ t("collectionsView.itemsEmpty") }}</div>
 
       <table v-else class="min-w-full text-sm">
         <thead class="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
           <tr>
-            <th v-for="(field, key) in app.schema.fields" :key="key" class="px-4 py-2 font-medium">{{ field.label }}</th>
+            <th v-for="(field, key) in collection.schema.fields" :key="key" class="px-4 py-2 font-medium">{{ field.label }}</th>
             <th class="px-4 py-2 font-medium w-px"></th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
-          <tr v-for="item in items" :key="String(item[app.schema.primaryKey] ?? '')" class="hover:bg-gray-50">
-            <td v-for="(field, key) in app.schema.fields" :key="key" class="px-4 py-2 text-gray-800 align-top max-w-xs">
+          <tr v-for="item in items" :key="String(item[collection.schema.primaryKey] ?? '')" class="hover:bg-gray-50">
+            <td v-for="(field, key) in collection.schema.fields" :key="key" class="px-4 py-2 text-gray-800 align-top max-w-xs">
               <span v-if="field.type === 'boolean'" class="block">
                 <span v-if="item[key] === true" class="material-icons text-green-600 text-base align-middle">check</span>
                 <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "—" is a universal "empty value" glyph already used in `formatCell` and reused here for the boolean=false case; translating it would diverge the two visual states across locales. -->
@@ -61,15 +61,15 @@
               <button
                 type="button"
                 class="text-xs text-blue-600 hover:underline mr-3"
-                :data-testid="`apps-edit-item-${item[app.schema.primaryKey]}`"
+                :data-testid="`collections-edit-item-${item[collection.schema.primaryKey]}`"
                 @click="openEdit(item)"
               >
-                {{ t("appsView.editItem") }}
+                {{ t("collectionsView.editItem") }}
               </button>
               <button
                 type="button"
                 class="text-xs text-red-600 hover:underline"
-                :data-testid="`apps-delete-item-${item[app.schema.primaryKey]}`"
+                :data-testid="`collections-delete-item-${item[collection.schema.primaryKey]}`"
                 @click="confirmDelete(item)"
               >
                 {{ t("common.remove") }}
@@ -81,18 +81,18 @@
     </div>
 
     <!-- Edit / Create modal -->
-    <div v-if="editing && app" class="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4" @click.self="closeEditor">
+    <div v-if="editing && collection" class="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4" @click.self="closeEditor">
       <div class="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
         <header class="px-5 py-3 border-b border-gray-200 flex items-center gap-3">
           <span class="material-icons text-blue-600 text-base">{{ editing.mode === "create" ? "add" : "edit" }}</span>
           <h2 class="text-base font-medium text-gray-900 flex-1">
-            {{ editing.mode === "create" ? `${t("common.add")} — ${app.title}` : `${t("appsView.editItem")} — ${app.title}` }}
+            {{ editing.mode === "create" ? `${t("common.add")} — ${collection.title}` : `${t("collectionsView.editItem")} — ${collection.title}` }}
           </h2>
           <button
             type="button"
             class="h-8 w-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100"
             :aria-label="t('common.close')"
-            data-testid="apps-editor-close"
+            data-testid="collections-editor-close"
             @click="closeEditor"
           >
             <span class="material-icons text-base">close</span>
@@ -100,55 +100,55 @@
         </header>
 
         <form class="flex-1 overflow-auto px-5 py-4 space-y-3" @submit.prevent="saveEditor">
-          <div v-for="(field, key) in app.schema.fields" :key="key" class="space-y-1">
-            <label class="text-xs font-medium text-gray-700 flex items-center gap-1" :for="`apps-field-${key}`">
+          <div v-for="(field, key) in collection.schema.fields" :key="key" class="space-y-1">
+            <label class="text-xs font-medium text-gray-700 flex items-center gap-1" :for="`collections-field-${key}`">
               {{ field.label }}
               <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "*" is a universal required-field glyph; treating it as i18n copy would force eight translations of the same symbol. -->
               <span v-if="field.required" class="text-red-500">*</span>
             </label>
             <label v-if="field.type === 'boolean'" class="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
               <input
-                :id="`apps-field-${key}`"
+                :id="`collections-field-${key}`"
                 v-model="editing.bool[key]"
                 type="checkbox"
                 class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-400"
-                :data-testid="`apps-input-${key}`"
+                :data-testid="`collections-input-${key}`"
                 @change="markBoolTouched(key)"
               />
               <span>{{ editing.bool[key] ? t("common.yes") : t("common.no") }}</span>
             </label>
             <input
               v-else-if="['string', 'email', 'number', 'date'].includes(field.type)"
-              :id="`apps-field-${key}`"
+              :id="`collections-field-${key}`"
               v-model="editing.text[key]"
               :type="inputTypeFor(field.type)"
               :required="isFieldRequiredInUi(field)"
               :disabled="field.primary === true && editing.mode === 'edit'"
               class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-400 focus:outline-none disabled:bg-gray-100 disabled:text-gray-500"
-              :data-testid="`apps-input-${key}`"
+              :data-testid="`collections-input-${key}`"
             />
             <textarea
               v-else
-              :id="`apps-field-${key}`"
+              :id="`collections-field-${key}`"
               v-model="editing.text[key]"
               :rows="field.type === 'markdown' ? 6 : 3"
               :required="isFieldRequiredInUi(field)"
               class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-400 focus:outline-none"
-              :data-testid="`apps-input-${key}`"
+              :data-testid="`collections-input-${key}`"
             />
           </div>
           <p v-if="saveError" class="text-sm text-red-700">{{ saveError }}</p>
         </form>
 
         <footer class="px-5 py-3 border-t border-gray-200 flex items-center justify-end gap-2">
-          <button type="button" class="h-8 px-3 rounded text-sm text-gray-700 hover:bg-gray-100" data-testid="apps-editor-cancel" @click="closeEditor">
+          <button type="button" class="h-8 px-3 rounded text-sm text-gray-700 hover:bg-gray-100" data-testid="collections-editor-cancel" @click="closeEditor">
             {{ t("common.cancel") }}
           </button>
           <button
             type="button"
             class="h-8 px-3 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
             :disabled="saving"
-            data-testid="apps-editor-save"
+            data-testid="collections-editor-save"
             @click="saveEditor"
           >
             {{ saving ? t("common.saving") : t("common.save") }}
@@ -180,7 +180,7 @@ interface FieldSpec {
   required?: boolean;
 }
 
-interface AppSchema {
+interface CollectionSchema {
   title: string;
   icon: string;
   dataPath: string;
@@ -188,24 +188,24 @@ interface AppSchema {
   fields: Record<string, FieldSpec>;
 }
 
-interface AppDetail {
+interface CollectionDetail {
   slug: string;
   title: string;
   icon: string;
   source: "user" | "project";
-  schema: AppSchema;
+  schema: CollectionSchema;
 }
 
-type AppItem = Record<string, unknown>;
+type CollectionItem = Record<string, unknown>;
 
-interface AppDetailResponse {
-  app: AppDetail;
-  items: AppItem[];
+interface CollectionDetailResponse {
+  collection: CollectionDetail;
+  items: CollectionItem[];
 }
 
 interface ItemMutationResponse {
   itemId: string;
-  item: AppItem;
+  item: CollectionItem;
 }
 
 interface EditState {
@@ -244,8 +244,8 @@ const route = useRoute();
 const router = useRouter();
 const { openConfirm } = useConfirm();
 
-const app = ref<AppDetail | null>(null);
-const items = ref<AppItem[]>([]);
+const collection = ref<CollectionDetail | null>(null);
+const items = ref<CollectionItem[]>([]);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
 const editing = ref<EditState | null>(null);
@@ -253,29 +253,29 @@ const saving = ref(false);
 const saveError = ref<string | null>(null);
 
 function detailUrl(slug: string): string {
-  return API_ROUTES.apps.detail.replace(":slug", encodeURIComponent(slug));
+  return API_ROUTES.collections.detail.replace(":slug", encodeURIComponent(slug));
 }
 
 function itemsUrl(slug: string): string {
-  return API_ROUTES.apps.items.replace(":slug", encodeURIComponent(slug));
+  return API_ROUTES.collections.items.replace(":slug", encodeURIComponent(slug));
 }
 
 function itemUrl(slug: string, itemId: string): string {
-  return API_ROUTES.apps.item.replace(":slug", encodeURIComponent(slug)).replace(":itemId", encodeURIComponent(itemId));
+  return API_ROUTES.collections.item.replace(":slug", encodeURIComponent(slug)).replace(":itemId", encodeURIComponent(itemId));
 }
 
-async function loadApp(slug: string): Promise<void> {
+async function loadCollection(slug: string): Promise<void> {
   loading.value = true;
   loadError.value = null;
-  app.value = null;
+  collection.value = null;
   items.value = [];
-  const result = await apiGet<AppDetailResponse>(detailUrl(slug));
+  const result = await apiGet<CollectionDetailResponse>(detailUrl(slug));
   loading.value = false;
   if (!result.ok) {
     loadError.value = result.status === 404 ? "not-found" : result.error;
     return;
   }
-  app.value = result.data.app;
+  collection.value = result.data.collection;
   items.value = result.data.items;
 }
 
@@ -307,12 +307,12 @@ function formatCell(value: unknown, type: FieldType): string {
 }
 
 function openCreate(): void {
-  if (!app.value) return;
+  if (!collection.value) return;
   const text: Record<string, string> = {};
   const bool: Record<string, boolean> = {};
   const boolOriginallyPresent: Record<string, boolean> = {};
   const boolTouched: Record<string, boolean> = {};
-  for (const [key, field] of Object.entries(app.value.schema.fields)) {
+  for (const [key, field] of Object.entries(collection.value.schema.fields)) {
     if (field.type === "boolean") {
       bool[key] = false;
       // New record — no boolean was originally present.
@@ -326,13 +326,13 @@ function openCreate(): void {
   saveError.value = null;
 }
 
-function openEdit(item: AppItem): void {
-  if (!app.value) return;
+function openEdit(item: CollectionItem): void {
+  if (!collection.value) return;
   const text: Record<string, string> = {};
   const bool: Record<string, boolean> = {};
   const boolOriginallyPresent: Record<string, boolean> = {};
   const boolTouched: Record<string, boolean> = {};
-  for (const [key, field] of Object.entries(app.value.schema.fields)) {
+  for (const [key, field] of Object.entries(collection.value.schema.fields)) {
     const raw = item[key];
     if (field.type === "boolean") {
       bool[key] = raw === true;
@@ -348,7 +348,7 @@ function openEdit(item: AppItem): void {
       text[key] = raw === undefined || raw === null ? "" : String(raw);
     }
   }
-  const primaryRaw = item[app.value.schema.primaryKey];
+  const primaryRaw = item[collection.value.schema.primaryKey];
   const originalId = typeof primaryRaw === "string" ? primaryRaw : String(primaryRaw ?? "");
   editing.value = { mode: "edit", text, bool, boolOriginallyPresent, boolTouched, originalId };
   saveError.value = null;
@@ -364,8 +364,8 @@ function closeEditor(): void {
   saveError.value = null;
 }
 
-function draftToRecord(state: EditState, schema: AppSchema): AppItem {
-  const record: AppItem = {};
+function draftToRecord(state: EditState, schema: CollectionSchema): CollectionItem {
+  const record: CollectionItem = {};
   for (const [key, field] of Object.entries(schema.fields)) {
     if (field.type === "boolean") {
       // Emit the boolean if any of:
@@ -400,11 +400,11 @@ function draftToRecord(state: EditState, schema: AppSchema): AppItem {
 }
 
 async function saveEditor(): Promise<void> {
-  if (!app.value || !editing.value) return;
+  if (!collection.value || !editing.value) return;
   // Snapshot mutable refs before any await — route changes during
-  // the save (e.g. user navigates away) can null `app.value` and
-  // would throw on the post-await `loadApp(app.value.slug)`.
-  const { slug, schema } = app.value;
+  // the save (e.g. user navigates away) can null `collection.value`
+  // and would throw on the post-await `loadCollection(...)`.
+  const { slug, schema } = collection.value;
   const draft = editing.value;
   saveError.value = null;
 
@@ -422,7 +422,7 @@ async function saveEditor(): Promise<void> {
     // gate. Skip the empty check for them.
     if (field.type === "boolean") continue;
     if (!draft.text[key]) {
-      saveError.value = `${field.label}: ${t("appsView.requiredField")}`;
+      saveError.value = `${field.label}: ${t("collectionsView.requiredField")}`;
       return;
     }
   }
@@ -439,20 +439,20 @@ async function saveEditor(): Promise<void> {
     return;
   }
   closeEditor();
-  await loadApp(slug);
+  await loadCollection(slug);
 }
 
-async function confirmDelete(item: AppItem): Promise<void> {
-  if (!app.value) return;
+async function confirmDelete(item: CollectionItem): Promise<void> {
+  if (!collection.value) return;
   // Snapshot before any await (see saveEditor) — confirm dialog
   // awaits user input, plenty of time for the route to change.
-  const { slug } = app.value;
-  const { primaryKey } = app.value.schema;
+  const { slug } = collection.value;
+  const { primaryKey } = collection.value.schema;
   const idRaw = item[primaryKey];
   const itemId = typeof idRaw === "string" ? idRaw : String(idRaw ?? "");
   if (!itemId) return;
   const ok = await openConfirm({
-    message: t("appsView.confirmDelete"),
+    message: t("collectionsView.confirmDelete"),
     confirmText: t("common.remove"),
     cancelText: t("common.cancel"),
     variant: "danger",
@@ -463,20 +463,20 @@ async function confirmDelete(item: AppItem): Promise<void> {
     loadError.value = result.error;
     return;
   }
-  await loadApp(slug);
+  await loadCollection(slug);
 }
 
 function goBack(): void {
-  router.push({ name: PAGE_ROUTES.apps, params: {} }).catch(() => {});
+  router.push({ name: PAGE_ROUTES.collections, params: {} }).catch(() => {});
 }
 
 watch(
   () => route.params.slug,
   (slug) => {
     if (typeof slug === "string" && slug.length > 0) {
-      loadApp(slug);
+      loadCollection(slug);
     } else {
-      app.value = null;
+      collection.value = null;
       items.value = [];
       loading.value = false;
     }
@@ -486,7 +486,7 @@ watch(
 onMounted(() => {
   const { slug } = route.params;
   if (typeof slug === "string" && slug.length > 0) {
-    loadApp(slug);
+    loadCollection(slug);
   } else {
     loading.value = false;
   }
