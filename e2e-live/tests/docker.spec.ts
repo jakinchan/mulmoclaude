@@ -31,12 +31,14 @@ import { type Page, expect, test } from "@playwright/test";
 import { config as loadDotenv } from "dotenv";
 
 import { ONE_MINUTE_MS } from "../../server/utils/time.ts";
+import { isErrorWithCode } from "../../server/utils/types.ts";
 import {
   bashCommandFromCall,
   deleteSession,
   getCurrentSessionId,
   getMcpToolsList,
   getSandboxStatus,
+  listSkillsViaApi,
   placeBrokenSymlinkSkill,
   placeProjectSkill,
   readSessionToolCalls,
@@ -49,6 +51,17 @@ import {
   waitForAssistantResponseComplete,
   waitForAssistantTurn,
 } from "../fixtures/live-chat.ts";
+
+// Filesystem error codes that mean "this host's filesystem refuses
+// to create a user-space symlink" rather than "the symlink would
+// have been broken" — surfaces on Windows without Developer Mode /
+// admin, on some bind-mounted Docker volumes, and on filesystems
+// that lack symlink support (EPERM / EACCES) or reject the syscall
+// entirely (ENOTSUP). L-30 is meaningless on these hosts because
+// the regression shape it protects (broken symlinks crashing the
+// discovery loop) cannot be set up — surface as `test.skip` with
+// the error code so a CI run on such a host doesn't false-red.
+const SYMLINK_UNSUPPORTED_CODES = new Set(["EPERM", "EACCES", "ENOTSUP"]);
 
 // Mirror the host server's dotenv load so the spec process can read
 // the same `X_BEARER_TOKEN` (and any future docker-relevant env) the
@@ -383,29 +396,70 @@ test.describe("docker sandbox (real workspace)", () => {
     // — that's the whole point of the test.
     const missingTarget = path.join(tmpdir(), `mulmoclaude-e2e-l30-missing-${nonce}`);
 
+    let symlinkSeeded = false;
     try {
-      await placeBrokenSymlinkSkill(danglingSlug, missingTarget);
+      try {
+        await placeBrokenSymlinkSkill(danglingSlug, missingTarget);
+        symlinkSeeded = true;
+      } catch (err) {
+        // Codex iter-1 review: skip rather than red when the host
+        // refuses the symlink syscall (Windows w/o Developer Mode,
+        // some bind-mounted FS). The cleanup path below short-
+        // circuits via `symlinkSeeded` so we don't `lstat` a path
+        // we never created.
+        if (isErrorWithCode(err) && SYMLINK_UNSUPPORTED_CODES.has(err.code ?? "")) {
+          test.skip(true, `host filesystem refused the symlink syscall (${err.code}) — L-30 cannot seed its broken-symlink fixture on this host.`);
+          throw err; // unreachable after test.skip but TypeScript can't see that
+        }
+        throw err;
+      }
       await placeProjectSkill(siblingSlug, siblingDescription, siblingMarker);
+
+      // (a-api) Server-side discovery contract: `/api/skills` lists
+      // the valid sibling AND omits the dangling slot, both in one
+      // response. Pin this BEFORE the UI assertion so a rendering
+      // bug that hid the sibling row (or surfaced a broken-link
+      // placeholder) can't mask the server contract. Codex iter-1
+      // review: the original UI-only canary missed shape regressions
+      // that pass through to the listing route but render oddly.
+      // `expect.poll` waits out the small window between
+      // `placeProjectSkill` returning and the discovery loop's next
+      // call observing the new file (no cache per `discovery.ts`,
+      // but the call itself races with our write).
+      await expect
+        .poll(
+          async () => {
+            const skills = await listSkillsViaApi(page);
+            const names = new Set(skills.map((row) => row.name));
+            return { hasSibling: names.has(siblingSlug), hasDangling: names.has(danglingSlug) };
+          },
+          {
+            message: "GET /api/skills must list the valid sibling and omit the dangling-symlink slot",
+            timeout: ONE_MINUTE_MS,
+          },
+        )
+        .toEqual({ hasSibling: true, hasDangling: false });
 
       await page.goto("/skills");
 
-      // (a) Discovery survived the broken entry: the valid sibling
-      // appears in `/skills`. Without this assertion the dangling
-      // check would silently pass on a regression that crashed the
-      // whole loop (no rows at all → both rows absent).
+      // (a-ui) Rendering sanity: the listing the SPA fetches lands
+      // a visible row for the sibling. With (a-api) above already
+      // green, this only fails on a client-side regression in
+      // `manageSkills/View.vue` (e.g. row template stopped honoring
+      // `skill.name`).
       const siblingRow = page.getByTestId(`skill-item-${siblingSlug}`);
       await expect(siblingRow, "valid sibling skill must surface in /skills — proves discovery survived the dangling symlink").toBeVisible({
         timeout: ONE_MINUTE_MS,
       });
 
-      // (b) Dangling slot was silently skipped: no row, no error
-      // surface. `toHaveCount(0)` retries against Playwright's auto-
-      // waiting harness so an in-flight render that hasn't yet
-      // populated rows is given time before failing.
+      // (b) Dangling slot is silently skipped at the UI layer too:
+      // no row, no error surface. `toHaveCount(0)` retries against
+      // Playwright's auto-waiting harness so an in-flight render
+      // that hasn't yet populated rows is given time before failing.
       const danglingRow = page.getByTestId(`skill-item-${danglingSlug}`);
       await expect(danglingRow, "dangling symlink slot must not surface as a skill row").toHaveCount(0);
     } finally {
-      await removeBrokenSymlinkSkill(danglingSlug);
+      if (symlinkSeeded) await removeBrokenSymlinkSkill(danglingSlug);
       await removeProjectSkill(siblingSlug);
     }
   });

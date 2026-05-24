@@ -1396,6 +1396,41 @@ export async function getMcpToolsList(page: Page): Promise<McpToolSnapshot[]> {
   return probe.body.map((row, idx) => parseMcpToolRow(row, idx));
 }
 
+/**
+ * One row in the `/api/skills` listing. Specs only need the name to
+ * test for presence / absence (L-30 dangling-symlink resilience uses
+ * this), so the helper keeps the parsed shape minimal — `description`
+ * and `source` come back as `string | null` rather than the strict
+ * server type so a future schema add-on doesn't bite the spec.
+ */
+export interface SkillListEntry {
+  name: string;
+}
+
+/**
+ * Fetch the server's view of `/api/skills` directly, bypassing the
+ * SPA's `/skills` listing route. Used by L-30 (B-08 discovery
+ * resilience) to pin the server contract before falling through to
+ * the UI assertion — proves the discovery loop itself surfaced the
+ * sibling and skipped the dangling slot, independent of any rendering
+ * idiosyncrasies in `manageSkills/View.vue`.
+ */
+export async function listSkillsViaApi(page: Page): Promise<SkillListEntry[]> {
+  const probe = await fetchAuthedJsonViaPage(page, API_ROUTES.skills.list.url);
+  if (!probe.ok) throw new Error(`listSkillsViaApi: ${probe.reason}`);
+  if (!isRecord(probe.body)) throw new Error(`listSkillsViaApi: unexpected payload ${JSON.stringify(probe.body)}`);
+  const { skills } = probe.body;
+  if (!Array.isArray(skills)) throw new Error(`listSkillsViaApi: skills field is not an array (got ${JSON.stringify(skills)})`);
+  return skills.map((row, idx) => parseSkillListRow(row, idx));
+}
+
+function parseSkillListRow(row: unknown, idx: number): SkillListEntry {
+  if (!isRecord(row)) throw new Error(`skillsList[${idx}] is not an object`);
+  const { name } = row;
+  if (typeof name !== "string") throw new Error(`skillsList[${idx}].name is not a string`);
+  return { name };
+}
+
 function parseMcpToolRow(row: unknown, idx: number): McpToolSnapshot {
   if (!isRecord(row)) throw new Error(`mcpToolsList[${idx}] is not an object`);
   const { name, enabled, requiredEnv } = row;
