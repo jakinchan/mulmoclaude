@@ -174,7 +174,7 @@ e2e-live/
 
 ## 未実装シナリオ詳細
 
-> 未実装 (L-10 / L-13) + manual-l4 (L-25 / L-27) + 対象外推奨 (L-29) + 廃止 (L-24、 L-FRESH-SANDBOX-BUILD に統合) + fresh-user smoke (L-FRESH-BOOT / L-FRESH-SANDBOX-BUILD / L-FRESH-PRESET-SKILL) を本セクションでカバー。 各シナリオの現在の評価は 「未実装シナリオの再評価 (2026-05-23)」、 次に着手する順は 「実装順 (2026-05-23 時点)」 を参照。 実装済シナリオの初期設計仕様は [`plans/done/feat-e2e-live-history.md`](done/feat-e2e-live-history.md) の 「設計仕様 archive」 を参照。 (L-17 は ui.spec.ts の env-gated notifier inject canary として実装済)
+> 未実装 (L-10 / L-13) + manual-l4 (L-25 / L-27) + 対象外推奨 (L-29) + 廃止 (L-24、 L-FRESH-SANDBOX-BUILD に統合) + fresh-user smoke (L-FRESH-BOOT / L-FRESH-SANDBOX-BUILD / L-FRESH-PRESET-SKILL) を本セクションでカバー。 各シナリオの現在の評価は 「未実装シナリオの再評価 (2026-05-23)」、 次に着手する順は 「実装順 (2026-05-23 時点)」 を参照。 実装済シナリオの初期設計仕様は [`plans/done/feat-e2e-live-history.md`](done/feat-e2e-live-history.md) の 「設計仕様 archive」 を参照。 (L-17 は ui.spec.ts の bridge-origin agent run canary として実装済 — `/api/agent` を `origin: "bridge"` で直接 POST して PR #818 が commented out した agent.ts publishNotification gate を踏ませる形)
 
 凡例:
 - 重要度: **S** = 致命級, **A** = 高, **B** = 中

@@ -29,6 +29,23 @@ const PRESENT_FORM_RAW_KEY_PREFIX = "pluginPresentForm.";
 // time. Same justification as media.spec.ts / wiki-nav.spec.ts.
 test.describe.configure({ mode: "parallel" });
 
+/**
+ * Pull `sessionId` off a notifier entry's opaque `pluginData`. Used
+ * by L-17 to identify entries produced by the legacy
+ * `publishNotification()` wrapper (see
+ * `server/events/notifications.ts` — `LegacyNotifierPluginData.sessionId`
+ * is set when the original caller passed `opts.sessionId`, which is
+ * exactly the shape the PR #818 commented-out block produces). Returns
+ * `null` when the entry's pluginData is missing, not an object, or
+ * carries no string `sessionId` — so it's safe to chain into the L-17
+ * filter without intermediate null checks.
+ */
+function pluginDataSessionId(pluginData: unknown): string | null {
+  if (pluginData === null || typeof pluginData !== "object") return null;
+  const { sessionId } = pluginData as { sessionId?: unknown };
+  return typeof sessionId === "string" ? sessionId : null;
+}
+
 test.describe("ui (real LLM / static)", () => {
   test("L-17: bridge-origin agent run はベルバッジを点灯させない (B-50)", async ({ page }) => {
     test.setTimeout(L17_TIMEOUT_MS);
@@ -63,11 +80,20 @@ test.describe("ui (real LLM / static)", () => {
     const bell = page.getByTestId("notification-bell");
     await expect(bell, "notification-bell must mount on the top chrome").toBeVisible();
 
-    // Snapshot the active notifier entry set before the bridge run.
-    // We compare by id-set rather than count so a background
-    // publisher (Encore obligation, ghost-bell recovery) firing
-    // during the test window doesn't false-fail the assertion — only
-    // *additions whose id is missing from the baseline* count.
+    // Snapshot active entries pre-run. We don't compare the full
+    // id-set blindly (Codex iter-1 review): an unrelated background
+    // publisher firing during the test window — Encore obligations,
+    // ghost-bell recovery, the todo plugin's action lifecycle — would
+    // add new ids and false-fail the assertion. Instead, we look for
+    // the *specific shape* PR #818 commented out: a
+    // `publishNotification({ kind: NOTIFICATION_KINDS.agent, sessionId:
+    // chatSessionId })` from agent.ts's finally block. That call ends
+    // up at `engine.publish` with `pluginPkg === "agent"` (via
+    // `legacyKindToPluginPkg`) and `pluginData.sessionId` carrying the
+    // bridge run's session id (via `LegacyNotifierPluginData`). No
+    // other publisher carries OUR specific session id, so the filter
+    // is immune to test-window noise without losing precision on the
+    // exact regression shape.
     const baselineEntries = await listNotifierEntries(page);
     const baselineIds = new Set(baselineEntries.map((entry) => entry.id));
 
@@ -81,17 +107,18 @@ test.describe("ui (real LLM / static)", () => {
       bridgeSessionId = await startBridgeOriginAgentRun(page, "Say hi.", "general");
       await waitForSessionIdle(page, bridgeSessionId);
 
-      // B-50 regression assertion. After the bridge run completes,
-      // the notifier active set must not contain any new entries
-      // beyond the baseline. If the commented-out `publishNotification`
-      // block in agent.ts gets uncommented, a bridge-origin run would
-      // add a "✅ <role> reply ready" entry here, and this assertion
-      // would catch it.
+      // B-50 regression assertion. Look only at entries that match
+      // BOTH the agent-kind pluginPkg AND our specific bridge session
+      // id — see snapshot comment above for why this filter is the
+      // PR #818 regression's precise shape.
       const postEntries = await listNotifierEntries(page);
-      spuriousNotifierIds = postEntries.filter((entry) => !baselineIds.has(entry.id)).map((entry) => entry.id);
+      spuriousNotifierIds = postEntries
+        .filter((entry) => !baselineIds.has(entry.id))
+        .filter((entry) => entry.pluginPkg === "agent" && pluginDataSessionId(entry.pluginData) === bridgeSessionId)
+        .map((entry) => entry.id);
       expect(
         spuriousNotifierIds,
-        "bridge-origin agent completion must NOT add notifier entries — B-50 regression (agent.ts publishNotification re-enabled?)",
+        "bridge-origin agent completion must NOT add notifier entries tagged with our session id — B-50 regression (agent.ts publishNotification re-enabled?)",
       ).toEqual([]);
     } finally {
       // Defensive cleanup: if the regression IS real, the spurious
