@@ -770,11 +770,7 @@ test.describe("skills (real LLM / static)", () => {
         await removeProjectSkill(L33B_PRESET_SLUG);
       }
       await page.goto("/skills");
-      const catalogRow = page.getByTestId(`skill-catalog-item-${L33B_PRESET_SLUG}`);
-      await expect(
-        catalogRow,
-        `catalog list must include ${L33B_PRESET_SLUG} — proves syncPresetSkills landed the launcher preset under data/skills/catalog/preset/`,
-      ).toBeVisible({ timeout: ONE_MINUTE_MS });
+      await expectCatalogRowVisible(page, L33B_PRESET_SLUG);
       const skillRow = page.getByTestId(`skill-item-${L33B_PRESET_SLUG}`);
       await expect(skillRow, `${L33B_PRESET_SLUG} project-skill row must be absent before star — pre-test fs-unstar must have taken effect`).toHaveCount(0);
       // Reuse the L-33 helper: same defensive Star vs "Starred" .or()
@@ -809,13 +805,29 @@ test.describe("skills (real LLM / static)", () => {
  * a previous boot can't mask a fresh launcher→catalog regression.
  */
 async function ensurePresetStarred(page: Page, slug: string): Promise<void> {
+  await expectCatalogRowVisible(page, slug);
+  const projectSlugs = await snapshotProjectSkillSlugs();
+  if (projectSlugs.has(slug)) return;
+  await starPresetViaCatalog(page, slug);
+}
+
+/**
+ * Shared catalog-row visibility assertion. Used both by
+ * {@link ensurePresetStarred} (L-33 setup) and L-33B (where the row
+ * must surface even though the test goes on to fs-unstar + UI-star
+ * from scratch). Extracted because the assertion shape AND the
+ * "what does a failure here mean?" message are byte-identical at
+ * both call sites — keeping them in sync via one helper avoids the
+ * silent drift that prompted the catalog of shared helpers
+ * (CLAUDE.md "Shared utilities" rule). Also satisfies the
+ * code-style rule 1/4 (DRY: helper extraction when the same
+ * pattern appears at 2+ sites).
+ */
+async function expectCatalogRowVisible(page: Page, slug: string): Promise<void> {
   await expect(
     page.getByTestId(`skill-catalog-item-${slug}`),
     `catalog list must include ${slug} — proves syncPresetSkills landed the launcher preset under data/skills/catalog/preset/`,
   ).toBeVisible({ timeout: ONE_MINUTE_MS });
-  const projectSlugs = await snapshotProjectSkillSlugs();
-  if (projectSlugs.has(slug)) return;
-  await starPresetViaCatalog(page, slug);
 }
 
 /**
