@@ -28,6 +28,33 @@ export type CollectionFieldType =
 
 export type CollectionSource = "user" | "project";
 
+/** The kind of work an action kicks off. v1 ships only `"chat"` —
+ *  start a new chat in a role with a templated seed prompt. The enum
+ *  reserves room for a future `"mutate"` (status transitions) without
+ *  another schema-shape change. */
+export type CollectionActionKind = "chat";
+
+/** A schema-declared, per-record action rendered as a button in the
+ *  read-only detail view. Pure UI/behaviour directive — never stored,
+ *  never validated against record data. All domain specifics (label,
+ *  role, template) live here in the schema / skill folder, so the host
+ *  stays generic. */
+export interface CollectionAction {
+  /** Stable id (used in the dispatch route + testids). */
+  id: string;
+  /** Button text (English, like field labels). */
+  label: string;
+  /** Material-icon name shown on the button. */
+  icon?: string;
+  /** What the action does. v1: `"chat"`. */
+  kind: CollectionActionKind;
+  /** `kind: "chat"`: the role id the new chat runs in. */
+  role: string;
+  /** `kind: "chat"`: skill-relative path to the template file whose
+   *  text becomes the seed prompt body (e.g. `templates/invoice.md`). */
+  template: string;
+}
+
 export interface CollectionFieldSpec {
   type: CollectionFieldType;
   label: string;
@@ -96,6 +123,9 @@ export interface CollectionSchema {
   singleton?: string;
   /** Ordered map: insertion order = column order in the table view. */
   fields: Record<string, CollectionFieldSpec>;
+  /** Optional per-record actions rendered as buttons in the detail
+   *  view (e.g. "Generate PDF"). Order = button order. */
+  actions?: CollectionAction[];
 }
 
 export interface CollectionSummary {

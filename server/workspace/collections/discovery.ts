@@ -107,6 +107,26 @@ const FieldSpecSchema = z
     path: ["formula"],
   });
 
+// An action's `template` becomes a file read under the skill dir, so
+// reject traversal up front: each `/`-separated segment must be a plain
+// safe name, no `..`, no backslash, not absolute. The reader's realpath
+// containment is the hard guarantee; this fails a bad schema fast.
+function isSafeTemplatePath(value: string): boolean {
+  if (value.length === 0 || value.includes("\\") || value.startsWith("/")) return false;
+  return value.split("/").every((seg) => seg.length > 0 && seg !== "." && seg !== ".." && /^[A-Za-z0-9._-]+$/.test(seg));
+}
+
+// A schema-declared record action. Domain-free: the host validates the
+// shape; the meaning (which role, which template) is data.
+const ActionSpecSchema = z.object({
+  id: z.string().trim().min(1),
+  label: z.string().trim().min(1),
+  icon: z.string().trim().min(1).optional(),
+  kind: z.enum(["chat"]),
+  role: z.string().trim().min(1),
+  template: z.string().trim().min(1).refine(isSafeTemplatePath, "must be a safe skill-relative path (no `..`, no leading `/`, no backslash)"),
+});
+
 const CollectionSchemaZ = z
   .object({
     title: z.string().min(1),
@@ -119,6 +139,7 @@ const CollectionSchemaZ = z
     // Add button once the record exists.
     singleton: z.string().trim().min(1).optional(),
     fields: z.record(z.string(), FieldSpecSchema),
+    actions: z.array(ActionSpecSchema).optional(),
   })
   // The singleton value becomes a record id (and thus a `<id>.json`
   // filename), so it must satisfy the SAME `safeSlugName` rule the
@@ -128,6 +149,12 @@ const CollectionSchemaZ = z
   .refine((schema) => schema.singleton === undefined || safeSlugName(schema.singleton) !== null, {
     message: "schema `singleton` must be a valid item id (alphanumeric / hyphen / underscore, no path separators)",
     path: ["singleton"],
+  })
+  // Action ids must be unique so the dispatch route resolves
+  // unambiguously.
+  .refine((schema) => schema.actions === undefined || new Set(schema.actions.map((action) => action.id)).size === schema.actions.length, {
+    message: "schema `actions` must have unique `id`s",
+    path: ["actions"],
   });
 
 interface LoadedCollection {
@@ -138,6 +165,10 @@ interface LoadedCollection {
    *  workspace). May not exist yet — the data folder is created on
    *  first write. */
   dataDir: string;
+  /** Absolute path to the skill directory this collection was loaded
+   *  from (`<skillsRoot>/<slug>/`). Action templates are read from
+   *  here, path-safely. */
+  skillDir: string;
 }
 
 async function loadOneCollection(skillsRoot: string, slug: string, source: CollectionSource, workspaceRoot: string): Promise<LoadedCollection | null> {
@@ -195,7 +226,7 @@ async function loadOneCollection(skillsRoot: string, slug: string, source: Colle
     return null;
   }
 
-  return { slug: safeName, source, schema, dataDir };
+  return { slug: safeName, source, schema, dataDir, skillDir: path.join(skillsRoot, safeName) };
 }
 
 async function collectFromDir(skillsRoot: string, source: CollectionSource, workspaceRoot: string): Promise<LoadedCollection[]> {

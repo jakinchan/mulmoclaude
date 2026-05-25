@@ -333,6 +333,18 @@
           <span class="material-icons text-blue-600 text-base">{{ collection.icon }}</span>
           <h2 class="text-base font-medium text-gray-900 flex-1 min-w-0 truncate">{{ viewTitle }}</h2>
           <button
+            v-for="action in collection.schema.actions ?? []"
+            :key="action.id"
+            type="button"
+            class="h-8 px-2.5 flex items-center gap-1 rounded border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-700 disabled:opacity-50"
+            :disabled="actionPending"
+            :data-testid="`collections-detail-action-${action.id}`"
+            @click="runAction(action)"
+          >
+            <span v-if="action.icon" class="material-icons text-base">{{ action.icon }}</span>
+            <span>{{ action.label }}</span>
+          </button>
+          <button
             type="button"
             class="h-8 px-2.5 flex items-center gap-1 rounded border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-700"
             data-testid="collections-detail-edit"
@@ -353,6 +365,7 @@
         </header>
 
         <div class="flex-1 overflow-auto px-5 py-4 space-y-3">
+          <p v-if="actionError" class="text-sm text-red-700" data-testid="collections-detail-action-error">{{ actionError }}</p>
           <div v-for="(field, key) in collection.schema.fields" :key="key" class="space-y-1">
             <div class="text-xs font-medium text-gray-500">{{ field.label }}</div>
             <div class="text-sm text-gray-800 break-words" :data-testid="`collections-detail-value-${key}`">
@@ -418,6 +431,7 @@ import ConfirmModal from "./ConfirmModal.vue";
 import CollectionEmbedView from "./CollectionEmbedView.vue";
 import type { EmbedRow, EmbedView } from "./collectionEmbed";
 import { useConfirm } from "../composables/useConfirm";
+import { useAppApi } from "../composables/useAppApi";
 import { evaluateDerived } from "../utils/collections/derivedFormula";
 
 type FieldType = "string" | "text" | "email" | "number" | "date" | "boolean" | "markdown" | "ref" | "money" | "enum" | "table" | "derived" | "embed";
@@ -471,6 +485,19 @@ interface EmbedTargetData {
 }
 type EmbedCache = Record<string, EmbedTargetData>;
 
+/** A schema-declared, per-record action rendered as a button in the
+ *  detail view. The host stays generic: it reads these fields and, on
+ *  click, asks the server to assemble the seed prompt for `kind:"chat"`
+ *  then starts a chat in `role`. */
+interface CollectionAction {
+  id: string;
+  label: string;
+  icon?: string;
+  kind: "chat";
+  role: string;
+  template: string;
+}
+
 interface CollectionSchema {
   title: string;
   icon: string;
@@ -480,6 +507,7 @@ interface CollectionSchema {
    *  primary key is fixed to this value. */
   singleton?: string;
   fields: Record<string, FieldSpec>;
+  actions?: CollectionAction[];
 }
 
 interface CollectionDetail {
@@ -555,6 +583,7 @@ const { t, locale } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const { openConfirm } = useConfirm();
+const appApi = useAppApi();
 
 const collection = ref<CollectionDetail | null>(null);
 const items = ref<CollectionItem[]>([]);
@@ -569,6 +598,8 @@ const editing = ref<EditState | null>(null);
 const viewing = ref<CollectionItem | null>(null);
 const saving = ref(false);
 const saveError = ref<string | null>(null);
+const actionPending = ref(false);
+const actionError = ref<string | null>(null);
 const refCache = ref<RefCache>({});
 const embedCache = ref<EmbedCache>({});
 
@@ -582,6 +613,31 @@ function itemsUrl(slug: string): string {
 
 function itemUrl(slug: string, itemId: string): string {
   return API_ROUTES.collections.item.replace(":slug", encodeURIComponent(slug)).replace(":itemId", encodeURIComponent(itemId));
+}
+
+function actionUrl(slug: string, itemId: string, actionId: string): string {
+  return API_ROUTES.collections.itemAction
+    .replace(":slug", encodeURIComponent(slug))
+    .replace(":itemId", encodeURIComponent(itemId))
+    .replace(":actionId", encodeURIComponent(actionId));
+}
+
+/** Run a schema-declared action on the open record: ask the server to
+ *  assemble the seed prompt, then start a new chat in the action's
+ *  role with it. Generic — no knowledge of what the action does. */
+async function runAction(action: CollectionAction): Promise<void> {
+  if (!collection.value || !viewing.value) return;
+  const itemId = String(viewing.value[collection.value.schema.primaryKey] ?? "");
+  if (!itemId) return;
+  actionPending.value = true;
+  actionError.value = null;
+  const result = await apiPost<{ prompt: string; role: string }>(actionUrl(collection.value.slug, itemId, action.id), {});
+  actionPending.value = false;
+  if (!result.ok) {
+    actionError.value = result.error;
+    return;
+  }
+  appApi.startNewChat(result.data.prompt, result.data.role);
 }
 
 async function loadCollection(slug: string): Promise<void> {
@@ -1018,6 +1074,7 @@ function closeEditor(): void {
 /** Open mode (read-only detail). */
 function openView(item: CollectionItem): void {
   viewing.value = item;
+  actionError.value = null;
 }
 
 /** Close open mode and drop the `?selected=` query param so a
@@ -1025,6 +1082,7 @@ function openView(item: CollectionItem): void {
  *  the URL reflects the closed state. */
 function closeView(): void {
   viewing.value = null;
+  actionError.value = null;
   if (route.query.selected !== undefined) {
     const query = { ...route.query };
     delete query.selected;

@@ -516,6 +516,77 @@ describe("discoverCollections — singleton", () => {
   });
 });
 
+describe("discoverCollections — actions", () => {
+  const fields = { id: { type: "string", label: "ID", primary: true, required: true } };
+
+  it("accepts a schema with a valid chat action", async () => {
+    writeSkill("test-actions", {
+      title: "Invoice-like",
+      icon: "receipt",
+      dataPath: "data/actions/items",
+      primaryKey: "id",
+      fields,
+      actions: [{ id: "pdf", label: "Generate PDF", icon: "picture_as_pdf", kind: "chat", role: "accounting", template: "templates/invoice.md" }],
+    });
+    const collections = await listCollections();
+    assert.equal(collections.length, 1);
+    assert.equal(collections[0]?.schema.actions?.[0]?.id, "pdf");
+    assert.equal(collections[0]?.schema.actions?.[0]?.role, "accounting");
+    assert.equal(collections[0]?.schema.actions?.[0]?.template, "templates/invoice.md");
+  });
+
+  it("rejects an action missing required fields (role)", async () => {
+    writeSkill("test-actions-no-role", {
+      title: "X",
+      icon: "warning",
+      dataPath: "data/actnorole/items",
+      primaryKey: "id",
+      fields,
+      actions: [{ id: "pdf", label: "Generate PDF", kind: "chat", template: "templates/invoice.md" }],
+    });
+    assert.equal((await listCollections()).length, 0);
+  });
+
+  it("rejects an unknown action kind", async () => {
+    writeSkill("test-actions-bad-kind", {
+      title: "X",
+      icon: "warning",
+      dataPath: "data/actkind/items",
+      primaryKey: "id",
+      fields,
+      actions: [{ id: "pdf", label: "PDF", kind: "mutate", role: "accounting", template: "templates/invoice.md" }],
+    });
+    assert.equal((await listCollections()).length, 0);
+  });
+
+  it("rejects an action template with path traversal", async () => {
+    writeSkill("test-actions-traversal", {
+      title: "X",
+      icon: "warning",
+      dataPath: "data/acttrav/items",
+      primaryKey: "id",
+      fields,
+      actions: [{ id: "pdf", label: "PDF", kind: "chat", role: "accounting", template: "../../etc/passwd" }],
+    });
+    assert.equal((await listCollections()).length, 0);
+  });
+
+  it("rejects duplicate action ids", async () => {
+    writeSkill("test-actions-dup", {
+      title: "X",
+      icon: "warning",
+      dataPath: "data/actdup/items",
+      primaryKey: "id",
+      fields,
+      actions: [
+        { id: "pdf", label: "A", kind: "chat", role: "accounting", template: "a.md" },
+        { id: "pdf", label: "B", kind: "chat", role: "accounting", template: "b.md" },
+      ],
+    });
+    assert.equal((await listCollections()).length, 0);
+  });
+});
+
 describe("discoverCollections — workspaceRoot propagation", () => {
   it("roots each app's dataDir at the supplied workspaceRoot, not the live workspace", async () => {
     // Regression for PR #1489 Codex P1: discovery used to pass

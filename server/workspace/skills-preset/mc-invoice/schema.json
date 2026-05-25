@@ -75,5 +75,15 @@
       "type": "markdown",
       "label": "Notes"
     }
-  }
+  },
+  "actions": [
+    {
+      "id": "pdf",
+      "label": "Generate PDF",
+      "icon": "picture_as_pdf",
+      "kind": "chat",
+      "role": "accounting",
+      "template": "templates/invoice.md"
+    }
+  ]
 }

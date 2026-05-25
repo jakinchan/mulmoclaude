@@ -125,6 +125,15 @@ Always include the `?selected=<id>` query: it opens that invoice directly in
 the read-only detail view. Omit it (link to plain `/collections/mc-invoice`)
 only for a general, non-specific reference to the whole list.
 
+## Generate PDF (host action)
+
+The invoice detail view shows a **Generate PDF** button (a schema-declared
+action). When the user clicks it, the host opens a *new* chat in the Accounting
+role seeded with a layout template (`templates/invoice.md`) + the invoice data,
+and that chat renders the printable document to `artifacts/invoices/<id>.md`.
+You don't trigger this yourself — just point the user at the button if they ask
+how to print/export an invoice.
+
 ## When to ask vs. when to act
 
 If the user gives you clear info ("invoice Acme $5000 for May consulting"),

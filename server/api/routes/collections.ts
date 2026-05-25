@@ -16,6 +16,9 @@ import {
   deleteItem,
   listItems,
   loadCollection,
+  readItem,
+  readSkillTemplate,
+  buildActionSeedPrompt,
   resolveCreateItemId,
   toDetail,
   toSummary,
@@ -45,6 +48,13 @@ interface ItemMutationResponse {
 interface DeleteResponse {
   deleted: true;
   itemId: string;
+}
+
+interface ActionSeedResponse {
+  /** Assembled seed prompt the client feeds to a new chat. */
+  prompt: string;
+  /** Role id the new chat should run in (from the action). */
+  role: string;
 }
 
 router.get(API_ROUTES.collections.list, async (_req: Request, res: Response<CollectionsListResponse>) => {
@@ -189,6 +199,45 @@ router.delete(API_ROUTES.collections.item, async (req: Request<{ slug: string; i
     res.json({ deleted: true, itemId: result.itemId });
   } catch (err) {
     log.warn("collections", "item delete failed", { slug: collection.slug, itemId: req.params.itemId, error: errorMessage(err) });
+    serverError(res, errorMessage(err));
+  }
+});
+
+// Assemble a schema-declared action's seed prompt for one record. The
+// route is fully generic — it reads the record + the action's template
+// from the skill dir and returns the seed + the role to run it in; the
+// client starts the chat. No domain (invoice / PDF / role) literals.
+router.post(API_ROUTES.collections.itemAction, async (req: Request<{ slug: string; itemId: string; actionId: string }>, res: Response<ActionSeedResponse>) => {
+  const collection = await loadCollection(req.params.slug);
+  if (!collection) {
+    notFound(res, `collection '${req.params.slug}' not found`);
+    return;
+  }
+  const action = collection.schema.actions?.find((entry) => entry.id === req.params.actionId);
+  if (!action) {
+    notFound(res, `action '${req.params.actionId}' not found on collection '${collection.slug}'`);
+    return;
+  }
+  try {
+    const record = await readItem(collection.dataDir, req.params.itemId);
+    if (!record) {
+      notFound(res, `item '${req.params.itemId}' not found`);
+      return;
+    }
+    const template = await readSkillTemplate(collection.skillDir, action.template);
+    if (template === null) {
+      serverError(res, `template '${action.template}' for action '${action.id}' could not be read`);
+      return;
+    }
+    log.info("collections", "action seed built", { slug: collection.slug, itemId: req.params.itemId, actionId: action.id });
+    res.json({ prompt: buildActionSeedPrompt(record, template), role: action.role });
+  } catch (err) {
+    log.warn("collections", "action seed failed", {
+      slug: collection.slug,
+      itemId: req.params.itemId,
+      actionId: req.params.actionId,
+      error: errorMessage(err),
+    });
     serverError(res, errorMessage(err));
   }
 });
