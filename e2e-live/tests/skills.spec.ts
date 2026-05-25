@@ -779,7 +779,7 @@ async function verifyPresetBody(page: Page, slug: string, signature: string): Pr
   await expect(
     bodyView,
     `rendered body must echo the launcher signature ${JSON.stringify(signature)} — proves catalog→active copy preserved the SKILL.md text`,
-  ).toContainText(signature);
+  ).toContainText(signature, { timeout: ONE_MINUTE_MS });
 }
 
 /**
