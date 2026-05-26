@@ -1,7 +1,7 @@
 {
   "name": "mulmoclaude-monorepo",
   "private": true,
-  "version": "0.6.4",
+  "version": "0.6.5",
   "type": "module",
   "author": "snakajima",
   "license": "MIT",
@@ -83,6 +83,8 @@
     "@mulmocast/types": "^2.6.16",
     "@mulmochat-plugin/quiz": "0.4.3",
     "@mulmochat-plugin/ui-image": "^0.4.0",
+    "@mulmoclaude/spotify-plugin": "^0.1.0",
+    "@mulmoclaude/todo-plugin": "^0.1.0",
     "@receptron/task-scheduler": "^0.1.0",
     "@types/dompurify": "^3.2.0",
     "codemirror": "^6.0.2",
