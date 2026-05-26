@@ -302,6 +302,8 @@ const zhMessages = {
     bellButtonTitle: "讨论此周期",
     addButtonLabel: "新增",
     unexpectedResponse: "Encore 返回了意外的响应。",
+    fieldsHeading: "每个周期收集的字段",
+    fieldRequired: "必填",
     status: {
       active: "进行中",
       paused: "暂停",

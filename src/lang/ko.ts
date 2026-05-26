@@ -310,6 +310,8 @@ const koMessages = {
     bellButtonTitle: "이 주기 논의하기",
     addButtonLabel: "추가",
     unexpectedResponse: "Encore가 예기치 않은 응답을 반환했습니다.",
+    fieldsHeading: "주기마다 기록하는 항목",
+    fieldRequired: "필수",
     status: {
       active: "활성",
       paused: "일시 중지",

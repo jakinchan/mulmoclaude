@@ -325,6 +325,8 @@ const enMessages = {
     bellButtonTitle: "Discuss this cycle",
     addButtonLabel: "Add",
     unexpectedResponse: "Encore returned an unexpected response.",
+    fieldsHeading: "Fields collected each cycle",
+    fieldRequired: "required",
     status: {
       active: "Active",
       paused: "Paused",

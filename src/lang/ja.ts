@@ -308,6 +308,8 @@ const jaMessages = {
     bellButtonTitle: "このサイクルについて相談する",
     addButtonLabel: "追加",
     unexpectedResponse: "Encore から予期しない応答が返されました。",
+    fieldsHeading: "サイクルごとに記録する項目",
+    fieldRequired: "必須",
     status: {
       active: "有効",
       paused: "一時停止",

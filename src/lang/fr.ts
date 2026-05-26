@@ -306,6 +306,8 @@ const frMessages = {
     bellButtonTitle: "Discuter de ce cycle",
     addButtonLabel: "Ajouter",
     unexpectedResponse: "Encore a renvoyé une réponse inattendue.",
+    fieldsHeading: "Champs collectés à chaque cycle",
+    fieldRequired: "requis",
     status: {
       active: "Active",
       paused: "En pause",

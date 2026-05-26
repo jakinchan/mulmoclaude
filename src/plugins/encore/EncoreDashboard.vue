@@ -26,7 +26,7 @@ import { pluginEndpoints } from "../api";
 import { apiCall } from "../../utils/api";
 import { META } from "./manageEncoreMeta";
 import type { EncoreEndpoints } from "./manageEncoreDefinition";
-import type { EncoreDsl, StepDef } from "../../types/encore-dsl/schema";
+import type { EncoreDsl, StepDef, FormFieldDef } from "../../types/encore-dsl/schema";
 import type { Cadence } from "../../types/encore-dsl/cadence";
 
 // Wire shape mirrors `server/encore/handlers/query.ts`. The
@@ -334,6 +334,14 @@ interface RecordedValue {
   value: string;
 }
 
+// The obligation's formSchema field definitions (label / type /
+// required / placeholder / enum options). Shown read-only when a row
+// is expanded so the user can see what Encore collects each cycle —
+// the chat-driven verbs are what actually record values into them.
+function obligationFields(dsl: EncoreDsl): FormFieldDef[] {
+  return dsl.formSchema.fields;
+}
+
 function recordedValuesForTarget(state: CycleState, targetId: string): RecordedValue[] {
   const values = state.records[targetId]?.values;
   if (!values) return [];
@@ -415,6 +423,29 @@ function recordedValuesForTarget(state: CycleState, targetId: string): RecordedV
             >
               <span class="material-icons text-base">{{ chatStarting[item.obligationId] ? "hourglass_empty" : "chat_bubble_outline" }}</span>
             </button>
+          </div>
+
+          <!-- formSchema field definitions — obligation-level reference,
+               shown only when the row is expanded. These are the fields
+               Encore collects each cycle; values land in the per-cycle
+               chips below once the LLM records them. -->
+          <div v-if="expanded[item.obligationId]" class="border-t border-gray-100 px-4 py-3 bg-white" :data-testid="`encore-fields-${item.obligationId}`">
+            <p class="text-xs font-medium text-gray-500 mb-2">{{ t("encoreDashboard.fieldsHeading") }}</p>
+            <ul class="space-y-1.5">
+              <li v-for="field in obligationFields(item.dsl)" :key="field.name" class="flex flex-wrap items-center gap-2 text-xs">
+                <span class="font-medium text-gray-700">{{ field.label }}</span>
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-[11px] font-mono text-gray-500">{{ field.type }}</span>
+                <span v-if="field.required" class="inline-flex items-center px-1.5 py-0.5 rounded bg-red-50 text-[11px] text-red-600">{{
+                  t("encoreDashboard.fieldRequired")
+                }}</span>
+                <span v-if="field.placeholder" class="text-[11px] text-gray-400 italic truncate max-w-[16rem]">{{ field.placeholder }}</span>
+                <span v-if="field.options && field.options.length > 0" class="flex flex-wrap gap-1">
+                  <span v-for="opt in field.options" :key="opt" class="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-[11px] text-blue-600">{{
+                    opt
+                  }}</span>
+                </span>
+              </li>
+            </ul>
           </div>
 
           <div v-if="visibleCycles(item).length > 0" class="border-t border-gray-100 px-4 py-3 bg-gray-50">

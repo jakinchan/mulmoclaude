@@ -309,6 +309,8 @@ const deMessages = {
     bellButtonTitle: "Diesen Zyklus besprechen",
     addButtonLabel: "Hinzufügen",
     unexpectedResponse: "Encore hat eine unerwartete Antwort zurückgegeben.",
+    fieldsHeading: "Pro Zyklus erfasste Felder",
+    fieldRequired: "erforderlich",
     status: {
       active: "Aktiv",
       paused: "Pausiert",

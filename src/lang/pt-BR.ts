@@ -305,6 +305,8 @@ const ptBRMessages = {
     bellButtonTitle: "Conversar sobre este ciclo",
     addButtonLabel: "Adicionar",
     unexpectedResponse: "O Encore retornou uma resposta inesperada.",
+    fieldsHeading: "Campos coletados a cada ciclo",
+    fieldRequired: "obrigatório",
     status: {
       active: "Ativa",
       paused: "Pausada",

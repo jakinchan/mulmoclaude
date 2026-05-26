@@ -312,6 +312,8 @@ const esMessages = {
     bellButtonTitle: "Hablar sobre este ciclo",
     addButtonLabel: "Añadir",
     unexpectedResponse: "Encore devolvió una respuesta inesperada.",
+    fieldsHeading: "Campos recogidos en cada ciclo",
+    fieldRequired: "obligatorio",
     status: {
       active: "Activa",
       paused: "Pausada",
