@@ -881,16 +881,25 @@ const SESSION_IDLE_PER_ATTEMPT_TIMEOUT_MS = 5 * ONE_SECOND_MS;
 // use raw numbers` rule).
 const SESSION_IDLE_RETRY_INTERVALS_MS = [ONE_SECOND_MS / 5, ONE_SECOND_MS / 2, ONE_SECOND_MS];
 
-// Probe shape returned by the in-page evaluate. We carry both the
-// HTTP outcome and the session-running flag so the polling site can
-// distinguish "API healthy + session still busy" (retry quietly)
-// from "API failed" (surface as a real assertion failure inside
-// `toPass`, with the offending status / error message in the
-// log). Without this split, a 401/5xx or a network blip silently
-// looks like "session is still running" and the poller waits the
-// full timeout before falling through to the swallowed UI cleanup
-// — exactly the silent failure the original wait was added to fix.
-type SessionIdleProbe = { ok: true; stillRunning: boolean } | { ok: false; reason: string };
+// Probe shape returned by the in-page evaluate. We carry the HTTP
+// outcome, the session-running flag, AND whether the session row
+// was found in the list so the polling site can distinguish:
+//
+//   - "API healthy + session still busy"        → retry quietly
+//   - "API healthy + session missing from list" → retry quietly
+//     (the agent run might have only just been kicked off; the
+//     sessions index updates after the first persist tick — without
+//     this state, `.find()` returning undefined silently looked
+//     like `stillRunning=false=idle` and let the caller proceed
+//     before the server-side run had even started. CodeRabbit
+//     review on PR #1508 caught this for the bridge-origin L-17
+//     path, where the gap between `/api/agent` 202 and the session
+//     becoming list-visible is wide enough to false-pass.)
+//   - "API healthy + session done"              → exit the wait
+//   - "API failed"                              → real assertion
+//     failure inside `toPass`, with the offending status / error
+//     message in the log
+type SessionIdleProbe = { ok: true; found: boolean; stillRunning: boolean } | { ok: false; reason: string };
 
 // In-page probe body — runs inside `page.evaluate`, so this function
 // must be self-contained (no closure imports). Reads the bearer
@@ -925,7 +934,8 @@ async function probeSessionIdle(args: { sid: string; listUrl: string; perAttempt
     // (the old broad `isRunning` could stay true through movie /
     // image post-processing even though DELETE was already safe).
     const session = data.sessions.find((row) => row.id === sid);
-    return { ok: true as const, stillRunning: session?.liveIsRunning === true };
+    if (session === undefined) return { ok: true as const, found: false, stillRunning: false };
+    return { ok: true as const, found: true, stillRunning: session.liveIsRunning === true };
   } catch (err) {
     // Network drop / AbortSignal timeout / JSON parse throw — anything
     // that would otherwise surface as an opaque page.evaluate failure
@@ -943,6 +953,12 @@ async function probeSessionIdle(args: { sid: string; listUrl: string; perAttempt
 function assertSessionProbeIdle(probe: SessionIdleProbe, sessionId: string): void {
   expect(probe.ok, probe.ok ? "session probe ok" : `session probe failed for ${sessionId}: ${probe.reason}`).toBe(true);
   if (probe.ok) {
+    // Both `found=false` (session not yet visible in the list) and
+    // `stillRunning=true` (session in flight) keep us in the toPass
+    // retry loop. Only when the session is BOTH visible AND idle do
+    // we exit — that's the only state in which the run has actually
+    // completed end-to-end. CodeRabbit review on PR #1508.
+    expect(probe.found, `session ${sessionId} not yet visible in /api/sessions list — retrying`).toBe(true);
     expect(probe.stillRunning, `session ${sessionId} should report isRunning=false before delete`).toBe(false);
   }
 }
