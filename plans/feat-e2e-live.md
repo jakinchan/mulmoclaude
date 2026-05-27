@@ -189,7 +189,7 @@ e2e-live/
 | L-FRESH-BOOT | fresh-user | 新規ユーザー: 空 workspace + 空 HOME から起動して 1 ターン完走 | ✅ |
 | L-FRESH-SANDBOX-BUILD | fresh-user | 新規ユーザー: sandbox image 不在から auto-build 経由で起動 | 未実装 |
 | L-FRESH-PRESET-SKILL | fresh-user | 新規ユーザー: preset skill が catalog → `.claude/skills/` に bridge mirror | 未実装 |
-| L-HAPPY-TOUR | happy-tour | 主要 View / route を一通り踏んで 「壊れていない」 を確認する正常系 sweep | 未実装 |
+| L-HAPPY-TOUR | happy-tour | 主要 View / route を一通り踏んで 「壊れていない」 を確認する正常系 sweep | ✅ 実装済 (happy-tour.spec.ts) |
 
 ## 未実装シナリオ詳細
 
@@ -391,6 +391,7 @@ e2e-live/
 | **L-SETTINGS-EFFORT** Settings → Model effortLevel 双方向同期 (#1323) | ✅ 実装済 | settings.spec.ts、 `config/settings.json` を snapshot (real user file は finally で復元、 codex iter-1 で seed は merge-onto-snapshot に変更し SIGKILL 耐性確保) → Phase 1: seed `{...original, effortLevel:"max"}` → modal open → `settings-tab-model` クリック → `settings-model-effort-select` が `max` を見ている (load path: GET /api/config + cloneAppSettings) → Phase 2: select を `low` に変更 → `@change` auto-save → `settings-model-status` が `low` を含むまで wait → ファイルから `effortLevel: "low"` を直接読み出して確認 (save path: PUT /api/config/settings → atomic write) → Phase 3: 空オプションで clear → status から `low` 消失 → ファイルから `effortLevel` キー自体が消えていることを assert (null sentinel → route の `delete merged.effortLevel` after spread が効いている)。 `buildCliArgs` unit test と config route integration test では取り切れない 「Vue ref ↔ select wire / `@change` auto-save / null sentinel 漏れ」 をブラウザ越しに 1 spec で網羅。 `config/settings.json` は workspace 共有ファイルなので describe は `mode: "serial"`、 同 file を mutate する将来 spec も同じ fence を借りる必要あり。 `restoreSettings` は他の cleanup helper と違い error を握り潰さない (real user data なので silent 破損を避ける、 codex iter-1)。 `readWorkspaceFile` helper を新設 (live-chat.ts、 ENOENT は `null`、 他 IO エラーは throw)。 wall time 1.2s |
 | **L-SETTINGS-EFFORT-SPAWN** settings.json → claude `--effort` 引数到達 (#1323 最終ホップ) | ✅ 実装済 | settings.spec.ts、 L-SETTINGS-EFFORT の sibling として「load → spawn」 ホップを単独で検証 (姉妹は「UI ↔ disk」 のみ)。 `seedWithEffort(original, "low")` で disk に直書き → `startNewSession` → `sendChatMessage("Reply with the single word: ok.")` → `/chat/<id>` URL 確定で session id を早めにキャプチャ (cleanup 確実化) → `ps -A -ww -o command=` を `toPass` で poll し、 `mcp__mulmoclaude` (`--allowedTools` 内に必ず入る固有 marker、 user 並走の Claude Code CLI を除外) を含むプロセスが現れるまで待つ → 全該当プロセスに `--effort low` regex match を assert → `waitForAssistantResponseComplete` で trace を末尾まで撮る → `deleteSession` + `restoreSettings`。 `buildCliArgs` の unit test では掴めない 「`loadSettings → settings.effortLevel → buildCliArgs(effortLevel) → spawn` の鎖が切れる」 系の退行を end-to-end で検出。 1 LLM ターン消費、 wall time ~7s。 ps 出力の長大化対策として `-ww` を渡している (Linux 必須、 macOS は pipe 時 truncate しないが安全側) |
 | **L-W-S-03** `<picture><source srcset>` rewriter | ✅ landed (#1275) | wiki.spec.ts、 unskip 済。 `srcset` 専用 split/rewrite pass (`rewriteSrcset` / `SRCSET_TAG_ATTRS` in `src/utils/image/htmlSrcAttrs.ts`) が #1275 で landed。 spec は `<picture><source srcset>` の srcset が `/api/files/raw` に書き換わること + descriptor 保持 + fallback `<img>` decode を検証 |
+| **L-HAPPY-TOUR** 正常系 sweep (capability axis) | ✅ 実装済 | happy-tour.spec.ts、 16 ステップを `test.step()` で個別ラップして失敗時に壊れた station が trace に直接出る構造。 step 1〜3 は `/api/health` / `/api/plugins/runtime/list` / `/api/plugins/diagnostics` の authed JSON GET を pure assertion (`e2e-live/lib/health-checks.ts`) で検証 — 2026-05-25 報告 (`@mulmoclaude/todo-plugin` bundle 漏れ) の **shape** を step 2 がカバー (dev 検証時は `requireDevOnly: true` で 4 preset 全件要求、 完全な tarball-mode catch は `health-checks.ts` を doctor CLI から再利用する別 PR を待つ)。 step 4〜16 はランチャーバーから到達できる主要 route を順に踏む: `/` → `/todos` → `/calendar` → `/wiki` → `/files` → `/skills` → `/sources` → `/automations` → `/news` → `/roles` → `/encore` → `/collections`。 各 view の root testid (`todo-view-root` / `scheduler-view-root` / `files-view-root` / `sources-view-root` / `roles-view-root` / `collections-view-root` を新設、 `news-view` / `encore-dashboard` / `wiki-lint-chat-button` / `skill-section-catalog` / `chat-sidebar` は既存) が visible + 既存の error banner testid (`todo-api-error` / `scheduler-api-error`) が `toHaveCount(0)` であることのみ assert (深い内容検査は意図的に避ける)。 step 5 は LLM 必須の 1 ターン smoke で `E2E_LIVE_NO_LLM=1` 環境では step body 内 early-return (Playwright の `test.skip()` は test 全体を skip するので使用不可、 Codex iter-2)、 session id は `/chat/<id>` URL 確定直後に capture して marker timeout でも cleanup が走る順序を確保 (Codex iter-1)。 plan step 12 (NotificationBell 警告 0 件) は step 3 と構造重複 + global filter での false-positive 懸念で実装から落とし、 必要時は L-17 baseline-diff shape で再導入する方針 (Codex iter-1)。 `/debug` は dev-only preset の playground で tarball mode で見えない surface のため意図的に除外。 assertion 部を pure 関数に切り出した理由は doctor CLI / pre-release smoke 共有のため (plan「設計指針」 通り)。 wall time 目標 3 分 (timeout 設定値) |
 | **L-FRESH-BOOT** 新規ユーザー smoke (first-run UX) | ✅ 実装済 | fresh-boot.spec.ts (`e2e-live/tests/fresh-boot.spec.ts`) + `e2e-live/fixtures/isolated-dev-server.ts`。 階層 2 + 3 設計通り、 `HOME` / `MULMOCLAUDE_WORKSPACE_PATH` / `PORT` 3 軸 + 認証 token を `MULMOCLAUDE_AUTH_TOKEN` で pin、 `NODE_ENV=production` で express が SPA を serve、 `DISABLE_SANDBOX=1` で sandbox build を回避。 `dist/client/` の参照先を `MULMOCLAUDE_CLIENT_DIR` env で振り直す test seam を `server/index.ts` に追加 (prepare-dist が `client/` に copy する production layout を前提とする既定値は不変、 source-run の test だけ override)。 spec は (a) `/api/health` 200、 (b) workspace dir auto-init (`conversations/chat` / `config/helps` / `.session-token`)、 (c) `<meta name="mulmoclaude-auth">` token 注入、 (d) 1 ターン `Reply with the single word: okfresh-<nonce>` の assistant body marker echo、 (e) cleanup 後 host `~/mulmoclaude/` / `~/.claude/skills/` mtime 不変、 の 5 段で boot path 連動性を保証。 helper (`spawnIsolatedDevServer` / `stopIsolatedDevServer` / `assertHostUntouched`) は今後 L-10 / L-13 / L-FRESH-PRESET-SKILL で再利用する設計。 wall time ~15-19s。 `yarn test:e2e:live:fresh-boot` で単独実行可能、 CI no-LLM matrix は spec が自前 server を spawn する構造のため意図的に未登録 (docker.spec.ts と同じ位置付け) |
 
 ### 未実装シナリオの再評価 (2026-05-23)
@@ -411,6 +412,60 @@ e2e-live/
 | **L-FRESH-SANDBOX-BUILD** image 不在 → auto-build | **実装可能** (要 env 新設) | L-FRESH-BOOT の枠 + `MULMOCLAUDE_SANDBOX_IMAGE` env 新設 (階層 3)。 sandbox image を test 専用名で参照させて 「image が無い」 状態を疑似、 host の `mulmoclaude-sandbox:latest` を消さずに済む |
 | **L-FRESH-PRESET-SKILL** preset skill mirror | **実装可能** (要 infra) | L-FRESH-BOOT と同じ infra で空 workspace 起動 → preset migration 経路 (catalog → bridge mirror) を end-to-end で検証 |
 
+## 優先度方針 (2026-05-27)
+
+> **未踏領域の coverage > バグ回帰の再発検出 net**。
+
+これまでの実装順は 「壊れた時の影響が大きいバグ軸の再発防止」 を第一軸にしていたが、 happy-tour 着手時 (2026-05-27) に 「plugin の 1 ターン dispatch test が大量に欠けている」 ことが顕在化した。 バグ軸の retroactive net より、 まだ end-to-end で **一度も触られていない** 機能の 1 ターン canary を先に立てる方が ROI が高い。 理由:
+
+- 既知バグの net は unit test / mock e2e でも代替可能なケースが多い (落ちる shape が判っているので低レイヤで書ける)
+- 未踏領域は 「壊れていることに誰も気付かない」 状態が長期化しやすい (2026-05-25 報告の preset bundle 漏れがその典型)
+- 1 plugin × 1 ターン dispatch test は shape が既存 L-21 / L-21B と同型で 1 spec / 30〜60 分で書ける
+
+したがって以降の Phase 1 着手候補は **「まだ 1 ターン LLM test が無い plugin / 機能」 を最優先**、 既存バグの retroactive net は Phase 2 以降に降格する。
+
+### 未踏 plugin の 1 ターン dispatch test 棚卸し (2026-05-27)
+
+| plugin / 機能 | tool name | 1 ターン test 有無 | 備考 |
+|---|---|---|---|
+| **todo** | `manageTodoList` | ❌ | 最優先 (preset、 直近で bundle 漏れ事故あり) |
+| scheduler (calendar) | `manageCalendar` | ❌ | 日常使用頻度高 |
+| scheduler (automations) | `manageAutomations` | ❌ | 同上 |
+| markdown | `presentDocument` / `updateMarkdown` | ❌ | wiki ingest と連動 |
+| spreadsheet | `presentSpreadsheet` / `updateSpreadsheet` | ❌ | |
+| presentSVG | `presentSVG` | ❌ | |
+| presentHtml | `presentHtml` | △ | L-01 は file 配置 → 読込で LLM dispatch 経由ではない |
+| manageRoles | `manageRoles` | ❌ | |
+| manageSource | `manageSource` | ❌ | |
+| accounting | `accounting` | ❌ | |
+| spotify (preset) | `spotify` | ❌ | OAuth 必要、 後回し可 |
+| edgar (preset) | `edgar` | ❌ | 設定必要、 後回し可 |
+| news | (read-only view) | ❌ | tool dispatch 無し、 view mount は happy-tour で cover 済 |
+| presentMulmoScript | ✅ L-03 / L-04 | | |
+| chart | ✅ L-21 | | |
+| encore | ✅ L-21B | | |
+| generateImage | ✅ L-05 | | |
+| presentForm | ✅ L-18 | | |
+| skill | ✅ L-22 / L-31 / L-32 / L-33 | | |
+
+実装順は **(a) preset で日常使用される todo / scheduler 系を最優先、 (b) 表示系 (markdown / spreadsheet / SVG / presentHtml) を次、 (c) manageX 系 (roles / source) と accounting、 (d) 外部設定必要な spotify / edgar は infra が揃ってから** の順。 各 spec は L-21 shape を踏襲: 確実な prompt + tool 呼出 jsonl trace 確認 + view side-effect (file / DOM marker) 確認 + cleanup。
+
+## 実装確認の規律 (2026-05-27)
+
+> **新規 spec を追加したら必ず手元で 1 回 pass を確認してから commit する**。 LLM コスト / API call 数を理由に 「lint / typecheck / build が通ったら OK とする」 のは禁止。
+
+backstory: 2026-05-27 の happy-tour 着手で、 spec 著者 (Claude) が 「dev server が main 側だから testid が反映されてない」 「LLM コストが気になる」 を理由に実行を skip し、 lint / build のみで commit を進めた結果、 ユーザーが headed で初回実行した時に step 3 (`/api/plugins/diagnostics` payload shape ミス) + step 6 (`/todos` route が mount するコンポーネント の誤認 — `TodoExplorer.vue` vs `todo-plugin/View.vue`) の 2 件の load-bearing バグが連続で発覚した。 lint / build は **「型と構文が合っているか」 しか見ていない**、 「assertion が実際の payload / DOM と噛み合うか」 は 1 回回さないと判らない。
+
+具体規律:
+
+- MUST 新規 / 大幅改修した spec は手元で **`yarn test:e2e:live:<category>`** を 1 回 pass まで通してから commit
+- MUST dev server が別 branch (main 等) で起動している場合は worktree 側で立て直す依頼を user に出す。 「現状の dev で動かないから skip」 は NG
+- LLM コスト / API call 数は理由にしない — `/make-e2e-live` 上で skill が動いている時点で実 LLM cost は許容範囲、 ユーザーが明示的に skip を指示するまで実 LLM で回す
+- API shape を assert する場合は **必ず route handler を読んでから書く** (server/api/routes/<name>.ts)。 推測で envelope 形 (`unknown[]` vs `{ data: [...] }`) を決めない
+- route と view の関係を assert する場合は **必ず App.vue の `currentPage === 'X'` 分岐を読んでから書く** (`/todos` ↔ `TodoExplorer.vue` のような host vs plugin の取り違えを防ぐ)
+
+これは `/make-e2e-live` skill の Phase 4 「必須チェック」 セクションにも反映する (skill 側の更新は別 PR で良い、 plan 側に source-of-truth を残す)。
+
 ## 実装順 (2026-05-23 時点)
 
 未実装シナリオ + 反映候補 PR を **重要度 (= 必要度) ベース** で並べた次に着手するロードマップ。 同重要度内では infra 依存が少ない順 (= 早く 1 PR で完結する順) で配置するが、 「楽な順」 ではなく 「壊れた時の影響が大きい順」 が第一軸。
@@ -419,7 +474,7 @@ e2e-live/
 
 1. ~~**L-30 skill symlink dangling (B-08、 docker)**~~ — ✅ 実装済 (PR #1492、 docker.spec.ts)。 階層 1 設計指針通り、 ユーザー環境を一切触らない broken symlink seed + valid sibling 対比で discovery resilience を end-to-end で検証
 2. ~~**encore plugin dispatch canary (#1437 / #1440 / #1441 / #1443)**~~ — ✅ **L-21B として実装済** (PR #1493、 skills.spec.ts)。 元: 重要度 **A**、 L-21 (chart) shape を copy するだけ。 新 plugin の deferred-tool dispatch が壊れると plugin View 全消失する退行に直結。 runtime plugin が増えるトレンドで net 強化の効果が最大
-3. **L-HAPPY-TOUR 正常系 sweep** — 重要度 **A**。 2026-05-25 報告 (`npx mulmoclaude@latest` で ToDo 読み込み失敗、 preset plugin `@mulmoclaude/todo-plugin` が bundle 漏れ) のような **「個別 spec で見ていない領域でアプリ全体が破綻する」** クラスの退行を捕まえる net が現状ゼロ。 happy-tour 1 spec で主要 View / route を薄く広く touch することで、 同種事故の事前検出を可能にする。 assertion は doctor CLI / pre-release smoke と share できる pure 関数 (`e2e-live/lib/health-checks.ts` 新設) に切り出す設計とし、 3 経路で再利用する
+3. ~~**L-HAPPY-TOUR 正常系 sweep**~~ — ✅ **実装済** (happy-tour.spec.ts)。 重要度 **A**。 2026-05-25 報告 (`@mulmoclaude/todo-plugin` bundle 漏れ) のような **「個別 spec で見ていない領域でアプリ全体が破綻する」** クラスの退行 net を 1 spec / 12 step で構築。 assertion を `e2e-live/lib/health-checks.ts` に pure 関数で切り出し、 doctor CLI / pre-release smoke で再利用可能な形にした (Spec / CLI 2 経路、 packaged-tarball 用に `requireDevOnly` flag を残してある)
 
 ### Phase 2: 前提 PR + 本体 PR (中〜高重要度、 要 infra 整備)
 
@@ -952,7 +1007,7 @@ active な未着手 / 関心事項:
 - [ ] **e2e-live spec の L-23 / L-24 シナリオ ID rename (follow-up issue)** — `e2e-live/tests/workspace-link-routing.spec.ts:31, 134` で `L-23` / `L-24` を 「workspace link routing」 系シナリオに割り当てているが、 plan 起票時の予約 (`L-23` = X MCP docker、 `L-24` = 旧 sandbox:login) と ID 衝突している (CodeRabbit iter-1 on PR #1481 で検出)。 spec 側を `L-WSLINK-MULTIBYTE` / `L-WSLINK-WIKI-MD` 等にリネームする issue を起こす。 plan 側は L-24 廃止 + L-23 は docker.spec.ts:93 が canonical で進める
 - [x] ~~**テスト専用 dev server 起動 infra** (案 C 拡張)~~ — L-FRESH-BOOT PR で landing (`e2e-live/fixtures/isolated-dev-server.ts`)。 helper は `HOME` / `MULMOCLAUDE_WORKSPACE_PATH` / `PORT` / `MULMOCLAUDE_AUTH_TOKEN` の 4 軸を `spawnIsolatedDevServer` 1 関数で抽象化。 当初想定した 「`/e2e-live-matrix` skill に集約 → mode × Docker 軸の matrix」 まではしておらず、 そこは別 PR で。 L-10 / L-13 / L-FRESH-PRESET-SKILL は今回の helper を `env` 引数で extend する形で乗れる
 - [ ] **「対象外」 ラベル導入** — L-29 のように 「unit test で十分、 e2e-live 移植不要」 と評価したシナリオを 「対象外」 として実装ステータス表に追加。 「未実装」 と区別することで進捗が読みやすい
-- [ ] **L-HAPPY-TOUR (正常系 sweep) 実装** — Phase 1 に追加済。 2026-05-25 報告 (preset plugin `@mulmoclaude/todo-plugin` 等の bundle 漏れで ToDo View が読み込み失敗) のような 「個別 spec で見ていない領域でアプリ全体が破綻する」 退行を捕まえる net。 assertion を `e2e-live/lib/health-checks.ts` 等の pure 関数に切り出し、 doctor CLI 構想 / pre-release smoke と共有する設計を採用したい。 設計詳細は 「未実装シナリオ詳細 → happy-tour」 を参照
+- [x] ~~**L-HAPPY-TOUR (正常系 sweep) 実装**~~ — ✅ 実装済 (happy-tour.spec.ts)。 assertion は `e2e-live/lib/health-checks.ts` に pure 関数として切り出し、 spec / 将来の doctor CLI / pre-release smoke の 3 経路で再利用可能な形に landing。 ステップ 12 (NotificationBell 警告チェック) は step 3 (`/api/plugins/diagnostics`) と構造的に重複し、 user/workspace の既存 urgent entry で false-positive する懸念から本実装では落とした (Codex iter-1)。 必要なら将来 L-17 baseline-diff shape で再導入
 - [ ] **wall-time budget の運用化** — `/e2e-live` 全実行を **30 分以内** に保つ hard constraint を運用化する。 PR で新規シナリオ追加時、 実測時間を PR 本文に記載 + budget を超えたら降格 / 統合 / drop 提案を必須化。 `make-e2e-live` skill 側にも 「追加前に現状の wall time を測る」 ステップを足す
 - [ ] **PR template に下層 gate を追加** — `.github/PULL_REQUEST_TEMPLATE.md` に 「このバグの再発防止 test を最も下のレイヤに置きましたか / e2e-live に置く場合、 unit / mock e2e で取れない理由を 1 行で明記しましたか」 の checkbox を追加。 e2e-live がバグ ID の墓場になるのを構造的に防ぐ
 - [ ] **`/audit-e2e-live` skill 構想** — 既存 L-XX (特にバグ軸) を半年ごとに棚卸し、 下層で同等 cover ができたシナリオを e2e-live から外す proposal を出す skill。 `audit-unclosed-issues` skill の運用 shape を踏襲。 着手は wall-time budget 運用が回り始めてから (圧力が発生してから)

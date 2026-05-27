@@ -1459,7 +1459,7 @@ export async function readMovieDownload(download: Download): Promise<Buffer> {
  * caller validates / narrows it via its own parser — keeps this
  * helper a transport-only primitive.
  */
-type AuthedJsonProbe = { ok: true; body: unknown } | { ok: false; reason: string };
+export type AuthedJsonProbe = { ok: true; body: unknown } | { ok: false; reason: string };
 
 /**
  * Run an authed JSON GET inside the page context and return the
@@ -1473,7 +1473,7 @@ type AuthedJsonProbe = { ok: true; body: unknown } | { ok: false; reason: string
  * than masked as a missing body — the caller decides whether to
  * throw, skip, or retry.
  */
-async function fetchAuthedJsonViaPage(page: Page, url: string): Promise<AuthedJsonProbe> {
+export async function fetchAuthedJsonViaPage(page: Page, url: string): Promise<AuthedJsonProbe> {
   return await page.evaluate(async (target): Promise<AuthedJsonProbe> => {
     const meta = document.querySelector('meta[name="mulmoclaude-auth"]');
     const token = meta?.getAttribute("content") ?? "";

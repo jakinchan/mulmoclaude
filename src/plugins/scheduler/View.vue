@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full bg-white flex flex-col">
+  <div class="h-full bg-white flex flex-col" data-testid="scheduler-view-root">
     <!-- Surfaces POST /api/scheduler failures so silent no-ops are diagnosable. -->
     <div v-if="apiError" class="px-4 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700" role="alert" data-testid="scheduler-api-error">
       {{ t("pluginScheduler.apiError", { error: apiError }) }}

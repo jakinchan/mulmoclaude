@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex bg-white">
+  <div class="h-full flex bg-white" data-testid="files-view-root">
     <FileTreePane
       :root-node="rootNode"
       :ref-roots="refRoots"

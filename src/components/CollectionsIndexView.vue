@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full overflow-y-auto bg-slate-50/50 px-6 py-6">
+  <div class="h-full overflow-y-auto bg-slate-50/50 px-6 py-6" data-testid="collections-view-root">
     <div class="max-w-4xl mx-auto">
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-xl font-semibold text-slate-800">
