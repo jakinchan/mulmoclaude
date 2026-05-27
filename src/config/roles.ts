@@ -339,6 +339,8 @@ export const ROLES: Role[] = [
       "What did TSLA say about FSD revenue in their latest 10-Q?",
       "Show insider transactions filed by META officers in the last 90 days",
       "Build a peer-comparison table for the top 5 US semiconductor companies",
+      "Create a stock quote collection for me, which has ticker symbol, company name, latest stock price, PE ratio and dividend yield. Then, acquire those data for mag7 stocks and add them to that collection",
+      "Create a my-portfolio collection, which calculates the value of each holding referencing the data on stock quote collection. I have 100 shares of Apple and 200 shares of Tesla.",
     ],
   },
   // The `cookingCoach` built-in role was removed (#1286). Recipe
