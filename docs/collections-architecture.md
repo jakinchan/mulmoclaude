@@ -64,8 +64,19 @@ Relations and computed/behavioural constructs:
   derived columns are disallowed to keep the editor + evaluator simple.
 - **`derived`** — a read-only value from a tiny formula evaluated against the
   record (`subtotal * taxRate`, `sum(lineItems[].quantity * lineItems[].rate)`).
-  Pure recursive-descent evaluator, **no `eval`/`Function`**, returns `null` on
-  any failure (`src/utils/collections/derivedFormula.ts`).
+  A formula can also **dereference a `ref` field** to read a numeric column off
+  the record it points at — `shares * ticker.price`, where `ticker` is a `ref`
+  to a separate `stock-quotes` collection that owns `price`. This is a live
+  cross-collection lookup: the value is computed against data owned by *another*
+  collection without ever copying it, so refreshing a quote revalues every
+  holding on next render. The host enriches each referenced record with the
+  target collection's own (target-local) derived fields before the lookup, so a
+  deref can target a *computed* column too — one hop only; a target formula that
+  itself derefs a third collection stays unresolved. Pure recursive-descent
+  evaluator, **no `eval`/`Function`**, returns `null` on any failure
+  (`src/utils/collections/derivedFormula.ts`). This is the first construct where
+  a `ref` is more than a display link — it becomes a join the compute layer can
+  follow.
 - **`singleton`** — at most one record, pinned to a fixed id (e.g. `me`).
 - **`actions`** — per-record buttons. `kind: "chat"` starts a new chat in
   `role` seeded from `template`. An optional `when: { field, in: [...] }`
@@ -179,6 +190,44 @@ breaks: **runtime referential integrity** (orphaned refs on delete),
 **schema migration** of existing records when a schema changes, and
 **multi-user / concurrent writes** are all out of scope today and documented as
 such in the field-type plans under `plans/done/`.
+
+## Direction: toward a no-code app platform
+
+Each generic capability added to the host widens the class of apps a schema
+alone can express. The progression is visible in the shipped field types:
+flat records → relations (`ref`/`embed`) → composition (`table`) → in-record
+compute (`derived`) → **cross-collection compute** (ref-deref in formulas). With
+that last step a collection can value itself against data another collection
+owns, and "a `schema.json` + a folder of records" stops looking like a database
+table and starts looking like a small application — the motivating case being a
+portfolio whose holdings are valued live against a separate price list, authored
+entirely as a skill with zero host code.
+
+The honest **declarative ceiling** — where the schema currently stops and the
+LLM-as-runtime takes over — is the roadmap, each item a *DSL-vs.-agent* choice:
+
+- **Cross-row aggregation / rollups.** Per-row joins work (`shares * ticker.price`
+  on each holding); there is no cross-*row* sum over a joined column, so a
+  portfolio *total* isn't expressible declaratively. The same gap blocks
+  group-bys and pivots.
+- **Richer derived values.** The evaluator is numeric-only — no string
+  concatenation, date math, or conditional (`if`/`case`) derivation. Formatting
+  and "status from a date" logic still fall to the agent.
+- **Write-actions.** `actions` only have `kind: "chat"`; the `CollectionActionKind`
+  type reserves room for a future `"mutate"` kind — declarative state transitions,
+  a button that flips `status: draft → sent` without spinning up a chat — but it
+  is unbuilt. Today every write goes through the agent or the form.
+- **Declarative views.** Search exists; filter / sort / group, saved views, and
+  charts rendered from collection data do not.
+
+The governing constraint is the same one that keeps the host domain-free
+(*"add a generic capability, never a provider"*): **extend the DSL only when it
+beats handing the job to Claude on reliability or latency.** The LLM backstops
+every gap above already, so a new field type or action kind has to earn its
+place by being something a schema can express *more dependably* than a prose
+template can — not merely something that *could* be declarative. That tension —
+how much intelligence to freeze into the schema vs. leave to the runtime — is
+the live design question for every future extension here.
 
 ## Adding a collection
 
