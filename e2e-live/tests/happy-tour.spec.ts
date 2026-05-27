@@ -103,10 +103,13 @@ test.describe("happy-tour (capability sweep)", () => {
 
     // Step 5 is the only LLM-bearing step. The CI no-LLM matrix
     // entry uses `MULMOCLAUDE_FAKE_AGENT=1` which returns a stub
-    // response, so the marker echo wouldn't hold; skip there and
-    // let real-LLM runs cover it.
+    // response, so the marker echo wouldn't hold. We early-return
+    // out of the step body — `test.skip()` here would skip the
+    // *entire* happy-tour test (Playwright semantics), defeating
+    // the matrix entry that exists specifically to run the other
+    // 10 non-LLM steps under `E2E_LIVE_NO_LLM=1` (Codex iter-2).
     await test.step("5. /chat で 1 ターン送信 → assistant 応答が返る", async () => {
-      test.skip(NO_LLM, "E2E_LIVE_NO_LLM=1: fake-echo backend does not echo the prompt deterministically enough for this assertion shape");
+      if (NO_LLM) return;
       await runSingleTurnSmoke(page);
     });
 

@@ -115,7 +115,7 @@ export function assertRuntimePluginsRegistered(body: unknown, requireDevOnly: bo
  * `/api/plugins/diagnostics` returns an array of boot-time collisions
  * between host aggregators and plugin META contributions. A clean
  * boot returns `[]`. Any entry here means the bell will surface a
- * warning toast at startup, which the L-HAPPY-TOUR step 12 check is
+ * warning toast at startup, which the L-HAPPY-TOUR step 3 check is
  * specifically scoped to catch.
  *
  * The route returns `unknown[]` (collision shapes vary by aggregator),
