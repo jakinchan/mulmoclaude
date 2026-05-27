@@ -22,22 +22,24 @@
     <!-- Empty state pulled out of the scroll container so `h-full` +
          the container's `pb-4` padding can't combine into a stray
          scrollbar. A sibling `flex-1` slot centers cleanly. -->
-    <div v-if="toolResults.length === 0" class="flex-1 flex items-center justify-center text-gray-400 text-sm" data-testid="stack-empty">
-      <!-- Mirror PageChatComposer's empty-state UX in single layout:
-           role.queries become clickable suggestions so a fresh stack
-           chat isn't a blank "no results yet" wall. -->
-      <div v-if="queries && queries.length > 0 && sendTextMessage" class="w-full max-w-2xl px-4 flex flex-col gap-1.5">
+    <!-- Mirror App.vue's single-layout empty state (role icon + name +
+         pill-shaped query suggestions) so switching canvas modes
+         doesn't change what a fresh chat looks like. -->
+    <div v-if="toolResults.length === 0" class="flex-1 flex flex-col items-center justify-center h-full px-6 text-center" data-testid="stack-empty">
+      <span v-if="sessionRoleIcon" class="material-icons text-5xl text-gray-400 mb-2" aria-hidden="true">{{ sessionRoleIcon }}</span>
+      <p v-if="sessionRoleName" class="text-lg font-medium text-gray-700 mb-4">{{ sessionRoleName }}</p>
+      <div v-if="queries && queries.length > 0 && sendTextMessage" class="flex flex-wrap gap-2 justify-center max-w-xl">
         <button
-          v-for="query in queries"
-          :key="query"
-          class="text-left text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded px-3 py-1.5 border border-gray-300 transition-colors"
+          v-for="(query, queryIdx) in queries"
+          :key="`${queryIdx}-${query}`"
+          class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full px-4 py-2 border border-gray-300 transition-colors"
           data-testid="stack-empty-query"
           @click="sendTextMessage(query)"
         >
           {{ query }}
         </button>
       </div>
-      <template v-else>{{ t("common.noResultsYet") }}</template>
+      <p v-else class="text-sm text-gray-500">{{ t("app.startConversation") }}</p>
     </div>
     <div v-else ref="containerRef" class="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-3" data-testid="stack-scroll">
       <div
