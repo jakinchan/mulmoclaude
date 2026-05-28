@@ -243,18 +243,32 @@ async function expectDeleteActionDispatched(sessionId: string, toolName: string,
  * gap the jsonl-side assertion alone leaves open: the LLM dispatched
  * `args.action='delete'` but against the wrong id (so the marker
  * row is still on disk), or the server returned ok but the write
- * silently failed. ENOENT and shape mismatches no-op (the file
- * being gone is the strongest form of "marker absent").
+ * silently failed.
+ *
+ * Fail-closed contract (Codex GHA iter-3): parse and shape failures
+ * on these known DB files (todos.json, scheduler/items.json,
+ * accounting/config.json) are real regressions, NOT pass-by-default.
+ * Only ENOENT survives as a pass — the file being completely gone is
+ * the strongest form of "marker absent", and for `[]`-shaped DBs
+ * (todos / calendar) the server is allowed to unlink the file when
+ * the last item is deleted (rather than write an empty array).
  */
 async function expectMarkerAbsent(marker: string, scope: MarkerScope): Promise<void> {
   const raw = await readWorkspaceFile(scope.workspaceRel);
   if (raw === null) return;
   const parsed = safeJsonParse(raw);
-  const rows = extractRows(parsed, scope.arrayPath);
-  if (rows === null) return;
-  const matches = rows.filter((row) => isRecord(row) && row[scope.matchField] === marker);
   const arraySuffix = scope.arrayPath !== undefined ? `.${scope.arrayPath}` : "";
   const dbLocation = `${scope.workspaceRel}${arraySuffix}`;
+  expect(
+    parsed,
+    `marker='${marker}': failed to JSON-parse ${scope.workspaceRel} after cleanup — DB is corrupted or a non-JSON file landed at this path`,
+  ).not.toBeNull();
+  const rows = extractRows(parsed, scope.arrayPath);
+  expect(
+    rows,
+    `marker='${marker}': expected ${dbLocation} to be an array of rows after cleanup, but the shape did not match (DB schema may have drifted)`,
+  ).not.toBeNull();
+  const matches = (rows ?? []).filter((row) => isRecord(row) && row[scope.matchField] === marker);
   expect(
     matches.length,
     `marker='${marker}': expected zero rows in ${dbLocation} after cleanup, but found ${matches.length} matching '${scope.matchField}' (cleanup turn dispatched delete but the row was not actually removed — likely targeted the wrong id, or the delete write silently failed)`,
