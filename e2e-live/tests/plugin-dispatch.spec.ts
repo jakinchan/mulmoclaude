@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { type Page, expect, test } from "@playwright/test";
 
 import { ONE_MINUTE_MS } from "../../server/utils/time.ts";
-import { deleteSession, readSessionToolCalls, sendChatMessage, setupRoleSession, waitForAssistantTurn } from "../fixtures/live-chat.ts";
+import { deleteSession, readSessionToolCalls, readWorkspaceFile, sendChatMessage, setupRoleSession, waitForAssistantTurn } from "../fixtures/live-chat.ts";
 import { isRecord } from "../../server/utils/types.ts";
 
 // Per-test wall-time budget. Some specs do two LLM turns (add +
@@ -28,9 +28,13 @@ const MCP_PREFIX = "mcp__mulmoclaude__";
 // tool by literal AND embeds the marker so it lands in the saved
 // data, wait for the agent turn, read the per-session jsonl trace,
 // assert >=1 tool_call record matches the expected MCP-prefixed
-// tool name, then ask the SAME chat session to delete what was
-// just created (where the plugin exposes a delete action). Skip
-// on `E2E_LIVE_NO_LLM=1` (fake-echo cannot route MCP dispatch).
+// tool name (and, for multi-action tools, the expected action), then
+// ask the SAME chat session to delete what was just created (where
+// the plugin exposes a delete action), then verify the marker is
+// actually absent from the workspace DB (filesystem read; the LLM
+// dispatched the delete branch AND the delete actually targeted the
+// marker). Skip on `E2E_LIVE_NO_LLM=1` (fake-echo cannot route
+// MCP dispatch).
 //
 // Why jsonl-only and not a View-mount assertion: 3 of the 7 plugins
 // here have no top-level chat-inline View testid (todo / markdown /
@@ -45,28 +49,47 @@ const MCP_PREFIX = "mcp__mulmoclaude__";
 // these plugins expose a delete action through the same MCP tool,
 // so asking the LLM to delete what it just created exercises the
 // full add+delete round-trip via the LLM API — same surface area
-// the test is meant to canary. A bug in the delete action shows up
-// as leftover marker data after the run, surfaced visibly to the
-// developer. Filesystem-level deletion would bypass the tool path
-// entirely and lose that coverage. The 4 artifact-plugin specs
-// (md / xls / svg / html) skip the cleanup turn because their
-// `present*` tools have no delete counterpart — every saved file
-// is meant to persist as a workspace artifact. The marker in the
-// saved content keeps test-authored artifacts identifiable in
-// `/files` so the developer can manually purge them later.
+// the test is meant to canary. The post-cleanup `markerScopedFile`
+// verification reads the workspace DB and asserts no row carries
+// the marker, which catches both (a) "LLM dispatched delete but
+// against the wrong id" and (b) "delete returned ok but didn't
+// actually mutate the file". The 4 artifact-plugin specs (md /
+// xls / svg / html) skip the cleanup turn because their `present*`
+// tools have no delete counterpart — every saved file is meant to
+// persist as a workspace artifact. The marker in the saved content
+// keeps test-authored artifacts identifiable in `/files` so the
+// developer can manually purge them later.
 //
 // Why per-test nonce: parallel runs and pre-existing user state
-// must not collide with cleanup. A nonce-stamped marker also
-// guarantees that any leftover artifact is unambiguously
-// attributable to this test (`L-DISPATCH-MD-canary-<nonce>` in the
-// markdown body / SVG title / spreadsheet sheet name).
+// must not collide with cleanup or the marker-absence assertion.
+// A nonce-stamped marker also guarantees that any leftover artifact
+// is unambiguously attributable to this test
+// (`L-DISPATCH-MD-canary-<nonce>` in the markdown body / SVG title /
+// spreadsheet sheet name).
 //
 // Specs run in parallel — each owns a fresh session pair and a
 // unique nonce-stamped marker, so there is no cross-spec state.
 test.describe.configure({ mode: "parallel" });
 
+/**
+ * Locates the per-test row inside a workspace JSON DB: which file,
+ * which top-level array (`arrayPath` for nested shapes like
+ * accounting's `{books: [...]}`; omit for top-level arrays like
+ * todos.json), which item field carries the marker. Used by
+ * `expectMarkerAbsent` after the cleanup turn to verify the delete
+ * actually removed the marker row.
+ */
+interface MarkerScope {
+  /** Workspace-relative file (`data/plugins/.../todos.json`, etc.). */
+  workspaceRel: string;
+  /** Nested path to the array of rows; omit when the file root IS the array. */
+  arrayPath?: string;
+  /** Object field that should equal the marker (`text`, `title`, `name`). */
+  matchField: string;
+}
+
 interface PluginDispatchCase {
-  /** Test id, used in the test title and as the cleanup-side debug tag. */
+  /** Test id, used in the test title and the cleanup-side debug tag. */
   testId: string;
   /** Built-in role id whose `availablePlugins` lists this plugin. */
   role: string;
@@ -75,29 +98,51 @@ interface PluginDispatchCase {
   /**
    * Marker string the test asks the LLM to embed in the saved
    * artifact (todo text / event title / document body / cell value /
-   * SVG <title> / HTML body / book name). Used by `cleanupPrompt`
-   * to scope deletion to exactly this test's data.
+   * SVG <title> / HTML body / book name). Threaded into every
+   * assertion error message so debug output points at the exact
+   * marker that should have landed (Sourcery iter-1).
    */
   marker: string;
   /** Prompt body, designed to land the tool in one turn with no narration. */
   prompt: string;
   /**
+   * For multi-action tools (todo / calendar / accounting), the
+   * `args.action` literal the first turn MUST dispatch (`add`,
+   * `add`, `createBook`). Without this gate the test would false-pass
+   * when the LLM e.g. dispatches `show` / `getBooks` instead of the
+   * write action the canary is meant to cover (Codex GHA iter-1).
+   * Single-action tools (`presentDocument` etc.) leave it undefined.
+   */
+  expectedAddAction?: string;
+  /**
    * Optional follow-up prompt that asks the SAME session to delete
    * the marker-stamped item. Present for plugins whose tool exposes
    * a delete action (todo / calendar / accounting); omitted for the
    * 4 `present*` artifact plugins where no delete tool exists.
+   * MUST be set together with `expectedCleanupAction` and
+   * `markerScopedFile` — runtime validation enforces all-or-none
+   * (CodeRabbit iter-1).
    */
   cleanupPrompt?: string;
   /**
-   * Required when `cleanupPrompt` is set: the literal value of the
+   * Required companion to `cleanupPrompt`: the literal value of the
    * MCP tool's `action` argument the cleanup turn MUST invoke
    * (`delete` for todo / calendar, `deleteBook` for accounting).
-   * Used by the post-cleanup assertion to prove the agent actually
-   * dispatched the delete branch — without it the cleanup turn
-   * could narrate / ToolSearch / silently no-op and still let the
-   * spec pass green (Codex iter-2 review).
+   * Used by the post-cleanup jsonl assertion to prove the agent
+   * actually dispatched the delete branch — without it the cleanup
+   * turn could narrate / ToolSearch / silently no-op and still let
+   * the spec pass green (Codex iter-2).
    */
   expectedCleanupAction?: string;
+  /**
+   * Required companion to `cleanupPrompt`: locator for the DB row
+   * that carried the marker before cleanup. After the cleanup turn
+   * we re-read the file and assert no row matches — catches both
+   * "delete dispatched but targeted the wrong id" and "delete
+   * returned ok but the file didn't actually change" (Codex GHA
+   * iter-1).
+   */
+  markerScopedFile?: MarkerScope;
 }
 
 /** Per-test unique marker suffix (epoch ms + 6 hex chars). */
@@ -106,19 +151,28 @@ function makeMarker(testId: string): string {
 }
 
 /**
- * Asserts the per-session jsonl trace contains >=1 `tool_call` record
- * for the MCP-prefixed `toolName`. Read after `waitForAssistantTurn`
- * has resolved — the jsonl flushes per-event and is empty until the
+ * Asserts the per-session jsonl trace contains >=1 `tool_call` to
+ * the MCP-prefixed `toolName`. When `expectedAction` is provided
+ * (multi-action tools), the `args.action` literal must match — a
+ * `show` / `getBooks` call cannot satisfy a test whose claim is
+ * "the add path was exercised". Read after `waitForAssistantTurn`
+ * resolves; the jsonl flushes per-event and is empty until the
  * first record lands, so the gate is required to avoid a fast-path
  * race against an indicator that detached before the agent fired.
  */
-async function expectToolDispatched(sessionId: string, toolName: string): Promise<void> {
+async function expectToolDispatched(sessionId: string, toolName: string, marker: string, expectedAction?: string): Promise<void> {
   const expectedName = `${MCP_PREFIX}${toolName}`;
   const calls = await readSessionToolCalls(sessionId);
-  const matched = calls.filter((call) => call.toolName === expectedName);
+  const sameToolCalls = calls.filter((call) => call.toolName === expectedName);
+  const matched = sameToolCalls.filter((call) => {
+    if (expectedAction === undefined) return true;
+    return isRecord(call.args) && call.args.action === expectedAction;
+  });
+  const actionsSeen =
+    sameToolCalls.map((call) => (isRecord(call.args) ? String(call.args.action ?? "<no-action>") : "<non-object-args>")).join(", ") || "<none>";
   expect(
     matched.length,
-    `expected at least one ${expectedName} tool_call in jsonl trace (saw: ${calls.map((call) => call.toolName).join(", ") || "<none>"})`,
+    `marker='${marker}': expected at least one ${expectedName}${expectedAction !== undefined ? ` tool_call with args.action='${expectedAction}'` : " tool_call"} in jsonl trace (saw tool actions: ${actionsSeen})`,
   ).toBeGreaterThan(0);
 }
 
@@ -139,17 +193,14 @@ async function countToolActionCalls(sessionId: string, toolName: string, expecte
 }
 
 /**
- * Post-cleanup-turn assertion: prove the cleanup turn ITSELF (not
- * just session history) dispatched ≥1 tool_call to the same MCP
- * tool with `args.action` equal to the expected delete literal.
- * Without this gate the cleanup turn could narrate / ToolSearch
- * loop / no-op and leave the marker behind, but the test still
- * passes — Codex iter-2 hit that hole. Iter-3 refined the gate to
- * compare against a baseline taken BEFORE the cleanup prompt was
- * sent, so an earlier delete dispatched in the same session cannot
- * satisfy the assertion.
+ * Post-cleanup-turn assertion (jsonl side): prove the cleanup turn
+ * ITSELF (not just session history) dispatched ≥1 tool_call to the
+ * same MCP tool with `args.action` equal to the expected delete
+ * literal. Compares against a baseline taken BEFORE the cleanup
+ * prompt was sent, so an earlier delete dispatched in the same
+ * session cannot satisfy the assertion (Codex iter-3).
  */
-async function expectDeleteActionDispatched(sessionId: string, toolName: string, expectedAction: string, baselineCount: number): Promise<void> {
+async function expectDeleteActionDispatched(sessionId: string, toolName: string, expectedAction: string, baselineCount: number, marker: string): Promise<void> {
   const expectedName = `${MCP_PREFIX}${toolName}`;
   const calls = await readSessionToolCalls(sessionId);
   const sameToolCalls = calls.filter((call) => call.toolName === expectedName);
@@ -157,36 +208,94 @@ async function expectDeleteActionDispatched(sessionId: string, toolName: string,
   const newDeleteCalls = totalDeleteCalls - baselineCount;
   expect(
     newDeleteCalls,
-    `expected the cleanup turn to dispatch at least one ${expectedName} tool_call with args.action='${expectedAction}' (saw actions in session: ${
+    `marker='${marker}': expected the cleanup turn to dispatch at least one ${expectedName} tool_call with args.action='${expectedAction}' (saw actions in session: ${
       sameToolCalls.map((call) => (isRecord(call.args) ? String(call.args.action ?? "<no-action>") : "<non-object-args>")).join(", ") || "<no-matching-tool>"
     }, baseline pre-cleanup=${baselineCount})`,
   ).toBeGreaterThan(0);
 }
 
 /**
+ * Post-cleanup-turn assertion (filesystem side): re-read the
+ * workspace DB and assert no row carries the marker. Catches the
+ * gap the jsonl-side assertion alone leaves open: the LLM dispatched
+ * `args.action='delete'` but against the wrong id (so the marker
+ * row is still on disk), or the server returned ok but the write
+ * silently failed. ENOENT and shape mismatches no-op (the file
+ * being gone is the strongest form of "marker absent").
+ */
+async function expectMarkerAbsent(marker: string, scope: MarkerScope): Promise<void> {
+  const raw = await readWorkspaceFile(scope.workspaceRel);
+  if (raw === null) return;
+  const parsed = safeJsonParse(raw);
+  const rows = extractRows(parsed, scope.arrayPath);
+  if (rows === null) return;
+  const matches = rows.filter((row) => isRecord(row) && row[scope.matchField] === marker);
+  expect(
+    matches.length,
+    `marker='${marker}': expected zero rows in ${scope.workspaceRel}${scope.arrayPath !== undefined ? `.${scope.arrayPath}` : ""} after cleanup, but found ${matches.length} matching '${scope.matchField}' (cleanup turn dispatched delete but the row was not actually removed — likely targeted the wrong id, or the delete write silently failed)`,
+  ).toBe(0);
+}
+
+function safeJsonParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function extractRows(parsed: unknown, arrayPath: string | undefined): unknown[] | null {
+  if (arrayPath === undefined) {
+    return Array.isArray(parsed) ? parsed : null;
+  }
+  if (!isRecord(parsed)) return null;
+  const nested = parsed[arrayPath];
+  return Array.isArray(nested) ? nested : null;
+}
+
+/**
+ * Fail fast if cleanup fields are configured partially. Without
+ * this guard, setting only `cleanupPrompt` (forgetting
+ * `expectedCleanupAction` or `markerScopedFile`) would silently
+ * skip cleanup verification and let a misconfigured case pass
+ * green (CodeRabbit iter-1).
+ */
+function assertCleanupConfigCoherent(kase: PluginDispatchCase): void {
+  const present = [kase.cleanupPrompt !== undefined, kase.expectedCleanupAction !== undefined, kase.markerScopedFile !== undefined];
+  const presentCount = present.filter(Boolean).length;
+  if (presentCount === 0 || presentCount === present.length) return;
+  throw new Error(
+    `PluginDispatchCase(${kase.testId}): cleanupPrompt / expectedCleanupAction / markerScopedFile must be set together (got: cleanupPrompt=${kase.cleanupPrompt !== undefined}, expectedCleanupAction=${kase.expectedCleanupAction !== undefined}, markerScopedFile=${kase.markerScopedFile !== undefined})`,
+  );
+}
+
+/**
  * Drive one plugin's canary: switch into the role that exposes the
- * tool, send the prompt, drain the turn, assert dispatch landed.
- * If a cleanup prompt is provided, snapshot the existing
- * delete-action call count, send the cleanup prompt as a second
- * turn in the same session, drain that turn, then assert the
- * cleanup turn dispatched at least one NEW delete-action call (so
- * a pre-existing delete in session history cannot satisfy it).
- * The session pair is always deleted in `finally`, regardless of
+ * tool, send the prompt, drain the turn, assert dispatch landed
+ * (action-aware for multi-action tools). If a cleanup trio
+ * (`cleanupPrompt` + `expectedCleanupAction` + `markerScopedFile`)
+ * is configured, snapshot the existing delete-action call count,
+ * send the cleanup prompt as a second turn, drain it, then assert
+ * (a) the cleanup turn dispatched ≥1 NEW delete-action call and
+ * (b) the marker row is actually gone from the workspace DB. The
+ * session pair is always deleted in `finally`, regardless of
  * whether either turn passed.
  */
 async function runDispatchCase(page: Page, kase: PluginDispatchCase): Promise<void> {
   test.setTimeout(DISPATCH_TIMEOUT_MS);
+  assertCleanupConfigCoherent(kase);
   const sessionsToCleanup: string[] = [];
   try {
     const sessionId = await setupRoleSession(page, kase.role, sessionsToCleanup);
     await sendChatMessage(page, kase.prompt);
     await waitForAssistantTurn(page);
-    await expectToolDispatched(sessionId, kase.toolName);
-    if (kase.cleanupPrompt !== undefined && kase.expectedCleanupAction !== undefined) {
+    await expectToolDispatched(sessionId, kase.toolName, kase.marker, kase.expectedAddAction);
+    if (kase.cleanupPrompt !== undefined && kase.expectedCleanupAction !== undefined && kase.markerScopedFile !== undefined) {
       const baselineDeleteCount = await countToolActionCalls(sessionId, kase.toolName, kase.expectedCleanupAction);
       await sendChatMessage(page, kase.cleanupPrompt);
       await waitForAssistantTurn(page);
-      await expectDeleteActionDispatched(sessionId, kase.toolName, kase.expectedCleanupAction, baselineDeleteCount);
+      await expectDeleteActionDispatched(sessionId, kase.toolName, kase.expectedCleanupAction, baselineDeleteCount, kase.marker);
+      await expectMarkerAbsent(kase.marker, kase.markerScopedFile);
     }
   } finally {
     for (const sid of sessionsToCleanup) {
@@ -194,6 +303,17 @@ async function runDispatchCase(page: Page, kase: PluginDispatchCase): Promise<vo
     }
   }
 }
+
+// Workspace DB paths the cleanup verification reads back. Kept here
+// as string literals because the runtime-plugin path is
+// URL-encoded (`%40mulmoclaude%2Ftodo-plugin` for
+// `@mulmoclaude/todo-plugin`) and there is no host-side constant
+// that exposes the encoded form — a centralization PR (CodeRabbit
+// "as-const refactor" suggestion) would land both these and the
+// MCP tool-name literals in one go, but stays out of scope here.
+const TODO_DB_REL = "data/plugins/%40mulmoclaude%2Ftodo-plugin/todos.json";
+const CALENDAR_DB_REL = "data/scheduler/items.json";
+const ACCOUNTING_CONFIG_REL = "data/accounting/config.json";
 
 test.describe("plugin dispatch (real LLM, one-turn canaries)", () => {
   test.skip(process.env.E2E_LIVE_NO_LLM === "1", "needs real LLM dispatch (fake-echo backend cannot route MCP tool calls)");
@@ -206,15 +326,17 @@ test.describe("plugin dispatch (real LLM, one-turn canaries)", () => {
       toolName: "manageTodoList",
       marker,
       prompt: [
-        `Use the \`manageTodoList\` tool to add one todo whose text is EXACTLY '${marker}' (verbatim, no edits).`,
-        "Do not use any other tool. Do not narrate the result.",
+        `Use the \`manageTodoList\` tool with action='add' to add one todo whose text is EXACTLY '${marker}' (verbatim, no edits).`,
+        "Do not use show / list_labels / any other action. Do not use any other tool. Do not narrate the result.",
       ].join(" "),
+      expectedAddAction: "add",
       cleanupPrompt: [
         `Now delete every todo whose text equals EXACTLY '${marker}'.`,
         "Use the manageTodoList tool with action='delete' (look it up via ToolSearch if needed).",
         "Do not narrate the result.",
       ].join(" "),
       expectedCleanupAction: "delete",
+      markerScopedFile: { workspaceRel: TODO_DB_REL, matchField: "text" },
     });
   });
 
@@ -226,15 +348,17 @@ test.describe("plugin dispatch (real LLM, one-turn canaries)", () => {
       toolName: "manageCalendar",
       marker,
       prompt: [
-        `Use the \`manageCalendar\` tool to add a calendar event whose title is EXACTLY '${marker}' (verbatim) on 2099-12-31.`,
-        "Do not use any other tool. Do not narrate the result.",
+        `Use the \`manageCalendar\` tool with action='add' to add a calendar event whose title is EXACTLY '${marker}' (verbatim) on 2099-12-31.`,
+        "Do not use show / update / any other action. Do not use any other tool. Do not narrate the result.",
       ].join(" "),
+      expectedAddAction: "add",
       cleanupPrompt: [
         `Now delete every calendar event whose title equals EXACTLY '${marker}'.`,
         "Use the manageCalendar tool with action='delete'.",
         "Do not narrate the result.",
       ].join(" "),
       expectedCleanupAction: "delete",
+      markerScopedFile: { workspaceRel: CALENDAR_DB_REL, matchField: "title" },
     });
   });
 
@@ -249,8 +373,9 @@ test.describe("plugin dispatch (real LLM, one-turn canaries)", () => {
         `Use the \`presentDocument\` tool to render this markdown verbatim: '# ${marker}'.`,
         "Do not use any other tool. Do not narrate the result.",
       ].join(" "),
-      // presentDocument has no delete tool; the saved
-      // `artifacts/documents/<YYYY>/<MM>/*.md` is a persistent
+      // presentDocument is single-action (no `action` arg), so
+      // expectedAddAction is undefined. No delete tool exists; the
+      // saved `artifacts/documents/<YYYY>/<MM>/*.md` is a persistent
       // workspace artifact, identifiable by the marker in its body.
     });
   });
@@ -309,14 +434,16 @@ test.describe("plugin dispatch (real LLM, one-turn canaries)", () => {
       marker,
       prompt: [
         `Use the \`manageAccounting\` tool with action='createBook' to create a new book whose name is EXACTLY '${marker}' (verbatim), currency='USD', country='US'.`,
-        "Do not call openBook afterwards. Do not use any other tool. Do not narrate the result.",
+        "Do not call openBook / getBooks / any other action. Do not call openBook afterwards. Do not use any other tool. Do not narrate the result.",
       ].join(" "),
+      expectedAddAction: "createBook",
       cleanupPrompt: [
         `Now delete the book whose name equals EXACTLY '${marker}'.`,
         "Use the manageAccounting tool with action='getBooks' first to find the bookId, then action='deleteBook' with confirm=true.",
         "Do not narrate the result.",
       ].join(" "),
       expectedCleanupAction: "deleteBook",
+      markerScopedFile: { workspaceRel: ACCOUNTING_CONFIG_REL, arrayPath: "books", matchField: "name" },
     });
   });
 });
