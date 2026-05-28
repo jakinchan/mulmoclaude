@@ -140,13 +140,11 @@
                 <span v-else-if="field.type === 'ref' && field.to && typeof item[key] === 'string' && item[key]" class="block truncate">
                   <router-link
                     :to="{ path: `/collections/${field.to}`, query: { selected: String(item[key]) } }"
-                    class="inline-flex items-center gap-0.5 text-indigo-600 hover:text-indigo-800 hover:underline font-semibold"
+                    class="text-indigo-600 hover:text-indigo-800 hover:underline font-semibold"
                     :data-testid="`collections-ref-link-${key}-${item[key]}`"
                     @click.stop
+                    >{{ refDisplay(field.to, String(item[key])) }}</router-link
                   >
-                    <span>{{ refDisplay(field.to, String(item[key])) }}</span>
-                    <span class="material-icons text-[10px]">launch</span>
-                  </router-link>
                 </span>
 
                 <!-- Enum badges -->
@@ -177,6 +175,19 @@
                   v-else-if="field.type === 'derived'"
                   class="inline-block truncate tabular-nums font-bold text-indigo-900 bg-indigo-50/50 px-1.5 py-0.5 rounded border border-indigo-100/50"
                   >{{ derivedDisplay(field, evaluateDerivedAgainstItem(field, String(key), item), item) }}</span
+                >
+
+                <!-- URL string → external link (new tab). `@click.stop` so
+                     clicking the link doesn't also open the row's detail. -->
+                <a
+                  v-else-if="isExternalUrl(item[key])"
+                  :href="String(item[key])"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="block truncate text-blue-600 hover:text-blue-800 hover:underline font-semibold"
+                  :data-testid="`collections-url-link-${key}-${item[collection.schema.primaryKey]}`"
+                  @click.stop
+                  >{{ String(item[key]) }}</a
                 >
 
                 <span v-else class="block truncate text-slate-600">{{ formatCell(item[key], field.type) }}</span>
@@ -563,12 +574,10 @@
                 <router-link
                   v-else-if="field.type === 'ref' && field.to && typeof viewing[key] === 'string' && viewing[key]"
                   :to="{ path: `/collections/${field.to}`, query: { selected: String(viewing[key]) } }"
-                  class="inline-flex items-center gap-0.5 text-indigo-600 hover:text-indigo-800 font-bold hover:underline"
+                  class="text-indigo-600 hover:text-indigo-800 font-bold hover:underline"
                   :data-testid="`collections-detail-ref-${key}`"
+                  >{{ refDisplay(field.to, String(viewing[key])) }}</router-link
                 >
-                  <span>{{ refDisplay(field.to, String(viewing[key])) }}</span>
-                  <span class="material-icons text-xs">launch</span>
-                </router-link>
 
                 <!-- Money format -->
                 <span v-else-if="field.type === 'money'" class="font-semibold text-slate-900 tabular-nums text-sm">{{
@@ -631,6 +640,19 @@
                   class="max-h-64 max-w-full object-contain rounded-lg border border-slate-200 bg-slate-50"
                   :data-testid="`collections-detail-image-${key}`"
                 />
+
+                <!-- URL string → external link (new tab). Value-based, so any
+                     field whose value is a http(s) URL renders as a link,
+                     regardless of the declared `field.type`. -->
+                <a
+                  v-else-if="isExternalUrl(viewing[key])"
+                  :href="String(viewing[key])"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-blue-600 hover:text-blue-800 font-semibold hover:underline break-all"
+                  :data-testid="`collections-detail-url-${key}`"
+                  >{{ String(viewing[key]) }}</a
+                >
 
                 <!-- Fallback text styling -->
                 <span v-else class="text-slate-800 font-semibold">{{ formatCell(viewing[key], field.type) }}</span>
@@ -1298,6 +1320,17 @@ function formatCell(value: unknown, type: FieldType): string {
   }
   if (typeof value === "string" || typeof value === "number") return String(value);
   return JSON.stringify(value);
+}
+
+/** True iff `value` is a string starting with `http://` or `https://`
+ *  — used by the detail view to auto-render URLs as external links
+ *  (new tab). Schema-agnostic on purpose: any field whose value looks
+ *  like a URL gets the link affordance, not just fields the schema
+ *  flagged as URL-bearing. Restricted to the http(s) schemes so
+ *  `javascript:` / `data:` / `mailto:` strings can't become clickable
+ *  through this path. */
+function isExternalUrl(value: unknown): boolean {
+  return typeof value === "string" && /^https?:\/\//i.test(value);
 }
 
 /** Full (untruncated) text rendering for open mode. `formatCell`
