@@ -632,6 +632,21 @@
                   :data-testid="`collections-detail-image-${key}`"
                 />
 
+                <!-- URL string → external link (new tab). Value-based, so any
+                     field whose value is a http(s) URL renders as a link,
+                     regardless of the declared `field.type`. -->
+                <a
+                  v-else-if="isExternalUrl(viewing[key])"
+                  :href="String(viewing[key])"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-0.5 text-blue-600 hover:text-blue-800 font-semibold hover:underline break-all"
+                  :data-testid="`collections-detail-url-${key}`"
+                >
+                  <span>{{ String(viewing[key]) }}</span>
+                  <span class="material-icons text-xs">launch</span>
+                </a>
+
                 <!-- Fallback text styling -->
                 <span v-else class="text-slate-800 font-semibold">{{ formatCell(viewing[key], field.type) }}</span>
               </div>
@@ -1298,6 +1313,17 @@ function formatCell(value: unknown, type: FieldType): string {
   }
   if (typeof value === "string" || typeof value === "number") return String(value);
   return JSON.stringify(value);
+}
+
+/** True iff `value` is a string starting with `http://` or `https://`
+ *  — used by the detail view to auto-render URLs as external links
+ *  (new tab). Schema-agnostic on purpose: any field whose value looks
+ *  like a URL gets the link affordance, not just fields the schema
+ *  flagged as URL-bearing. Restricted to the http(s) schemes so
+ *  `javascript:` / `data:` / `mailto:` strings can't become clickable
+ *  through this path. */
+function isExternalUrl(value: unknown): boolean {
+  return typeof value === "string" && /^https?:\/\//i.test(value);
 }
 
 /** Full (untruncated) text rendering for open mode. `formatCell`
