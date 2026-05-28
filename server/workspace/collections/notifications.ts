@@ -103,8 +103,16 @@ async function findActiveEntryIds(slug: string, itemId: string): Promise<string[
  *  fs.watch event, so a reconcileAllItems pass can race a watcher
  *  event for the SAME item. Without this lock, both code paths read
  *  `listAll` (which bypasses the engine's write queue), miss each
- *  other's in-flight publish, and produce duplicate entries. */
-const ensureLocks = new Map<string, Promise<void>>();
+ *  other's in-flight publish, and produce duplicate entries.
+ *
+ *  The map's value is a tiny wrapper rather than a bare Promise so
+ *  that the "is this still my lock?" check below is an object-
+ *  identity comparison, not a promise-identity comparison — clearer
+ *  for both humans and static analyzers reading the cleanup path. */
+interface EnsureLock {
+  promise: Promise<void>;
+}
+const ensureLocks = new Map<string, EnsureLock>();
 
 /** Idempotently ensure a bell entry exists for a still-pending item.
  *  No-op if an entry with this (slug, itemId)'s legacy id is already
@@ -129,14 +137,16 @@ async function ensureItemNotification(slug: string, schema: CollectionSchema, it
   while (true) {
     const inflight = ensureLocks.get(legacyId);
     if (!inflight) break;
-    await inflight;
+    await inflight.promise;
   }
-  const work = doEnsureItemNotification(slug, schema, itemId, legacyId);
-  ensureLocks.set(legacyId, work);
+  const lock: EnsureLock = { promise: doEnsureItemNotification(slug, schema, itemId, legacyId) };
+  ensureLocks.set(legacyId, lock);
   try {
-    await work;
+    await lock.promise;
   } finally {
-    if (ensureLocks.get(legacyId) === work) {
+    // Only clear the slot if it still points at OUR lock — a
+    // sufficiently-delayed cleanup must not stomp a later claim.
+    if (ensureLocks.get(legacyId) === lock) {
       ensureLocks.delete(legacyId);
     }
   }
