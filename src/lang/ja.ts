@@ -285,7 +285,7 @@ const jaMessages = {
     todos: { label: "Todo" },
     calendar: { label: "カレンダー" },
     automations: { label: "自動化" },
-    encore: { label: "Encore" },
+    encore: { label: "アンコール" },
     wiki: { label: "Wiki" },
     collections: { label: "コレクション" },
     sources: { label: "ソース" },
@@ -295,8 +295,8 @@ const jaMessages = {
     files: { label: "ファイル" },
   },
   encoreDashboard: {
-    title: "Encore",
-    subtitle: "Encore が追跡している定期的な義務の一覧です。",
+    title: "アンコール",
+    subtitle: "繰り返し発生するタスクや義務（アンコール）の一覧です。次回の発生タイミングを追跡します。",
     loading: "義務を読み込み中…",
     errorPrefix: "義務を読み込めませんでした: ",
     empty: "まだ義務がありません。チャットから設定を依頼してください。",
@@ -307,7 +307,7 @@ const jaMessages = {
     chatButtonTitle: "この義務について新しいチャットで相談する",
     bellButtonTitle: "このサイクルについて相談する",
     addButtonLabel: "追加",
-    unexpectedResponse: "Encore から予期しない応答が返されました。",
+    unexpectedResponse: "アンコール から予期しない応答が返されました。",
     fieldsHeading: "サイクルごとに記録する項目",
     fieldRequired: "必須",
     status: {
