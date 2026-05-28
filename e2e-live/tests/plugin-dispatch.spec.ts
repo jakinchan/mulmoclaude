@@ -165,15 +165,38 @@ async function expectToolDispatched(sessionId: string, toolName: string, marker:
   const calls = await readSessionToolCalls(sessionId);
   const sameToolCalls = calls.filter((call) => call.toolName === expectedName);
   const matched = sameToolCalls.filter((call) => {
-    if (expectedAction === undefined) return true;
-    return isRecord(call.args) && call.args.action === expectedAction;
+    if (expectedAction !== undefined) {
+      if (!isRecord(call.args) || call.args.action !== expectedAction) return false;
+    }
+    return argsIncludeMarker(call.args, marker);
   });
   const actionsSeen =
     sameToolCalls.map((call) => (isRecord(call.args) ? String(call.args.action ?? "<no-action>") : "<non-object-args>")).join(", ") || "<none>";
+  const actionHint = expectedAction !== undefined ? ` tool_call with args.action='${expectedAction}'` : " tool_call";
   expect(
     matched.length,
-    `marker='${marker}': expected at least one ${expectedName}${expectedAction !== undefined ? ` tool_call with args.action='${expectedAction}'` : " tool_call"} in jsonl trace (saw tool actions: ${actionsSeen})`,
+    `marker='${marker}': expected at least one ${expectedName}${actionHint} whose args carry the marker (saw tool actions: ${actionsSeen}; marker-carrying matches: ${matched.length})`,
   ).toBeGreaterThan(0);
+}
+
+/**
+ * Recursive walk over `args`: returns true iff any string value
+ * anywhere in the tree includes `marker` as a substring. Used to
+ * prove the agent actually wrote the per-test marker into the
+ * payload, not just dispatched the right action with unrelated
+ * data (Codex GHA iter-2). Generic across every plugin we test:
+ * todo / calendar / accounting carry the marker in a top-level
+ * string field (`text` / `title` / `name`); presentDocument /
+ * presentHtml / presentSVG carry it in the body string; and
+ * presentSpreadsheet carries it in a nested `sheets[].name`. All
+ * land as string-leaf values, so a single substring scan suffices
+ * without the spec needing to know each tool's exact arg shape.
+ */
+function argsIncludeMarker(args: unknown, marker: string): boolean {
+  if (typeof args === "string") return args.includes(marker);
+  if (Array.isArray(args)) return args.some((item) => argsIncludeMarker(item, marker));
+  if (isRecord(args)) return Object.values(args).some((value) => argsIncludeMarker(value, marker));
+  return false;
 }
 
 /**
@@ -230,9 +253,11 @@ async function expectMarkerAbsent(marker: string, scope: MarkerScope): Promise<v
   const rows = extractRows(parsed, scope.arrayPath);
   if (rows === null) return;
   const matches = rows.filter((row) => isRecord(row) && row[scope.matchField] === marker);
+  const arraySuffix = scope.arrayPath !== undefined ? `.${scope.arrayPath}` : "";
+  const dbLocation = `${scope.workspaceRel}${arraySuffix}`;
   expect(
     matches.length,
-    `marker='${marker}': expected zero rows in ${scope.workspaceRel}${scope.arrayPath !== undefined ? `.${scope.arrayPath}` : ""} after cleanup, but found ${matches.length} matching '${scope.matchField}' (cleanup turn dispatched delete but the row was not actually removed — likely targeted the wrong id, or the delete write silently failed)`,
+    `marker='${marker}': expected zero rows in ${dbLocation} after cleanup, but found ${matches.length} matching '${scope.matchField}' (cleanup turn dispatched delete but the row was not actually removed — likely targeted the wrong id, or the delete write silently failed)`,
   ).toBe(0);
 }
 
