@@ -1,70 +1,25 @@
-// Email plugin — server-side runtime plugin (v1 scaffold, #1542).
+// Email plugin — server-side runtime plugin (#1542).
 //
 // One tool (`manageEmail`), four kinds (`list` / `read` / `search`
-// / `send`). v1 scaffold returns stub responses for the I/O kinds
-// so the configuration flow can be exercised end-to-end; real
-// IMAP/SMTP wiring lands in PR 2 (list/read/search) and PR 3
-// (send with the human-confirmation gate). See #1542.
+// / `send`). v1 ships real IMAP via `imapflow` + `mailparser` and
+// SMTP via `nodemailer`. Auth is App Password (no OAuth in v1).
 //
 // Send-gate contract: the first `kind:'send'` call (with no
-// `confirmed:true`) returns a structured payload that the host
-// renders as a presentForm confirmation. The LLM then re-calls
-// with `confirmed:true` only after the user has approved the
-// form. The dispatch refuses to send without `confirmed:true`.
+// `confirmed:true`) returns a structured payload telling the LLM
+// to show the draft to the user via presentForm and only re-call
+// with `confirmed:true` after the user explicitly approves. The
+// dispatch refuses to actually call SMTP without `confirmed:true`.
 
 import { definePlugin } from "gui-chat-protocol";
 
 import { TOOL_DEFINITION } from "./definition";
 import { Args, type EmailArgs } from "./args";
 import { loadConfig, missingConfigResponse, serverUnknownResponse, type ResolvedEmailConfig } from "./config";
+import { listMessages, readMessage, searchMessages } from "./imap";
+import { sendMail } from "./smtp";
 
 export { TOOL_DEFINITION };
 
-// v1 scaffold — every I/O handler is a stub that proves the
-// dispatch reaches it. PR 2 / PR 3 swap these for real imapflow
-// + nodemailer calls. Each returns a JSON-serialisable shape so
-// the MCP bridge can stringify it into `message` for the LLM.
-
-interface StubResponse {
-  ok: true;
-  stub: string;
-  kind: string;
-  echoed_args: Record<string, unknown>;
-}
-
-function stub(kind: string, args: Record<string, unknown>): StubResponse {
-  return {
-    ok: true,
-    stub: "email-plugin v1 scaffold — IMAP/SMTP wiring lands in PR 2/3 (#1542). Args echoed for end-to-end testing.",
-    kind,
-    echoed_args: args,
-  };
-}
-
-function handleList(_cfg: ResolvedEmailConfig, args: Extract<EmailArgs, { kind: "list" }>): StubResponse {
-  return stub("list", { mailbox: args.mailbox, limit: args.limit });
-}
-
-function handleRead(_cfg: ResolvedEmailConfig, args: Extract<EmailArgs, { kind: "read" }>): StubResponse {
-  return stub("read", { mailbox: args.mailbox, uid: args.uid });
-}
-
-function handleSearch(_cfg: ResolvedEmailConfig, args: Extract<EmailArgs, { kind: "search" }>): StubResponse {
-  return stub("search", {
-    mailbox: args.mailbox,
-    limit: args.limit,
-    from: args.from,
-    subject_contains: args.subject_contains,
-    since: args.since,
-    before: args.before,
-    unread: args.unread,
-  });
-}
-
-// Send is special: returns a confirmation envelope (NOT a stub
-// send result) when `confirmed !== true`. The host renders this
-// as a presentForm; the user approves; the LLM re-calls with
-// `confirmed:true`.
 interface SendConfirmRequest {
   needs_confirmation: true;
   message: string;
@@ -76,21 +31,36 @@ function buildSendConfirmation(args: Extract<EmailArgs, { kind: "send" }>): Send
   return {
     needs_confirmation: true,
     message:
-      "About to send email. Show the user the draft below and ask them to confirm. " +
-      "Only call `manageEmail` again with `confirmed:true` after the user explicitly approves.",
+      "About to send email. Call `presentForm` to show the user the draft (to / subject / body) and ask them to confirm. " +
+      "Only re-call `manageEmail` with `confirmed:true` after the user explicitly approves.",
     draft: { to: args.to, subject: args.subject, body: args.body, ...(args.html ? { html: args.html } : {}) },
     retry_with: { kind: "send", to: args.to, subject: args.subject, body: args.body, ...(args.html ? { html: args.html } : {}), confirmed: true },
   };
 }
 
-function handleSend(_cfg: ResolvedEmailConfig, args: Extract<EmailArgs, { kind: "send" }>): StubResponse | SendConfirmRequest {
-  if (args.confirmed !== true) return buildSendConfirmation(args);
-  return stub("send", { to: args.to, subject: args.subject });
+async function handleList(cfg: ResolvedEmailConfig, args: Extract<EmailArgs, { kind: "list" }>): Promise<unknown> {
+  return await listMessages({ email: cfg.email, password: cfg.password, imap: cfg.imap }, args.mailbox, args.limit);
 }
 
-type Handled = StubResponse | SendConfirmRequest;
+async function handleRead(cfg: ResolvedEmailConfig, args: Extract<EmailArgs, { kind: "read" }>): Promise<unknown> {
+  return await readMessage({ email: cfg.email, password: cfg.password, imap: cfg.imap }, args.mailbox, args.uid);
+}
 
-function dispatch(cfg: ResolvedEmailConfig, args: EmailArgs): Handled {
+async function handleSearch(cfg: ResolvedEmailConfig, args: Extract<EmailArgs, { kind: "search" }>): Promise<unknown> {
+  return await searchMessages(
+    { email: cfg.email, password: cfg.password, imap: cfg.imap },
+    args.mailbox,
+    { from: args.from, subject_contains: args.subject_contains, since: args.since, before: args.before, unread: args.unread },
+    args.limit,
+  );
+}
+
+async function handleSend(cfg: ResolvedEmailConfig, args: Extract<EmailArgs, { kind: "send" }>): Promise<unknown> {
+  if (args.confirmed !== true) return buildSendConfirmation(args);
+  return await sendMail({ email: cfg.email, password: cfg.password, smtp: cfg.smtp }, args);
+}
+
+async function dispatch(cfg: ResolvedEmailConfig, args: EmailArgs): Promise<unknown> {
   switch (args.kind) {
     case "list":
       return handleList(cfg, args);
@@ -122,7 +92,7 @@ export default definePlugin(({ files }) => {
       }
 
       try {
-        const result = dispatch(resolution.config, parsed.data);
+        const result = await dispatch(resolution.config, parsed.data);
         return { message: JSON.stringify(result) };
       } catch (err) {
         return { instructions: `manageEmail call failed: ${err instanceof Error ? err.message : String(err)}` };

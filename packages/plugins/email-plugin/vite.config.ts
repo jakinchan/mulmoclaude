@@ -21,7 +21,17 @@ export default defineConfig({
       fileName: (_format, entryName) => `${entryName}.js`,
     },
     rollupOptions: {
-      external: ["node:os", "node:url"],
+      // While this plugin is devOnly (#1542), the preset loader
+      // resolves it via the yarn-workspace symlink and the imap /
+      // smtp / mime-parsing libs are hoisted into the repo's
+      // node_modules — leave them external so we don't pay the
+      // ESM-bundling-CJS interop cost (mailparser → libmime →
+      // iconv has CJS class-extends chains that explode when
+      // inlined). When we publish via npm, the libs will need to
+      // travel with the tarball — either as real `dependencies`
+      // (npm install hoists them at the consumer) or as a future
+      // bundled build once the CJS interop is properly solved.
+      external: [/^node:/, "imapflow", "nodemailer", "mailparser"],
     },
     minify: false,
     sourcemap: true,
