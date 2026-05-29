@@ -1368,6 +1368,10 @@ const esMessages = {
     editTitle: "Editar registro",
     derivedLabel: "Derivado",
     embedMissingTitle: "Falta la referencia incrustada",
+    chat: "Chat",
+    chatTitle: "Iniciar un chat",
+    chatPlaceholder: "Describe qué quieres hacer con esta colección…",
+    chatStart: "Iniciar chat",
     source: {
       user: "Usuario",
       project: "Proyecto",

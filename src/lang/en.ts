@@ -1354,6 +1354,10 @@ const enMessages = {
     editTitle: "Edit record",
     derivedLabel: "Derived",
     embedMissingTitle: "Embedded reference missing",
+    chat: "Chat",
+    chatTitle: "Start a chat",
+    chatPlaceholder: "Describe what you want to do with this collection…",
+    chatStart: "Start chat",
     source: {
       user: "User",
       project: "Project",

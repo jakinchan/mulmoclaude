@@ -1344,6 +1344,10 @@ const zhMessages = {
     editTitle: "编辑记录",
     derivedLabel: "派生",
     embedMissingTitle: "缺少嵌入引用",
+    chat: "对话",
+    chatTitle: "开始对话",
+    chatPlaceholder: "描述你想对这个集合做什么…",
+    chatStart: "开始对话",
     source: {
       user: "用户",
       project: "项目",

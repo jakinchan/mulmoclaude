@@ -1357,6 +1357,10 @@ const ptBRMessages = {
     editTitle: "Editar registro",
     derivedLabel: "Derivado",
     embedMissingTitle: "Referência incorporada ausente",
+    chat: "Chat",
+    chatTitle: "Iniciar um chat",
+    chatPlaceholder: "Descreva o que você quer fazer com esta coleção…",
+    chatStart: "Iniciar chat",
     source: {
       user: "Usuário",
       project: "Projeto",

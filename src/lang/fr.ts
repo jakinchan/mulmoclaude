@@ -1362,6 +1362,10 @@ const frMessages = {
     editTitle: "Modifier l'enregistrement",
     derivedLabel: "Calculé",
     embedMissingTitle: "Référence intégrée manquante",
+    chat: "Discussion",
+    chatTitle: "Démarrer une discussion",
+    chatPlaceholder: "Décrivez ce que vous voulez faire avec cette collection…",
+    chatStart: "Démarrer la discussion",
     source: {
       user: "Utilisateur",
       project: "Projet",

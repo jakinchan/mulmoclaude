@@ -26,6 +26,17 @@
       </div>
 
       <button
+        v-if="collection"
+        type="button"
+        class="h-8 px-2.5 flex items-center gap-1 rounded border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-600 font-bold text-xs transition-colors"
+        data-testid="collections-chat"
+        @click="openChat"
+      >
+        <span class="material-icons text-sm">forum</span>
+        <span>{{ t("collectionsView.chat") }}</span>
+      </button>
+
+      <button
         v-if="canCreate"
         type="button"
         class="h-8 px-2.5 flex items-center gap-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-colors shadow-sm"
@@ -482,6 +493,73 @@
       </div>
     </div>
 
+    <!-- Chat modal — collect a message and start a new general-role chat
+         seeded with the collection's skill command (`/<slug> <message>`). -->
+    <div
+      v-if="chatOpen && collection"
+      class="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-all duration-300"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="collections-chat-title"
+      data-testid="collections-chat-modal"
+      @click.self="closeChat"
+      @keydown.esc="closeChat"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col border border-slate-200 overflow-hidden">
+        <header class="px-6 py-4 border-b border-slate-100 flex items-center gap-3 bg-slate-50/50">
+          <div class="h-9 w-9 flex items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100/50">
+            <span class="material-icons text-lg">forum</span>
+          </div>
+          <div class="flex-1">
+            <h2 id="collections-chat-title" class="text-sm font-bold text-slate-800 uppercase tracking-wide">{{ t("collectionsView.chatTitle") }}</h2>
+            <span class="text-xs text-slate-400 font-semibold">{{ collection.title }}</span>
+          </div>
+          <button
+            type="button"
+            class="h-8 w-8 flex items-center justify-center rounded text-slate-400 hover:bg-slate-200/50 hover:text-slate-600 transition-colors"
+            :aria-label="t('common.close')"
+            data-testid="collections-chat-close"
+            @click="closeChat"
+          >
+            <span class="material-icons text-lg">close</span>
+          </button>
+        </header>
+
+        <div class="px-6 py-5">
+          <textarea
+            ref="chatInputEl"
+            v-model="chatMessage"
+            rows="4"
+            :placeholder="t('collectionsView.chatPlaceholder')"
+            class="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2.5 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white transition-all resize-none"
+            data-testid="collections-chat-input"
+            @keydown.meta.enter="submitChat"
+            @keydown.ctrl.enter="submitChat"
+          ></textarea>
+        </div>
+
+        <footer class="px-6 py-3.5 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
+          <button
+            type="button"
+            class="h-8 px-2.5 rounded text-xs font-bold text-slate-500 hover:bg-slate-200/50 transition-colors"
+            data-testid="collections-chat-cancel"
+            @click="closeChat"
+          >
+            {{ t("common.cancel") }}
+          </button>
+          <button
+            type="button"
+            class="h-8 px-2.5 rounded bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-sm shadow-indigo-600/10"
+            :disabled="!chatMessage.trim()"
+            data-testid="collections-chat-send"
+            @click="submitChat"
+          >
+            {{ t("collectionsView.chatStart") }}
+          </button>
+        </footer>
+      </div>
+    </div>
+
     <!-- Open / detail modal (read-only document-style card) -->
     <div
       v-if="viewing && collection"
@@ -680,12 +758,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
 import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
 import { API_ROUTES } from "../config/apiRoutes";
 import { PAGE_ROUTES } from "../router/pageRoutes";
+import { BUILTIN_ROLE_IDS } from "../config/roles";
 import ConfirmModal from "./ConfirmModal.vue";
 import CollectionEmbedView from "./CollectionEmbedView.vue";
 import type { EmbedRow, EmbedView } from "./collectionEmbed";
@@ -885,6 +964,9 @@ const saving = ref(false);
 const saveError = ref<string | null>(null);
 const actionPending = ref(false);
 const actionError = ref<string | null>(null);
+const chatOpen = ref(false);
+const chatMessage = ref("");
+const chatInputEl = ref<HTMLTextAreaElement | null>(null);
 const refCache = ref<RefCache>({});
 const refRecordCache = ref<RefRecordCache>({});
 const embedCache = ref<EmbedCache>({});
@@ -968,6 +1050,28 @@ async function runAction(action: CollectionAction): Promise<void> {
     return;
   }
   appApi.startNewChat(result.data.prompt, result.data.role);
+}
+
+/** Open the chat modal, blanking any prior draft and focusing the input. */
+function openChat(): void {
+  chatMessage.value = "";
+  chatOpen.value = true;
+  void nextTick(() => chatInputEl.value?.focus());
+}
+
+function closeChat(): void {
+  chatOpen.value = false;
+}
+
+/** Start a new general-role chat seeded with the collection's skill
+ *  command, so e.g. "I want to create an item" on `mc_worklog` becomes
+ *  `/mc_worklog I want to create an item`. */
+function submitChat(): void {
+  if (!collection.value) return;
+  const message = chatMessage.value.trim();
+  if (!message) return;
+  closeChat();
+  appApi.startNewChat(`/${collection.value.slug} ${message}`, BUILTIN_ROLE_IDS.general);
 }
 
 async function loadCollection(slug: string): Promise<void> {

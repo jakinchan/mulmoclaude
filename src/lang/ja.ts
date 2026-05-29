@@ -1351,6 +1351,10 @@ const jaMessages = {
     editTitle: "レコードを編集",
     derivedLabel: "計算値",
     embedMissingTitle: "埋め込み参照が見つかりません",
+    chat: "チャット",
+    chatTitle: "チャットを開始",
+    chatPlaceholder: "このコレクションで行いたいことを入力してください…",
+    chatStart: "チャットを開始",
     source: {
       user: "ユーザー",
       project: "プロジェクト",

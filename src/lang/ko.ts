@@ -1354,6 +1354,10 @@ const koMessages = {
     editTitle: "레코드 편집",
     derivedLabel: "파생",
     embedMissingTitle: "임베드된 참조 없음",
+    chat: "채팅",
+    chatTitle: "채팅 시작",
+    chatPlaceholder: "이 컬렉션으로 하고 싶은 작업을 설명하세요…",
+    chatStart: "채팅 시작",
     source: {
       user: "사용자",
       project: "프로젝트",

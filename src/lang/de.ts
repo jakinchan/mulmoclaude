@@ -1373,6 +1373,10 @@ const deMessages = {
     editTitle: "Datensatz bearbeiten",
     derivedLabel: "Abgeleitet",
     embedMissingTitle: "Eingebettete Referenz fehlt",
+    chat: "Chat",
+    chatTitle: "Chat starten",
+    chatPlaceholder: "Beschreibe, was du mit dieser Sammlung tun möchtest…",
+    chatStart: "Chat starten",
     source: {
       user: "Benutzer",
       project: "Projekt",

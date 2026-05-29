@@ -94,7 +94,11 @@ async function defaultResponse(input: AgentInput): Promise<FakeResponse> {
     return { error: "fake-echo forced error for the e2e-live error-banner canary" };
   }
 
-  const slashMatch = input.message.trim().match(/^\/([a-z0-9][a-z0-9-]*)$/i);
+  // Match a leading `/<skill>` command, with or without trailing
+  // arguments (e.g. the collection Chat button seeds
+  // `/<slug> <message>`). Only the skill name drives the seeded
+  // reply — any args are for the real LLM and are ignored here.
+  const slashMatch = input.message.trim().match(/^\/([a-z0-9][a-z0-9-]*)(?:\s|$)/i);
   if (slashMatch) {
     const skillReply = await replyFromSeededSkill(input.workspacePath, slashMatch[1]);
     if (skillReply !== null) return { text: skillReply };
