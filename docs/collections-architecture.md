@@ -81,6 +81,16 @@ Relations and computed/behavioural constructs:
 - **`actions`** — per-record buttons. `kind: "chat"` starts a new chat in
   `role` seeded from `template`. An optional `when: { field, in: [...] }`
   predicate shows the button only for matching record states.
+- **field `when`** — any field may carry the same `when: { field, in: [...] }`
+  predicate to hide itself until a sibling field matches (e.g. a `rating`
+  field with `{ "field": "visited", "in": ["true"] }` stays hidden until
+  `visited` is `true`). The gate applies in the list (cell blanks), the edit
+  form (the input hides/shows live as the gating field changes), and the
+  detail view (the field is omitted). Purely presentational — a hidden
+  field's stored value is preserved, so re-matching the gate restores it.
+  `when.field` is validated to name a real top-level field. The shared
+  predicate (`actionVisible` / `fieldVisible` / `whenMatches`) is in
+  `src/utils/collections/actionVisible.ts`.
 
 The canonical example is the invoice schema
 (`server/workspace/skills-preset/mc-invoice/schema.json`): `id` (primary),
@@ -254,7 +264,7 @@ collections (the `mc-*` skills) ship under
 | REST + action dispatch | `server/api/routes/collections.ts` |
 | UI (table / form / detail / actions) | `src/components/CollectionView.vue` |
 | Derived-formula evaluator | `src/utils/collections/derivedFormula.ts` |
-| Action visibility predicate (UI + server) | `src/utils/collections/actionVisible.ts` |
+| Action + field visibility predicate (`when`, UI + server) | `src/utils/collections/actionVisible.ts` |
 | Canonical example schema | `server/workspace/skills-preset/mc-invoice/schema.json` |
 
 Field-type design history and deferred-work rationale live in the shipped

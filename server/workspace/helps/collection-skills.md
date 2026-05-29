@@ -97,12 +97,15 @@ skipped, never crashes the host):
 | `singleton` | Optional. When set, at most one record exists, pinned to this exact id (e.g. `me`). Host pre-fills + locks the create form and hides Add once it exists. |
 | `fields` | Ordered map of field-name → field spec. **Insertion order = column order** in the table. Required. |
 | `actions` | Optional array of per-record buttons (see below). |
+| `completionField` | Optional. Name of the field whose value marks an item as "done" — when set, item-create fires a bell notification that clears once the field reaches one of `completionDoneValues`. Must name a real field in `fields`. Paired with `completionDoneValues` (both set, or both omitted). |
+| `completionDoneValues` | Optional. Non-empty array of values that count as "done" for `completionField` (e.g. `["Done"]`, `["paid", "void"]`). Compared as strings. |
+| `displayField` | Optional. Name of a field whose value is shown as the human-readable label in the completion notification's title (e.g. `Contacts: Jane Doe` instead of the opaque primaryKey). Must name a real field in `fields`. Falls back to the primaryKey value when unset or when the record's value is empty. |
 
 ### Field types
 
 `string` · `text` (multi-line) · `email` · `number` · `date` (`YYYY-MM-DD`) ·
 `boolean` · `markdown` · `money` · `enum` · `ref` · `embed` · `table` ·
-`derived`
+`derived` · `image`
 
 Every field spec needs a `type` and a `label`. Extra keys by type:
 
@@ -127,6 +130,36 @@ Every field spec needs a `type` and a `label`. Extra keys by type:
   `money` / `string` / `date`) and `currency`. **Read-only, host-computed** —
   you NEVER write derived values into the JSON; the host recomputes them on
   every render and the form refuses to persist them.
+- **`image`** — stores a **workspace-relative image path** as a plain string
+  (e.g. `data/attachments/2026/05/<id>.jpg` — the exact path from an
+  `[Attached file: ...]` marker when the user attaches a photo). The host
+  renders it as an `<img>` in the **detail view** (it is intentionally not a
+  list-table column — a per-row image fetch is too expensive for a large
+  collection). No extra keys. Great for photos like a business card: read the
+  details off the attached image and write its path into the image field.
+  Write the bare workspace-relative path — never an `/api/files/raw?...` URL.
+
+### Conditional field visibility (`when`)
+
+Any field may carry an optional `when: { field, in: [...] }` predicate to hide
+itself until another field on the same record matches — the same shape used to
+gate `actions`. The field shows only when `String(record[when.field])` is one of
+`in`; absent ⇒ always shown. `when.field` MUST name another top-level field
+(validated on discovery).
+
+```json
+"visited":    { "type": "boolean", "label": "Visited" },
+"rating":     { "type": "number",  "label": "Rating", "when": { "field": "visited", "in": ["true"] } }
+```
+
+Here `rating` stays hidden until `visited` is checked (booleans stringify, so
+match `"true"` / `"false"`). The gate applies everywhere the field renders: the
+list cell goes **blank**, the edit-form input hides/shows **live** as the gating
+field changes, and the detail view omits it. It is **purely presentational** —
+a hidden field's stored value is never cleared, so re-matching the gate restores
+it. Use it for fields that only make sense in a given state (a rating before
+you've visited, a shipped-date before an order ships). Only honoured on
+top-level fields, not inside a `table`'s `of`.
 
 ### Derived-formula syntax
 
@@ -216,6 +249,56 @@ journals, drafting an email) gets delegated to natural language.
   re-checks it server-side, so a button gated on `status: paid` can't be invoked
   for a draft. Omit `when` ⇒ always shown.
 - You do **not** trigger actions yourself; point the user at the button.
+
+### Completion tracking (bell notifications)
+
+Declare `completionField` + `completionDoneValues` at the top level of the
+schema to wire a record's lifecycle into the bell:
+
+```json
+{
+  "title": "Todos",
+  "icon": "check_circle",
+  "dataPath": "data/todos/items",
+  "primaryKey": "id",
+  "fields": {
+    "id":     { "type": "string", "label": "ID", "primary": true, "required": true },
+    "title":  { "type": "string", "label": "Title", "required": true },
+    "status": { "type": "enum", "values": ["Todo", "Doing", "Done"], "label": "Status", "required": true }
+  },
+  "completionField": "status",
+  "completionDoneValues": ["Done"],
+  "displayField": "title"
+}
+```
+
+Behaviour:
+
+- **On create** the host fires a bell notification (titled
+  `<schema.title>: <label>`, where `<label>` is the record's `displayField`
+  value when declared — falling back to the primaryKey `<id>` otherwise;
+  click-navigates to `/collections/<slug>?selected=<id>` so the item's detail
+  opens) — unless the new record is **born done** (its `completionField` value
+  is already in `completionDoneValues`), in which case nothing fires. The entry
+  is published with `lifecycle: "action"` so it persists prominently in the
+  bell until the obligation resolves.
+- **On update** the host clears the notification when `completionField`
+  transitions **into** a done value. Un-completing (Done → Todo) does NOT
+  re-fire; firing is bound to create, by design.
+- **On delete** the host clears any matching notification so a removed record
+  can't leak a stale entry.
+
+The pair is bundled — declaring one without the other fails schema validation.
+`completionField` must name a real field; a typo is rejected at load. Works
+with any field type whose stringified value is comparable (`enum`, `string`,
+`boolean`, …) — e.g. `completionField: "status"` + `completionDoneValues:
+["paid", "void"]` on an invoice, or `completionField: "shipped"` +
+`completionDoneValues: ["true"]` on an order.
+
+Set `displayField` to make the bell title readable: with `displayField:
+"title"` the notification reads `Todos: Buy milk` instead of `Todos: t-0042`.
+It must name a real field; an empty value on a given record falls back to the
+primaryKey for that record.
 
 ## Records — one JSON object per file
 

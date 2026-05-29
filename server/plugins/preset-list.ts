@@ -67,4 +67,11 @@ export const PRESET_PLUGINS: readonly PresetPlugin[] = [
   // and retry. Opt-in per role like every other runtime plugin.
   // Not published yet — kept dev-only until distribution is decided.
   { packageName: "@mulmoclaude/edgar-plugin", devOnly: true },
+  // Generic IMAP/SMTP email runtime plugin (#1542). Gmail-default
+  // provider presets; App Password auth (no OAuth in v1). v1
+  // scaffold returns stubs for list/read/search/send so the
+  // config + send-confirmation flow can be exercised end-to-end;
+  // real IMAP/SMTP wiring lands in follow-up PRs. devOnly until
+  // the surface stabilises + we decide on npm publish.
+  { packageName: "@mulmoclaude/email-plugin", devOnly: true },
 ];

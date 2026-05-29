@@ -1216,6 +1216,43 @@ export async function selectRole(page: Page, roleId: string): Promise<void> {
 }
 
 /**
+ * Start a fresh General-role session, switch to `roleId` (which the
+ * chat page handles by spawning a second session — see
+ * App.vue#onRoleChange), and push BOTH session ids onto the caller's
+ * cleanup array as they appear so a mid-helper throw still drains
+ * the General-side session in `finally`. Returns the role-switched
+ * session id (the one the spec sends prompts at).
+ *
+ * Uses `startGuaranteedNewSession` rather than `startNewSession` +
+ * `waitForURL(SESSION_URL_PATTERN)` to close the stale-session race
+ * documented at {@link startGuaranteedNewSession}: in a populated
+ * workspace the SPA's bootstrap can resume into `/chat/<existing>`,
+ * and capturing that id into the cleanup list would `deleteSession`
+ * pre-existing user data on test exit. The role-switched id is
+ * still fresh-by-construction (selectRole always spawns a new chat
+ * on the chat page), but the General-side baseline must be the one
+ * we just created — never a resumed pre-test session.
+ *
+ * Lifted from `skills.spec.ts` (L-21B) when `plugin-dispatch.spec.ts`
+ * needed the same dance for 7 plugin canaries; keeping it in
+ * live-chat.ts prevents the duplication mentioned in CLAUDE.md
+ * "shared utilities — check before reinventing".
+ */
+export async function setupRoleSession(page: Page, roleId: string, sessionsToCleanup: string[]): Promise<string> {
+  const generalSessionId = await startGuaranteedNewSession(page);
+  sessionsToCleanup.push(generalSessionId);
+  await selectRole(page, roleId);
+  await page.waitForURL((url) => SESSION_URL_PATTERN.test(url.pathname) && !url.pathname.endsWith(generalSessionId));
+  const roleSessionId = getCurrentSessionId(page);
+  if (roleSessionId === null) {
+    throw new Error(`setupRoleSession: getCurrentSessionId returned null after selectRole(${roleId}) — URL pattern likely drifted`);
+  }
+  sessionsToCleanup.push(roleSessionId);
+  await expect(page.getByTestId("role-selector-btn"), `role chip must reflect ${roleId} after switch`).toHaveAttribute("data-role", roleId);
+  return roleSessionId;
+}
+
+/**
  * Wait for an `<img>` matching the selector to appear *inside* the
  * presentHtml iframe. The iframe element itself is appended to the
  * DOM before its srcdoc finishes rendering, so a plain `iframe`

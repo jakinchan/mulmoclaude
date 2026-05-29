@@ -62,12 +62,14 @@ describe("discoverCollections — field-type support", () => {
         joined: { type: "date", label: "Joined" },
         active: { type: "boolean", label: "Active" },
         notes: { type: "markdown", label: "Notes" },
+        photo: { type: "image", label: "Photo" },
       },
     });
     const collections = await listCollections();
     assert.equal(collections.length, 1);
     assert.equal(collections[0]?.slug, "test-allfields");
     assert.equal(collections[0]?.schema.fields.active?.type, "boolean");
+    assert.equal(collections[0]?.schema.fields.photo?.type, "image");
   });
 
   it("accepts a schema using `ref` with a non-empty `to` (added in feat-collections-ref-field)", async () => {
@@ -644,6 +646,36 @@ describe("discoverCollections — structural validation", () => {
     const collections = await listCollections();
     assert.equal(collections.length, 0);
   });
+
+  it("rejects a schema whose displayField doesn't name a declared field", async () => {
+    writeSkill("test-orphan-displayfield", {
+      title: "Orphan Display",
+      icon: "warning",
+      dataPath: "data/orphan-display/items",
+      primaryKey: "id",
+      fields: { id: { type: "string", label: "ID", primary: true } },
+      displayField: "nonexistent",
+    });
+    const collections = await listCollections();
+    assert.equal(collections.length, 0);
+  });
+
+  it("accepts a schema whose displayField names a declared field", async () => {
+    writeSkill("test-valid-displayfield", {
+      title: "Valid Display",
+      icon: "check_circle",
+      dataPath: "data/valid-display/items",
+      primaryKey: "id",
+      fields: {
+        id: { type: "string", label: "ID", primary: true },
+        name: { type: "string", label: "Name" },
+      },
+      displayField: "name",
+    });
+    const collections = await listCollections();
+    assert.equal(collections.length, 1);
+    assert.equal(collections[0]?.schema.displayField, "name");
+  });
 });
 
 describe("discoverCollections — singleton", () => {
@@ -823,6 +855,54 @@ describe("discoverCollections — actions", () => {
       primaryKey: "id",
       fields,
       actions: [{ id: "sale", label: "Record sale", kind: "chat", role: "accounting", template: "templates/s.md", when: { field: "status", in: "sent" } }],
+    });
+    assert.equal((await listCollections()).length, 0);
+  });
+});
+
+describe("discoverCollections — field visibility (`when`)", () => {
+  it("accepts a field with a valid `when` predicate naming a sibling field", async () => {
+    writeSkill("test-field-when", {
+      title: "Restaurants",
+      icon: "restaurant",
+      dataPath: "data/restaurants/items",
+      primaryKey: "name",
+      fields: {
+        name: { type: "string", label: "Name", primary: true, required: true },
+        visited: { type: "boolean", label: "Visited" },
+        rating: { type: "number", label: "Rating", when: { field: "visited", in: ["true"] } },
+      },
+    });
+    const collections = await listCollections();
+    assert.equal(collections.length, 1);
+    assert.deepEqual(collections[0]?.schema.fields.rating?.when, { field: "visited", in: ["true"] });
+  });
+
+  it("rejects a field whose `when.field` names a non-existent field", async () => {
+    writeSkill("test-field-when-missing", {
+      title: "X",
+      icon: "warning",
+      dataPath: "data/fieldwhenmiss/items",
+      primaryKey: "name",
+      fields: {
+        name: { type: "string", label: "Name", primary: true, required: true },
+        rating: { type: "number", label: "Rating", when: { field: "visted", in: ["true"] } }, // typo: no `visted` field
+      },
+    });
+    assert.equal((await listCollections()).length, 0, "a field whose when.field points at a missing field must be skipped");
+  });
+
+  it("rejects a field `when` whose `in` is empty", async () => {
+    writeSkill("test-field-when-emptyin", {
+      title: "X",
+      icon: "warning",
+      dataPath: "data/fieldwhenei/items",
+      primaryKey: "name",
+      fields: {
+        name: { type: "string", label: "Name", primary: true, required: true },
+        visited: { type: "boolean", label: "Visited" },
+        rating: { type: "number", label: "Rating", when: { field: "visited", in: [] } },
+      },
     });
     assert.equal((await listCollections()).length, 0);
   });

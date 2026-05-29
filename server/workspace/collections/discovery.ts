@@ -78,6 +78,16 @@ const currencyMessage = {
   path: ["currency"],
 };
 
+// Optional visibility predicate shared by actions and fields: the
+// target shows only when the open record's `field` (stringified) is
+// one of `in`. Domain-free — `field` is any non-empty key, `in` a
+// non-empty array of non-empty values; the host never interprets the
+// meaning.
+const WhenSchema = z.object({
+  field: z.string().trim().min(1),
+  in: z.array(z.string().trim().min(1)).min(1),
+});
+
 // Sub-fields inside a `table.of` map: the regular field types
 // minus `table` (no nested tables) and `derived` (no computed
 // columns inside a table — would need the evaluator to walk the
@@ -103,7 +113,7 @@ const SubFieldSpecSchema = z
 
 const FieldSpecSchema = z
   .object({
-    type: z.enum(["string", "text", "email", "number", "date", "boolean", "markdown", "ref", "money", "enum", "table", "derived", "embed"]),
+    type: z.enum(["string", "text", "email", "number", "date", "boolean", "markdown", "ref", "money", "enum", "table", "derived", "embed", "image"]),
     label: z.string().min(1),
     primary: z.boolean().optional(),
     required: z.boolean().optional(),
@@ -119,6 +129,12 @@ const FieldSpecSchema = z
      *  values are scalars, so rendering them via `table` or another
      *  `derived` would be meaningless. */
     display: z.enum(["string", "number", "money", "date"]).optional(),
+    // Optional visibility predicate: this field renders only when the
+    // record matches (e.g. hide `rating` until `visited` is `true`).
+    // The referenced `when.field` is validated to be a real top-level
+    // field by a schema-level refine below (a field can't see its
+    // siblings here).
+    when: WhenSchema.optional(),
   })
   .refine(refRefine, refMessage)
   .refine(enumRefine, enumMessage)
@@ -133,15 +149,6 @@ const FieldSpecSchema = z
     path: ["formula"],
   });
 
-// Optional visibility predicate: the action button shows only when the
-// open record's `field` (stringified) is one of `in`. Domain-free —
-// `field` is any non-empty key, `in` a non-empty array of non-empty
-// values; the host never interprets the meaning.
-const ActionWhenSchema = z.object({
-  field: z.string().trim().min(1),
-  in: z.array(z.string().trim().min(1)).min(1),
-});
-
 // A schema-declared record action. Domain-free: the host validates the
 // shape; the meaning (which role, which template) is data.
 const ActionSpecSchema = z.object({
@@ -155,7 +162,7 @@ const ActionSpecSchema = z.object({
     .trim()
     .min(1)
     .refine(isSafeActionTemplatePath, "must be a safe path under `templates/` (e.g. `templates/invoice.md`; no `..`, no leading `/`, no backslash)"),
-  when: ActionWhenSchema.optional(),
+  when: WhenSchema.optional(),
 });
 
 // Field types that can hold a currency code string. A `currencyField`
@@ -199,6 +206,18 @@ const CollectionSchemaZ = z
     singleton: z.string().trim().min(1).optional(),
     fields: z.record(z.string(), FieldSpecSchema),
     actions: z.array(ActionSpecSchema).optional(),
+    // Completion-tracking pair: when both are set, item-create fires a
+    // notification that clears once `completionField` transitions into
+    // `completionDoneValues`. The two are bound together — declaring
+    // one without the other is a misconfiguration the cross-field
+    // refine below rejects.
+    completionField: z.string().trim().min(1).optional(),
+    completionDoneValues: z.array(z.string().trim().min(1)).min(1).optional(),
+    // Optional human-readable label for the completion notification's
+    // title — names the field whose value reads better than the opaque
+    // primaryKey (e.g. a `name` field). Falls back to the primaryKey
+    // value at render time when unset or empty.
+    displayField: z.string().trim().min(1).optional(),
   })
   // The singleton value becomes a record id (and thus a `<id>.json`
   // filename), so it must satisfy the SAME `safeSlugName` rule the
@@ -222,6 +241,35 @@ const CollectionSchemaZ = z
   // field can't see its siblings.
   .refine((schema) => collectCurrencyFieldRefs(schema.fields).every((name) => CODE_FIELD_TYPES.has(schema.fields[name]?.type ?? "")), {
     message: "a money field's `currencyField` must name a top-level `string`, `text`, or `enum` field that holds the currency code",
+    path: ["fields"],
+  })
+  // Completion-tracking pair must be declared together: declaring
+  // `completionField` without `completionDoneValues` (or vice-versa)
+  // is meaningless — the host would either never fire (no done values
+  // to compare against) or never clear (no field to read). Bound
+  // together so the misconfiguration fails loudly at load time.
+  .refine((schema) => (schema.completionField === undefined) === (schema.completionDoneValues === undefined), {
+    message: "schema `completionField` and `completionDoneValues` must be declared together (both set, or both omitted)",
+    path: ["completionField"],
+  })
+  // `completionField` must name a real top-level field — a typo would
+  // silently disable the notification mechanism otherwise.
+  .refine((schema) => schema.completionField === undefined || schema.fields[schema.completionField] !== undefined, {
+    message: "schema `completionField` must name a top-level field declared in `fields`",
+    path: ["completionField"],
+  })
+  // `displayField`, like `completionField`, must name a real top-level
+  // field — a typo would silently fall back to the primaryKey forever.
+  .refine((schema) => schema.displayField === undefined || schema.fields[schema.displayField] !== undefined, {
+    message: "schema `displayField` must name a top-level field declared in `fields`",
+    path: ["displayField"],
+  })
+  // A field's `when.field` gates its visibility against a sibling's
+  // value, so it must name a real top-level field — a typo would
+  // silently keep the field hidden forever (the gate never matches).
+  // Checked at the schema level because a field can't see its siblings.
+  .refine((schema) => Object.values(schema.fields).every((field) => field.when === undefined || schema.fields[field.when.field] !== undefined), {
+    message: "a field's `when.field` must name a top-level field declared in `fields`",
     path: ["fields"],
   });
 

@@ -97,7 +97,7 @@
         <table class="min-w-full text-xs">
           <thead>
             <tr class="bg-slate-50 border-b border-slate-200">
-              <th v-for="[key, field] in nonEmbedFields" :key="key" class="px-5 py-3 font-bold text-slate-500 text-left uppercase tracking-wider">
+              <th v-for="[key, field] in listColumnFields" :key="key" class="px-5 py-3 font-bold text-slate-500 text-left uppercase tracking-wider">
                 {{ field.label }}
               </th>
               <th class="px-5 py-3 font-medium w-24"></th>
@@ -116,70 +116,84 @@
               @keydown.enter.self="openView(item)"
               @keydown.space.self.prevent="openView(item)"
             >
-              <td v-for="[key, field] in nonEmbedFields" :key="key" class="px-5 py-2 text-slate-700 align-middle max-w-xs font-medium">
-                <!-- Boolean state badge -->
-                <span v-if="field.type === 'boolean'" class="block">
-                  <span
-                    v-if="item[key] === true"
-                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/40"
-                  >
-                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-                    {{ t("common.yes") }}
+              <td v-for="[key, field] in listColumnFields" :key="key" class="px-5 py-2 text-slate-700 align-middle max-w-xs font-medium">
+                <!-- Conditionally hidden field (`when` predicate) → blank cell. -->
+                <template v-if="fieldVisible(field, item)">
+                  <!-- Boolean state badge -->
+                  <span v-if="field.type === 'boolean'" class="block">
+                    <span
+                      v-if="item[key] === true"
+                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/40"
+                    >
+                      <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                      {{ t("common.yes") }}
+                    </span>
+                    <span
+                      v-else-if="item[key] === false"
+                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-400 border border-slate-200/20"
+                    >
+                      {{ t("common.no") }}
+                    </span>
+                    <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "—" for an omitted boolean: distinct from an explicit false (the edit pipeline tracks presence via boolOriginallyPresent). -->
+                    <span v-else class="text-slate-300">—</span>
                   </span>
-                  <span
-                    v-else-if="item[key] === false"
-                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-400 border border-slate-200/20"
-                  >
-                    {{ t("common.no") }}
-                  </span>
-                  <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "—" for an omitted boolean: distinct from an explicit false (the edit pipeline tracks presence via boolOriginallyPresent). -->
-                  <span v-else class="text-slate-300">—</span>
-                </span>
 
-                <!-- Ref router-link badge -->
-                <span v-else-if="field.type === 'ref' && field.to && typeof item[key] === 'string' && item[key]" class="block truncate">
-                  <router-link
-                    :to="{ path: `/collections/${field.to}`, query: { selected: String(item[key]) } }"
-                    class="inline-flex items-center gap-0.5 text-indigo-600 hover:text-indigo-800 hover:underline font-semibold"
-                    :data-testid="`collections-ref-link-${key}-${item[key]}`"
+                  <!-- Ref router-link badge -->
+                  <span v-else-if="field.type === 'ref' && field.to && typeof item[key] === 'string' && item[key]" class="block truncate">
+                    <router-link
+                      :to="{ path: `/collections/${field.to}`, query: { selected: String(item[key]) } }"
+                      class="text-indigo-600 hover:text-indigo-800 hover:underline font-semibold"
+                      :data-testid="`collections-ref-link-${key}-${item[key]}`"
+                      @click.stop
+                      >{{ refDisplay(field.to, String(item[key])) }}</router-link
+                    >
+                  </span>
+
+                  <!-- Enum badges -->
+                  <span
+                    v-else-if="field.type === 'enum' && item[key]"
+                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border"
+                    :class="enumBadgeClass(item[key])"
+                  >
+                    {{ item[key] }}
+                  </span>
+
+                  <!-- Money -->
+                  <span v-else-if="field.type === 'money'" class="block truncate tabular-nums font-semibold text-slate-900">{{
+                    formatMoney(item[key], resolveCurrency(field, item), locale)
+                  }}</span>
+
+                  <!-- Table summary counter -->
+                  <span
+                    v-else-if="field.type === 'table'"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200/40"
+                  >
+                    <span class="material-icons text-[11px]">list</span>
+                    <span>{{ tableSummary(item[key]) }}</span>
+                  </span>
+
+                  <!-- Derived formula fields -->
+                  <span
+                    v-else-if="field.type === 'derived'"
+                    class="inline-block truncate tabular-nums font-bold text-indigo-900 bg-indigo-50/50 px-1.5 py-0.5 rounded border border-indigo-100/50"
+                    >{{ derivedDisplay(field, evaluateDerivedAgainstItem(field, String(key), item), item) }}</span
+                  >
+
+                  <!-- URL string → external link (new tab). `@click.stop` so
+                     clicking the link doesn't also open the row's detail. -->
+                  <a
+                    v-else-if="isExternalUrl(item[key])"
+                    :href="String(item[key])"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="block truncate text-blue-600 hover:text-blue-800 hover:underline font-semibold"
+                    :data-testid="`collections-url-link-${key}-${item[collection.schema.primaryKey]}`"
                     @click.stop
+                    >{{ String(item[key]) }}</a
                   >
-                    <span>{{ refDisplay(field.to, String(item[key])) }}</span>
-                    <span class="material-icons text-[10px]">launch</span>
-                  </router-link>
-                </span>
 
-                <!-- Enum badges -->
-                <span
-                  v-else-if="field.type === 'enum' && item[key]"
-                  class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border"
-                  :class="enumBadgeClass(item[key])"
-                >
-                  {{ item[key] }}
-                </span>
-
-                <!-- Money -->
-                <span v-else-if="field.type === 'money'" class="block truncate tabular-nums font-semibold text-slate-900">{{
-                  formatMoney(item[key], resolveCurrency(field, item), locale)
-                }}</span>
-
-                <!-- Table summary counter -->
-                <span
-                  v-else-if="field.type === 'table'"
-                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200/40"
-                >
-                  <span class="material-icons text-[11px]">list</span>
-                  <span>{{ tableSummary(item[key]) }}</span>
-                </span>
-
-                <!-- Derived formula fields -->
-                <span
-                  v-else-if="field.type === 'derived'"
-                  class="inline-block truncate tabular-nums font-bold text-indigo-900 bg-indigo-50/50 px-1.5 py-0.5 rounded border border-indigo-100/50"
-                  >{{ derivedDisplay(field, evaluateDerivedAgainstItem(field, String(key), item), item) }}</span
-                >
-
-                <span v-else class="block truncate text-slate-600">{{ formatCell(item[key], field.type) }}</span>
+                  <span v-else class="block truncate text-slate-600">{{ formatCell(item[key], field.type) }}</span>
+                </template>
               </td>
 
               <td class="px-5 py-2 text-right whitespace-nowrap align-middle">
@@ -243,201 +257,206 @@
         </header>
 
         <form class="flex-1 overflow-auto px-6 py-5 space-y-4" @submit.prevent="saveEditor">
-          <div v-for="(field, key) in collection.schema.fields" :key="key" class="space-y-1.5">
-            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1" :for="`collections-field-${key}`">
-              {{ field.label }}
-              <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "*" is a universal required-field glyph; treating it as i18n copy would force eight translations of the same symbol. -->
-              <span v-if="field.required" class="text-rose-500 font-bold">*</span>
-            </label>
+          <!-- `template v-for` + inner `v-if` so a `when`-gated field hides
+               live as its gating field changes (Vue 3: v-if can't share an
+               element with v-for). `liveRecord` reflects the in-progress draft. -->
+          <template v-for="(field, key) in collection.schema.fields" :key="key">
+            <div v-if="fieldVisible(field, liveRecord ?? {})" class="space-y-1.5">
+              <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1" :for="`collections-field-${key}`">
+                {{ field.label }}
+                <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "*" is a universal required-field glyph; treating it as i18n copy would force eight translations of the same symbol. -->
+                <span v-if="field.required" class="text-rose-500 font-bold">*</span>
+              </label>
 
-            <!-- Boolean checkbox -->
-            <label v-if="field.type === 'boolean'" class="inline-flex items-center gap-2.5 text-sm text-slate-700 cursor-pointer select-none">
-              <input
-                :id="`collections-field-${key}`"
-                v-model="editing.bool[key]"
-                type="checkbox"
-                class="h-5 w-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 cursor-pointer"
-                :data-testid="`collections-input-${key}`"
-                @change="markBoolTouched(key)"
-              />
-              <span class="text-xs font-semibold" :class="editing.bool[key] ? 'text-indigo-600' : 'text-slate-500'">
-                {{ editing.bool[key] ? t("common.yes") : t("common.no") }}
-              </span>
-            </label>
+              <!-- Boolean checkbox -->
+              <label v-if="field.type === 'boolean'" class="inline-flex items-center gap-2.5 text-sm text-slate-700 cursor-pointer select-none">
+                <input
+                  :id="`collections-field-${key}`"
+                  v-model="editing.bool[key]"
+                  type="checkbox"
+                  class="h-5 w-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 cursor-pointer"
+                  :data-testid="`collections-input-${key}`"
+                  @change="markBoolTouched(key)"
+                />
+                <span class="text-xs font-semibold" :class="editing.bool[key] ? 'text-indigo-600' : 'text-slate-500'">
+                  {{ editing.bool[key] ? t("common.yes") : t("common.no") }}
+                </span>
+              </label>
 
-            <!-- Embed card (read-only) -->
-            <CollectionEmbedView v-else-if="field.type === 'embed' && embedViews[key]" :view="embedViews[key]" :field-key="String(key)" />
+              <!-- Embed card (read-only) -->
+              <CollectionEmbedView v-else-if="field.type === 'embed' && embedViews[key]" :view="embedViews[key]" :field-key="String(key)" />
 
-            <!-- Ref selector -->
-            <select
-              v-else-if="field.type === 'ref' && field.to && refOptions(field.to).length > 0"
-              :id="`collections-field-${key}`"
-              v-model="editing.text[key]"
-              :required="isFieldRequiredInUi(field)"
-              class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs bg-slate-50 hover:bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all cursor-pointer font-medium text-slate-700"
-              :data-testid="`collections-input-${key}`"
-            >
-              <option value="">{{ t("collectionsView.selectPlaceholder") }}</option>
-              <option v-for="opt in refOptions(field.to)" :key="opt.slug" :value="opt.slug">{{ opt.display }}</option>
-            </select>
-
-            <!-- Enum selector -->
-            <select
-              v-else-if="field.type === 'enum' && Array.isArray(field.values) && field.values.length > 0"
-              :id="`collections-field-${key}`"
-              v-model="editing.text[key]"
-              :required="isFieldRequiredInUi(field)"
-              class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs bg-slate-50 hover:bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all cursor-pointer font-medium text-slate-700"
-              :data-testid="`collections-input-${key}`"
-            >
-              <option value="">{{ t("collectionsView.selectPlaceholder") }}</option>
-              <option v-for="value in field.values" :key="value" :value="value">{{ value }}</option>
-            </select>
-
-            <!-- Nested Table editor -->
-            <div
-              v-else-if="field.type === 'table' && field.of"
-              class="border border-slate-200 bg-slate-50/30 rounded-xl p-4 space-y-3"
-              :data-testid="`collections-table-${key}`"
-            >
-              <div v-if="editing.table[key] && editing.table[key].length > 0" class="overflow-hidden border border-slate-200 rounded-lg shadow-sm">
-                <table class="w-full text-xs text-slate-600 bg-white">
-                  <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider">
-                    <tr>
-                      <th v-for="(subField, subKey) in field.of" :key="subKey" class="text-left px-3 py-2 font-bold">{{ subField.label }}</th>
-                      <th class="w-9"></th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-slate-100">
-                    <tr v-for="(row, rowIdx) in editing.table[key]" :key="rowIdx" class="hover:bg-slate-50/50">
-                      <td v-for="(subField, subKey) in field.of" :key="subKey" class="px-2 py-1.5 align-middle">
-                        <input
-                          v-if="subField.type === 'boolean'"
-                          v-model="row.bool[subKey]"
-                          type="checkbox"
-                          class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 cursor-pointer"
-                          @change="markRowBoolTouched(row, String(subKey))"
-                        />
-                        <select
-                          v-else-if="subField.type === 'enum' && Array.isArray(subField.values) && subField.values.length > 0"
-                          v-model="row.text[subKey]"
-                          :required="subField.required"
-                          class="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none cursor-pointer bg-slate-50 font-medium"
-                        >
-                          <option value="">{{ t("collectionsView.selectPlaceholder") }}</option>
-                          <option v-for="value in subField.values" :key="value" :value="value">{{ value }}</option>
-                        </select>
-                        <select
-                          v-else-if="subField.type === 'ref' && subField.to && refOptions(subField.to).length > 0"
-                          v-model="row.text[subKey]"
-                          :required="subField.required"
-                          class="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none cursor-pointer bg-slate-50 font-medium"
-                        >
-                          <option value="">{{ t("collectionsView.selectPlaceholder") }}</option>
-                          <option v-for="opt in refOptions(subField.to)" :key="opt.slug" :value="opt.slug">{{ opt.display }}</option>
-                        </select>
-                        <!-- money subfield -->
-                        <div v-else-if="subField.type === 'money'" class="relative flex items-center">
-                          <span class="absolute left-1.5 text-[10px] text-slate-400 font-bold pr-1 border-r border-slate-200">{{
-                            currencySymbol(resolveCurrency(subField, liveRecord))
-                          }}</span>
-                          <input
-                            v-model="row.text[subKey]"
-                            type="number"
-                            step="0.01"
-                            :required="subField.required"
-                            class="w-full rounded-lg border border-slate-200 pl-6 pr-1.5 py-1 text-xs focus:border-indigo-500 focus:outline-none font-semibold text-slate-800"
-                          />
-                        </div>
-                        <input
-                          v-else
-                          v-model="row.text[subKey]"
-                          :type="inputTypeFor(subField.type)"
-                          :required="subField.required"
-                          class="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none font-medium text-slate-700"
-                        />
-                      </td>
-                      <td class="text-center px-1">
-                        <button
-                          type="button"
-                          class="h-7 w-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                          :aria-label="t('collectionsView.removeRow')"
-                          :data-testid="`collections-table-${key}-remove-${rowIdx}`"
-                          @click="removeTableRow(key, rowIdx)"
-                        >
-                          <span class="material-icons text-base">close</span>
-                        </button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <p v-else class="text-xs text-slate-400 italic">{{ t("collectionsView.noRows") }}</p>
-              <button
-                type="button"
-                class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-bold hover:underline"
-                :data-testid="`collections-table-${key}-add`"
-                @click="addTableRow(key, field.of)"
-              >
-                <span class="material-icons text-xs">add</span>
-                <span>{{ t("collectionsView.addRow") }}</span>
-              </button>
-            </div>
-
-            <!-- Derived formula field -->
-            <div v-else-if="field.type === 'derived'" class="relative flex items-center">
-              <span class="absolute left-3 text-indigo-500 font-bold text-[9px] uppercase select-none tracking-wider">{{
-                t("collectionsView.derivedLabel")
-              }}</span>
-              <input
-                :id="`collections-field-${key}`"
-                :value="derivedDisplay(field, liveDerived?.[key] ?? null, liveRecord)"
-                type="text"
-                disabled
-                class="w-full rounded-xl border border-indigo-100 bg-indigo-50/15 pl-16 pr-3 py-2 text-xs font-bold text-indigo-700 select-none cursor-not-allowed"
-                :data-testid="`collections-input-${key}`"
-              />
-            </div>
-
-            <!-- Money input field -->
-            <div v-else-if="field.type === 'money'" class="relative flex items-center">
-              <div class="absolute left-3 text-slate-400 font-bold text-xs select-none pr-1.5 border-r border-slate-200">
-                {{ currencySymbol(resolveCurrency(field, liveRecord)) }}
-              </div>
-              <input
+              <!-- Ref selector -->
+              <select
+                v-else-if="field.type === 'ref' && field.to && refOptions(field.to).length > 0"
                 :id="`collections-field-${key}`"
                 v-model="editing.text[key]"
-                type="number"
-                step="0.01"
                 :required="isFieldRequiredInUi(field)"
-                class="w-full rounded-xl border border-slate-200 pl-11 pr-3 py-2 text-xs focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-800 transition-all"
+                class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs bg-slate-50 hover:bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all cursor-pointer font-medium text-slate-700"
+                :data-testid="`collections-input-${key}`"
+              >
+                <option value="">{{ t("collectionsView.selectPlaceholder") }}</option>
+                <option v-for="opt in refOptions(field.to)" :key="opt.slug" :value="opt.slug">{{ opt.display }}</option>
+              </select>
+
+              <!-- Enum selector -->
+              <select
+                v-else-if="field.type === 'enum' && Array.isArray(field.values) && field.values.length > 0"
+                :id="`collections-field-${key}`"
+                v-model="editing.text[key]"
+                :required="isFieldRequiredInUi(field)"
+                class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs bg-slate-50 hover:bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all cursor-pointer font-medium text-slate-700"
+                :data-testid="`collections-input-${key}`"
+              >
+                <option value="">{{ t("collectionsView.selectPlaceholder") }}</option>
+                <option v-for="value in field.values" :key="value" :value="value">{{ value }}</option>
+              </select>
+
+              <!-- Nested Table editor -->
+              <div
+                v-else-if="field.type === 'table' && field.of"
+                class="border border-slate-200 bg-slate-50/30 rounded-xl p-4 space-y-3"
+                :data-testid="`collections-table-${key}`"
+              >
+                <div v-if="editing.table[key] && editing.table[key].length > 0" class="overflow-hidden border border-slate-200 rounded-lg shadow-sm">
+                  <table class="w-full text-xs text-slate-600 bg-white">
+                    <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider">
+                      <tr>
+                        <th v-for="(subField, subKey) in field.of" :key="subKey" class="text-left px-3 py-2 font-bold">{{ subField.label }}</th>
+                        <th class="w-9"></th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                      <tr v-for="(row, rowIdx) in editing.table[key]" :key="rowIdx" class="hover:bg-slate-50/50">
+                        <td v-for="(subField, subKey) in field.of" :key="subKey" class="px-2 py-1.5 align-middle">
+                          <input
+                            v-if="subField.type === 'boolean'"
+                            v-model="row.bool[subKey]"
+                            type="checkbox"
+                            class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 cursor-pointer"
+                            @change="markRowBoolTouched(row, String(subKey))"
+                          />
+                          <select
+                            v-else-if="subField.type === 'enum' && Array.isArray(subField.values) && subField.values.length > 0"
+                            v-model="row.text[subKey]"
+                            :required="subField.required"
+                            class="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none cursor-pointer bg-slate-50 font-medium"
+                          >
+                            <option value="">{{ t("collectionsView.selectPlaceholder") }}</option>
+                            <option v-for="value in subField.values" :key="value" :value="value">{{ value }}</option>
+                          </select>
+                          <select
+                            v-else-if="subField.type === 'ref' && subField.to && refOptions(subField.to).length > 0"
+                            v-model="row.text[subKey]"
+                            :required="subField.required"
+                            class="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none cursor-pointer bg-slate-50 font-medium"
+                          >
+                            <option value="">{{ t("collectionsView.selectPlaceholder") }}</option>
+                            <option v-for="opt in refOptions(subField.to)" :key="opt.slug" :value="opt.slug">{{ opt.display }}</option>
+                          </select>
+                          <!-- money subfield -->
+                          <div v-else-if="subField.type === 'money'" class="relative flex items-center">
+                            <span class="absolute left-1.5 text-[10px] text-slate-400 font-bold pr-1 border-r border-slate-200">{{
+                              currencySymbol(resolveCurrency(subField, liveRecord))
+                            }}</span>
+                            <input
+                              v-model="row.text[subKey]"
+                              type="number"
+                              step="0.01"
+                              :required="subField.required"
+                              class="w-full rounded-lg border border-slate-200 pl-6 pr-1.5 py-1 text-xs focus:border-indigo-500 focus:outline-none font-semibold text-slate-800"
+                            />
+                          </div>
+                          <input
+                            v-else
+                            v-model="row.text[subKey]"
+                            :type="inputTypeFor(subField.type)"
+                            :required="subField.required"
+                            class="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none font-medium text-slate-700"
+                          />
+                        </td>
+                        <td class="text-center px-1">
+                          <button
+                            type="button"
+                            class="h-7 w-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                            :aria-label="t('collectionsView.removeRow')"
+                            :data-testid="`collections-table-${key}-remove-${rowIdx}`"
+                            @click="removeTableRow(key, rowIdx)"
+                          >
+                            <span class="material-icons text-base">close</span>
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p v-else class="text-xs text-slate-400 italic">{{ t("collectionsView.noRows") }}</p>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-bold hover:underline"
+                  :data-testid="`collections-table-${key}-add`"
+                  @click="addTableRow(key, field.of)"
+                >
+                  <span class="material-icons text-xs">add</span>
+                  <span>{{ t("collectionsView.addRow") }}</span>
+                </button>
+              </div>
+
+              <!-- Derived formula field -->
+              <div v-else-if="field.type === 'derived'" class="relative flex items-center">
+                <span class="absolute left-3 text-indigo-500 font-bold text-[9px] uppercase select-none tracking-wider">{{
+                  t("collectionsView.derivedLabel")
+                }}</span>
+                <input
+                  :id="`collections-field-${key}`"
+                  :value="derivedDisplay(field, liveDerived?.[key] ?? null, liveRecord)"
+                  type="text"
+                  disabled
+                  class="w-full rounded-xl border border-indigo-100 bg-indigo-50/15 pl-16 pr-3 py-2 text-xs font-bold text-indigo-700 select-none cursor-not-allowed"
+                  :data-testid="`collections-input-${key}`"
+                />
+              </div>
+
+              <!-- Money input field -->
+              <div v-else-if="field.type === 'money'" class="relative flex items-center">
+                <div class="absolute left-3 text-slate-400 font-bold text-xs select-none pr-1.5 border-r border-slate-200">
+                  {{ currencySymbol(resolveCurrency(field, liveRecord)) }}
+                </div>
+                <input
+                  :id="`collections-field-${key}`"
+                  v-model="editing.text[key]"
+                  type="number"
+                  step="0.01"
+                  :required="isFieldRequiredInUi(field)"
+                  class="w-full rounded-xl border border-slate-200 pl-11 pr-3 py-2 text-xs focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-800 transition-all"
+                  :data-testid="`collections-input-${key}`"
+                />
+              </div>
+
+              <!-- Scalar inputs -->
+              <input
+                v-else-if="['string', 'email', 'number', 'date', 'ref', 'image'].includes(field.type)"
+                :id="`collections-field-${key}`"
+                v-model="editing.text[key]"
+                :type="inputTypeFor(field.type)"
+                :required="isFieldRequiredInUi(field)"
+                :disabled="field.primary === true && (editing.mode === 'edit' || isSingleton)"
+                class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-medium text-slate-700 transition-all"
+                :data-testid="`collections-input-${key}`"
+              />
+
+              <!-- Markdown or long text -->
+              <textarea
+                v-else
+                :id="`collections-field-${key}`"
+                v-model="editing.text[key]"
+                :rows="field.type === 'markdown' ? 5 : 3"
+                :required="isFieldRequiredInUi(field)"
+                class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-medium text-slate-700 transition-all"
                 :data-testid="`collections-input-${key}`"
               />
             </div>
-
-            <!-- Scalar inputs -->
-            <input
-              v-else-if="['string', 'email', 'number', 'date', 'ref'].includes(field.type)"
-              :id="`collections-field-${key}`"
-              v-model="editing.text[key]"
-              :type="inputTypeFor(field.type)"
-              :required="isFieldRequiredInUi(field)"
-              :disabled="field.primary === true && (editing.mode === 'edit' || isSingleton)"
-              class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-medium text-slate-700 transition-all"
-              :data-testid="`collections-input-${key}`"
-            />
-
-            <!-- Markdown or long text -->
-            <textarea
-              v-else
-              :id="`collections-field-${key}`"
-              v-model="editing.text[key]"
-              :rows="field.type === 'markdown' ? 5 : 3"
-              :required="isFieldRequiredInUi(field)"
-              class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-medium text-slate-700 transition-all"
-              :data-testid="`collections-input-${key}`"
-            />
-          </div>
+          </template>
           <p v-if="saveError" class="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 p-2.5 rounded-xl">{{ saveError }}</p>
         </form>
 
@@ -531,102 +550,126 @@
           </p>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 bg-white rounded-2xl border border-slate-200/60 p-6 shadow-sm">
-            <div
-              v-for="(field, key) in collection.schema.fields"
-              :key="key"
-              class="flex flex-col gap-1"
-              :class="['table', 'markdown', 'embed'].includes(field.type) ? 'col-span-full' : 'col-span-1'"
-            >
-              <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider select-none">{{ field.label }}</div>
+            <!-- `when`-gated fields are omitted entirely from the detail view
+                 (consistent with the list cell blanking) when the open record
+                 doesn't match. -->
+            <template v-for="(field, key) in collection.schema.fields" :key="key">
+              <div
+                v-if="fieldVisible(field, viewing ?? {})"
+                class="flex flex-col gap-1"
+                :class="['table', 'markdown', 'embed', 'image'].includes(field.type) ? 'col-span-full' : 'col-span-1'"
+              >
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider select-none">{{ field.label }}</div>
 
-              <div class="text-xs font-medium text-slate-700 break-words" :data-testid="`collections-detail-value-${key}`">
-                <!-- Boolean state -->
-                <template v-if="field.type === 'boolean'">
-                  <span
-                    v-if="viewing[key] === true"
-                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/40"
+                <div class="text-xs font-medium text-slate-700 break-words" :data-testid="`collections-detail-value-${key}`">
+                  <!-- Boolean state -->
+                  <template v-if="field.type === 'boolean'">
+                    <span
+                      v-if="viewing[key] === true"
+                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/40"
+                    >
+                      <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                      {{ t("common.yes") }}
+                    </span>
+                    <span
+                      v-else-if="viewing[key] === false"
+                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-400 border border-slate-200/20"
+                    >
+                      {{ t("common.no") }}
+                    </span>
+                    <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "—" for an omitted boolean: distinct from an explicit false. -->
+                    <span v-else class="text-slate-300">—</span>
+                  </template>
+
+                  <!-- Ref details link -->
+                  <router-link
+                    v-else-if="field.type === 'ref' && field.to && typeof viewing[key] === 'string' && viewing[key]"
+                    :to="{ path: `/collections/${field.to}`, query: { selected: String(viewing[key]) } }"
+                    class="text-indigo-600 hover:text-indigo-800 font-bold hover:underline"
+                    :data-testid="`collections-detail-ref-${key}`"
+                    >{{ refDisplay(field.to, String(viewing[key])) }}</router-link
                   >
-                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-                    {{ t("common.yes") }}
-                  </span>
+
+                  <!-- Money format -->
+                  <span v-else-if="field.type === 'money'" class="font-semibold text-slate-900 tabular-nums text-sm">{{
+                    formatMoney(viewing[key], resolveCurrency(field, viewing), locale)
+                  }}</span>
+
+                  <!-- Derived formula badge -->
                   <span
-                    v-else-if="viewing[key] === false"
-                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-400 border border-slate-200/20"
+                    v-else-if="field.type === 'derived'"
+                    class="inline-block truncate tabular-nums font-bold text-indigo-900 bg-indigo-50/50 px-2 py-0.5 rounded border border-indigo-100/50"
+                    >{{ derivedDisplay(field, evaluateDerivedAgainstItem(field, String(key), viewing), viewing) }}</span
                   >
-                    {{ t("common.no") }}
-                  </span>
-                  <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "—" for an omitted boolean: distinct from an explicit false. -->
-                  <span v-else class="text-slate-300">—</span>
-                </template>
 
-                <!-- Ref details link -->
-                <router-link
-                  v-else-if="field.type === 'ref' && field.to && typeof viewing[key] === 'string' && viewing[key]"
-                  :to="{ path: `/collections/${field.to}`, query: { selected: String(viewing[key]) } }"
-                  class="inline-flex items-center gap-0.5 text-indigo-600 hover:text-indigo-800 font-bold hover:underline"
-                  :data-testid="`collections-detail-ref-${key}`"
-                >
-                  <span>{{ refDisplay(field.to, String(viewing[key])) }}</span>
-                  <span class="material-icons text-xs">launch</span>
-                </router-link>
+                  <!-- Sub table (e.g. Line Items in details) -->
+                  <div
+                    v-else-if="field.type === 'table' && field.of && hasTableRows(viewing[key])"
+                    class="border border-slate-200/80 rounded-xl overflow-hidden shadow-sm mt-1"
+                  >
+                    <table class="w-full text-[11px] text-slate-600 bg-white">
+                      <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider">
+                        <tr>
+                          <th v-for="(subField, subKey) in field.of" :key="subKey" class="text-left px-4 py-2 font-bold">{{ subField.label }}</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-slate-100">
+                        <tr v-for="(row, rowIdx) in tableRows(viewing[key])" :key="rowIdx" class="hover:bg-slate-50/50">
+                          <td v-for="(subField, subKey) in field.of" :key="subKey" class="px-4 py-2 align-middle font-medium">
+                            <template v-if="subField.type === 'boolean'">
+                              <span v-if="row[subKey] === true" class="material-icons text-emerald-600 text-base">check_circle</span>
+                              <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "—" empty-value glyph (boolean=false), same as elsewhere. -->
+                              <span v-else class="text-slate-300">—</span>
+                            </template>
+                            <span v-else :class="[subField.type === 'money' ? 'font-bold text-slate-800 tabular-nums' : '']">{{
+                              formatSubCell(subField, row[subKey], viewing)
+                            }}</span>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
 
-                <!-- Money format -->
-                <span v-else-if="field.type === 'money'" class="font-semibold text-slate-900 tabular-nums text-sm">{{
-                  formatMoney(viewing[key], resolveCurrency(field, viewing), locale)
-                }}</span>
+                  <span v-else-if="field.type === 'table'" class="text-slate-400 italic">{{ t("collectionsView.noRows") }}</span>
 
-                <!-- Derived formula badge -->
-                <span
-                  v-else-if="field.type === 'derived'"
-                  class="inline-block truncate tabular-nums font-bold text-indigo-900 bg-indigo-50/50 px-2 py-0.5 rounded border border-indigo-100/50"
-                  >{{ derivedDisplay(field, evaluateDerivedAgainstItem(field, String(key), viewing), viewing) }}</span
-                >
+                  <!-- Markdown blocks with scroll area -->
+                  <div
+                    v-else-if="field.type === 'markdown'"
+                    class="bg-slate-50 rounded-xl p-4 border border-slate-200/60 text-slate-600 text-xs whitespace-pre-wrap leading-relaxed max-h-[30vh] overflow-y-auto"
+                  >
+                    {{ detailText(viewing[key]) }}
+                  </div>
 
-                <!-- Sub table (e.g. Line Items in details) -->
-                <div
-                  v-else-if="field.type === 'table' && field.of && hasTableRows(viewing[key])"
-                  class="border border-slate-200/80 rounded-xl overflow-hidden shadow-sm mt-1"
-                >
-                  <table class="w-full text-[11px] text-slate-600 bg-white">
-                    <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider">
-                      <tr>
-                        <th v-for="(subField, subKey) in field.of" :key="subKey" class="text-left px-4 py-2 font-bold">{{ subField.label }}</th>
-                      </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                      <tr v-for="(row, rowIdx) in tableRows(viewing[key])" :key="rowIdx" class="hover:bg-slate-50/50">
-                        <td v-for="(subField, subKey) in field.of" :key="subKey" class="px-4 py-2 align-middle font-medium">
-                          <template v-if="subField.type === 'boolean'">
-                            <span v-if="row[subKey] === true" class="material-icons text-emerald-600 text-base">check_circle</span>
-                            <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "—" empty-value glyph (boolean=false), same as elsewhere. -->
-                            <span v-else class="text-slate-300">—</span>
-                          </template>
-                          <span v-else :class="[subField.type === 'money' ? 'font-bold text-slate-800 tabular-nums' : '']">{{
-                            formatSubCell(subField, row[subKey], viewing)
-                          }}</span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                  <!-- Embed view -->
+                  <CollectionEmbedView v-else-if="field.type === 'embed' && embedViews[key]" :view="embedViews[key]" :field-key="String(key)" />
+
+                  <!-- Image (workspace-relative path → <img> via auth-exempt /api/files/raw) -->
+                  <img
+                    v-else-if="field.type === 'image' && typeof viewing[key] === 'string' && viewing[key]"
+                    :src="resolveImageSrc(String(viewing[key]))"
+                    :alt="field.label"
+                    class="max-h-64 max-w-full object-contain rounded-lg border border-slate-200 bg-slate-50"
+                    :data-testid="`collections-detail-image-${key}`"
+                  />
+
+                  <!-- URL string → external link (new tab). Value-based, so any
+                     field whose value is a http(s) URL renders as a link,
+                     regardless of the declared `field.type`. -->
+                  <a
+                    v-else-if="isExternalUrl(viewing[key])"
+                    :href="String(viewing[key])"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-blue-600 hover:text-blue-800 font-semibold hover:underline break-all"
+                    :data-testid="`collections-detail-url-${key}`"
+                    >{{ String(viewing[key]) }}</a
+                  >
+
+                  <!-- Fallback text styling -->
+                  <span v-else class="text-slate-800 font-semibold">{{ formatCell(viewing[key], field.type) }}</span>
                 </div>
-
-                <span v-else-if="field.type === 'table'" class="text-slate-400 italic">{{ t("collectionsView.noRows") }}</span>
-
-                <!-- Markdown blocks with scroll area -->
-                <div
-                  v-else-if="field.type === 'markdown'"
-                  class="bg-slate-50 rounded-xl p-4 border border-slate-200/60 text-slate-600 text-xs whitespace-pre-wrap leading-relaxed max-h-[30vh] overflow-y-auto"
-                >
-                  {{ detailText(viewing[key]) }}
-                </div>
-
-                <!-- Embed view -->
-                <CollectionEmbedView v-else-if="field.type === 'embed' && embedViews[key]" :view="embedViews[key]" :field-key="String(key)" />
-
-                <!-- Fallback text styling -->
-                <span v-else class="text-slate-800 font-semibold">{{ formatCell(viewing[key], field.type) }}</span>
               </div>
-            </div>
+            </template>
           </div>
         </div>
       </div>
@@ -649,9 +692,10 @@ import type { EmbedRow, EmbedView } from "./collectionEmbed";
 import { useConfirm } from "../composables/useConfirm";
 import { useAppApi } from "../composables/useAppApi";
 import { evaluateDerived, type FormulaContext } from "../utils/collections/derivedFormula";
-import { actionVisible } from "../utils/collections/actionVisible";
+import { actionVisible, fieldVisible } from "../utils/collections/actionVisible";
+import { resolveImageSrc } from "../utils/image/resolve";
 
-type FieldType = "string" | "text" | "email" | "number" | "date" | "boolean" | "markdown" | "ref" | "money" | "enum" | "table" | "derived" | "embed";
+type FieldType = "string" | "text" | "email" | "number" | "date" | "boolean" | "markdown" | "ref" | "money" | "enum" | "table" | "derived" | "embed" | "image";
 
 interface FieldSpec {
   type: FieldType;
@@ -688,6 +732,11 @@ interface FieldSpec {
   /** When type === "derived": render the computed value as this
    *  field type (e.g. "money"). Defaults to "number". */
   display?: FieldType;
+  /** Optional visibility predicate: render this field only when
+   *  `String(record[when.field])` is one of `when.in` (e.g. hide a
+   *  rating until `visited` is `true`). Presentational only — a
+   *  hidden field's stored value is preserved. See `fieldVisible`. */
+  when?: { field: string; in: string[] };
 }
 
 /** Per-target-collection cache: maps an item's primary-key slug to
@@ -1124,8 +1173,12 @@ const embedViews = computed<Record<string, EmbedView>>(() => {
  *  list table only (a whole embedded record doesn't fit a table cell,
  *  and it'd be identical in every row). The detail modal and the edit
  *  form iterate the full `schema.fields` so embeds render there too. */
-const nonEmbedFields = computed<[string, FieldSpec][]>(() =>
-  collection.value ? Object.entries(collection.value.schema.fields).filter(([, field]) => field.type !== "embed") : [],
+// Fields shown as columns in the list table. Excludes `embed`
+// (display-only fixed record, no per-record value) and `image` — a
+// per-row <img> fetches one file each, too expensive for a collection
+// with many records, and the image is shown in the detail view anyway.
+const listColumnFields = computed<[string, FieldSpec][]>(() =>
+  collection.value ? Object.entries(collection.value.schema.fields).filter(([, field]) => field.type !== "embed" && field.type !== "image") : [],
 );
 
 /** True when the current collection declares `schema.singleton` —
@@ -1284,6 +1337,17 @@ function formatCell(value: unknown, type: FieldType): string {
   }
   if (typeof value === "string" || typeof value === "number") return String(value);
   return JSON.stringify(value);
+}
+
+/** True iff `value` is a string starting with `http://` or `https://`
+ *  — used by the detail view to auto-render URLs as external links
+ *  (new tab). Schema-agnostic on purpose: any field whose value looks
+ *  like a URL gets the link affordance, not just fields the schema
+ *  flagged as URL-bearing. Restricted to the http(s) schemes so
+ *  `javascript:` / `data:` / `mailto:` strings can't become clickable
+ *  through this path. */
+function isExternalUrl(value: unknown): boolean {
+  return typeof value === "string" && /^https?:\/\//i.test(value);
 }
 
 /** Full (untruncated) text rendering for open mode. `formatCell`
@@ -1552,6 +1616,11 @@ function firstMissingTableSubField(field: FieldSpec, rows: TableRowDraft[] | und
  *  function's cognitive complexity under the lint cap.
  *
  *  Skip rules:
+ *  - fields hidden by a `when` gate (no visible input to fill, so a
+ *    required gated field must not block save — otherwise a schema
+ *    like `rating: { required, when: { field: "visited", in: ["true"] }}`
+ *    is unsavable while `visited` is false; Codex P2 on #1555). Checked
+ *    against the live draft `record` so it tracks the in-progress form.
  *  - primary key in create mode (server auto-generates an id when
  *    blank, so blocking here would deny the documented
  *    "blank → server-generated id" flow even for schemas that mark
@@ -1564,7 +1633,10 @@ function firstMissingTableSubField(field: FieldSpec, rows: TableRowDraft[] | und
  *  `required` flags — even if the table itself is optional. The
  *  table block therefore runs OUTSIDE the `if (!field.required)`
  *  short-circuit. */
-function validateOneField(key: string, field: FieldSpec, draft: EditState): string | null {
+function validateOneField(key: string, field: FieldSpec, draft: EditState, record: CollectionItem): string | null {
+  // A `when`-hidden field has no input the user can fill — never treat
+  // it as missing (covers the table branch below too, so it sits first).
+  if (!fieldVisible(field, record)) return null;
   if (field.type === "table" && field.of) {
     const rows = draft.table[key];
     if (field.required && (!rows || rows.length === 0)) return field.label;
@@ -1578,8 +1650,11 @@ function validateOneField(key: string, field: FieldSpec, draft: EditState): stri
 }
 
 function firstMissingRequiredField(draft: EditState, schema: CollectionSchema): string | null {
+  // Resolve `when` gates against the same draft record the form renders
+  // from, so visibility-skip matches exactly what the user sees.
+  const record = draftToRecord(draft, schema);
   for (const [key, field] of Object.entries(schema.fields)) {
-    const missing = validateOneField(key, field, draft);
+    const missing = validateOneField(key, field, draft, record);
     if (missing) return missing;
   }
   return null;
