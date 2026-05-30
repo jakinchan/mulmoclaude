@@ -13,6 +13,7 @@
         <input
           ref="textInput"
           v-model="text"
+          data-testid="todo-add-dialog-text"
           type="text"
           :placeholder="t('todoDialogs.textPlaceholder')"
           class="mt-1 w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-400"
@@ -67,7 +68,9 @@
         <button class="px-3 py-1.5 text-sm rounded border border-gray-300 text-gray-600 hover:bg-gray-50" @click="emit('cancel')">
           {{ t("common.cancel") }}
         </button>
-        <button class="px-3 py-1.5 text-sm rounded bg-blue-500 text-white hover:bg-blue-600" @click="submit">{{ t("common.add") }}</button>
+        <button data-testid="todo-add-dialog-submit" class="px-3 py-1.5 text-sm rounded bg-blue-500 text-white hover:bg-blue-600" @click="submit">
+          {{ t("common.add") }}
+        </button>
       </div>
     </div>
   </div>

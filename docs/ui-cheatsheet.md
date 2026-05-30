@@ -358,6 +358,12 @@ Clicking a list row marks it read (badge decrements). The "Mark all read" button
 │ └─────────────┘ └───────────┘ └─────────────┘ └─────────────┘      │
 │                                                                    │
 │ Drag cards across columns to change state.                         │
+│                                                                    │
+│ Add dialog (TodoAddDialog):                                        │
+│  [todo-add-dialog-text]   [todo-add-dialog-submit]                 │
+│                                                                    │
+│ Edit dialog (TodoEditDialog) — opens on card click:                │
+│  [todo-edit-dialog-delete]                                         │
 └────────────────────────────────────────────────────────────────────┘
 ```
 

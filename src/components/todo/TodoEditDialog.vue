@@ -9,7 +9,12 @@
     >
       <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100">
         <h3 id="todo-edit-dialog-title" class="text-base font-semibold text-gray-800">{{ t("todoDialogs.editTitle") }}</h3>
-        <button class="text-gray-400 hover:text-red-500 text-xs px-2 py-0.5" :title="t('todoDialogs.deleteTitle')" @click="emit('delete', item.id)">
+        <button
+          data-testid="todo-edit-dialog-delete"
+          class="text-gray-400 hover:text-red-500 text-xs px-2 py-0.5"
+          :title="t('todoDialogs.deleteTitle')"
+          @click="emit('delete', item.id)"
+        >
           {{ t("todoDialogs.deleteButton") }}
         </button>
       </div>

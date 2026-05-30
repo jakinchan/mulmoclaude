@@ -55,6 +55,7 @@ jobs:
           - media                    # L-01 only (L-02..L-05 need real LLM / external tools)
           - error-banner             # L-ERR: forced error event → [Error] card
           - happy-tour               # L-HAPPY-TOUR: capability sweep (chat turn skips on E2E_LIVE_NO_LLM=1, the other 15 steps run)
+          - journey-todo             # L-JOURNEY-TODO: pure UI + REST + fs, no LLM call
 
     steps:
       - uses: actions/checkout@v6
