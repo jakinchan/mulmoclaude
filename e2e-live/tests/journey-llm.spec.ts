@@ -4,7 +4,7 @@ import { type Locator, type Page, type Response, expect, test } from "@playwrigh
 
 import { ONE_MINUTE_MS, ONE_SECOND_MS } from "../../server/utils/time.ts";
 import { isRecord } from "../../server/utils/types.ts";
-import { deleteSession, placeWorkspaceFile, readWorkspaceFile, sendChatMessage, setupRoleSession, waitForAssistantTurn } from "../fixtures/live-chat.ts";
+import { deleteSession, readWorkspaceFile, sendChatMessage, setupRoleSession, waitForAssistantTurn } from "../fixtures/live-chat.ts";
 
 // L-JOURNEY-* — "the feature actually works end-to-end via the real
 // LLM" net (plans/feat-e2e-live.md §「最優先方針 (2026-05-30)」). Two
@@ -59,14 +59,11 @@ const TODO_DISPATCH_FLUSH_TIMEOUT_MS = 10 * ONE_SECOND_MS;
 const RUNTIME_DISPATCH_URL_FRAGMENT = "/api/plugins/runtime/";
 const TODO_PLUGIN_SLUG_FRAGMENT = "todo-plugin";
 
-// Workspace DB files (mirrors plugin-dispatch.spec.ts). Used both by
-// the accounting delete-confirmation (config.json is the source of
-// truth the inline View hydrates from — it collapses once a newer
-// turn lands) AND by the finally-block best-effort cleanup that prunes
-// a leaked marker row if a test threw before its delete leg.
+// Accounting book DB (mirrors plugin-dispatch.spec.ts). The inline
+// chat View collapses once a newer turn lands, so the delete leg is
+// confirmed against this source-of-truth file (read-only) rather than
+// the View.
 const ACCOUNTING_CONFIG_REL = "data/accounting/config.json";
-const CALENDAR_DB_REL = "data/scheduler/items.json";
-const TODO_DB_REL = "data/plugins/%40mulmoclaude%2Ftodo-plugin/todos.json";
 
 // Per-test unique marker (epoch ms + 6 hex). Mirrors
 // plugin-dispatch.spec.ts so a stray artifact left by a failed run is
@@ -76,6 +73,20 @@ function makeMarker(testId: string): string {
   return `${testId}-${Date.now()}-${randomUUID().slice(0, 6)}`;
 }
 
+// Cleanup convention (matches plugin-dispatch.spec.ts's runDispatchCase):
+// each test's lifecycle DELETES its row in the `try` body via the
+// server (UI gesture / LLM tool), so the happy path leaves nothing
+// behind. `finally` only deletes the chat sessions. On an EARLY
+// failure (before the delete leg) the nonce-stamped row is left in the
+// shared workspace DB — deliberately. The alternative, an fs
+// read-modify-write prune in `finally`, is NOT atomic and can clobber
+// a concurrent spec's write to the same DB (lost update — Codex iter-2
+// must-fix), which is strictly worse than an identifiable leak: the
+// marker is unique per test, so it never confuses a parallel run
+// (every spec filters by its own marker) and is trivially greppable
+// for manual purge. A write-safe prune would have to round-trip each
+// plugin's own delete endpoint — disproportionate plumbing for
+// best-effort teardown, and a divergence from the suite convention.
 test.describe("L-JOURNEY-* (real LLM add → View reflection → lifecycle)", () => {
   test.skip(process.env.E2E_LIVE_NO_LLM === "1", "fake-echo backend cannot route MCP tool calls — no add would land");
 
@@ -97,7 +108,6 @@ test.describe("L-JOURNEY-* (real LLM add → View reflection → lifecycle)", ()
         timeout: VIEW_REFLECT_TIMEOUT_MS,
       });
     } finally {
-      await bestEffortPruneMarkerRow(CALENDAR_DB_REL, undefined, "title", marker);
       for (const sid of sessions) await deleteSession(page, sid);
     }
   });
@@ -119,7 +129,6 @@ test.describe("L-JOURNEY-* (real LLM add → View reflection → lifecycle)", ()
         timeout: VIEW_REFLECT_TIMEOUT_MS,
       });
     } finally {
-      await bestEffortPruneMarkerRow(TODO_DB_REL, undefined, "text", marker);
       for (const sid of sessions) await deleteSession(page, sid);
     }
   });
@@ -157,7 +166,6 @@ test.describe("L-JOURNEY-* (real LLM add → View reflection → lifecycle)", ()
       await waitForAssistantTurn(page);
       await assertBookDeletedFromDb(marker);
     } finally {
-      await bestEffortPruneMarkerRow(ACCOUNTING_CONFIG_REL, "books", "name", marker);
       for (const sid of sessions) await deleteSession(page, sid);
     }
   });
@@ -314,42 +322,4 @@ function parseBookNamesStrict(raw: string): string[] {
     throw new Error(`${ACCOUNTING_CONFIG_REL} did not have the expected { books: [...] } shape after deleteBook`);
   }
   return parsed.books.filter(isRecord).map((book) => (typeof book.name === "string" ? book.name : ""));
-}
-
-// ---------------------------------------------------------------------------
-// shared cleanup
-// ---------------------------------------------------------------------------
-
-// Best-effort teardown for the row a test created, run from `finally`
-// so an early failure (before the in-`try` delete leg) cannot leak a
-// marker row into a shared workspace DB (Codex iter-1 must-fix). It is
-// existence-GATED: it reads first and only writes when the marker row
-// is still present, so the happy path (lifecycle delete already
-// removed it) performs zero writes and cannot clobber a concurrent
-// spec's write — the only write happens on the rare early-failure
-// path, scoped to removing this test's own nonce-stamped row. Never
-// throws: a cleanup hiccup must not turn a passing test red.
-async function bestEffortPruneMarkerRow(workspaceRel: string, arrayPath: string | undefined, matchField: string, marker: string): Promise<void> {
-  try {
-    const raw = await readWorkspaceFile(workspaceRel);
-    if (raw === null) return;
-    const parsed: unknown = JSON.parse(raw);
-    const rows = extractRows(parsed, arrayPath);
-    if (rows === null || !rows.some((row) => isRecord(row) && row[matchField] === marker)) return;
-    const kept = rows.filter((row) => !(isRecord(row) && row[matchField] === marker));
-    await placeWorkspaceFile(workspaceRel, JSON.stringify(reassembleRows(parsed, arrayPath, kept), null, 2));
-  } catch (err) {
-    console.warn(`bestEffortPruneMarkerRow: cleanup skipped for ${workspaceRel}`, err);
-  }
-}
-
-function extractRows(parsed: unknown, arrayPath: string | undefined): unknown[] | null {
-  if (arrayPath === undefined) return Array.isArray(parsed) ? parsed : null;
-  if (!isRecord(parsed)) return null;
-  return Array.isArray(parsed[arrayPath]) ? parsed[arrayPath] : null;
-}
-
-function reassembleRows(parsed: unknown, arrayPath: string | undefined, kept: unknown[]): unknown {
-  if (arrayPath === undefined) return kept;
-  return isRecord(parsed) ? { ...parsed, [arrayPath]: kept } : { [arrayPath]: kept };
 }
