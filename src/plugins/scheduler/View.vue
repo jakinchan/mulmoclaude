@@ -82,6 +82,7 @@
           <li
             v-for="item in items"
             :key="item.id"
+            data-testid="scheduler-event-item"
             class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer group"
             :class="selectedId === item.id ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'"
             @click="selectItem(item)"
