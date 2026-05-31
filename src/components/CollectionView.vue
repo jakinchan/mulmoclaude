@@ -922,10 +922,16 @@ interface EditState {
  *  `presentCollection` chat card mounts this component and drives both
  *  from the tool result). In standalone route mode (the
  *  `/collections/:slug` page) both are undefined and the component reads
- *  `route.params.slug` / `route.query.selected` as before. */
+ *  `route.params.slug` / `route.query.selected` as before.
+ *
+ *  `sendTextMessage` is forwarded ONLY by the chat card — its presence
+ *  is our "rendered inside a chat" signal. When set, chat-triggering
+ *  actions send into the current session instead of spawning a new
+ *  chat (see `runAction` / `submitChat`). */
 const props = defineProps<{
   slug?: string;
   selected?: string;
+  sendTextMessage?: (text?: string) => void;
 }>();
 
 const emit = defineEmits<{
@@ -1116,6 +1122,14 @@ async function runAction(action: CollectionAction): Promise<void> {
     actionError.value = result.error;
     return;
   }
+  // In a chat card we have a channel into the current session — send
+  // the seed prompt there rather than spawning a new chat. Standalone
+  // route mode has no such channel, so start a fresh chat in the
+  // action's role (which carries the tools the action needs).
+  if (props.sendTextMessage) {
+    props.sendTextMessage(result.data.prompt);
+    return;
+  }
   appApi.startNewChat(result.data.prompt, result.data.role);
 }
 
@@ -1138,7 +1152,13 @@ function submitChat(): void {
   const message = chatMessage.value.trim();
   if (!message) return;
   closeChat();
-  appApi.startNewChat(`/${collection.value.slug} ${message}`, BUILTIN_ROLE_IDS.general);
+  const text = `/${collection.value.slug} ${message}`;
+  // Chat card → send into the current session; standalone → new chat.
+  if (props.sendTextMessage) {
+    props.sendTextMessage(text);
+    return;
+  }
+  appApi.startNewChat(text, BUILTIN_ROLE_IDS.general);
 }
 
 async function loadCollection(slug: string): Promise<void> {

@@ -1,6 +1,6 @@
 <template>
   <div class="w-full h-full" data-testid="present-collection">
-    <CollectionView v-if="slug" :slug="slug" :selected="selected" @select="onSelect" />
+    <CollectionView v-if="slug" :slug="slug" :selected="selected" :send-text-message="sendTextMessage" @select="onSelect" />
   </div>
 </template>
 
@@ -20,6 +20,10 @@ interface PresentCollectionViewState {
 
 const props = defineProps<{
   selectedResult: ToolResult | null;
+  /** Host-provided channel into the current chat session. Forwarded to
+   *  CollectionView so its chat actions send a message here instead of
+   *  spawning a new chat (the card is always rendered inside a chat). */
+  sendTextMessage?: (text?: string) => void;
 }>();
 
 const emit = defineEmits<{
