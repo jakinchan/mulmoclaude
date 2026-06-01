@@ -24,9 +24,9 @@
     "@mulmobridge/client": "^0.1.4",
     "@mulmobridge/protocol": "^0.1.4",
     "dotenv": "^17.0.0",
-    "imapflow": "^1.3.5",
-    "mailparser": "^3.9.9",
-    "nodemailer": "^8.0.10"
+    "imapflow": "^1.3.3",
+    "mailparser": "^3.7.2",
+    "nodemailer": "^8.0.7"
   },
   "devDependencies": {
     "@types/mailparser": "^3.4.5",
