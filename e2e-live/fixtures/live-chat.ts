@@ -1533,6 +1533,36 @@ export async function fetchAuthedJsonViaPage(page: Page, url: string): Promise<A
   }, url);
 }
 
+/**
+ * Authed JSON POST counterpart to {@link fetchAuthedJsonViaPage}. Runs
+ * inside the page context so it reuses the SPA's bearer token (the
+ * `<meta name="mulmoclaude-auth">` tag) and same-origin base URL — for
+ * specs that drive a host mutation endpoint the UI itself proxies
+ * (e.g. POST /api/roles/manage) as deterministic setup / teardown
+ * instead of through a brittle multi-field form.
+ */
+export async function postAuthedJsonViaPage(page: Page, url: string, body: unknown): Promise<AuthedJsonProbe> {
+  return await page.evaluate(
+    async ({ target, payload }): Promise<AuthedJsonProbe> => {
+      const meta = document.querySelector('meta[name="mulmoclaude-auth"]');
+      const token = meta?.getAttribute("content") ?? "";
+      try {
+        const res = await fetch(target, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) return { ok: false, reason: `POST ${target} returned HTTP ${res.status} ${res.statusText}` };
+        const decoded = (await res.json()) as unknown;
+        return { ok: true, body: decoded };
+      } catch (err) {
+        return { ok: false, reason: `POST ${target} threw: ${err instanceof Error ? err.message : String(err)}` };
+      }
+    },
+    { target: url, payload: body },
+  );
+}
+
 // ── Docker sandbox state probes ─────────────────────────────────────
 
 /**
