@@ -342,6 +342,12 @@ const enMessages = {
       biannual: "Biannual",
       annual: "Annual",
     },
+    seedPrompts: {
+      setup:
+        "I'd like to set up a new recurring obligation in Encore. Please walk me through what to track (kind, cadence, targets, fields), then compose the DSL and call defineEncore when ready.",
+      obligation:
+        "Let's talk about my \"{displayName}\" obligation (obligationId: {obligationId}). Please query its current state first, then ask me what I'd like to do.",
+    },
   },
   fileContentHeader: {
     showRendered: "Show rendered Markdown",

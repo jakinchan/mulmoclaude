@@ -323,6 +323,12 @@ const frMessages = {
       biannual: "Semestrielle",
       annual: "Annuelle",
     },
+    seedPrompts: {
+      setup:
+        "Je souhaite configurer une nouvelle obligation récurrente dans Encore. Guidez-moi sur ce qu'il faut suivre (type, périodicité, cibles, champs), puis composez le DSL et appelez defineEncore une fois prêt.",
+      obligation:
+        'Je voudrais parler de mon obligation "{displayName}" (obligationId: {obligationId}). Interrogez d\'abord son état actuel, puis demandez-moi ce que je voudrais faire.',
+    },
   },
   fileContentHeader: {
     showRendered: "Afficher le Markdown rendu",

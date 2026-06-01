@@ -329,6 +329,12 @@ const esMessages = {
       biannual: "Semestral",
       annual: "Anual",
     },
+    seedPrompts: {
+      setup:
+        "Quiero configurar una nueva obligación recurrente en Encore. Guíame sobre qué seguir (tipo, periodicidad, objetivos, campos) y luego redacta el DSL y llama a defineEncore cuando esté listo.",
+      obligation:
+        'Quiero hablar sobre mi obligación "{displayName}" (obligationId: {obligationId}). Primero consulta su estado actual y luego pregúntame qué me gustaría hacer.',
+    },
   },
   fileContentHeader: {
     showRendered: "Mostrar Markdown renderizado",

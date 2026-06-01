@@ -327,6 +327,12 @@ const koMessages = {
       biannual: "반기",
       annual: "매년",
     },
+    seedPrompts: {
+      setup:
+        "Encore에서 새로운 정기 의무를 설정하고 싶습니다. 무엇을 추적할지(종류, 주기, 대상, 항목)를 차근차근 안내해 주시고, 준비되면 DSL을 작성한 뒤 defineEncore를 호출해 주세요.",
+      obligation:
+        '제 "{displayName}" 의무(obligationId: {obligationId})에 대해 이야기하고 싶습니다. 먼저 현재 상태를 조회한 다음, 제가 무엇을 하고 싶은지 물어봐 주세요.',
+    },
   },
   fileContentHeader: {
     showRendered: "렌더링된 Markdown 표시",

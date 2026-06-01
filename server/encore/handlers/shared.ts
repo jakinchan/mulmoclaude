@@ -17,6 +17,7 @@ import { readTextOrNull, writeText } from "../../utils/files/encore-io.js";
 import { WORKSPACE_DIRS } from "../../workspace/paths.js";
 import { reconcileCycleNotifications } from "../reconcile.js";
 import { log } from "../../system/logger/index.js";
+import { messages, isSupportedLocale } from "../../../src/lang/index.js";
 
 // ── error types + envelope ────────────────────────────────────────
 
@@ -51,6 +52,25 @@ export function formatZodError(err: z.ZodError): string {
   const [first] = err.issues;
   const pathStr = first.path.length > 0 ? first.path.map((segment) => String(segment)).join(".") : "(root)";
   return `DSL validation failed at ${pathStr}: ${first.message}. Read config/helps/encore-dsl.md for the full grammar.`;
+}
+
+// ── seed prompt localization ──────────────────────────────────────
+
+/** Fill `{name}` placeholders from `params`, leaving any unknown ones
+ *  (`{foo}` with no matching key) intact. */
+function interpolate(template: string, params: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) => params[key] ?? match);
+}
+
+/** Resolve a localized Encore seed prompt server-side from the shared
+ *  `src/lang` dictionaries. The dashboard sends only the user's `locale`
+ *  (the prompt text is owned here, not echoed by the client); an
+ *  unsupported or omitted locale falls back to English. The dynamic
+ *  pieces (obligation displayName / id) are interpolated from
+ *  server-trusted data, not the client. (#1545) */
+export function localizedSeedPrompt(locale: string | undefined, key: "setup" | "obligation", params: Record<string, string> = {}): string {
+  const dict = locale && isSupportedLocale(locale) ? messages[locale] : messages.en;
+  return interpolate(dict.encoreDashboard.seedPrompts[key], params);
 }
 
 /** Accept `definition` as either an object literal OR a JSON-encoded

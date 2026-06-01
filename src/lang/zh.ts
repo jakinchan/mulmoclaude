@@ -319,6 +319,10 @@ const zhMessages = {
       biannual: "每半年",
       annual: "每年",
     },
+    seedPrompts: {
+      setup: "我想在 Encore 中设置一个新的周期性事项。请引导我确定要追踪的内容（类型、周期、目标、字段），准备好后再编写 DSL 并调用 defineEncore。",
+      obligation: "我想讨论我的「{displayName}」事项（obligationId: {obligationId}）。请先查询它的当前状态，然后问我想做什么。",
+    },
   },
   fileContentHeader: {
     showRendered: "显示渲染后的 Markdown",

@@ -322,6 +322,12 @@ const ptBRMessages = {
       biannual: "Semestral",
       annual: "Anual",
     },
+    seedPrompts: {
+      setup:
+        "Quero configurar uma nova obrigação recorrente no Encore. Oriente-me sobre o que acompanhar (tipo, periodicidade, alvos, campos) e depois componha o DSL e chame defineEncore quando estiver pronto.",
+      obligation:
+        'Quero conversar sobre a minha obrigação "{displayName}" (obligationId: {obligationId}). Primeiro consulte o estado atual dela e depois pergunte o que eu gostaria de fazer.',
+    },
   },
   fileContentHeader: {
     showRendered: "Mostrar Markdown renderizado",

@@ -325,6 +325,12 @@ const jaMessages = {
       biannual: "半年ごと",
       annual: "毎年",
     },
+    seedPrompts: {
+      setup:
+        "Encore で繰り返し発生する新しい義務を設定したいです。何を追跡するか（種類・周期・対象・項目）を順番に教えてください。準備ができたら DSL を組み立てて defineEncore を呼んでください。",
+      obligation:
+        "「{displayName}」という義務（obligationId: {obligationId}）について相談したいです。まず現在の状態を確認してから、私が何をしたいか聞いてください。",
+    },
   },
   fileContentHeader: {
     showRendered: "レンダリング表示",

@@ -326,6 +326,12 @@ const deMessages = {
       biannual: "Halbjährlich",
       annual: "Jährlich",
     },
+    seedPrompts: {
+      setup:
+        "Ich möchte in Encore eine neue wiederkehrende Verpflichtung einrichten. Führe mich durch, was verfolgt werden soll (Art, Rhythmus, Ziele, Felder), und erstelle dann das DSL und rufe defineEncore auf, wenn es so weit ist.",
+      obligation:
+        'Ich möchte über meine Verpflichtung "{displayName}" (obligationId: {obligationId}) sprechen. Frage zuerst ihren aktuellen Status ab und frage mich dann, was ich tun möchte.',
+    },
   },
   fileContentHeader: {
     showRendered: "Gerendertes Markdown anzeigen",
