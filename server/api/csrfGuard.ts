@@ -12,9 +12,31 @@
 // (or an operator-allowlisted Origin — see `MULMOCLAUDE_TRUSTED_ORIGINS`
 // in server/system/env.ts and plans/done/feat-csrf-trusted-origins.md).
 // Requests with NO Origin header are allowed — that's how
-// non-browser callers (MCP tools, curl, CLI scripts) look, and
-// they're trustable only because the server binds to 127.0.0.1
-// (#148) so remote traffic can't reach us at all.
+// non-browser callers (MCP tools, curl, CLI scripts) look — but only
+// when the connection itself arrived on the loopback interface.
+//
+// That last clause used to be an assumption rather than a check: the
+// code allowed every Origin-less request and the comment explained
+// that this was safe "because the server binds to 127.0.0.1 (#148)".
+// The binding is real, but nothing here verified it. Checking
+// `req.socket.remoteAddress` makes the premise something the code
+// enforces rather than something a comment claims — so a future change
+// that binds elsewhere, or puts this process behind a listener we did
+// not intend, fails closed instead of silently trusting.
+//
+// What this does NOT do, stated plainly so nobody reads more into it:
+// it cannot see past a proxy. A request forwarded by something on this
+// machine arrives from THAT process's loopback socket, so a remote
+// client relayed through a local proxy still looks local here, and
+// always will. Nothing at this layer can tell the difference — the only
+// honest source of the original peer is the proxy itself, and believing
+// a forwarded-for header would just move the trust onto an
+// attacker-settable string.
+//
+// So the proxy boundary is where that case has to be handled, and is
+// where it IS handled: the dev server refuses non-loopback callers on
+// the paths it forwards (see `vite.config.ts`). This check is the
+// backend's own floor, not a second opinion on the proxy's job.
 //
 // Full design + threat model: plans/done/fix-server-csrf-origin-check.md
 
@@ -37,6 +59,21 @@ const LOCALHOST_HOSTNAMES: ReadonlySet<string> = new Set([
   "[::1]",
   "::1",
 ]);
+
+// True for an IPv4/IPv6 loopback peer. Node reports an IPv4 peer on a
+// dual-stack listener as `::ffff:127.0.0.1`, so the mapped form is
+// unwrapped before comparing — matching only the bare literals would
+// classify a genuine local caller as remote and break every MCP / curl
+// / CLI client. The whole `127.0.0.0/8` block counts, not just
+// `127.0.0.1`: the loopback interface answers to all of it.
+//
+// An absent address (a socket already torn down, or a synthetic `req`
+// in a unit test) is NOT loopback — fail closed.
+export function isLoopbackPeer(address: string | undefined): boolean {
+  if (!address) return false;
+  const bare = address.startsWith("::ffff:") ? address.slice("::ffff:".length) : address;
+  return bare === "::1" || bare === "127.0.0.1" || bare.startsWith("127.");
+}
 
 // Browsers send `Origin: null` for opaque contexts — sandboxed
 // iframes, file:// pages, data: URLs, some cross-origin redirects.
@@ -137,36 +174,44 @@ function rejectCrossOrigin(req: Request, res: Response, offendingOrigin: unknown
   forbidden(res, "Forbidden: cross-origin request rejected");
 }
 
+/** What the guard decided, and (when refusing) the value to log.
+ *
+ *  Pure so the whole decision table can be unit-tested without an Express
+ *  request — the middleware below is then just "apply this verdict". */
+export type CsrfVerdict = { allow: true } | { allow: false; offending: unknown };
+
+const ALLOW: CsrfVerdict = { allow: true };
+
+/** The complete decision, given the three inputs it depends on.
+ *
+ *  `peerAddress` matters only for the Origin-less branch; every other branch
+ *  turns on the header alone. See the module header for what the peer check
+ *  can and cannot establish. */
+export function csrfVerdict(method: string, origin: unknown, peerAddress: string | undefined, trustedOrigins: readonly string[]): CsrfVerdict {
+  if (SAFE_METHODS.has(method)) return ALLOW;
+  // Missing Origin: non-browser caller (curl, MCP, Node HTTP libraries).
+  if (origin === undefined) {
+    return isLoopbackPeer(peerAddress) ? ALLOW : { allow: false, offending: "<no origin, non-loopback peer>" };
+  }
+  // Array or other unexpected type → header smuggling / multi-forwarding
+  // proxy / synthetic client. The Origin-less path above covers genuine
+  // non-browser callers; a malformed Origin is present-but-untrustworthy.
+  if (typeof origin !== "string") return { allow: false, offending: origin };
+  return isAllowedOrigin(origin, trustedOrigins) ? ALLOW : { allow: false, offending: origin };
+}
+
 // Factory: build an Express middleware bound to a specific
 // trusted-origins list. The exported `requireSameOrigin` is the
 // env-bound instance; tests use this factory to drive the middleware
 // with arbitrary allowlists without re-importing the env module.
 export function requireSameOriginWith(trustedOrigins: readonly string[]) {
   return function requireSameOrigin(req: Request, res: Response, next: NextFunction): void {
-    if (SAFE_METHODS.has(req.method)) {
+    const verdict = csrfVerdict(req.method, req.headers.origin, req.socket.remoteAddress, trustedOrigins);
+    if (verdict.allow) {
       next();
       return;
     }
-    const { origin } = req.headers;
-    if (origin === undefined) {
-      // Missing Origin: non-browser caller (curl, MCP, Node HTTP
-      // libraries). Trusted because the server binds to 127.0.0.1.
-      next();
-      return;
-    }
-    if (typeof origin !== "string") {
-      // Array or other unexpected type → header smuggling / multi-
-      // forwarding proxy / synthetic client. The trusted-missing
-      // path above only covers genuine non-browser callers; a
-      // malformed Origin header is present-but-untrustworthy.
-      rejectCrossOrigin(req, res, origin);
-      return;
-    }
-    if (isAllowedOrigin(origin, trustedOrigins)) {
-      next();
-      return;
-    }
-    rejectCrossOrigin(req, res, origin);
+    rejectCrossOrigin(req, res, verdict.offending);
   };
 }
 

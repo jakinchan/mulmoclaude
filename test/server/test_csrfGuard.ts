@@ -6,10 +6,22 @@
 //
 // Full design: plans/done/fix-server-csrf-origin-check.md
 
+/* eslint-disable sonarjs/no-hardcoded-ip -- literal peer addresses are the
+   fixtures under test here; parameterising them would test nothing. Same
+   rationale (and same rule) as packages/common/test/test_ssrf.ts. */
+
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Request, Response, NextFunction } from "express";
-import { isAllowedOrigin, isLocalhostOrigin, isTrustedOrigin, requireSameOrigin, requireSameOriginWith } from "../../server/api/csrfGuard.js";
+import {
+  csrfVerdict,
+  isAllowedOrigin,
+  isLocalhostOrigin,
+  isLoopbackPeer,
+  isTrustedOrigin,
+  requireSameOrigin,
+  requireSameOriginWith,
+} from "../../server/api/csrfGuard.js";
 import { type FakeReq, type FakeRes, makeReq, makeReqWithRawOrigin, makeRes } from "./helpers/fakeExpressMiddleware.js";
 
 // --- isLocalhostOrigin: the pure check --------------------------
@@ -169,21 +181,138 @@ describe("requireSameOrigin — safe methods pass through", () => {
 });
 
 describe("requireSameOrigin — state-changing methods, missing Origin", () => {
-  // Non-browser callers (curl, MCP tools, Node HTTP libraries)
-  // don't set Origin. They're trusted because #148 binds to
-  // localhost.
+  // Non-browser callers (curl, MCP tools, Node HTTP libraries) don't set
+  // Origin. They're trusted, but only when the connection actually arrived
+  // on loopback — see `isLoopbackPeer` and the module header.
 
-  it("allows POST with no Origin header", () => {
+  it("allows POST with no Origin header from a loopback peer", () => {
     const { nextCalled, statusCode } = run(makeReq("POST"), makeRes());
     assert.equal(nextCalled, true);
     assert.equal(statusCode, 200);
   });
 
-  it("allows PUT / PATCH / DELETE with no Origin header", () => {
+  it("allows PUT / PATCH / DELETE with no Origin header from a loopback peer", () => {
     for (const method of ["PUT", "PATCH", "DELETE"]) {
       const { nextCalled } = run(makeReq(method), makeRes());
       assert.equal(nextCalled, true, `expected next() for ${method}`);
     }
+  });
+
+  // The check this suite exists to pin. Before it, "no Origin" was
+  // trusted unconditionally and the safety argument lived only in a
+  // comment asserting that the bind address made remote callers
+  // impossible — true of the bind, but never verified per request.
+  it("rejects POST with no Origin header from a non-loopback peer", () => {
+    const { nextCalled, statusCode } = run(makeReq("POST", undefined, "192.168.1.50"), makeRes());
+    assert.equal(nextCalled, false);
+    assert.equal(statusCode, 403);
+  });
+
+  // Built inline rather than via `makeReq(..., undefined)`: a default
+  // parameter fires on an explicitly-passed `undefined`, so that call
+  // would have handed the middleware a loopback address and quietly
+  // asserted the opposite of what it claims.
+  it("rejects when the peer address is unavailable (fail closed)", () => {
+    const req: FakeReq = { method: "POST", headers: {}, socket: {} };
+    const { nextCalled, statusCode } = run(req, makeRes());
+    assert.equal(nextCalled, false);
+    assert.equal(statusCode, 403);
+  });
+
+  // A safe method carries no state change, so it is allowed before the
+  // Origin branch is ever reached — the peer check must not alter that.
+  it("still allows a GET from a non-loopback peer", () => {
+    const { nextCalled } = run(makeReq("GET", undefined, "192.168.1.50"), makeRes());
+    assert.equal(nextCalled, true);
+  });
+
+  // Pins the LIMIT of the peer check rather than a capability, so nobody
+  // later mistakes it for proxy-aware. A remote client relayed by a local
+  // proxy arrives from the proxy's own loopback socket and is allowed —
+  // and always will be, because nothing at this layer can tell it apart
+  // from a genuine local caller. Believing a forwarded-for header would
+  // just move the trust onto an attacker-settable string.
+  //
+  // That case belongs to the proxy boundary and is handled there: the dev
+  // server refuses non-loopback callers on the paths it forwards.
+  it("cannot see past a proxy — a forwarded request still looks local (documented limit)", () => {
+    // The socket Express sees when a local proxy relays a LAN client.
+    const { nextCalled } = run(makeReq("POST", undefined, "127.0.0.1"), makeRes());
+    assert.equal(nextCalled, true, "if this ever fails, the guard gained proxy awareness it was never designed to have");
+  });
+});
+
+describe("csrfVerdict — the decision table, without Express", () => {
+  const NO_TRUSTED: readonly string[] = [];
+
+  it("allows every safe method regardless of origin or peer", () => {
+    for (const method of ["GET", "HEAD", "OPTIONS"]) {
+      assert.equal(csrfVerdict(method, "http://evil.example", "192.168.1.50", NO_TRUSTED).allow, true);
+    }
+  });
+
+  it("allows an Origin-less state change only from a loopback peer", () => {
+    assert.equal(csrfVerdict("POST", undefined, "127.0.0.1", NO_TRUSTED).allow, true);
+    assert.equal(csrfVerdict("POST", undefined, "::1", NO_TRUSTED).allow, true);
+    assert.equal(csrfVerdict("POST", undefined, "::ffff:127.0.0.1", NO_TRUSTED).allow, true);
+    assert.equal(csrfVerdict("POST", undefined, "192.168.1.50", NO_TRUSTED).allow, false);
+    assert.equal(csrfVerdict("POST", undefined, undefined, NO_TRUSTED).allow, false);
+  });
+
+  it("rejects a non-string Origin even from a loopback peer", () => {
+    const verdict = csrfVerdict("POST", ["http://localhost", "http://evil.example"], "127.0.0.1", NO_TRUSTED);
+    assert.equal(verdict.allow, false);
+  });
+
+  it("honours the trusted-origins allowlist", () => {
+    assert.equal(csrfVerdict("POST", "http://192.168.1.42:5173", "127.0.0.1", ["http://192.168.1.42:5173"]).allow, true);
+    assert.equal(csrfVerdict("POST", "http://192.168.1.42:5173", "127.0.0.1", NO_TRUSTED).allow, false);
+  });
+
+  it("reports the offending value so the caller can log it", () => {
+    const verdict = csrfVerdict("POST", "http://evil.example", "127.0.0.1", NO_TRUSTED);
+    assert.equal(verdict.allow, false);
+    if (!verdict.allow) assert.equal(verdict.offending, "http://evil.example");
+  });
+});
+
+describe("isLoopbackPeer", () => {
+  it("accepts the IPv4 loopback literal", () => {
+    assert.equal(isLoopbackPeer("127.0.0.1"), true);
+  });
+
+  // The whole /8 answers on the loopback interface, not just .0.1.
+  it("accepts anything in 127.0.0.0/8", () => {
+    assert.equal(isLoopbackPeer("127.0.0.53"), true);
+    assert.equal(isLoopbackPeer("127.1.2.3"), true);
+  });
+
+  it("accepts the IPv6 loopback literal", () => {
+    assert.equal(isLoopbackPeer("::1"), true);
+  });
+
+  // Node reports an IPv4 peer on a dual-stack listener in this form.
+  // Matching only the bare literals would classify every real local
+  // caller as remote and break MCP / curl / CLI clients.
+  it("accepts an IPv4-mapped IPv6 loopback address", () => {
+    assert.equal(isLoopbackPeer("::ffff:127.0.0.1"), true);
+  });
+
+  it("rejects LAN and public addresses", () => {
+    for (const address of ["192.168.1.50", "10.0.0.7", "172.16.0.1", "8.8.8.8", "::ffff:192.168.1.50"]) {
+      assert.equal(isLoopbackPeer(address), false, `expected ${address} to be rejected`);
+    }
+  });
+
+  // Lookalikes that a prefix match done carelessly would admit.
+  it("rejects addresses that merely start with the loopback digits", () => {
+    assert.equal(isLoopbackPeer("1270.0.0.1"), false);
+    assert.equal(isLoopbackPeer("12.7.0.1"), false);
+  });
+
+  it("rejects an absent address (fail closed)", () => {
+    assert.equal(isLoopbackPeer(undefined), false);
+    assert.equal(isLoopbackPeer(""), false);
   });
 });
 
