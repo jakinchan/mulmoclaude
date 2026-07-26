@@ -118,4 +118,43 @@ describe("asyncHandler — handler throws after the response started", () => {
     assert.equal(res.sent.status, undefined, "writing a status after headersSent would throw ERR_HTTP_HEADERS_SENT");
     assert.equal(res.sent.body, undefined);
   });
+
+  // Express reads `next(<falsy>)` as plain `next()` — "keep routing", not
+  // "fail" — so forwarding a falsy throw verbatim skips the error flow and
+  // hangs, which is the exact bug this branch exists to prevent. Measured at
+  // over 2.5s before the guard. `Promise.reject()` with no argument rejects
+  // with `undefined`, so this is reachable, not theoretical.
+  const falsyThrows: [string, unknown][] = [
+    ["undefined", undefined],
+    ["null", null],
+    ["zero", 0],
+    ["empty string", ""],
+    ["false", false],
+  ];
+  for (const [label, value] of falsyThrows) {
+    it(`forwards a truthy Error when the handler throws ${label}`, async () => {
+      const res = makeRes(true);
+      let forwarded: unknown = "not called";
+      await asyncHandler<FakeReq, FakeRes>("test-ns", "fallback", async () => {
+        throw value;
+      })(req, res, (err?: unknown) => {
+        forwarded = err;
+      });
+      assert.ok(forwarded, `next() must receive a truthy value, got ${String(forwarded)}`);
+      assert.ok(forwarded instanceof Error);
+      assert.match((forwarded as Error).message, /test-ns: handler threw a falsy value/);
+    });
+  }
+
+  it("forwards a truthy non-Error throw unchanged", async () => {
+    const res = makeRes(true);
+    const bare: unknown = "a bare string";
+    let forwarded: unknown = null;
+    await asyncHandler<FakeReq, FakeRes>("test", "fallback", async () => {
+      throw bare;
+    })(req, res, (err?: unknown) => {
+      forwarded = err;
+    });
+    assert.equal(forwarded, bare, "a truthy value already routes to Express's error flow — do not rewrite it");
+  });
 });

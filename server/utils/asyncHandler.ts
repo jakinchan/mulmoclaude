@@ -89,7 +89,17 @@ export function asyncHandler<TReq extends RoutePathBearing = Request, TRes exten
         // that never ends. Handing the error to Express lets finalhandler
         // destroy the socket instead, so the caller fails in milliseconds
         // rather than hanging until some timeout upstream.
-        next(err);
+        //
+        // The forwarded value must be TRUTHY. Express reads `next(<falsy>)`
+        // as plain `next()` — "keep routing", not "fail" — so forwarding a
+        // thrown `undefined` (a bare `Promise.reject()` produces exactly
+        // that) skips the error flow entirely and hangs, reintroducing the
+        // bug this branch exists to prevent. Measured: the request hung past
+        // 2.5s. A falsy throw carries no diagnostic value anyway, so
+        // substituting a real Error loses nothing.
+        // `||`, deliberately not `??`: `??` only substitutes for null/undefined,
+        // leaving `0` / `""` / `false` to be forwarded verbatim and swallowed.
+        next(err || new Error(`${namespace}: handler threw a falsy value`));
         return;
       }
       serverError(res, fallbackMessage);
