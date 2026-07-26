@@ -33,6 +33,7 @@ import { workspacePath } from "../../workspace/workspace.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { bindRoute } from "../../utils/router.js";
 import { log } from "../../system/logger/index.js";
+import { singleLineForLog } from "../../utils/logPreview.js";
 import { refreshScheduledSkills } from "../../workspace/skills/scheduler.js";
 import { logBackgroundError } from "../../utils/logBackgroundError.js";
 import { badRequest, conflict, forbidden, notFound } from "../../utils/httpError.js";
@@ -128,11 +129,11 @@ function previewResponse(result: CatalogDetailResult, source: string, ident: str
     return;
   }
   if (result.kind === "not-found") {
-    log.warn("skills", "catalog preview: not found", { source, ident });
+    log.warn("skills", "catalog preview: not found", { source, ident: singleLineForLog(ident) });
     notFound(res, `catalog entry not found: ${result.source}/${result.slug}`);
     return;
   }
-  log.warn("skills", "catalog preview: invalid slug", { ident });
+  log.warn("skills", "catalog preview: invalid slug", { ident: singleLineForLog(ident) });
   badRequest(res, `invalid slug: ${result.slug}`);
 }
 
@@ -164,11 +165,11 @@ function starResponse(result: StarResult, source: string, ident: string, res: Re
     return;
   }
   if (result.kind === "not-found") {
-    log.warn("skills", "catalog star: not found", { source, ident });
+    log.warn("skills", "catalog star: not found", { source, ident: singleLineForLog(ident) });
     notFound(res, `catalog entry not found: ${result.source}/${result.slug}`);
     return;
   }
-  log.warn("skills", "catalog star: invalid slug", { ident });
+  log.warn("skills", "catalog star: invalid slug", { ident: singleLineForLog(ident) });
   badRequest(res, `invalid slug: ${result.slug}`);
 }
 
@@ -254,7 +255,7 @@ bindRoute(
     }
     const result = await installExternalRepo({ url, subpath, ref });
     if (result.kind === "installed") {
-      log.info("skills", "external install: ok", { repoId: result.detail.repoId, skillCount: result.detail.skillCount });
+      log.info("skills", "external install: ok", { repoId: singleLineForLog(result.detail.repoId), skillCount: result.detail.skillCount });
       res.json({
         installed: true,
         repoId: result.detail.repoId,
@@ -265,22 +266,22 @@ bindRoute(
       return;
     }
     if (result.kind === "no-skills") {
-      log.warn("skills", "external install: no skills discovered", { repoId: result.repoId });
+      log.warn("skills", "external install: no skills discovered", { repoId: singleLineForLog(result.repoId) });
       res.status(422).json({ error: `no SKILL.md found in repo (${result.repoId})` });
       return;
     }
     if (result.kind === "invalid-url") {
-      log.warn("skills", "external install: invalid url", { url: result.url });
+      log.warn("skills", "external install: invalid url", { url: singleLineForLog(result.url) });
       badRequest(res, "url must be a github.com HTTPS URL: https://github.com/<owner>/<repo>");
       return;
     }
     if (result.kind === "invalid-subpath") {
-      log.warn("skills", "external install: invalid subpath", { subpath: result.subpath });
+      log.warn("skills", "external install: invalid subpath", { subpath: singleLineForLog(result.subpath) });
       badRequest(res, "subpath must be a relative path with no '..', leading '/', or backslash segments");
       return;
     }
     if (result.kind === "id-collision") {
-      log.warn("skills", "external install: repoId collision", { repoId: result.repoId, existingUrl: result.existingUrl });
+      log.warn("skills", "external install: repoId collision", { repoId: singleLineForLog(result.repoId), existingUrl: result.existingUrl });
       conflict(res, `repo id "${result.repoId}" is already in use by ${result.existingUrl}. Uninstall it first if you intend to replace it.`);
       return;
     }
@@ -293,25 +294,25 @@ bindRoute(router, API_ROUTES.skills.externalReposRemove, async (req: Request<{ r
   const { repoId } = req.params;
   const result = await uninstallExternalRepo(repoId);
   if (result.kind === "uninstalled") {
-    log.info("skills", "external uninstall: ok", { repoId: result.repoId });
+    log.info("skills", "external uninstall: ok", { repoId: singleLineForLog(result.repoId) });
     res.json({ uninstalled: true, repoId: result.repoId });
     return;
   }
   if (result.kind === "not-found") {
-    log.warn("skills", "external uninstall: not found", { repoId: result.repoId });
+    log.warn("skills", "external uninstall: not found", { repoId: singleLineForLog(result.repoId) });
     notFound(res, `external repo not installed: ${result.repoId}`);
     return;
   }
-  log.warn("skills", "external uninstall: invalid repoId", { repoId: result.repoId });
+  log.warn("skills", "external uninstall: invalid repoId", { repoId: singleLineForLog(result.repoId) });
   badRequest(res, `invalid repoId: ${result.repoId}`);
 });
 
 bindRoute(router, API_ROUTES.skills.detail, async (req: Request<{ name: string }>, res: Response<SkillDetailResponse | ErrorResponse>) => {
-  log.info("skills", "detail: start", { name: req.params.name });
+  log.info("skills", "detail: start", { name: singleLineForLog(req.params.name) });
   const skills = await discoverSkills({ workspaceRoot: workspacePath });
   const skill = skills.find((candidate) => candidate.name === req.params.name);
   if (!skill) {
-    log.warn("skills", "detail: not found", { name: req.params.name });
+    log.warn("skills", "detail: not found", { name: singleLineForLog(req.params.name) });
     notFound(res, `skill not found: ${req.params.name}`);
     return;
   }
@@ -320,19 +321,19 @@ bindRoute(router, API_ROUTES.skills.detail, async (req: Request<{ name: string }
 
 bindRoute(router, API_ROUTES.skills.create, async (req: Request<object, unknown, SaveSkillBody>, res: Response<SaveSkillResponse | ErrorResponse>) => {
   const { name, description, body } = req.body ?? {};
-  log.info("skills", "create: start", { name: typeof name === "string" ? name : undefined });
+  log.info("skills", "create: start", { name: typeof name === "string" ? singleLineForLog(name) : undefined });
   if (typeof name !== "string") {
     log.warn("skills", "create: invalid name");
     badRequest(res, "name must be a string");
     return;
   }
   if (typeof description !== "string") {
-    log.warn("skills", "create: invalid description", { name });
+    log.warn("skills", "create: invalid description", { name: singleLineForLog(name) });
     badRequest(res, "description must be a string");
     return;
   }
   if (typeof body !== "string") {
-    log.warn("skills", "create: invalid body", { name });
+    log.warn("skills", "create: invalid body", { name: singleLineForLog(name) });
     badRequest(res, "body must be a string");
     return;
   }
@@ -343,7 +344,7 @@ bindRoute(router, API_ROUTES.skills.create, async (req: Request<object, unknown,
     body,
   });
   if (result.kind === "saved") {
-    log.info("skills", "saved", { name });
+    log.info("skills", "saved", { name: singleLineForLog(name) });
     refreshScheduledSkills().catch(logBackgroundError("skills"));
     res.json({ saved: true, path: result.path });
     return;
@@ -362,7 +363,7 @@ bindRoute(router, API_ROUTES.skills.create, async (req: Request<object, unknown,
     return;
   }
   if (result.kind === "exists") {
-    log.warn("skills", "create: already exists", { name: result.name });
+    log.warn("skills", "create: already exists", { name: singleLineForLog(result.name) });
     conflict(res, `skill already exists: ${result.name}. Choose a different name or delete the existing one first.`);
   }
 });
@@ -383,14 +384,14 @@ bindRoute(
   async (req: Request<{ name: string }, unknown, UpdateSkillBody>, res: Response<UpdateSkillResponse | ErrorResponse>) => {
     const { name } = req.params;
     const { description, body } = req.body ?? {};
-    log.info("skills", "update: start", { name });
+    log.info("skills", "update: start", { name: singleLineForLog(name) });
     if (typeof description !== "string") {
-      log.warn("skills", "update: invalid description", { name });
+      log.warn("skills", "update: invalid description", { name: singleLineForLog(name) });
       badRequest(res, "description must be a string");
       return;
     }
     if (typeof body !== "string") {
-      log.warn("skills", "update: invalid body", { name });
+      log.warn("skills", "update: invalid body", { name: singleLineForLog(name) });
       badRequest(res, "body must be a string");
       return;
     }
@@ -401,7 +402,7 @@ bindRoute(
       body,
     });
     if (result.kind === "updated") {
-      log.info("skills", "updated", { name });
+      log.info("skills", "updated", { name: singleLineForLog(name) });
       refreshScheduledSkills().catch(logBackgroundError("skills"));
       res.json({ updated: true, path: result.path });
       return;
@@ -412,30 +413,30 @@ bindRoute(
       return;
     }
     if (result.kind === "missing-field") {
-      log.warn("skills", "update: missing field", { name, field: result.field });
+      log.warn("skills", "update: missing field", { name: singleLineForLog(name), field: result.field });
       badRequest(res, `${result.field} must be a non-empty string`);
       return;
     }
     if (result.kind === "user-scope") {
-      log.warn("skills", "update: user scope refused", { name: result.name });
+      log.warn("skills", "update: user scope refused", { name: singleLineForLog(result.name) });
       forbidden(res, `cannot update user-scope skill "${result.name}" — only project-scope skills are writable.`);
       return;
     }
     if (result.kind === "not-found") {
-      log.warn("skills", "update: not found", { name: result.name });
+      log.warn("skills", "update: not found", { name: singleLineForLog(result.name) });
       notFound(res, `skill not found: ${result.name}`);
     }
   },
 );
 
 bindRoute(router, API_ROUTES.skills.remove, async (req: Request<{ name: string }>, res: Response<DeleteSkillResponse | ErrorResponse>) => {
-  log.info("skills", "delete: start", { name: req.params.name });
+  log.info("skills", "delete: start", { name: singleLineForLog(req.params.name) });
   const result = await deleteProjectSkill({
     workspaceRoot: workspacePath,
     name: req.params.name,
   });
   if (result.kind === "deleted") {
-    log.info("skills", "deleted", { name: result.name });
+    log.info("skills", "deleted", { name: singleLineForLog(result.name) });
     refreshScheduledSkills().catch(logBackgroundError("skills"));
     res.json({ deleted: true, name: result.name });
     return;
@@ -446,7 +447,7 @@ bindRoute(router, API_ROUTES.skills.remove, async (req: Request<{ name: string }
     return;
   }
   if (result.kind === "user-scope") {
-    log.warn("skills", "delete: user scope refused", { name: result.name });
+    log.warn("skills", "delete: user scope refused", { name: singleLineForLog(result.name) });
     forbidden(
       res,
       `cannot delete user-scope skill "${result.name}" — only project-scope skills under ~/mulmoclaude/.claude/skills/ are writable from MulmoClaude.`,
@@ -454,7 +455,7 @@ bindRoute(router, API_ROUTES.skills.remove, async (req: Request<{ name: string }
     return;
   }
   if (result.kind === "not-found") {
-    log.warn("skills", "delete: not found", { name: result.name });
+    log.warn("skills", "delete: not found", { name: singleLineForLog(result.name) });
     notFound(res, `skill not found: ${result.name}`);
   }
 });

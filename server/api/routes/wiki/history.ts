@@ -24,6 +24,7 @@ import { readTextOrNull } from "../../../utils/files/safe.js";
 import { workspacePath } from "../../../workspace/workspace.js";
 import { pushToolResult } from "../../../events/session-store/index.js";
 import { log } from "../../../system/logger/index.js";
+import { singleLineForLog } from "../../../utils/logPreview.js";
 import { errorMessage } from "../../../utils/errors.js";
 import { isSafeSlug } from "@mulmoclaude/core/wiki";
 
@@ -113,7 +114,7 @@ router.post("/pages/:slug/history/:stamp/restore", async (req: Request<{ slug: s
     reason: restoreReason(stamp),
     forceSnapshot: true,
   });
-  log.info("wiki", "history restore", { slug, stamp });
+  log.info("wiki", "history restore", { slug: singleLineForLog(slug), stamp: singleLineForLog(stamp) });
   res.json({ slug, restored: { fromStamp: stamp } });
 });
 
@@ -186,7 +187,7 @@ async function publishPageEditToolResult(sessionId: string, slug: string, stamp:
       },
     });
     if (outcome.kind === "skipped") {
-      log.warn("wiki", "page-edit toolResult publish skipped", { slug, reason: outcome.reason });
+      log.warn("wiki", "page-edit toolResult publish skipped", { slug: singleLineForLog(slug), reason: outcome.reason });
     }
   } catch (err) {
     log.warn("wiki", "page-edit toolResult publish failed", {
@@ -223,7 +224,7 @@ async function handleInternalSnapshot(req: Request<object, unknown, InternalSnap
   // `writeWikiPage` path; reusing it keeps both paths aligned.
   const previousContent = await loadPreviousSnapshotContent(slug);
   if (previousContent !== null && !hasMeaningfulChange(previousContent, content)) {
-    log.info("wiki", "internal snapshot skipped — no meaningful change since previous snapshot", { slug });
+    log.info("wiki", "internal snapshot skipped — no meaningful change since previous snapshot", { slug: singleLineForLog(slug) });
     res.json({ slug, ok: true, skipped: "no-meaningful-change" });
     return;
   }
@@ -242,7 +243,7 @@ async function handleInternalSnapshot(req: Request<object, unknown, InternalSnap
     },
     { workspaceRoot: workspacePath },
   );
-  log.info("wiki", "internal snapshot recorded", { slug });
+  log.info("wiki", "internal snapshot recorded", { slug: singleLineForLog(slug) });
 
   if (typeof sessionId === "string" && sessionId.length > 0) {
     await publishPageEditToolResult(sessionId, slug, stamp);

@@ -42,6 +42,7 @@ import { isRecord } from "../../utils/types.js";
 import { resolveWithinRoot } from "../../utils/files/safe.js";
 import { readPluginAsset } from "../../utils/files/plugins-io.js";
 import { log } from "../../system/logger/index.js";
+import { singleLineForLog } from "../../utils/logPreview.js";
 
 const LOG_PREFIX = "api/plugins/runtime";
 
@@ -81,7 +82,7 @@ router.post(API_ROUTES.plugins.runtimeDispatch, async (req: Request<{ pkg: strin
     try {
       res.json(await builtin(args));
     } catch (err) {
-      log.error(LOG_PREFIX, "builtin execute failed", { pkg, error: errorMessage(err) });
+      log.error(LOG_PREFIX, "builtin execute failed", { pkg: singleLineForLog(pkg), error: errorMessage(err) });
       serverError(res, `plugin execute failed: ${errorMessage(err)}`);
     }
     return;
@@ -110,7 +111,7 @@ router.post(API_ROUTES.plugins.runtimeDispatch, async (req: Request<{ pkg: strin
     // spreads this into the toolResult event downstream.
     res.json(result);
   } catch (err) {
-    log.error(LOG_PREFIX, "execute failed", { pkg, error: errorMessage(err) });
+    log.error(LOG_PREFIX, "execute failed", { pkg: singleLineForLog(pkg), error: errorMessage(err) });
     serverError(res, `plugin execute failed: ${errorMessage(err)}`);
   }
 });
@@ -156,7 +157,7 @@ router.get(API_ROUTES.plugins.runtimeOauthCallback, async (req: Request<{ alias:
     const result = await plugin.execute({}, buildOauthCallbackArgs(req.query));
     sendOauthCallbackResult(res, result);
   } catch (err) {
-    log.error(LOG_PREFIX, "oauth callback dispatch threw", { alias, plugin: plugin.name, error: errorMessage(err) });
+    log.error(LOG_PREFIX, "oauth callback dispatch threw", { alias: singleLineForLog(alias), plugin: plugin.name, error: errorMessage(err) });
     res
       .status(500)
       .type("text/html")
@@ -232,7 +233,12 @@ router.get(API_ROUTES.plugins.runtimeAsset, async (req: Request<{ pkg: string; v
     res.setHeader("Content-Type", contentType);
     res.send(data);
   } catch (err) {
-    log.error(LOG_PREFIX, "asset read failed", { pkg, version, subPath, error: errorMessage(err) });
+    log.error(LOG_PREFIX, "asset read failed", {
+      pkg: singleLineForLog(pkg),
+      version: singleLineForLog(version),
+      subPath: singleLineForLog(subPath),
+      error: errorMessage(err),
+    });
     serverError(res, "asset read failed");
   }
 });

@@ -333,7 +333,7 @@ router.delete(API_ROUTES.collections.detail, async (req: Request<{ slug: string 
     log.info("collections", "collection deleted", { slug: result.slug, archivePath: result.archivePath });
     res.json({ deleted: true, slug: result.slug, archivePath: result.archivePath });
   } catch (err) {
-    log.warn("collections", "collection delete failed", { slug: req.params.slug, error: errorMessage(err) });
+    log.warn("collections", "collection delete failed", { slug: singleLineForLog(req.params.slug), error: errorMessage(err) });
     serverError(res, errorMessage(err));
   }
 });
@@ -407,7 +407,7 @@ router.put(API_ROUTES.collections.item, async (req: Request<{ slug: string; item
     log.info("collections", "item updated", { slug: collection.slug, itemId: result.itemId });
     res.json({ itemId: result.itemId, item: result.item });
   } catch (err) {
-    log.warn("collections", "item update failed", { slug: collection.slug, itemId: req.params.itemId, error: errorMessage(err) });
+    log.warn("collections", "item update failed", { slug: collection.slug, itemId: singleLineForLog(req.params.itemId), error: errorMessage(err) });
     serverError(res, errorMessage(err));
   }
 });
@@ -429,7 +429,7 @@ router.delete(API_ROUTES.collections.item, async (req: Request<{ slug: string; i
     log.info("collections", "item deleted", { slug: collection.slug, itemId: result.itemId });
     res.json({ deleted: true, itemId: result.itemId });
   } catch (err) {
-    log.warn("collections", "item delete failed", { slug: collection.slug, itemId: req.params.itemId, error: errorMessage(err) });
+    log.warn("collections", "item delete failed", { slug: collection.slug, itemId: singleLineForLog(req.params.itemId), error: errorMessage(err) });
     serverError(res, errorMessage(err));
   }
 });
@@ -635,7 +635,11 @@ router.post(API_ROUTES.collections.collectionAction, async (req: Request<{ slug:
     }
     await respondForActionKind(res, collection, action, seed);
   } catch (err) {
-    log.warn("collections", "collection action seed failed", { slug: collection.slug, actionId: req.params.actionId, error: errorMessage(err) });
+    log.warn("collections", "collection action seed failed", {
+      slug: collection.slug,
+      actionId: singleLineForLog(req.params.actionId),
+      error: errorMessage(err),
+    });
     serverError(res, errorMessage(err));
   }
 });
@@ -749,7 +753,7 @@ router.get(API_ROUTES.collections.viewFile, async (req: Request<{ slug: string }
     }
     res.type("text/html").send(html);
   } catch (err) {
-    log.warn("collections", "view-file read failed", { slug: req.params.slug, error: errorMessage(err) });
+    log.warn("collections", "view-file read failed", { slug: singleLineForLog(req.params.slug), error: errorMessage(err) });
     serverError(res, errorMessage(err));
   }
 });
@@ -781,7 +785,7 @@ router.get(API_ROUTES.collections.remoteView, async (req: Request<{ slug: string
     }
     res.json({ view: result.view, srcdoc: result.srcdoc, bytes: result.bytes });
   } catch (err) {
-    log.warn("collections", "remote-view build failed", { slug: req.params.slug, error: errorMessage(err) });
+    log.warn("collections", "remote-view build failed", { slug: singleLineForLog(req.params.slug), error: errorMessage(err) });
     serverError(res, errorMessage(err));
   }
 });
@@ -817,10 +821,14 @@ router.post(API_ROUTES.collections.remoteViewMutate, async (req: Request<{ slug:
       sendMutateRemoteViewFailure(res, result, slug);
       return;
     }
-    log.info("collections", "remote-view mutate", { slug, viewId, op: result.op });
+    log.info("collections", "remote-view mutate", { slug: singleLineForLog(slug), viewId: singleLineForLog(viewId), op: result.op });
     res.json(result.op === "delete" ? { op: "delete", id: result.id } : { op: "update", item: result.item });
   } catch (err) {
-    log.warn("collections", "remote-view mutate failed", { slug: req.params.slug, viewId: req.params.viewId, error: errorMessage(err) });
+    log.warn("collections", "remote-view mutate failed", {
+      slug: singleLineForLog(req.params.slug),
+      viewId: singleLineForLog(req.params.viewId),
+      error: errorMessage(err),
+    });
     serverError(res, errorMessage(err));
   }
 });
@@ -919,7 +927,7 @@ router.post(API_ROUTES.collections.viewToken, async (req: Request<{ slug: string
     }
     res.json({ token: minted.token, exp: minted.exp, dataUrl: API_ROUTES.collections.viewData.replace(":slug", slug), capabilities: granted });
   } catch (err) {
-    log.warn("collections", "view-token mint failed", { slug: req.params.slug, error: errorMessage(err) });
+    log.warn("collections", "view-token mint failed", { slug: singleLineForLog(req.params.slug), error: errorMessage(err) });
     serverError(res, errorMessage(err));
   }
 });
@@ -938,7 +946,7 @@ router.get(API_ROUTES.collections.viewData, viewDataCors, requireViewToken("read
     });
     sendToolResult(res, raw);
   } catch (err) {
-    log.warn("collections", "view-data read failed", { slug: req.params.slug, error: errorMessage(err) });
+    log.warn("collections", "view-data read failed", { slug: singleLineForLog(req.params.slug), error: errorMessage(err) });
     serverError(res, errorMessage(err));
   }
 });
@@ -1093,7 +1101,7 @@ router.put(API_ROUTES.collections.viewData, viewDataCors, requireViewToken("writ
     const raw = await manageCollection.handler({ action: "putItems", slug: req.params.slug, items: body.items, mode: body.mode });
     sendToolResult(res, raw);
   } catch (err) {
-    log.warn("collections", "view-data write failed", { slug: req.params.slug, error: errorMessage(err) });
+    log.warn("collections", "view-data write failed", { slug: singleLineForLog(req.params.slug), error: errorMessage(err) });
     serverError(res, errorMessage(err));
   }
 });
@@ -1190,7 +1198,11 @@ router.delete(API_ROUTES.collections.viewDelete, async (req: Request<{ slug: str
     log.info("collections", "custom view deleted", { slug: collection.slug, viewId: result.viewId });
     res.json({ deleted: true, viewId: result.viewId });
   } catch (err) {
-    log.warn("collections", "view delete failed", { slug: req.params.slug, viewId: req.params.viewId, error: errorMessage(err) });
+    log.warn("collections", "view delete failed", {
+      slug: singleLineForLog(req.params.slug),
+      viewId: singleLineForLog(req.params.viewId),
+      error: errorMessage(err),
+    });
     serverError(res, errorMessage(err));
   }
 });
