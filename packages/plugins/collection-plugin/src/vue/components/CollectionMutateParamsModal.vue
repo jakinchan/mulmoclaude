@@ -9,7 +9,7 @@
     <form class="flex flex-col overflow-y-auto" data-testid="collections-mutate-modal" @submit.prevent="submit">
       <div class="flex items-center justify-between px-6 pt-5 pb-3">
         <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-          <span v-if="action.icon" class="material-icons text-base text-indigo-600">{{ action.icon }}</span>
+          <span v-if="action.icon" class="material-symbols-outlined text-base text-indigo-600">{{ action.icon }}</span>
           <span>{{ action.label }}</span>
         </h2>
         <button
@@ -99,7 +99,7 @@
           :disabled="pending"
           data-testid="collections-mutate-submit"
         >
-          <span v-if="pending" class="material-icons text-sm animate-spin">progress_activity</span>
+          <span v-if="pending" class="material-symbols-outlined text-sm animate-spin">progress_activity</span>
           <span>{{ action.label }}</span>
         </button>
       </div>

@@ -54,7 +54,7 @@ function editorLabel(editor: SnapshotSummary["editor"]): string {
           data-testid="wiki-history-restore-confirm-action"
           @click="emit('confirm')"
         >
-          <span v-if="restoring" class="material-icons text-base animate-spin">progress_activity</span>
+          <span v-if="restoring" class="material-symbols-outlined text-base animate-spin">progress_activity</span>
           {{ t("pluginWiki.history.restoreConfirmAction") }}
         </button>
       </div>
