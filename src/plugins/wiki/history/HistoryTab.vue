@@ -114,7 +114,7 @@ function onRestored(): void {
   <div class="flex-1 flex flex-col min-h-0" data-testid="wiki-history-tab">
     <!-- Loading -->
     <div v-if="loading" class="flex-1 flex items-center justify-center text-gray-400 text-sm">
-      <span class="material-icons animate-spin text-base mr-2">progress_activity</span>
+      <span class="material-symbols-outlined animate-spin text-base mr-2">progress_activity</span>
       {{ t("pluginWiki.history.loading") }}
     </div>
 

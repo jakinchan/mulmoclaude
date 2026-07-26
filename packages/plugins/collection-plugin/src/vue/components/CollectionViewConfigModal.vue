@@ -31,7 +31,7 @@
 
         <ul v-if="views.length > 0" class="flex flex-col gap-1">
           <li v-for="view in views" :key="view.id" class="flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
-            <span class="material-icons text-base text-slate-400">{{ view.icon || "dashboard_customize" }}</span>
+            <span class="material-symbols-outlined text-base text-slate-400">{{ view.icon || "dashboard_customize" }}</span>
             <span class="flex-1 truncate text-sm font-semibold text-slate-700">{{ view.label }}</span>
             <button
               type="button"

@@ -131,7 +131,7 @@
           :data-testid="`collection-view-custom-${cv.id}`"
           @click="emit('setCustomView', cv.id)"
         >
-          <span class="material-icons text-sm">{{ cv.icon || (cv.target === "mobile" ? "smartphone" : "dashboard_customize") }}</span>
+          <span class="material-symbols-outlined text-sm">{{ cv.icon || (cv.target === "mobile" ? "smartphone" : "dashboard_customize") }}</span>
           <span>{{ cv.label }}</span>
         </button>
         <!-- "+" — ask Claude to author a new custom view for this collection.

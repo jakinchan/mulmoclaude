@@ -279,7 +279,7 @@ async function performRestore(): Promise<void> {
     <!-- Body: loading / fetch error / no-previous / no-changes / diff -->
     <div class="flex-1 overflow-y-auto px-4 py-3 font-mono text-xs">
       <div v-if="loading" class="flex items-center justify-center py-8 text-gray-400">
-        <span class="material-icons animate-spin text-base mr-2">progress_activity</span>
+        <span class="material-symbols-outlined animate-spin text-base mr-2">progress_activity</span>
         {{ t("pluginWiki.history.loading") }}
       </div>
       <div v-else-if="fetchError" class="text-red-600">{{ fetchError }}</div>
