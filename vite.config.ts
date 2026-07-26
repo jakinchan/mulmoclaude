@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -55,6 +56,37 @@ function readDevToken(): string {
   }
 }
 
+// True for an IPv4/IPv6 loopback peer. Node reports an IPv4 peer on a
+// dual-stack socket as `::ffff:127.0.0.1`, so the mapped form is unwrapped
+// before comparing — matching only the bare literals would classify a real
+// loopback client as remote.
+function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) return false
+  const bare = address.startsWith('::ffff:') ? address.slice('::ffff:'.length) : address
+  return bare === '::1' || bare === '127.0.0.1' || bare.startsWith('127.')
+}
+
+// Carries "did this request arrive on the loopback interface?" from the
+// connect middleware (which can see the socket) down to
+// `transformIndexHtml` (which cannot — `IndexHtmlTransformContext` has no
+// `req`). AsyncLocalStorage rather than a module-level variable because
+// concurrent requests would otherwise read each other's value.
+const requestFromLoopback = new AsyncLocalStorage<boolean>()
+
+// Every path this dev server forwards to Express. Kept in sync with
+// `server.proxy` below — a prefix added there without being added here is
+// reachable from the LAN whenever MULMOCLAUDE_DEV_LAN is set.
+//
+// `/ws` is the backend pub/sub socket. It needs BOTH guards below: the
+// connect middleware never sees a WebSocket handshake (those arrive on the
+// http server's `upgrade` event, not the request pipeline), so the prefix
+// alone would not stop it.
+const PROXIED_BACKEND_PREFIXES = ['/api', '/artifacts', '/ws'] as const
+
+function startsWithProxiedPrefix(url: string | undefined): boolean {
+  return PROXIED_BACKEND_PREFIXES.some((prefix) => url?.startsWith(prefix) ?? false)
+}
+
 function mulmoclaudeAuthTokenPlugin(): Plugin {
   return {
     name: 'mulmoclaude-auth-token',
@@ -65,8 +97,57 @@ function mulmoclaudeAuthTokenPlugin(): Plugin {
     // out to whatever value the builder happened to see — wrong for
     // every subsequent user.
     apply: 'serve',
+    // Registered from the `configureServer` body (not a returned function)
+    // so it runs BEFORE Vite's own html-serving middleware, and therefore
+    // before `transformIndexHtml` reads the store.
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const fromLoopback = isLoopbackAddress(req.socket.remoteAddress)
+        // Backend surface stays loopback-only even when the dev server is
+        // bound to every interface. These paths are PROXIED to Express, and
+        // some of them (`/api/files/*`, the `/artifacts/*` static mounts)
+        // are deliberately bearer-exempt because a browser `<img>` cannot
+        // send an Authorization header — their only protection was that
+        // Express binds to 127.0.0.1. The proxy defeats that: Express sees
+        // the proxy's own loopback socket, not the real client. Refusing
+        // here is the only layer that can still tell the two apart.
+        if (!fromLoopback && startsWithProxiedPrefix(req.url)) {
+          res.statusCode = 403
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: 'Forbidden: backend access is loopback-only' }))
+          return
+        }
+        requestFromLoopback.run(fromLoopback, next)
+      })
+
+      // WebSocket handshakes never reach the middleware above — Node routes
+      // them to the http server's `upgrade` event instead. Without this the
+      // `/ws` proxy would still carry backend pub/sub to a LAN client even
+      // though every HTTP path is refused.
+      //
+      // `prependListener` so this runs before the proxy's own upgrade
+      // handler, and only backend prefixes are destroyed — Vite's HMR socket
+      // is left alone, otherwise enabling LAN mode would break the very page
+      // it is meant to serve.
+      server.httpServer?.prependListener('upgrade', (req, socket) => {
+        if (isLoopbackAddress(socket.remoteAddress)) return
+        if (!startsWithProxiedPrefix(req.url)) return
+        socket.destroy()
+      })
+    },
     transformIndexHtml(html) {
-      return html.replace(TOKEN_PLACEHOLDER, readDevToken())
+      // The session token is a bearer credential for the whole API, so it
+      // is only ever handed to a caller on this machine. A non-loopback
+      // requester gets the empty string, which the Vue boot code already
+      // treats as "no auth" (every API call then 401s) — the same path as
+      // a missing token file.
+      //
+      // This matters because `/api` is PROXIED to Express: without the
+      // check, opting into `MULMOCLAUDE_DEV_LAN` would hand a full-API
+      // credential to anyone who can load the page, and Express would see
+      // every proxied call as loopback-sourced and trust it.
+      const fromLoopback = requestFromLoopback.getStore() ?? false
+      return html.replace(TOKEN_PLACEHOLDER, fromLoopback ? readDevToken() : '')
     },
   }
 }
@@ -178,7 +259,19 @@ export default defineConfig({
     },
   },
   server: {
-    host: true,
+    // Loopback by default. `host: true` (0.0.0.0) used to be
+    // unconditional, which put the dev server on every interface — and
+    // since `/api` is proxied to Express, that made a
+    // deliberately-127.0.0.1-bound backend reachable from the LAN through
+    // the proxy. Express saw those calls arriving from loopback, so the
+    // "we only bind to 127.0.0.1, therefore remote traffic can't reach
+    // us" assumption in `server/api/csrfGuard.ts` no longer held.
+    //
+    // Set MULMOCLAUDE_DEV_LAN=1 to bind every interface. Note that a LAN
+    // client still receives an EMPTY auth token (see
+    // `mulmoclaudeAuthTokenPlugin`), so opting in exposes the page, not
+    // the API. Only do it on a network you trust.
+    host: process.env.MULMOCLAUDE_DEV_LAN === '1' ? true : '127.0.0.1',
     // Disable Vite's dev CORS middleware. The app itself is same-origin in dev
     // (the page and the proxied `/api` both live on :5173), so it needs no CORS
     // headers from Vite. The one cross-origin consumer is a custom collection
