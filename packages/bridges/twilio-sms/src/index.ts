@@ -28,7 +28,7 @@ import "dotenv/config";
 import crypto from "crypto";
 import express, { type Request, type Response as ExpressResponse } from "express";
 import { createBridgeClient, chunkText } from "@mulmobridge/client";
-import { parseCsvSet } from "@mulmoclaude/common";
+import { isRecord, parseCsvSet } from "@mulmoclaude/common";
 
 const TRANSPORT_ID = "twilio-sms";
 const MAX_SMS_LEN = 1_600; // Twilio concatenates segments up to 1600 chars
@@ -137,8 +137,8 @@ interface TwilioBody {
 }
 
 function parseTwilioBody(body: unknown): TwilioBody | null {
-  if (!body || typeof body !== "object") return null;
-  const record = body as Record<string, unknown>;
+  if (!isRecord(body)) return null;
+  const record = body;
   const from = typeof record.From === "string" ? record.From : "";
   const toField = typeof record.To === "string" ? record.To : "";
   const text = typeof record.Body === "string" ? record.Body : "";
@@ -147,7 +147,13 @@ function parseTwilioBody(body: unknown): TwilioBody | null {
   return { From: from, To: toField, Body: text, MessageSid: messageSid };
 }
 
-function stringifyParams(body: Record<string, unknown>): Record<string, string> {
+/** The string-valued subset of a form body, for signature computation.
+ *
+ *  Takes `unknown` because the caller has an Express `req.body`. A non-record
+ *  yields `{}`, which produces a signature that cannot match — fail closed,
+ *  the same outcome as an absent body. */
+function stringifyParams(body: unknown): Record<string, string> {
+  if (!isRecord(body)) return {};
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(body)) {
     if (typeof value === "string") out[key] = value;
@@ -164,7 +170,7 @@ app.post("/sms", async (req: Request, res: ExpressResponse) => {
 
   if (publicUrl) {
     const sig = typeof req.headers["x-twilio-signature"] === "string" ? req.headers["x-twilio-signature"] : "";
-    const params = stringifyParams(req.body as Record<string, unknown>);
+    const params = stringifyParams(req.body);
     // Twilio signs the *full* URL it POSTed to — including query string.
     // `req.originalUrl` keeps the querystring that Twilio saw, whereas
     // `req.path` is just "/sms". Without this, any webhook URL with a

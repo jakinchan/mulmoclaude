@@ -6,7 +6,7 @@ import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { createTranslationService, TranslationInputError } from "../../services/translation/index.js";
 import { defaultTranslateBatch } from "../../services/translation/llm.js";
 import { log } from "../../system/logger/index.js";
-import type { TranslateBatchFn, TranslateRequest, TranslateResponse } from "../../services/translation/types.js";
+import type { TranslateBatchFn, TranslateResponse } from "../../services/translation/types.js";
 
 export interface TranslationRouteDeps {
   /** Override for tests — defaults to the live workspace root. */
@@ -28,7 +28,9 @@ export function createTranslationRouter(deps: TranslationRouteDeps = {}): Router
 
   router.post(API_ROUTES.translation.translate, async (req: Request, res: Response<TranslateResponse | TranslateErrorBody>) => {
     try {
-      const result = await service.translate(req.body as TranslateRequest);
+      // `req.body` is unvalidated input; the service validates and narrows it
+      // (`validateRequest`), so no assertion is needed at the boundary.
+      const result = await service.translate(req.body);
       res.json(result);
     } catch (err) {
       if (err instanceof TranslationInputError) {

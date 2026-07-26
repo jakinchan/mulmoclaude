@@ -7,6 +7,7 @@
 // `defaultTranslateBatch` from `./llm.ts` (which spawns the
 // `claude` CLI), unit tests pass a deterministic fake.
 
+import { isRecord } from "../../utils/types.js";
 import { loadDictionary, saveDictionary } from "../../utils/files/translation-io.js";
 import { assembleResult, mergeTranslations, splitHitMiss } from "./cache.js";
 import type { TranslateRequest, TranslateResponse, TranslationService, TranslationServiceDeps } from "./types.js";
@@ -31,7 +32,19 @@ export class TranslationInputError extends Error {
   }
 }
 
-function validateRequest(req: TranslateRequest): void {
+/** Validate an unvalidated payload, narrowing it on success.
+ *
+ *  Takes `unknown` because that is what actually arrives: the HTTP route hands
+ *  over `req.body`. The checks below were always written for untyped input
+ *  (`typeof req.namespace !== "string"` only means something if the value
+ *  might not be one) — the parameter type just said otherwise, so the route
+ *  had to assert `req.body as TranslateRequest` to call in. Declaring the
+ *  narrowing makes the caller's cast unnecessary rather than merely
+ *  unnecessary-looking. */
+function validateRequest(req: unknown): asserts req is TranslateRequest {
+  if (!isRecord(req)) {
+    throw new TranslationInputError("request body must be an object");
+  }
   if (typeof req.namespace !== "string" || !NAMESPACE_RE.test(req.namespace)) {
     throw new TranslationInputError(`invalid namespace: ${JSON.stringify(req.namespace)}`);
   }
@@ -101,7 +114,7 @@ export function createTranslationService(deps: TranslationServiceDeps): Translat
     return next;
   }
 
-  async function translate(req: TranslateRequest): Promise<TranslateResponse> {
+  async function translate(req: unknown): Promise<TranslateResponse> {
     validateRequest(req);
     if (req.targetLanguage === "en") {
       return { translations: [...req.sentences] };

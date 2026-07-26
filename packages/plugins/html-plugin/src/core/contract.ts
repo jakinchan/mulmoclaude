@@ -5,6 +5,8 @@
 // storage only through the GENERIC gui-chat-protocol `files.artifacts`
 // capability — no presentHtml-specific host method.
 
+import { isRecord } from "@mulmoclaude/common";
+
 /** Read the bytes of an existing HTML artifact (source editor + print). */
 export interface LoadHtmlArgs {
   kind: "loadHtml";
@@ -47,4 +49,31 @@ export interface PackHtmlResult {
 export interface HtmlDispatchResult {
   loadHtml: { html: string };
   saveHtml: { path: string };
+}
+
+// ── Runtime guards ──────────────────────────────────────────────────
+//
+// A dispatch payload arrives from the View over the host's HTTP surface, so
+// it is untyped data, not a value the compiler has seen. These live beside
+// the shapes they check — a guard in one host would leave every other host
+// asserting the same shape by hand.
+//
+// They take `unknown` rather than `Record<string, unknown>`: an interface
+// gets no implicit index signature, so a predicate narrowing FROM the record
+// type would not type-check. `unknown` accepts either caller.
+
+/** True when `value` is a well-formed `packHtml` payload. */
+export function isPackHtmlArgs(value: unknown): value is PackHtmlArgs {
+  return isRecord(value) && value.kind === "packHtml" && typeof value.path === "string";
+}
+
+/** True when `value` is a well-formed payload for the package router
+ *  (`loadHtml` / `saveHtml`).
+ *
+ *  `saveHtml` additionally requires `html` to be a string — without that,
+ *  `undefined` would reach `files.artifacts.write` and blank the artifact. */
+export function isHtmlDispatchArgs(value: unknown): value is HtmlDispatchArgs {
+  if (!isRecord(value) || typeof value.path !== "string") return false;
+  if (value.kind === "loadHtml") return true;
+  return value.kind === "saveHtml" && typeof value.html === "string";
 }

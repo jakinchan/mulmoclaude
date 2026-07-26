@@ -31,5 +31,7 @@ export interface TranslationServiceDeps {
 }
 
 export interface TranslationService {
-  readonly translate: (req: TranslateRequest) => Promise<TranslateResponse>;
+  /** Accepts an unvalidated payload — `validateRequest` narrows it. The HTTP
+   *  route can therefore pass `req.body` straight through. */
+  readonly translate: (req: unknown) => Promise<TranslateResponse>;
 }
