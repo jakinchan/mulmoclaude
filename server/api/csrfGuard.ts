@@ -12,9 +12,19 @@
 // (or an operator-allowlisted Origin — see `MULMOCLAUDE_TRUSTED_ORIGINS`
 // in server/system/env.ts and plans/done/feat-csrf-trusted-origins.md).
 // Requests with NO Origin header are allowed — that's how
-// non-browser callers (MCP tools, curl, CLI scripts) look, and
-// they're trustable only because the server binds to 127.0.0.1
-// (#148) so remote traffic can't reach us at all.
+// non-browser callers (MCP tools, curl, CLI scripts) look — but only
+// when the connection itself arrived on the loopback interface.
+//
+// That last clause used to be an assumption rather than a check: the
+// code allowed every Origin-less request and the comment explained
+// that this was safe "because the server binds to 127.0.0.1 (#148)".
+// The binding is real, but nothing here verified it, so the reasoning
+// held only as long as no layer in front forwarded outside traffic to
+// us. A dev-server proxy does exactly that — the forwarded request
+// arrives from the proxy's own loopback socket, which is
+// indistinguishable from a genuine local caller unless someone looks.
+// Checking `req.socket.remoteAddress` makes the premise something the
+// code enforces rather than something a comment claims.
 //
 // Full design + threat model: plans/done/fix-server-csrf-origin-check.md
 
@@ -37,6 +47,21 @@ const LOCALHOST_HOSTNAMES: ReadonlySet<string> = new Set([
   "[::1]",
   "::1",
 ]);
+
+// True for an IPv4/IPv6 loopback peer. Node reports an IPv4 peer on a
+// dual-stack listener as `::ffff:127.0.0.1`, so the mapped form is
+// unwrapped before comparing — matching only the bare literals would
+// classify a genuine local caller as remote and break every MCP / curl
+// / CLI client. The whole `127.0.0.0/8` block counts, not just
+// `127.0.0.1`: the loopback interface answers to all of it.
+//
+// An absent address (a socket already torn down, or a synthetic `req`
+// in a unit test) is NOT loopback — fail closed.
+export function isLoopbackPeer(address: string | undefined): boolean {
+  if (!address) return false;
+  const bare = address.startsWith("::ffff:") ? address.slice("::ffff:".length) : address;
+  return bare === "::1" || bare === "127.0.0.1" || bare.startsWith("127.");
+}
 
 // Browsers send `Origin: null` for opaque contexts — sandboxed
 // iframes, file:// pages, data: URLs, some cross-origin redirects.
@@ -150,8 +175,14 @@ export function requireSameOriginWith(trustedOrigins: readonly string[]) {
     const { origin } = req.headers;
     if (origin === undefined) {
       // Missing Origin: non-browser caller (curl, MCP, Node HTTP
-      // libraries). Trusted because the server binds to 127.0.0.1.
-      next();
+      // libraries). Trusted only if the connection is genuinely local —
+      // see the module header for why this is a check and not an
+      // assumption.
+      if (isLoopbackPeer(req.socket.remoteAddress)) {
+        next();
+        return;
+      }
+      rejectCrossOrigin(req, res, "<no origin, non-loopback peer>");
       return;
     }
     if (typeof origin !== "string") {

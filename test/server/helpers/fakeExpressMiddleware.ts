@@ -15,7 +15,15 @@
 export interface FakeReq {
   method: string;
   headers: Record<string, unknown>;
+  // The CSRF guard reads `req.socket.remoteAddress` to decide whether an
+  // Origin-less request is genuinely local. Defaults to loopback so every
+  // pre-existing case keeps describing a local caller, which is what they
+  // were always implicitly testing.
+  socket: { remoteAddress?: string };
 }
+
+/** Peer address the fakes use unless a test asks for something else. */
+export const LOOPBACK_PEER = "127.0.0.1";
 
 export interface FakeRes {
   statusCode: number;
@@ -24,10 +32,11 @@ export interface FakeRes {
   json: (payload: unknown) => FakeRes;
 }
 
-export function makeReq(method: string, origin?: string): FakeReq {
+export function makeReq(method: string, origin?: string, remoteAddress: string | undefined = LOOPBACK_PEER): FakeReq {
   return {
     method,
     headers: origin === undefined ? {} : { origin },
+    socket: { remoteAddress },
   };
 }
 
@@ -38,6 +47,7 @@ export function makeReqWithRawOrigin(method: string, rawOrigin: unknown): FakeRe
   return {
     method,
     headers: { origin: rawOrigin },
+    socket: { remoteAddress: LOOPBACK_PEER },
   };
 }
 

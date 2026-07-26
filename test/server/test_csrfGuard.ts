@@ -6,10 +6,14 @@
 //
 // Full design: plans/done/fix-server-csrf-origin-check.md
 
+/* eslint-disable sonarjs/no-hardcoded-ip -- literal peer addresses are the
+   fixtures under test here; parameterising them would test nothing. Same
+   rationale (and same rule) as packages/common/test/test_ssrf.ts. */
+
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Request, Response, NextFunction } from "express";
-import { isAllowedOrigin, isLocalhostOrigin, isTrustedOrigin, requireSameOrigin, requireSameOriginWith } from "../../server/api/csrfGuard.js";
+import { isAllowedOrigin, isLocalhostOrigin, isLoopbackPeer, isTrustedOrigin, requireSameOrigin, requireSameOriginWith } from "../../server/api/csrfGuard.js";
 import { type FakeReq, type FakeRes, makeReq, makeReqWithRawOrigin, makeRes } from "./helpers/fakeExpressMiddleware.js";
 
 // --- isLocalhostOrigin: the pure check --------------------------
@@ -169,21 +173,89 @@ describe("requireSameOrigin — safe methods pass through", () => {
 });
 
 describe("requireSameOrigin — state-changing methods, missing Origin", () => {
-  // Non-browser callers (curl, MCP tools, Node HTTP libraries)
-  // don't set Origin. They're trusted because #148 binds to
-  // localhost.
+  // Non-browser callers (curl, MCP tools, Node HTTP libraries) don't set
+  // Origin. They're trusted, but only when the connection actually arrived
+  // on loopback — see `isLoopbackPeer` and the module header.
 
-  it("allows POST with no Origin header", () => {
+  it("allows POST with no Origin header from a loopback peer", () => {
     const { nextCalled, statusCode } = run(makeReq("POST"), makeRes());
     assert.equal(nextCalled, true);
     assert.equal(statusCode, 200);
   });
 
-  it("allows PUT / PATCH / DELETE with no Origin header", () => {
+  it("allows PUT / PATCH / DELETE with no Origin header from a loopback peer", () => {
     for (const method of ["PUT", "PATCH", "DELETE"]) {
       const { nextCalled } = run(makeReq(method), makeRes());
       assert.equal(nextCalled, true, `expected next() for ${method}`);
     }
+  });
+
+  // The check this suite exists to pin. Before it, "no Origin" was
+  // trusted unconditionally and the safety argument lived only in a
+  // comment asserting that the bind address made remote callers
+  // impossible — true of the bind, but never verified per request.
+  it("rejects POST with no Origin header from a non-loopback peer", () => {
+    const { nextCalled, statusCode } = run(makeReq("POST", undefined, "192.168.1.50"), makeRes());
+    assert.equal(nextCalled, false);
+    assert.equal(statusCode, 403);
+  });
+
+  // Built inline rather than via `makeReq(..., undefined)`: a default
+  // parameter fires on an explicitly-passed `undefined`, so that call
+  // would have handed the middleware a loopback address and quietly
+  // asserted the opposite of what it claims.
+  it("rejects when the peer address is unavailable (fail closed)", () => {
+    const req: FakeReq = { method: "POST", headers: {}, socket: {} };
+    const { nextCalled, statusCode } = run(req, makeRes());
+    assert.equal(nextCalled, false);
+    assert.equal(statusCode, 403);
+  });
+
+  // A safe method carries no state change, so it is allowed before the
+  // Origin branch is ever reached — the peer check must not alter that.
+  it("still allows a GET from a non-loopback peer", () => {
+    const { nextCalled } = run(makeReq("GET", undefined, "192.168.1.50"), makeRes());
+    assert.equal(nextCalled, true);
+  });
+});
+
+describe("isLoopbackPeer", () => {
+  it("accepts the IPv4 loopback literal", () => {
+    assert.equal(isLoopbackPeer("127.0.0.1"), true);
+  });
+
+  // The whole /8 answers on the loopback interface, not just .0.1.
+  it("accepts anything in 127.0.0.0/8", () => {
+    assert.equal(isLoopbackPeer("127.0.0.53"), true);
+    assert.equal(isLoopbackPeer("127.1.2.3"), true);
+  });
+
+  it("accepts the IPv6 loopback literal", () => {
+    assert.equal(isLoopbackPeer("::1"), true);
+  });
+
+  // Node reports an IPv4 peer on a dual-stack listener in this form.
+  // Matching only the bare literals would classify every real local
+  // caller as remote and break MCP / curl / CLI clients.
+  it("accepts an IPv4-mapped IPv6 loopback address", () => {
+    assert.equal(isLoopbackPeer("::ffff:127.0.0.1"), true);
+  });
+
+  it("rejects LAN and public addresses", () => {
+    for (const address of ["192.168.1.50", "10.0.0.7", "172.16.0.1", "8.8.8.8", "::ffff:192.168.1.50"]) {
+      assert.equal(isLoopbackPeer(address), false, `expected ${address} to be rejected`);
+    }
+  });
+
+  // Lookalikes that a prefix match done carelessly would admit.
+  it("rejects addresses that merely start with the loopback digits", () => {
+    assert.equal(isLoopbackPeer("1270.0.0.1"), false);
+    assert.equal(isLoopbackPeer("12.7.0.1"), false);
+  });
+
+  it("rejects an absent address (fail closed)", () => {
+    assert.equal(isLoopbackPeer(undefined), false);
+    assert.equal(isLoopbackPeer(""), false);
   });
 });
 
