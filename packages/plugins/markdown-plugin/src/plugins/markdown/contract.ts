@@ -111,24 +111,35 @@ export interface MarkdownDispatchResult {
 const isString = (value: unknown): value is string => typeof value === "string";
 const isOptional = (value: unknown, check: (candidate: unknown) => boolean): boolean => value === undefined || check(value);
 
-/** Per-kind required-field check. `marpThemes` carries no payload. */
-const DISPATCH_SHAPE_CHECKS: Record<string, (args: Record<string, unknown>) => boolean> = {
-  loadDoc: (args) => isString(args.path),
-  saveDoc: (args) => isString(args.path) && isString(args.markdown),
-  marpThemes: () => true,
-  fillImages: (args) => isString(args.markdown),
-  exportPdf: (args) =>
-    isString(args.markdown) &&
-    isString(args.filename) &&
-    isOptional(args.marp, (value) => typeof value === "boolean") &&
-    isOptional(args.baseDir, isString) &&
-    isOptional(args.format, (value) => value === "Letter" || value === "A4") &&
-    isOptional(args.stripFrontmatter, (value) => typeof value === "boolean"),
-};
+/** Per-kind required-field check. `marpThemes` carries no payload.
+ *
+ *  A `Map`, not an object literal, because `kind` is attacker-supplied and an
+ *  object index reads through the prototype chain. Measured with a literal:
+ *  `kind: "constructor"` returned `Object`, whose call yields a truthy object,
+ *  so the guard reported VALID; `kind: "toString"` likewise; and
+ *  `"__proto__"` / `"hasOwnProperty"` made the guard THROW instead of
+ *  returning false, so the caller's `if (!isMarkdownDispatchArgs(…))` never
+ *  ran. Same reasoning as the `Map` in `@mulmoclaude/common`. */
+const DISPATCH_SHAPE_CHECKS = new Map<string, (args: Record<string, unknown>) => boolean>([
+  ["loadDoc", (args) => isString(args.path)],
+  ["saveDoc", (args) => isString(args.path) && isString(args.markdown)],
+  ["marpThemes", () => true],
+  ["fillImages", (args) => isString(args.markdown)],
+  [
+    "exportPdf",
+    (args) =>
+      isString(args.markdown) &&
+      isString(args.filename) &&
+      isOptional(args.marp, (value) => typeof value === "boolean") &&
+      isOptional(args.baseDir, isString) &&
+      isOptional(args.format, (value) => value === "Letter" || value === "A4") &&
+      isOptional(args.stripFrontmatter, (value) => typeof value === "boolean"),
+  ],
+]);
 
 /** True when `value` is a well-formed dispatch payload for some known kind. */
 export function isMarkdownDispatchArgs(value: unknown): value is MarkdownDispatchArgs {
   if (!isRecord(value) || typeof value.kind !== "string") return false;
-  const check = DISPATCH_SHAPE_CHECKS[value.kind];
+  const check = DISPATCH_SHAPE_CHECKS.get(value.kind);
   return check !== undefined && check(value);
 }

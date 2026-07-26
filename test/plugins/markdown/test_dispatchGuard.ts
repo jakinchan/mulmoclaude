@@ -85,4 +85,22 @@ describe("isMarkdownDispatchArgs — rejects what the assertion used to admit", 
       assert.equal(isMarkdownDispatchArgs(value), false, `expected ${JSON.stringify(value)} to be rejected`);
     }
   });
+
+  // `kind` is attacker-supplied, so looking it up must not read through the
+  // prototype chain. Measured against the object-literal version this guard
+  // first shipped with: `"constructor"` and `"toString"` returned truthy (the
+  // guard reported VALID), and `"__proto__"` / `"hasOwnProperty"` made it
+  // THROW — so the caller's `if (!isMarkdownDispatchArgs(…))` never ran at
+  // all. A `Map` has no such keys.
+  it("rejects Object.prototype key names as kinds", () => {
+    for (const kind of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf", "isPrototypeOf"]) {
+      assert.equal(isMarkdownDispatchArgs({ kind, path: "a.md", markdown: "# hi", filename: "a.pdf" }), false, `expected kind="${kind}" to be rejected`);
+    }
+  });
+
+  it("does not throw on a prototype key name (a guard that throws is not a guard)", () => {
+    for (const kind of ["__proto__", "hasOwnProperty"]) {
+      assert.doesNotThrow(() => isMarkdownDispatchArgs({ kind }), `kind="${kind}" must return false, not throw`);
+    }
+  });
 });
