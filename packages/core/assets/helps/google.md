@@ -15,10 +15,11 @@ the original call — do not fall back to guessing.
 | --- | --- |
 | Read or change specific events / tasks / files, right now | this tool |
 | A collection that mirrors a calendar and keeps itself fresh | a `googleCalendar` block — see [Google Calendar sync](google-calendar-collection.md) |
+| Records the user added/edited in a calendar collection to reach Google | the collection view's **Push to Google** button, not this tool |
 
 The collection route costs no tokens per refresh, so prefer it for anything
-recurring. Use this tool for one-off work and for everything the collection
-route cannot do (creating, editing and deleting).
+recurring. Use this tool for one-off work, and for deleting — the push button
+never deletes.
 
 ## Calendar
 

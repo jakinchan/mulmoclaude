@@ -68,6 +68,7 @@ describe("toCalendarSummary", () => {
       backgroundColor: "#16a765",
       foregroundColor: "#ffffff",
       colorId: "8",
+      timeZone: "Asia/Tokyo",
     });
     assert.deepEqual(summary, {
       id: "team@group.calendar.google.com",
@@ -78,6 +79,8 @@ describe("toCalendarSummary", () => {
       backgroundColor: "#16a765",
       foregroundColor: "#ffffff",
       colorId: "8",
+      // Carried since #2598: the zone a pushed offset-less dateTime is read in.
+      timeZone: "Asia/Tokyo",
     });
   });
 
@@ -88,7 +91,7 @@ describe("toCalendarSummary", () => {
   });
 
   it("fills empty strings for missing fields and tolerates a non-object payload", () => {
-    const empty = { id: "", summary: "", description: "", primary: false, accessRole: "", backgroundColor: "", foregroundColor: "", colorId: "" };
+    const empty = { id: "", summary: "", description: "", primary: false, accessRole: "", backgroundColor: "", foregroundColor: "", colorId: "", timeZone: "" };
     assert.deepEqual(toCalendarSummary({}), empty);
     assert.deepEqual(toCalendarSummary(null), empty);
   });

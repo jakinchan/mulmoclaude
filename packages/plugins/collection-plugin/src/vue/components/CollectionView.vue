@@ -9,6 +9,7 @@
       :data-source-route="dataSourceRoute"
       :is-feed-route="isFeedRoute"
       :refreshing="refreshing"
+      :pushing="pushing"
       :collection-actions="collectionActions"
       :collection-action-pending="collectionActionPending"
       :running-action-ids="runningActions"
@@ -18,6 +19,7 @@
       :can-delete-feed="canDeleteFeed"
       @back="goBack"
       @refresh-feed="refreshFeed"
+      @push-calendar="pushCalendar"
       @open-chat="openChat"
       @run-collection-action="runCollectionAction"
       @open-create="openCreate"
@@ -348,7 +350,8 @@ import CollectionRemoteViewPreview from "./CollectionRemoteViewPreview.vue";
 import CollectionTable from "./CollectionTable.vue";
 import { useCollectionRendering } from "../useCollectionRendering";
 import { writeCollectionViewMode, writeCollectionSort, writeCollectionFlagFilters, type CollectionViewMode, type BuiltInViewMode } from "../collectionViewMode";
-import { collectionUi } from "../uiContext";
+import { collectionUi, type CollectionPushResult } from "../uiContext";
+import { pushProblems } from "../calendarPushResult";
 import { useTableSort } from "../composables/useTableSort";
 import { useCollectionActions } from "../composables/useCollectionActions";
 import { useFlagFilters } from "../composables/useFlagFilters";
@@ -476,6 +479,7 @@ const notifiedSeverities = computed<Map<string, CollectionNotifySeverity>>(() =>
 });
 /** True while a feed collection's manual refresh is in flight. */
 const refreshing = ref(false);
+const pushing = ref(false);
 /** Transient note shown after an agent-ingest Refresh dispatches a background
  *  worker (records update asynchronously, so there's nothing to show inline).
  *  Auto-clears; `refreshNoteTimer` cancels a pending clear on re-trigger. */
@@ -637,6 +641,39 @@ async function refreshFeed(): Promise<void> {
     if (result.data.chatId && cui.navigate) cui.navigate(`/chat/${result.data.chatId}`);
     else showRefreshNote(t("collectionsView.refreshDispatched"));
   }
+}
+
+/** Push locally created / edited records to the declared Google calendar
+ *  (#2598) — the opposite direction from `refreshFeed`.
+ *
+ *  Reloads afterwards because a create gives Google the record's own id and the
+ *  push stores the new baseline; the reload is what shows the user the state the
+ *  next push will diff against. */
+async function pushCalendar(): Promise<void> {
+  const current = collection.value;
+  if (!current || pushing.value || !current.schema.googleCalendar) return;
+  pushing.value = true;
+  inlineError.value = null;
+  const result = await cui.pushCalendarCollection(current.slug);
+  pushing.value = false;
+  if (!result.ok) {
+    loadError.value = result.error;
+    return;
+  }
+  await loadCollection(current.slug);
+  reportPush(result.data);
+}
+
+/** Say what the push did. Problems arrive as fields on an HTTP 200, so a silent
+ *  success here would render a setup failure as "nothing to push". */
+function reportPush(result: CollectionPushResult): void {
+  const problems = pushProblems(result);
+  if (problems.length > 0) {
+    inlineError.value = t("collectionsView.pushFailed", { error: problems.join("; ") });
+    return;
+  }
+  const { created, updated, conflicts, localDeletes } = result;
+  showRefreshNote(t("collectionsView.pushDone", { created, updated, conflicts, localDeletes }));
 }
 
 /** Show a transient refresh note, replacing any pending auto-clear. */
