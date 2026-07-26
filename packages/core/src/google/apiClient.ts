@@ -7,7 +7,7 @@ import { fetchWithTimeout } from "../utils/fetch.js";
 
 export const GOOGLE_API_TIMEOUT_MS = 30 * ONE_SECOND_MS;
 const ERROR_BODY_MAX_CHARS = 300;
-const HTTP_FORBIDDEN = 403;
+export const HTTP_FORBIDDEN = 403;
 export const DEFAULT_LIST_MAX_RESULTS = 10;
 export const MAX_LIST_RESULTS = 50;
 

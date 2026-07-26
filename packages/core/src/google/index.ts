@@ -26,7 +26,7 @@ export {
   type RevokeFetch,
 } from "./auth.js";
 export { createGoogleAuthFlow, googleAuthFlow, type GoogleAuthFlow, type GoogleAuthFlowStatus } from "./authFlow.js";
-export { googleApiError, isGoogleApiError, GoogleApiError, DEFAULT_LIST_MAX_RESULTS, MAX_LIST_RESULTS } from "./apiClient.js";
+export { googleApiError, isGoogleApiError, GoogleApiError, DEFAULT_LIST_MAX_RESULTS, HTTP_FORBIDDEN, MAX_LIST_RESULTS } from "./apiClient.js";
 export {
   buildEventPatch,
   calendarApiError,
@@ -41,6 +41,7 @@ export {
   toCalendarSummary,
   toEventSummary,
   updateCalendarEvent,
+  getCalendar,
   getCalendarEvent,
   resolveEventSpan,
   CANCELLED_EVENT_STATUS,
@@ -71,7 +72,14 @@ export {
   toShadowEvent,
   type ShadowEvent,
 } from "./calendarPushState.js";
-export { pushCalendarForCollection, type CalendarCollectionPushResult, type CalendarPushDeps, type CalendarPushOutcome } from "./collectionPush.js";
+export {
+  isDeniedAccessRole,
+  pushCalendarForCollection,
+  type CalendarCollectionPushResult,
+  type CalendarPushDeps,
+  type CalendarPushOutcome,
+  type CalendarWriteTarget,
+} from "./collectionPush.js";
 export { toGoogleEventTime, zoneSuffixOf } from "./pushDateTime.js";
 export {
   baselineRecord,

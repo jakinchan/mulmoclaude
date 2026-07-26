@@ -133,7 +133,10 @@ Reasons a record can be reported as skipped:
 - **Clearing an event colour** — Google has no way to unset one.
 
 If the user only has `reader` access to the calendar, the whole push is refused
-with that reason rather than failing event by event.
+with that reason rather than failing event by event. A calendar the user can
+reach by id but has not added to their calendar list has no role to check, so
+the push goes ahead and reports Google's own refusal if the write turns out not
+to be allowed — being unlisted is not treated as being read-only.
 
 ## Not for this
 

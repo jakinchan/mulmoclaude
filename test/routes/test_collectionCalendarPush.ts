@@ -8,7 +8,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { calendarPushBody, pushReadOnlyError, PUSH_NOT_DECLARED_ERROR, PUSH_NOT_LINKED_ERROR } from "../../server/api/routes/collectionCalendarPush.js";
-import type { CalendarCollectionPushResult } from "@mulmoclaude/core/google";
+import { isDeniedAccessRole, type CalendarCollectionPushResult } from "@mulmoclaude/core/google";
 
 const result = (overrides: Partial<CalendarCollectionPushResult> = {}): CalendarCollectionPushResult => ({
   slug: "my-schedule",
@@ -62,6 +62,33 @@ describe("calendarPushBody — states that must not read as success", () => {
     for (const outcome of outcomes) {
       assert.equal(calendarPushBody(outcome).pushed, true);
     }
+  });
+});
+
+describe("isDeniedAccessRole — the up-front writability gate", () => {
+  // Refusing before any API call is only allowed on POSITIVE evidence. A
+  // calendar absent from `calendarList` reports no role, and hard-denying that
+  // would block the feature outright for a calendar shared with write access
+  // that the user simply has not added to their list. (Codex review on #2600.)
+  it("does not deny a calendar whose role is unknown", () => {
+    assert.equal(isDeniedAccessRole(null), false);
+  });
+
+  it("allows owner and writer", () => {
+    assert.equal(isDeniedAccessRole("owner"), false);
+    assert.equal(isDeniedAccessRole("writer"), false);
+  });
+
+  it("denies the read-only roles Google reports", () => {
+    assert.equal(isDeniedAccessRole("reader"), true);
+    assert.equal(isDeniedAccessRole("freeBusyReader"), true);
+  });
+
+  // A listed calendar reporting an empty role is evidence of a role we do not
+  // recognise, not of an unlisted calendar — those carry null.
+  it("denies an unrecognised role rather than assuming it can write", () => {
+    assert.equal(isDeniedAccessRole(""), true);
+    assert.equal(isDeniedAccessRole("somethingNew"), true);
   });
 });
 

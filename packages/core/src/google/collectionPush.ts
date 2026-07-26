@@ -12,10 +12,11 @@ import type { LoadedCollection } from "../collection/server/discoveredCollection
 import { storeFor } from "../collection/server/store.js";
 import type { CollectionFieldSpec, CollectionItem } from "../collection/core/schema.js";
 import { getGoogleAccessToken } from "./auth.js";
-import { isGoogleApiError } from "./apiClient.js";
+import { isGoogleApiError, HTTP_FORBIDDEN } from "./apiClient.js";
 import {
   canonicalCalendarId,
   createCalendarEvent,
+  getCalendar,
   getCalendarEvent,
   listCalendars,
   updateCalendarEvent,
@@ -48,6 +49,25 @@ import { log } from "./host.js";
  *  the user is told the real reason. */
 const WRITABLE_ACCESS_ROLES: readonly string[] = ["owner", "writer"];
 
+/** What the up-front writability gate knows about the target calendar. */
+export interface CalendarWriteTarget {
+  /** The role from the user's calendar LIST, or null when the calendar is not in
+   *  it. Null means unknown, never read-only: `calendarList` holds only the
+   *  calendars the user has added, so one shared with write access can be absent
+   *  from it (Codex review). */
+  accessRole: string | null;
+  /** IANA zone for rebuilding a zone-less stored clock, `""` when unreported. */
+  timeZone: string;
+}
+
+/** Whether to refuse the whole push before touching a single event.
+ *
+ *  Only on POSITIVE evidence of a non-writable role. An unlisted calendar is
+ *  unknown and must fall through: hard-denying it would block the feature
+ *  outright for a calendar the user can in fact write to. Those attempts surface
+ *  Google's own 403 per record if the write really is not allowed. */
+export const isDeniedAccessRole = (accessRole: string | null): boolean => accessRole !== null && !WRITABLE_ACCESS_ROLES.includes(accessRole);
+
 export interface CalendarCollectionPushResult {
   slug: string;
   created: number;
@@ -78,19 +98,28 @@ export interface CalendarPushDeps {
   findCollection: (slug: string, workspaceRoot: string) => Promise<LoadedCollection | null>;
   isLinked: () => Promise<boolean>;
   accessToken: () => Promise<string>;
-  calendarMeta: (accessToken: string, calendarId: string | undefined) => Promise<{ accessRole: string; timeZone: string }>;
+  calendarMeta: (accessToken: string, calendarId: string | undefined) => Promise<CalendarWriteTarget>;
 }
 
 /** Resolve the calendar a schema names, for its writability and its timezone.
  *
- *  `"primary"` is matched on the `primary` flag, not the id — the primary
- *  calendar's own id is the account's email address, which never equals the
- *  literal the schema declares. */
-async function liveCalendarMeta(accessToken: string, calendarId: string | undefined): Promise<{ accessRole: string; timeZone: string }> {
+ *  The list is consulted first because only it reports `accessRole`, which is
+ *  what lets a read-only calendar be refused with the real reason instead of an
+ *  opaque per-event 403. `"primary"` is matched on the `primary` flag, not the
+ *  id — the primary calendar's own id is the account's email address, which never
+ *  equals the literal the schema declares.
+ *
+ *  A calendar absent from the list is NOT denied: it is fetched by id for its
+ *  timezone and its role left unknown. A 404 there means the calendar really is
+ *  unreachable, and propagates as a `failed` outcome. */
+async function liveCalendarMeta(accessToken: string, calendarId: string | undefined): Promise<CalendarWriteTarget> {
   const key = canonicalCalendarId(calendarId);
   const calendars = await listCalendars(accessToken);
-  const found = key === "primary" ? calendars.find((calendar) => calendar.primary) : calendars.find((calendar) => calendar.id === key);
-  return { accessRole: found?.accessRole ?? "", timeZone: found?.timeZone ?? "" };
+  const listed = key === "primary" ? calendars.find((calendar) => calendar.primary) : calendars.find((calendar) => calendar.id === key);
+  if (listed) return { accessRole: listed.accessRole, timeZone: listed.timeZone };
+  const direct = await getCalendar(accessToken, calendarId);
+  log.info("google", "calendar is not in the user's list — pushing without an up-front role check", { calendarId: key });
+  return { accessRole: null, timeZone: direct.timeZone };
 }
 
 async function findCalendarCollection(slug: string, workspaceRoot: string): Promise<LoadedCollection | null> {
@@ -247,6 +276,18 @@ async function createOrAdopt(ctx: PushContext, eventId: string, record: Collecti
   }
 }
 
+/** A 403 on a write is a permissions answer, but `googleApiError` appends the
+ *  "is the API enabled for the Cloud project?" hint to every 403 — true for a
+ *  disabled API, misleading here. Reached when the up-front role check could not
+ *  run because the calendar is not in the user's list, which is exactly when the
+ *  user needs the real reason. */
+function writeFailure(eventId: string, error: unknown): PushOutcome {
+  if (isGoogleApiError(error) && error.status === HTTP_FORBIDDEN) {
+    return { kind: "skipped", message: `${eventId}: Google refused the write — you may not have permission to change events on this calendar` };
+  }
+  return { kind: "error", message: `${eventId}: ${String(error)}` };
+}
+
 async function pushRecord(ctx: PushContext, eventId: string, record: CollectionItem): Promise<PushOutcome> {
   try {
     const shadow = ctx.shadow[eventId];
@@ -256,7 +297,7 @@ async function pushRecord(ctx: PushContext, eventId: string, record: CollectionI
     return await updateFromRecord(ctx, eventId, record, plan.fields, shadow);
   } catch (error) {
     // One rejected event must not abandon the rest of the collection.
-    return { kind: "error", message: `${eventId}: ${String(error)}` };
+    return writeFailure(eventId, error);
   }
 }
 
@@ -286,7 +327,7 @@ async function pushNow(collection: LoadedCollection, workspaceRoot: string, deps
   const calendarId = schema.googleCalendar?.calendarId;
   const accessToken = await deps.accessToken();
   const meta = await deps.calendarMeta(accessToken, calendarId);
-  if (!WRITABLE_ACCESS_ROLES.includes(meta.accessRole)) return { kind: "read-only", accessRole: meta.accessRole };
+  if (isDeniedAccessRole(meta.accessRole)) return { kind: "read-only", accessRole: meta.accessRole ?? "" };
 
   const map = pushableMap(schema.googleCalendar?.map ?? {});
   const shadow = await loadCalendarShadow(calendarId, workspaceRoot);

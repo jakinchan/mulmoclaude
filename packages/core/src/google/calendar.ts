@@ -377,6 +377,19 @@ export async function collectCalendarPages(
 /** The calendars the user has added/subscribed to (primary + secondary +
  *  shared), each with its id, name and colour, following pagination. Needs the
  *  calendar-list read scope (GOOGLE_CALENDARLIST_SCOPE). */
+/** One calendar's own resource, addressed by id rather than looked up in the
+ *  user's list.
+ *
+ *  `calendarList` only holds calendars the user has ADDED; a calendar shared
+ *  with them can be readable and writable by id without appearing there. This is
+ *  how a push learns such a calendar's `timeZone`. Note the resource carries no
+ *  `accessRole` — that is a calendarList property — so reachability here says
+ *  nothing about writability. */
+export async function getCalendar(accessToken: string, calendarId: string | undefined): Promise<CalendarSummary> {
+  const url = `${CALENDAR_BASE_URL}/calendars/${encodeURIComponent(canonicalCalendarId(calendarId))}`;
+  return toCalendarSummary(await googleRequest(CALENDAR_API_LABEL, accessToken, url));
+}
+
 export async function listCalendars(accessToken: string): Promise<CalendarSummary[]> {
   return collectCalendarPages(async (pageToken) => {
     const params = new URLSearchParams({ maxResults: String(CALENDAR_LIST_PAGE_SIZE) });
