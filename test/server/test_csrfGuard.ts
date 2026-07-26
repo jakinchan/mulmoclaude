@@ -13,7 +13,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Request, Response, NextFunction } from "express";
-import { isAllowedOrigin, isLocalhostOrigin, isLoopbackPeer, isTrustedOrigin, requireSameOrigin, requireSameOriginWith } from "../../server/api/csrfGuard.js";
+import {
+  csrfVerdict,
+  isAllowedOrigin,
+  isLocalhostOrigin,
+  isLoopbackPeer,
+  isTrustedOrigin,
+  requireSameOrigin,
+  requireSameOriginWith,
+} from "../../server/api/csrfGuard.js";
 import { type FakeReq, type FakeRes, makeReq, makeReqWithRawOrigin, makeRes } from "./helpers/fakeExpressMiddleware.js";
 
 // --- isLocalhostOrigin: the pure check --------------------------
@@ -216,6 +224,55 @@ describe("requireSameOrigin — state-changing methods, missing Origin", () => {
   it("still allows a GET from a non-loopback peer", () => {
     const { nextCalled } = run(makeReq("GET", undefined, "192.168.1.50"), makeRes());
     assert.equal(nextCalled, true);
+  });
+
+  // Pins the LIMIT of the peer check rather than a capability, so nobody
+  // later mistakes it for proxy-aware. A remote client relayed by a local
+  // proxy arrives from the proxy's own loopback socket and is allowed —
+  // and always will be, because nothing at this layer can tell it apart
+  // from a genuine local caller. Believing a forwarded-for header would
+  // just move the trust onto an attacker-settable string.
+  //
+  // That case belongs to the proxy boundary and is handled there: the dev
+  // server refuses non-loopback callers on the paths it forwards.
+  it("cannot see past a proxy — a forwarded request still looks local (documented limit)", () => {
+    // The socket Express sees when a local proxy relays a LAN client.
+    const { nextCalled } = run(makeReq("POST", undefined, "127.0.0.1"), makeRes());
+    assert.equal(nextCalled, true, "if this ever fails, the guard gained proxy awareness it was never designed to have");
+  });
+});
+
+describe("csrfVerdict — the decision table, without Express", () => {
+  const NO_TRUSTED: readonly string[] = [];
+
+  it("allows every safe method regardless of origin or peer", () => {
+    for (const method of ["GET", "HEAD", "OPTIONS"]) {
+      assert.equal(csrfVerdict(method, "http://evil.example", "192.168.1.50", NO_TRUSTED).allow, true);
+    }
+  });
+
+  it("allows an Origin-less state change only from a loopback peer", () => {
+    assert.equal(csrfVerdict("POST", undefined, "127.0.0.1", NO_TRUSTED).allow, true);
+    assert.equal(csrfVerdict("POST", undefined, "::1", NO_TRUSTED).allow, true);
+    assert.equal(csrfVerdict("POST", undefined, "::ffff:127.0.0.1", NO_TRUSTED).allow, true);
+    assert.equal(csrfVerdict("POST", undefined, "192.168.1.50", NO_TRUSTED).allow, false);
+    assert.equal(csrfVerdict("POST", undefined, undefined, NO_TRUSTED).allow, false);
+  });
+
+  it("rejects a non-string Origin even from a loopback peer", () => {
+    const verdict = csrfVerdict("POST", ["http://localhost", "http://evil.example"], "127.0.0.1", NO_TRUSTED);
+    assert.equal(verdict.allow, false);
+  });
+
+  it("honours the trusted-origins allowlist", () => {
+    assert.equal(csrfVerdict("POST", "http://192.168.1.42:5173", "127.0.0.1", ["http://192.168.1.42:5173"]).allow, true);
+    assert.equal(csrfVerdict("POST", "http://192.168.1.42:5173", "127.0.0.1", NO_TRUSTED).allow, false);
+  });
+
+  it("reports the offending value so the caller can log it", () => {
+    const verdict = csrfVerdict("POST", "http://evil.example", "127.0.0.1", NO_TRUSTED);
+    assert.equal(verdict.allow, false);
+    if (!verdict.allow) assert.equal(verdict.offending, "http://evil.example");
   });
 });
 
