@@ -1,7 +1,7 @@
 {
   "name": "mulmoclaude",
-  "version": "1.7.0",
-  "description": "MulmoClaude — GUI-chat with Claude Code + long-term memory. One command to start.",
+  "version": "1.7.1",
+  "description": "MulmoClaude \u2014 GUI-chat with Claude Code + long-term memory. One command to start.",
   "type": "module",
   "bin": {
     "mulmoclaude": "bin/mulmoclaude.js"
@@ -37,7 +37,7 @@
     "@mulmochat-plugin/ui-image": "^0.4.1",
     "@mulmoclaude/accounting-plugin": "^1.1.0",
     "@mulmoclaude/chart-plugin": "^1.0.3",
-    "@mulmoclaude/collection-plugin": "^1.2.0",
+    "@mulmoclaude/collection-plugin": "^1.2.1",
     "@mulmoclaude/common": "^1.1.1",
     "@mulmoclaude/core": "^1.7.0",
     "@mulmoclaude/form-plugin": "^1.0.2",
