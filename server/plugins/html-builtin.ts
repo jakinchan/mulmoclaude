@@ -10,7 +10,7 @@ import { executeHtmlDispatch, isHtmlDispatchArgs, isPackHtmlArgs } from "@mulmoc
 import type { PackHtmlArgs, PackHtmlResult } from "@mulmoclaude/html-plugin";
 import { makeArtifactsFileOps } from "./runtime.js";
 import { publishFileChange } from "../events/file-change.js";
-import { registerBuiltinDispatch } from "./builtin-dispatch.js";
+import { describeKind, registerBuiltinDispatch } from "./builtin-dispatch.js";
 import { packHtmlZip } from "../utils/share/packHtml.js";
 import { isHtmlPath } from "../utils/files/html-store.js";
 
@@ -36,7 +36,7 @@ registerBuiltinDispatch(HTML_SCOPE, async (args) => {
     return packHtmlForDownload(args);
   }
   if (!isHtmlDispatchArgs(args)) {
-    throw new Error(`html plugin: unrecognised dispatch payload (kind=${JSON.stringify(args.kind)})`);
+    throw new Error(`html plugin: unrecognised dispatch payload (kind=${describeKind(args)})`);
   }
   const dispatchArgs = args;
   const result = await executeHtmlDispatch({ files: { artifacts: makeArtifactsFileOps() } }, dispatchArgs);

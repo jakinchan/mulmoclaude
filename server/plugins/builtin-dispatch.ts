@@ -15,6 +15,23 @@ export type BuiltinDispatchHandler = (args: Record<string, unknown>) => Promise<
 
 const registry = new Map<string, BuiltinDispatchHandler>();
 
+/** Render a rejected payload's `kind` for an error message, without
+ *  dereferencing it.
+ *
+ *  A handler reaches this only after its guard said no, so the value is by
+ *  definition malformed — and `payload.kind` on a `null` or a primitive throws
+ *  a TypeError, replacing the diagnostic the caller was about to get with a
+ *  crash. A rejection path that throws is not a rejection path.
+ *
+ *  The declared parameter is `Record<string, unknown>` and the HTTP route
+ *  already coerces (`isRecord(req.body) ? req.body : {}`), so this is
+ *  belt-and-braces for a direct caller — a test, or another host wiring the
+ *  registry up itself. */
+export function describeKind(payload: unknown): string {
+  if (payload === null || typeof payload !== "object") return JSON.stringify(payload) ?? String(payload);
+  return JSON.stringify((payload as { kind?: unknown }).kind) ?? "undefined";
+}
+
 /** Register a built-in plugin's dispatch handler under its scope name.
  *  Last registration wins (modules are imported once at boot). */
 export function registerBuiltinDispatch(scope: string, handler: BuiltinDispatchHandler): void {
