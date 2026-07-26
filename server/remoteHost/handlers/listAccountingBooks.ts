@@ -22,10 +22,11 @@ export const createListAccountingBooks =
   // Takes no params (the `__` prefix marks it intentionally unused per lint).
   async (__params: JsonObject) => {
     const { books } = await deps.listBooks();
-    // { id, name } are always present on a BookSummary. The cast only satisfies
-    // the channel's structural JsonValue type, which the BookSummary interface
-    // (no index signature) can't match directly.
-    return { books: books.map((book) => ({ id: book.id, name: book.name })) } as unknown as JsonObject;
+    // No `toJsonObject` needed here, unlike the sibling handlers: the `.map`
+    // rebuilds each entry as an anonymous object literal, and those DO get
+    // TypeScript's implicit index signature. `BookSummary`'s own lack of one
+    // never reaches the return type.
+    return { books: books.map((book) => ({ id: book.id, name: book.name })) };
   };
 
 export const listAccountingBooks = createListAccountingBooks({ listBooks });

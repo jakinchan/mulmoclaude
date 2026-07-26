@@ -4,6 +4,7 @@
 // GET /api/shortcuts → { shortcuts: Shortcut[] }. Read-only: editing the pin
 // list stays desktop-only.
 import { readShortcuts } from "../../utils/files/shortcuts-io.js";
+import { toJsonObject } from "../commandChannel.js";
 import type { CommandHandler, JsonObject } from "../commandChannel.js";
 
 export interface ListShortcutsDeps {
@@ -16,9 +17,7 @@ export const createListShortcuts =
   // prefix marks it intentionally unused per the lint config).
   async (__params: JsonObject) => {
     const shortcuts = await deps.read();
-    // Shortcut is plain JSON (string fields) but the interface lacks an index
-    // signature, so it doesn't structurally match JsonValue — cast is safe.
-    return { shortcuts } as unknown as JsonObject;
+    return toJsonObject({ shortcuts });
   };
 
 export const listShortcuts = createListShortcuts({ read: readShortcuts });

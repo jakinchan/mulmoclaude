@@ -20,8 +20,21 @@ export { clampLimit, clampOffset, readIdParam };
 export const deriveItems = (schema: { fields?: Record<string, DerivableFieldSpec> }, items: unknown[]): DerivableRecord[] =>
   items.map((item) => deriveAll({ fields: schema.fields ?? {} }, item as DerivableRecord, {}));
 
-// Build the paginated result. `detail` (a CollectionDetail) and `items`
-// (CollectionItem[]) are plain JSON, but their interfaces lack an index
-// signature so they don't structurally match JsonValue — the cast is safe.
+/** Build the paginated result.
+ *
+ *  `toJsonObject` cannot serve this one. `CollectionDetail` reaches
+ *  `schema.spawn.set`, typed `Record<string, unknown>`, so the payload
+ *  genuinely CANNOT be proven JSON by the type system — it is JSON at runtime
+ *  because the schema loader only ever puts JSON there, a fact about the
+ *  loader that these types do not record.
+ *
+ *  Removing this assertion means giving `spawn.set` a JSON-valued type at the
+ *  schema layer, not adjusting anything here. */
 export const pageResult = (detail: unknown, items: unknown[], offset: number, limit: number): JsonObject =>
-  ({ collection: detail, items: items.slice(offset, offset + limit), total: items.length, offset, limit }) as unknown as JsonObject;
+  ({
+    collection: detail,
+    items: items.slice(offset, offset + limit),
+    total: items.length,
+    offset,
+    limit,
+  }) as JsonObject;

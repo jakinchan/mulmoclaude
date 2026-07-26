@@ -30,8 +30,10 @@ export const createGetRemoteViewItems =
     if (!collection) throw new Error(`collection '${slug}' not found`);
     const result = await deps.remoteViewItems(collection, viewId, request);
     if (result.kind !== "ok") throw new Error(remoteViewItemsFailureMessage(result, slug));
-    // Plain JSON, but the interface lacks an index signature — cast like the
-    // phase-2/3 handlers.
+    // Not `toJsonObject`: `RemoteViewPage.items` is `RemoteViewItem[]`, whose
+    // values are `unknown`, so the payload cannot be PROVEN JSON — same
+    // irreducible gap as `pageResult` in collectionPage.ts, and for the same
+    // reason (record values are JSON by loader invariant, not by type).
     return { page: result.page, inlined: result.inlined, omitted: result.omitted } as unknown as JsonObject;
   };
 

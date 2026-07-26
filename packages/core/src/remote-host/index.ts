@@ -20,6 +20,40 @@ import { CollectionReference, DocumentData, DocumentReference, Firestore, collec
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = Record<string, JsonValue>;
 
+/** Structural JSON view of `T`, recursively.
+ *
+ *  TypeScript gives an implicit index signature to type aliases and mapped
+ *  types but NOT to interfaces, so a payload assembled from domain interfaces
+ *  (`Shortcut`, `FeedSummary`, …) cannot satisfy `Record<string, JsonValue>`
+ *  structurally — even though it is plain JSON at runtime. Mapping over `T`
+ *  reconstructs it as an anonymous type, which does get that index signature.
+ *
+ *  Recursive on purpose: a top-level-only map would still leave nested
+ *  interfaces (`{ shortcuts: Shortcut[] }`) unassignable, which is the case
+ *  every handler here actually has. */
+// The function branch must come BEFORE the object branch: a function IS an
+// object to TypeScript, so without it a function maps to `{}` and sails
+// through — the helper would accept a payload that serialises to nothing.
+// Verified: `toJsonObject({ callback: () => undefined })` compiled clean until
+// this branch existed (CodeRabbit, #2596).
+export type Jsonify<T> = T extends JsonValue
+  ? T
+  : T extends (...args: never[]) => unknown
+    ? never
+    : T extends (infer U)[]
+      ? Jsonify<U>[]
+      : T extends object
+        ? { [K in keyof T]: Jsonify<T[K]> }
+        : never;
+
+/** Widen a JSON-shaped handler payload to the channel's `JsonObject`.
+ *
+ *  Exists so the `Jsonify` reasoning above lives in ONE place. Before this,
+ *  eight remote-host handlers each carried their own `as unknown as JsonObject`
+ *  with the justification re-argued in eight slightly different comments —
+ *  which is how a rule stops being reviewable. */
+export const toJsonObject = <T extends object>(payload: Jsonify<T>): JsonObject => payload as JsonObject;
+
 // A channel routes commands to one specific host. Both sides agree on a
 // hardcoded hostId per use case (e.g. "mulmoclaude", "mulmoterminal"); there is
 // no discovery — the remote and host just share the id.
