@@ -20,9 +20,14 @@
 //   - The inner handler stays in charge of 4xx mapping (validation,
 //     not-found, etc.) — those paths respond + `return` inside the
 //     handler before the wrapper's catch ever runs.
-//   - Skipped when the response has already been sent (`headersSent`)
-//     so a partial response that throws mid-stream doesn't try to
-//     write a second status.
+//   - When the response has already been sent (`headersSent`), a
+//     second status can't be written, so the error is forwarded to
+//     Express via `next(err)` instead. Measured against Express 5.2.1:
+//     returning without forwarding leaves the request hanging with no
+//     end to its body, while forwarding makes finalhandler destroy the
+//     socket in milliseconds. No route wrapped here streams today, so
+//     this branch is currently unreachable — it exists so the first
+//     streaming route added doesn't inherit a silent hang.
 //
 // Naming: `namespace` is the log tag (e.g. "accounting", "wiki") —
 // matches the existing `log.info("namespace", …)` convention across
@@ -31,7 +36,7 @@
 // load news items", "Failed to list tasks", …) so the client-facing
 // behaviour is unchanged.
 
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { log } from "../system/logger/index.js";
 import { errorMessage } from "./errors.js";
 import { serverError, type ErrorSendable } from "./httpError.js";
@@ -71,15 +76,23 @@ export function asyncHandler<TReq extends RoutePathBearing = Request, TRes exten
   namespace: string,
   fallbackMessage: string,
   handler: (req: TReq, res: TRes) => Promise<void>,
-): (req: TReq, res: TRes) => Promise<void> {
-  return async (req, res) => {
+): (req: TReq, res: TRes, next: NextFunction) => Promise<void> {
+  return async (req, res, next) => {
     try {
       await handler(req, res);
     } catch (err) {
       log.error(namespace, "handler threw", { route: req.path, error: errorMessage(err) });
-      if (!res.headersSent) {
-        serverError(res, fallbackMessage);
+      if (res.headersSent) {
+        // A partially-sent response can't take a clean 500, and simply
+        // returning here leaves the request open — measured against this
+        // repo's Express (5.2.1), the client waits indefinitely for a body
+        // that never ends. Handing the error to Express lets finalhandler
+        // destroy the socket instead, so the caller fails in milliseconds
+        // rather than hanging until some timeout upstream.
+        next(err);
+        return;
       }
+      serverError(res, fallbackMessage);
     }
   };
 }
