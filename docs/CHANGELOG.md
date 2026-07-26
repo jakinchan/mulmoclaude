@@ -8,6 +8,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+---
+
+## [1.7.0] - 2026-07-27
+
+**Google Calendar sync stops being one-way, and a cycle of hardening closes the gaps where external data was trusted without checking.**
+
+### Highlights
+
+#### Push a collection back to Google Calendar (#2598, #2600)
+
+A `googleCalendar` collection could only ever be filled *from* Google. There was no setting for a write-back, which is why a beta user trying to set up "two-way sync" could not find one — and why the conversation with the agent went in circles: the thing being looked for did not exist.
+
+The collection view now has a **Push to Google** button beside Sync. It creates events for records added locally and updates the fields actually edited, leaving attendees, reminders and recurrence untouched. It deliberately **never deletes** — a Google delete removes the event for every attendee and cannot be undone — and it **skips a record edited on both sides** rather than picking a winner.
+
+**Push before you sync.** A pull overwrites a locally edited record as soon as Google reports any change to that event, so syncing first can discard the edit that was waiting to go out. The help doc the agent reads now says this outright, along with a plain statement that there is no automatic write-back and no config key for one.
+
+Under it sits a per-calendar baseline (`data/calendar/.push-state.json`) holding the raw value Google last reported. The pull deliberately drops the zone offset and flattens all-day into `…T00:00`, so a push cannot rebuild a Google time from the stored value alone — and the same baseline is the only way to tell a local edit from an untouched record. Writes are conditional (`If-Match` on the etag; a 412 is reported as a conflict rather than silently overwriting), and conflict detection is field-level, so Google moving an event you retitled locally is not treated as a clash.
+
+Not yet verified against a live calendar — tracked in #2602.
+
+#### Self-service triage when something looks broken (#2571, #2579, #2586)
+
+"Is this a bug?" now starts with an attempt to *solve* it rather than to file it. The agent takes the symptom through one form, checks whether settings or documented behaviour already explain it, then searches existing issues — and only files something new if none of that accounted for the behaviour. Diagnostics are masked server-side before they are shown.
+
+#### Security and robustness sweep
+
+- **Dev server no longer exposes your LAN by default** (#2599). `vite dev` bound every interface unconditionally. It now binds loopback unless `MULMOCLAUDE_DEV_LAN=1`; with LAN on, the session token is injected only for loopback callers and the proxied `/api` + `/artifacts` prefixes are refused for everyone else.
+- **The CSRF guard stopped assuming its own premise** (#2601). `requireSameOrigin` allowed every `Origin`-less request, justified by a comment saying the server binds 127.0.0.1 — true, but nothing checked it. `isLoopbackPeer` now gates that branch, handling the `::ffff:127.0.0.1` form a dual-stack listener reports.
+- **Log injection closed** (#2591, #2595). Every request-derived value reaching `log.*` in the route layer goes through `singleLineForLog`, so CR/LF in a crafted slug or id cannot forge log lines. Classified per site rather than swept blindly — 9 of 28 `slug` sites in `collections.ts` were request-derived.
+- **External data validated instead of cast** (#2592/#2596, #2594/#2603). Eight hand-rolled `JsonObject` casts in the remote-host handlers and the unchecked `as` casts on HTML / markdown tool arguments are replaced with real runtime guards, so a malformed payload is refused at the boundary rather than reaching a handler shaped as something it is not.
+- **`asyncHandler` types tightened, and it stops swallowing errors** (#2590, #2593/#2597). Structural bounds replace its `Request` / `Response` casts, and `next(err)` is forwarded when headers are already sent instead of being dropped.
+- **Polynomial ReDoS fixed** in the HTML attribute iterator (CodeQL #402, #2587).
+
+#### Sessions list got faster (#2588, #2589, #2584, #2585)
+
+`GET /api/sessions` re-read every session's meta sidecar on every scan — 493 sessions in a 90-day window is not unusual, and each one cost a `stat`, an open + read + parse, and another `stat`. The meta is now cached against the diff cursor the client already sends. Separately, returning to a backgrounded tab fired the catch-up twice (a reconnect and a visibility flip landing together), doing all that work twice over.
+
 ### Packages published during this cycle
 
 - **`@mulmoclaude/core@1.7.0`** (#2598/PR #2600, #2592/PR #2596, PR #2587) — released 2026-07-27. **Collection → Google Calendar push** (#2598): Google Calendar sync was pull-only and no setting enabled a write-back, which is why a user asking for "two-way sync" could not find one to configure. `pushCalendarForCollection` adds the other direction — creating events for locally added records and patching only the fields actually edited, so attendees / reminders / recurrence stay untouched. It never deletes (a Google delete removes the event for every attendee and is irreversible) and skips a record edited on both sides rather than picking a winner. The substance is a new per-calendar baseline, `<workspace>/data/calendar/.push-state.json`, holding the RAW value Google last reported per event: `toCollectionDateTime` deliberately drops the zone offset and flattens all-day into `…T00:00`, so a push cannot rebuild a Google time from the stored value alone, and the same baseline is the only way to tell a local edit from an untouched record. Pull → push round-trips byte-identically, pinned by test. Conflict detection is field-level (Google moving an event the user retitled locally is not a conflict, because the patch carries only the title) and the write is conditional — `getCalendarEvent` returns the etag, `updateCalendarEvent` sends it as `If-Match`, and 412 is reported as a conflict rather than silently overwriting a version never read. New surface: `toGoogleEventTime`, `planRecord` / `conflictingFields` / `mayAdoptExisting` / `locallyDeletedIds`, the `.push-state.json` accessors, `getCalendar`, `getCalendarEvent`, `CalendarEventTime` / `CalendarEventSpan` (all-day and explicit `timeZone`), `ifMatch` on `UpdateCalendarEventInput`, and `extraHeaders` on `googleRequest`. **Typed remote-host handlers** (#2592): eight hand-rolled `JsonObject` casts replaced with real guards, so a malformed command payload is refused at the boundary. **ReDoS fix** (CodeQL #402): the polynomial backtracking pattern in the HTML attribute iterator is gone. All 11 declared `@mulmoclaude/core` ranges swept `^1.6.0 → ^1.7.0`.
@@ -15,6 +52,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 - **`@mulmoclaude/html-plugin@1.1.0`**, **`@mulmoclaude/markdown-plugin@1.1.0`** (#2594/PR #2603) — released 2026-07-27. Export `isHtmlDispatchArgs` / `isPackHtmlArgs` and `isMarkdownDispatchArgs`. Externally supplied tool arguments were narrowed with unchecked `as` casts, so a malformed payload reached the handler shaped as something it was not; the guards reject it at the boundary.
 - **`@mulmoclaude/accounting-plugin@1.1.0`** (PR #2590) — released 2026-07-27. Exports `ErrorBody` and `ApiResponse<T>`, and `asyncHandler` takes structural bounds (`RoutePathBearing` / `ErrorSendableResponse`) instead of casting its `Request` / `Response` generics — a handler whose response type cannot carry an error body is now a compile error.
 - **`chart` / `google` / `mulmoscript` plugins deliberately NOT republished** — their only drift since their last tag is the `@mulmoclaude/core` range ratchet, so their published source is unchanged. The swept `^1.7.0` range reaches npm on each package's own next release, which is what the dep-range rule intends.
+
+Ships `@mulmoclaude/core@1.7.0`, `@mulmoclaude/collection-plugin@1.2.0`, `@mulmoclaude/html-plugin@1.1.0`, `@mulmoclaude/markdown-plugin@1.1.0`, `@mulmoclaude/accounting-plugin@1.1.0`, `@mulmoclaude/google-plugin@1.2.0`, `@mulmoclaude/chart-plugin@1.0.3`, `@mulmoclaude/mulmoscript-plugin@1.1.2`, `@mulmoclaude/common@1.1.1`, `@mulmoclaude/form-plugin@1.0.2`, `@mulmoclaude/markdown-utils@1.3.1`, `@mulmoclaude/spotify-plugin@1.0.2`, `@mulmoclaude/x-plugin@1.0.1`.
 
 ---
 
