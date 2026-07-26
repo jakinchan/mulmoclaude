@@ -66,6 +66,18 @@
     </button>
 
     <button
+      v-if="collection?.schema?.googleCalendar"
+      type="button"
+      class="h-8 px-2.5 flex items-center gap-1 rounded border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-600 font-bold text-xs transition-colors disabled:opacity-50"
+      :disabled="pushing"
+      data-testid="collections-push-calendar"
+      @click="$emit('pushCalendar')"
+    >
+      <span class="material-icons text-sm">{{ pushing ? "hourglass_empty" : "upload" }}</span>
+      <span>{{ t("collectionsView.pushCalendar") }}</span>
+    </button>
+
+    <button
       v-if="collection"
       type="button"
       class="h-8 px-2.5 flex items-center gap-1 rounded border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-600 font-bold text-xs transition-colors"
@@ -213,6 +225,7 @@ const props = defineProps<{
   dataSourceRoute: string | null;
   isFeedRoute: boolean;
   refreshing: boolean;
+  pushing: boolean;
   collectionActions: CollectionAction[];
   collectionActionPending: boolean;
   runningActionIds: Set<string>;
@@ -225,6 +238,7 @@ const props = defineProps<{
 defineEmits<{
   back: [];
   refreshFeed: [];
+  pushCalendar: [];
   openChat: [];
   runCollectionAction: [action: CollectionAction];
   openCreate: [];

@@ -331,6 +331,10 @@ const HOST_API_ROUTES = {
      *  `googleCalendar` sync (#2427) → { refreshed, written, removed? }.
      *  400 when the collection declares neither. */
     refresh: "/api/collections/:slug/refresh",
+    /** POST → push locally created / edited records to the Google calendar the
+     *  collection declares (#2598) → { pushed, created, updated, conflicts, … }.
+     *  400 when the collection declares no `googleCalendar`. Never deletes. */
+    calendarPush: "/api/collections/:slug/calendar-push",
     /** GET ?id=<viewId> → the custom view's HTML file (global-bearer auth),
      *  read from data/skills/:slug/views/. The parent renders it sandboxed. */
     viewFile: "/api/collections/:slug/view-file",

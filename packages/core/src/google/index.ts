@@ -41,10 +41,14 @@ export {
   toCalendarSummary,
   toEventSummary,
   updateCalendarEvent,
+  getCalendarEvent,
+  resolveEventSpan,
   type CalendarColorEntry,
   type CalendarColors,
   type CalendarEventInput,
+  type CalendarEventSpan,
   type CalendarEventSummary,
+  type CalendarEventTime,
   type CalendarListPage,
   type CalendarSummary,
   type CalendarSyncResult,
@@ -54,6 +58,30 @@ export {
   type UpdateCalendarEventInput,
 } from "./calendar.js";
 export { calendarSyncStatePath, clearCalendarSyncToken, loadCalendarSyncToken, saveCalendarSyncToken } from "./calendarSyncStore.js";
+export {
+  calendarPushStatePath,
+  clearCalendarShadow,
+  loadCalendarShadow,
+  mergeShadow,
+  saveCalendarShadow,
+  toShadowEvent,
+  type ShadowEvent,
+} from "./calendarPushState.js";
+export { pushCalendarForCollection, type CalendarCollectionPushResult, type CalendarPushDeps, type CalendarPushOutcome } from "./collectionPush.js";
+export { toGoogleEventTime, zoneSuffixOf } from "./pushDateTime.js";
+export {
+  baselineRecord,
+  bySourceField,
+  conflictingFields,
+  isClientSettableEventId,
+  locallyChangedFields,
+  locallyDeletedIds,
+  planRecord,
+  pushableMap,
+  PUSHABLE_SOURCE_FIELDS,
+  type PushableSourceField,
+  type RecordPlan,
+} from "./pushPlan.js";
 export { toCollectionDateTime } from "./collectionDateTime.js";
 export {
   googleCalendarSyncTaskDef,
@@ -67,8 +95,10 @@ export {
   syncCalendarGroup,
   syncDueCalendarCollections,
   syncNewCalendarCollections,
+  shadowUpdates,
   toCollectionRecord,
   unsyncedGroups,
+  withCalendarLock,
   withKeyedLock,
   GOOGLE_CALENDAR_SYNC_TASK_ID,
   type CalendarCollectionSyncResult,

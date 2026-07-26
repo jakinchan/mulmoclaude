@@ -96,6 +96,9 @@ const jaMessages: CollectionMessages = {
     syncCalendar: "同期",
     refreshFailed: "更新に失敗しました: {error}",
     refreshDispatched: "バックグラウンドで更新を開始しました。",
+    pushCalendar: "Googleへ書き出し",
+    pushFailed: "書き出しに失敗しました: {error}",
+    pushDone: "Googleへ書き出しました: {created}件作成、{updated}件更新、{conflicts}件は競合のためスキップ、{localDeletes}件のローカル削除は未反映。",
     feedChatSeed:
       "フィード「{slug}」はスキーマ `feeds/{slug}/schema.json` で定義され、レコードは `{dataPath}/`（1 レコードにつき `<id>.json` 1 ファイル）に保存されています。このスキーマとデータを使って、次のリクエストに応えてください: {message}",
     feedsTitle: "データソースフィード",

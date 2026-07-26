@@ -22,6 +22,7 @@ import { getGoogleAccessToken } from "./auth.js";
 import { canonicalCalendarId, syncCalendarEvents, type CalendarEventSummary } from "./calendar.js";
 import { toCollectionDateTime } from "./collectionDateTime.js";
 import { clearCalendarSyncToken, loadCalendarSyncToken, saveCalendarSyncToken } from "./calendarSyncStore.js";
+import { clearCalendarShadow, saveCalendarShadow, toShadowEvent, type ShadowEvent } from "./calendarPushState.js";
 import { loadGoogleTokens } from "./tokenStore.js";
 import { log } from "./host.js";
 
@@ -128,6 +129,9 @@ async function applyEvent(collection: LoadedCollection, event: CalendarEventSumm
 
 async function restartFullSync(accessToken: string, calendarId: string | undefined, workspaceRoot: string) {
   await clearCalendarSyncToken(calendarId, workspaceRoot);
+  // The push baseline describes the records the consumed token accounted for, so
+  // it must not outlive that token — a full re-walk rewrites it from scratch.
+  await clearCalendarShadow(calendarId, workspaceRoot);
   return await syncCalendarEvents(accessToken, { calendarId });
 }
 
@@ -172,12 +176,21 @@ const calendarLocks = new Map<string, Promise<unknown>>();
  *  writes are upserts by event id — but it is a wasted full walk. Queued, the
  *  second pass resumes from the token the first just stored and fetches only
  *  what is genuinely new. */
+/** Serialise anything that touches ONE calendar's sync state.
+ *
+ *  Shared with the push path (#2598), not only the pull doors: a push that
+ *  overtakes an in-flight pull would record a baseline for events the pull is
+ *  still writing, so the next push would diff against a future it never saw. */
+export async function withCalendarLock<T>(calendarId: string | undefined, run: () => Promise<T>): Promise<T> {
+  return await withKeyedLock(calendarLocks, canonicalCalendarId(calendarId), run);
+}
+
 export async function syncCalendarGroup(
   calendarId: string | undefined,
   collections: readonly LoadedCollection[],
   workspaceRoot: string,
 ): Promise<CalendarCollectionSyncResult[]> {
-  return await withKeyedLock(calendarLocks, canonicalCalendarId(calendarId), () => syncCalendarGroupNow(calendarId, collections, workspaceRoot));
+  return await withCalendarLock(calendarId, () => syncCalendarGroupNow(calendarId, collections, workspaceRoot));
 }
 
 async function syncCalendarGroupNow(
@@ -209,8 +222,18 @@ async function syncCalendarGroupNow(
     log.warn("google", "holding back calendar sync token after failed writes", { calendarId, failed: failed.length });
     return results;
   }
+  // Gated with the token, for the same reason: a baseline recorded for a window
+  // the records never received would make the next push read a local edit where
+  // there was only a failed write.
+  await saveCalendarShadow(calendarId, shadowUpdates(result.events), workspaceRoot);
   if (result.nextSyncToken) await advanceToken(calendarId, result.nextSyncToken, collections, workspaceRoot);
   return results;
+}
+
+/** The baseline this window establishes: what Google now says per event, and
+ *  `null` for a cancelled one so a recreate cannot resume from a dead baseline. */
+export function shadowUpdates(events: readonly CalendarEventSummary[]): Record<string, ShadowEvent | null> {
+  return Object.fromEntries(events.map((event) => [event.id, event.status === CANCELLED_STATUS ? null : toShadowEvent(event)]));
 }
 
 /** Save the window's token unless every collection that consumed it was deleted
@@ -337,6 +360,7 @@ export async function releaseOrphanedCalendarToken(deleted: CalendarDeclaring, w
     );
     if (orphaned === null) return null;
     await clearCalendarSyncToken(orphaned, workspaceRoot);
+    await clearCalendarShadow(orphaned, workspaceRoot);
     log.info("google", "cleared the sync token of a calendar no collection reads any more", { calendarId: orphaned });
     return orphaned;
   } catch (error) {

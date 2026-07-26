@@ -18,6 +18,10 @@ const EVENT_SYNC_PAGE_SIZE = 2500;
 const MAX_EVENT_SYNC_PAGES = 200;
 // An expired/invalidated calendar syncToken.
 const HTTP_GONE = 410;
+const HTTP_NOT_FOUND = 404;
+// A GET on an event that is not there: 404 when it never existed on this
+// calendar, 410 when it was deleted and the tombstone is no longer served.
+const EVENT_ABSENT_STATUSES: readonly number[] = [HTTP_NOT_FOUND, HTTP_GONE];
 
 /** Resolve a declared calendarId to the one the API and the sync-token store
  *  both address. `||` (not `??`) so an empty string also falls back instead of
@@ -28,22 +32,44 @@ export const canonicalCalendarId = (calendarId: string | undefined): string => c
 
 const eventsUrl = (calendarId: string | undefined): string => `${CALENDAR_BASE_URL}/calendars/${encodeURIComponent(canonicalCalendarId(calendarId))}/events`;
 
-export interface CalendarEventInput {
+/** One end of an event as the API expresses it: a timed instant, or a whole day.
+ *
+ *  `timeZone` names the zone a `dateTime` WITHOUT an offset is read in — the
+ *  shape a collection push needs, since the stored clock carries no offset
+ *  (`pushDateTime.ts`). A `dateTime` that already ends in `Z`/`+09:00` needs no
+ *  `timeZone`. `date` is an all-day event, whose `end` Google treats as
+ *  EXCLUSIVE. */
+export type CalendarEventTime = { dateTime: string; timeZone?: string } | { date: string };
+
+/** The two ways to state an event's span. The flat pair is what the `google`
+ *  tool passes (RFC3339 with an offset); the structured pair is what a push
+ *  needs to express an all-day event or an explicit zone. Expressed as a union
+ *  so "neither given" cannot typecheck on a create. */
+export type CalendarEventSpan = { startDateTime: string; endDateTime: string } | { start: CalendarEventTime; end: CalendarEventTime };
+
+export type CalendarEventInput = {
   summary: string;
-  startDateTime: string;
-  endDateTime: string;
   description?: string;
   /** Calendar to create the event on; defaults to the user's primary. */
   calendarId?: string;
   /** Event colour (Google event palette id "1".."11"); omit to inherit the calendar's colour. */
   colorId?: string;
-}
+  /** Caller-chosen event id. Google requires base32hex (`0-9a-v`), 5-1024 chars,
+   *  and answers 409 when it is already taken. A collection push sets this so a
+   *  locally-created record keeps its own record id as the event id, instead of
+   *  being re-keyed to Google's after the fact — a re-key that is missed leaves
+   *  a duplicate record on the next pull. */
+  eventId?: string;
+} & CalendarEventSpan;
 
 export interface UpdateCalendarEventInput {
   eventId: string;
   summary?: string;
   startDateTime?: string;
   endDateTime?: string;
+  /** Structured span; wins over the flat pair when both are present. */
+  start?: CalendarEventTime;
+  end?: CalendarEventTime;
   /** `""` clears the description; omit to leave it untouched. */
   description?: string;
   calendarId?: string;
@@ -84,6 +110,10 @@ export interface CalendarSummary {
   foregroundColor: string;
   /** Calendar palette id backing background/foregroundColor. */
   colorId: string;
+  /** IANA zone (`Asia/Tokyo`). The zone a pushed `dateTime` without an offset is
+   *  read in: the collection stores the clock the user reads off THIS calendar,
+   *  so this is the only correct zone to re-attach. `""` when Google omits it. */
+  timeZone: string;
 }
 
 export interface CalendarColorEntry {
@@ -130,6 +160,7 @@ export const toCalendarSummary = (value: unknown): CalendarSummary => {
     backgroundColor: stringField(record, "backgroundColor"),
     foregroundColor: stringField(record, "foregroundColor"),
     colorId: stringField(record, "colorId"),
+    timeZone: stringField(record, "timeZone"),
   };
 };
 
@@ -145,13 +176,17 @@ const toColorMap = (value: unknown): Record<string, CalendarColorEntry> => {
  *  helper now carries the wording. */
 export const calendarApiError = (status: number, body: string): Error => googleApiError(CALENDAR_API_LABEL, status, body);
 
+/** Normalise either spelling of a span into the pair the API body carries. */
+export const resolveEventSpan = (span: CalendarEventSpan): { start: CalendarEventTime; end: CalendarEventTime } =>
+  "start" in span ? { start: span.start, end: span.end } : { start: { dateTime: span.startDateTime }, end: { dateTime: span.endDateTime } };
+
 export async function createCalendarEvent(accessToken: string, input: CalendarEventInput): Promise<CalendarEventSummary> {
   const body = {
     summary: input.summary,
     description: input.description,
-    start: { dateTime: input.startDateTime },
-    end: { dateTime: input.endDateTime },
+    ...resolveEventSpan(input),
     ...(input.colorId ? { colorId: input.colorId } : {}),
+    ...(input.eventId ? { id: input.eventId } : {}),
   };
   const created = await googleRequest(CALENDAR_API_LABEL, accessToken, eventsUrl(input.calendarId), { method: "POST", body: JSON.stringify(body) });
   return toEventSummary(created);
@@ -164,11 +199,18 @@ const eventUrl = (calendarId: string | undefined, eventId: string): string => `$
  *  `undefined` means "leave as is" and `""` means "clear it", so the two cannot
  *  be collapsed: dropping `description: ""` would silently ignore a request to
  *  empty the body text. Pure so the distinction is testable without network. */
+/** One end of the patch: the structured value if given, else the flat one
+ *  wrapped, else absent (= leave it alone). */
+const eventEnd = (key: "start" | "end", structured: CalendarEventTime | undefined, flat: string | undefined): Record<string, CalendarEventTime> => {
+  if (structured !== undefined) return { [key]: structured };
+  return flat !== undefined ? { [key]: { dateTime: flat } } : {};
+};
+
 export const buildEventPatch = (input: UpdateCalendarEventInput): Record<string, unknown> => ({
   ...(input.summary !== undefined ? { summary: input.summary } : {}),
   ...(input.description !== undefined ? { description: input.description } : {}),
-  ...(input.startDateTime !== undefined ? { start: { dateTime: input.startDateTime } } : {}),
-  ...(input.endDateTime !== undefined ? { end: { dateTime: input.endDateTime } } : {}),
+  ...eventEnd("start", input.start, input.startDateTime),
+  ...eventEnd("end", input.end, input.endDateTime),
   ...(input.colorId ? { colorId: input.colorId } : {}),
 });
 
@@ -179,6 +221,21 @@ export async function updateCalendarEvent(accessToken: string, input: UpdateCale
   const url = eventUrl(input.calendarId, input.eventId);
   const updated = await googleRequest(CALENDAR_API_LABEL, accessToken, url, { method: "PATCH", body: JSON.stringify(buildEventPatch(input)) });
   return toEventSummary(updated);
+}
+
+/** Read ONE event, or null when it is gone (404) or already cancelled.
+ *
+ *  A push needs Google's current value per changed record to tell a local-only
+ *  edit from a both-sides conflict. Deliberately not `syncCalendarEvents`: that
+ *  consumes the calendar's sync token, and the token's window is served once —
+ *  spending it here would make the next pull miss everything in it. */
+export async function getCalendarEvent(accessToken: string, input: DeleteCalendarEventInput): Promise<CalendarEventSummary | null> {
+  try {
+    return toEventSummary(await googleRequest(CALENDAR_API_LABEL, accessToken, eventUrl(input.calendarId, input.eventId)));
+  } catch (error) {
+    if (isGoogleApiError(error) && EVENT_ABSENT_STATUSES.includes(error.status)) return null;
+    throw error;
+  }
 }
 
 /** Remove an event. Google answers 204 with no body, so there is nothing to
