@@ -14,6 +14,7 @@
 import { normalizeMutate, readIdParam } from "@mulmoclaude/core/remote-view";
 import { loadCollection } from "../../workspace/collections/index.js";
 import { mutateRemoteView, mutateRemoteViewFailureMessage } from "../../workspace/collections/remoteView.js";
+import { toJsonObject } from "../commandChannel.js";
 import type { CommandHandler, JsonObject } from "../commandChannel.js";
 
 export interface MutateRemoteViewHandlerDeps {
@@ -32,9 +33,13 @@ export const createMutateRemoteViewHandler =
     if (!collection) throw new Error(`collection '${slug}' not found`);
     const result = await deps.mutateRemoteView(collection, viewId, request);
     if (result.kind !== "ok") throw new Error(mutateRemoteViewFailureMessage(result, slug));
-    // Plain JSON, but the interface lacks an index signature — cast like the
-    // other phase-2/3 handlers.
-    return (result.op === "delete" ? { op: "delete", id: result.id } : { op: "update", item: result.item }) as unknown as JsonObject;
+    // The delete branch is all strings, so it type-checks. The update branch
+    // carries a `CollectionItem`, whose values are `unknown` — JSON by the
+    // record loader's invariant, but not provably so. Same irreducible gap as
+    // `pageResult` / `getRemoteViewItems`, kept visible per branch rather than
+    // blanketing both.
+    if (result.op === "delete") return toJsonObject({ op: "delete", id: result.id });
+    return { op: "update", item: result.item } as unknown as JsonObject;
   };
 
 export const mutateRemoteViewItem = createMutateRemoteViewHandler({ loadCollection, mutateRemoteView });

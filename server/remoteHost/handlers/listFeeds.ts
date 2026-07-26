@@ -6,6 +6,7 @@
 import { listFeeds as listFeedsRegistry, readFeedState } from "@mulmoclaude/core/feeds/server";
 import { buildFeedSummaries } from "../../workspace/feeds/summaries.js";
 import { workspacePath } from "../../workspace/workspace.js";
+import { toJsonObject } from "../commandChannel.js";
 import type { CommandHandler, JsonObject } from "../commandChannel.js";
 
 export interface ListFeedsDeps {
@@ -20,10 +21,7 @@ export const createListFeeds =
   async (__params: JsonObject) => {
     const feeds = await deps.listFeeds(deps.workspaceRoot);
     const summaries = await buildFeedSummaries(feeds, deps.readFeedState, deps.workspaceRoot);
-    // FeedSummary is plain JSON (strings + a nullable string), so this is safe —
-    // the cast only satisfies the channel's structural JsonValue type, which an
-    // interface without an index signature can't match directly.
-    return { feeds: summaries } as unknown as JsonObject;
+    return toJsonObject({ feeds: summaries });
   };
 
 export const listFeeds = createListFeeds({ listFeeds: listFeedsRegistry, readFeedState, workspaceRoot: workspacePath });

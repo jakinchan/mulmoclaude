@@ -12,6 +12,7 @@
 import { readIdParam } from "@mulmoclaude/core/remote-view";
 import { loadCollection } from "../../workspace/collections/index.js";
 import { buildRemoteView, remoteViewFailureMessage } from "../../workspace/collections/remoteView.js";
+import { toJsonObject } from "../commandChannel.js";
 import type { CommandHandler, JsonObject } from "../commandChannel.js";
 
 export interface GetRemoteViewDeps {
@@ -30,9 +31,7 @@ export const createGetRemoteView =
     const result = await deps.buildRemoteView(collection, viewId, locale);
     if (result.kind !== "ok") throw new Error(remoteViewFailureMessage(result, slug));
     const { view, srcdoc, bytes } = result;
-    // Plain JSON, but the interface lacks an index signature — cast like the
-    // phase-2 handlers.
-    return { view, srcdoc, bytes } as unknown as JsonObject;
+    return toJsonObject({ view, srcdoc, bytes });
   };
 
 export const getRemoteView = createGetRemoteView({ loadCollection, buildRemoteView });
