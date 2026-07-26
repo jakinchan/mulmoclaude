@@ -13,8 +13,9 @@
 ## なぜ「設定が見つからない」のか
 
 一方向しか存在しないので、探しても無い。`GoogleCalendarSyncZ` は `calendarId` と `map` の2フィールドだけで、
-書き戻しを表現する語彙が無い (`schemaZ.ts:602-611`)。ヘルプも "Edits they make locally are overwritten"
-と明言している (`google-calendar-collection.md:85`)。
+書き戻しを表現する語彙が無い (`schemaZ.ts:602-611`)。ヘルプも "Edits they make locally are overwritten
+the next time Google reports a change to that event" と明言していた
+(`google-calendar-collection.md`、この PR で "What sync does" 節を書き換えるまで)。
 
 Agent 側から見ても選択肢が2つしかない — pull 設定を書く (`googleCalendar` ブロック) か、`google` ツールで
 単発のイベントを作る (#2569) か。ユーザーが求めた「両者を繋ぐ設定」は語彙に無いので、会話が噛み合わない。
@@ -67,17 +68,35 @@ sync を走らせたマシンに依存しない」)。加えて終日イベン�
 
 ### 分類ルール（純関数、テスト対象）
 
-レコード × shadow を突き合わせて分類する。`classifyRecord(local, shadow, mappedFields)`:
+**2段構え**にする。Google を引くのは「ローカルが変わっている」と分かったレコードだけなので、
+大きいコレクションでも API 呼び出しが変更件数に比例する。
+
+段1 — Google に触らず、レコード × shadow だけで分類:
+`planRecord(eventId, local, shadow, map, primaryKey, fields)`
 
 - `create` — shadow に無い（ローカル新規）
-- `update` — ローカル値 ≠ 正規化(shadow)、かつ Google 現在値 == shadow（ローカルのみ編集）
-- `conflict` — ローカル値 ≠ 正規化(shadow) かつ Google 現在値 ≠ shadow → スキップして報告
 - `unchanged` — ローカル値 == 正規化(shadow)
-- `local-delete` — shadow にあるがディスクに無い → v1 は件数だけ報告
+- `changed` — 差分のあった**フィールド名の配列**を返す（段2 と PATCH の対象）
 
-「Google 現在値」は push 直前に incremental sync ではなく `listCalendarEvents` で取らない —
+段2 — `changed` のときだけ対象 eventId を個別に GET し、
+`conflictingFields(shadow, current, changed)` で shadow と Google 現在値を突き合わせる:
+
+- 空 → ローカルのみの編集なので PATCH する
+- 非空 → 両側編集なのでスキップして報告
+
+コンフリクト判定を**フィールド単位**にしているのが要点。Google が「ローカル編集が触っていない
+フィールド」を変えただけなら PATCH はそこを含まないので、コンフリクトではない。イベント全体を
+比較すると、この push を理由なく拒否してしまう。
+
+`local-delete` は分類ではなく別関数 `locallyDeletedIds(shadow, presentIds)` — shadow にあるが
+ディスクに無い id。v1 は件数だけ報告する。
+
+「Google 現在値」を取るのに incremental sync (`syncCalendarEvents`) は使わない —
 **sync token を消費してはいけない**（pull が同じウィンドウを二度受け取れなくなる）。
-代わりに対象 eventId を個別に GET する。件数は変更のあったレコード分だけなので安い。
+
+段2 の GET と PATCH の間にも隙間があるので、GET した `etag` を `If-Match` で送り返す。
+Google が 412 を返したらコンフリクト扱い。これが無いと「両側編集を壊さない」という約束に
+1往復ぶんの穴が残る。
 
 ### push できるフィールド
 

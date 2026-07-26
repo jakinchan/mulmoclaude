@@ -19,7 +19,7 @@ import { storeFor } from "../collection/server/store.js";
 import type { CollectionFieldSpec, CollectionItem } from "../collection/core/schema.js";
 import type { GOOGLE_CALENDAR_SOURCE_FIELDS } from "../collection/core/schemaZ.js";
 import { getGoogleAccessToken } from "./auth.js";
-import { canonicalCalendarId, syncCalendarEvents, type CalendarEventSummary } from "./calendar.js";
+import { canonicalCalendarId, syncCalendarEvents, CANCELLED_EVENT_STATUS, type CalendarEventSummary } from "./calendar.js";
 import { toCollectionDateTime } from "./collectionDateTime.js";
 import { clearCalendarSyncToken, loadCalendarSyncToken, saveCalendarSyncToken } from "./calendarSyncStore.js";
 import { clearCalendarShadow, saveCalendarShadow, toShadowEvent, type ShadowEvent } from "./calendarPushState.js";
@@ -28,7 +28,6 @@ import { log } from "./host.js";
 
 export const GOOGLE_CALENDAR_SYNC_TASK_ID = "system:google-calendar-sync";
 const DEFAULT_SYNC_INTERVAL_MS = 60 * 60 * 1000;
-const CANCELLED_STATUS = "cancelled";
 
 export interface CalendarCollectionSyncResult {
   slug: string;
@@ -112,7 +111,7 @@ async function applyEvent(collection: LoadedCollection, event: CalendarEventSumm
     // threads the slug into the change publish, so an open view updates live.
     const store = storeFor(collection, { workspaceRoot });
     if (!store.write || !store.delete) return { kind: "unwritable", message: `collection '${collection.slug}' is read-only` };
-    if (event.status === CANCELLED_STATUS) {
+    if (event.status === CANCELLED_EVENT_STATUS) {
       const deleted = await store.delete(event.id);
       return classifyDelete(event.id, deleted.kind);
     }
@@ -233,7 +232,7 @@ async function syncCalendarGroupNow(
 /** The baseline this window establishes: what Google now says per event, and
  *  `null` for a cancelled one so a recreate cannot resume from a dead baseline. */
 export function shadowUpdates(events: readonly CalendarEventSummary[]): Record<string, ShadowEvent | null> {
-  return Object.fromEntries(events.map((event) => [event.id, event.status === CANCELLED_STATUS ? null : toShadowEvent(event)]));
+  return Object.fromEntries(events.map((event) => [event.id, event.status === CANCELLED_EVENT_STATUS ? null : toShadowEvent(event)]));
 }
 
 /** Save the window's token unless every collection that consumed it was deleted

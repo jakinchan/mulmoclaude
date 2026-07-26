@@ -89,6 +89,29 @@ describe("planRecord — nothing to do", () => {
     assert.deepEqual(planRecord("ev1", withoutColour, base, MAP, PRIMARY_KEY, fields), { kind: "unchanged" });
   });
 
+  // Regression: the seconds-less clock the collection's own date-time input
+  // produces. Google always answers WITH seconds, so after one push the baseline
+  // carries them and a text comparison would report this record as edited on
+  // every later click — re-PATCHing the same event forever.
+  // (Observed during Claude review, not flagged by a bot.)
+  it("treats a hand-typed `09:30` as unchanged against a baseline of `09:30:00`", () => {
+    const base = shadow({ start: "2026-07-19T09:30:00+09:00", end: "2026-07-19T10:00:00+09:00" });
+    const typed = { ...syncedRecord("ev1", base), on: "2026-07-19T09:30", until: "2026-07-19T10:00" };
+    assert.deepEqual(planRecord("ev1", typed, base, MAP, PRIMARY_KEY, fields), { kind: "unchanged" });
+  });
+
+  it("still sees a real edit on a seconds-less field", () => {
+    const base = shadow({ start: "2026-07-19T09:30:00+09:00" });
+    const typed = { ...syncedRecord("ev1", base), on: "2026-07-19T11:00" };
+    assert.deepEqual(planRecord("ev1", typed, base, MAP, PRIMARY_KEY, fields), { kind: "changed", fields: ["start"] });
+  });
+
+  it("does not collapse seconds that actually differ", () => {
+    const base = shadow({ start: "2026-07-19T09:30:45+09:00" });
+    const typed = { ...syncedRecord("ev1", base), on: "2026-07-19T09:30" };
+    assert.deepEqual(planRecord("ev1", typed, base, MAP, PRIMARY_KEY, fields), { kind: "changed", fields: ["start"] });
+  });
+
   it("ignores a locally edited column that maps to a read-only event field", () => {
     const base = shadow();
     // `status` is not pushable, so a schema mapping it contributes no diff.

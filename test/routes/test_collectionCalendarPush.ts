@@ -42,8 +42,23 @@ describe("calendarPushBody — states that must not read as success", () => {
     assert.match(pushReadOnlyError(""), /read access/);
   });
 
+  // A setup-phase throw (revoked grant, Calendar API unreachable) used to reach
+  // the route as a generic 500 while its siblings answered in this shape.
+  // (CodeRabbit review.)
+  it("passes a setup failure through as an error in the same shape", () => {
+    const body = calendarPushBody({ kind: "failed", message: "Google Calendar API: HTTP 503" });
+    assert.deepEqual(body.errors, ["Google Calendar API: HTTP 503"]);
+    assert.equal(body.pushed, true);
+    assert.equal(body.created, 0);
+  });
+
   it("marks every outcome as `pushed` so the client has one success shape", () => {
-    const outcomes = [{ kind: "not-linked" }, { kind: "not-a-calendar" }, { kind: "read-only", accessRole: "reader" }] as const;
+    const outcomes = [
+      { kind: "not-linked" },
+      { kind: "not-a-calendar" },
+      { kind: "read-only", accessRole: "reader" },
+      { kind: "failed", message: "boom" },
+    ] as const;
     for (const outcome of outcomes) {
       assert.equal(calendarPushBody(outcome).pushed, true);
     }

@@ -12,12 +12,16 @@ import type { LoadedCollection } from "../collection/server/discoveredCollection
 import { storeFor } from "../collection/server/store.js";
 import type { CollectionFieldSpec, CollectionItem } from "../collection/core/schema.js";
 import { getGoogleAccessToken } from "./auth.js";
+import { isGoogleApiError } from "./apiClient.js";
 import {
   canonicalCalendarId,
   createCalendarEvent,
   getCalendarEvent,
   listCalendars,
   updateCalendarEvent,
+  CANCELLED_EVENT_STATUS,
+  HTTP_CONFLICT,
+  HTTP_PRECONDITION_FAILED,
   type CalendarEventSummary,
   type CalendarEventTime,
   type UpdateCalendarEventInput,
@@ -26,10 +30,12 @@ import { loadCalendarShadow, saveCalendarShadow, toShadowEvent, type ShadowEvent
 import { withCalendarLock } from "./collectionSync.js";
 import { toGoogleEventTime } from "./pushDateTime.js";
 import {
+  baselineRecord,
   bySourceField,
   conflictingFields,
   fieldText,
   isClientSettableEventId,
+  locallyChangedFields,
   locallyDeletedIds,
   planRecord,
   pushableMap,
@@ -42,7 +48,6 @@ import { log } from "./host.js";
  *  push under them fails per event with an opaque 403 — checked once up front so
  *  the user is told the real reason. */
 const WRITABLE_ACCESS_ROLES: readonly string[] = ["owner", "writer"];
-const CANCELLED_STATUS = "cancelled";
 
 export interface CalendarCollectionPushResult {
   slug: string;
@@ -58,7 +63,15 @@ export interface CalendarCollectionPushResult {
 }
 
 export type CalendarPushOutcome =
-  { kind: "pushed"; result: CalendarCollectionPushResult } | { kind: "not-a-calendar" } | { kind: "not-linked" } | { kind: "read-only"; accessRole: string };
+  | { kind: "pushed"; result: CalendarCollectionPushResult }
+  | { kind: "not-a-calendar" }
+  | { kind: "not-linked" }
+  | { kind: "read-only"; accessRole: string }
+  /** The push never got as far as a record: a revoked grant, an unreachable
+   *  Calendar API, a workspace read failure. Typed rather than left to throw so
+   *  the route answers in the same shape as the other setup problems instead of
+   *  an opaque 500. */
+  | { kind: "failed"; message: string };
 
 /** The I/O a push crosses, injected so every outcome can be exercised with fakes
  *  instead of a workspace on disk and a live Google grant. */
@@ -110,7 +123,9 @@ type PushOutcome =
   | { kind: "created"; event: CalendarEventSummary }
   | { kind: "updated"; event: CalendarEventSummary }
   | { kind: "conflict" }
-  | { kind: "unchanged" }
+  /** `event` present only when this record's baseline had to be repaired (an
+   *  event that already existed in Google), so the write path can persist it. */
+  | { kind: "unchanged"; event?: CalendarEventSummary }
   | { kind: "skipped"; message: string }
   | { kind: "error"; message: string };
 
@@ -186,15 +201,44 @@ async function updateFromRecord(
   changed: readonly PushableSourceField[],
   shadow: ShadowEvent,
 ): Promise<PushOutcome> {
-  const current = await getCalendarEvent(ctx.accessToken, { calendarId: ctx.calendarId, eventId });
-  if (current === null || current.status === CANCELLED_STATUS) {
+  const fetched = await getCalendarEvent(ctx.accessToken, { calendarId: ctx.calendarId, eventId });
+  if (fetched === null || fetched.event.status === CANCELLED_EVENT_STATUS) {
     return { kind: "skipped", message: `${eventId}: the event no longer exists in Google — sync first, then re-create it` };
   }
-  if (conflictingFields(shadow, toShadowEvent(current), changed).length > 0) return { kind: "conflict" };
+  if (conflictingFields(shadow, toShadowEvent(fetched.event), changed).length > 0) return { kind: "conflict" };
   const built = buildPatch(ctx, record, changed, shadow);
   if (!built.ok) return { kind: "skipped", message: `${eventId}: ${built.reason}` };
-  const event = await updateCalendarEvent(ctx.accessToken, { eventId, calendarId: ctx.calendarId, ...built.patch });
-  return { kind: "updated", event };
+  try {
+    // `If-Match` closes the window between the read above and this write: without
+    // it a change landing in between is silently overwritten, which is exactly
+    // what the conflict check exists to prevent.
+    const event = await updateCalendarEvent(ctx.accessToken, { eventId, calendarId: ctx.calendarId, ifMatch: fetched.etag, ...built.patch });
+    return { kind: "updated", event };
+  } catch (error) {
+    if (isGoogleApiError(error) && error.status === HTTP_PRECONDITION_FAILED) return { kind: "conflict" };
+    throw error;
+  }
+}
+
+/** Create, recovering when Google says the id is already taken.
+ *
+ *  A 409 means a previous push created the event but its baseline never landed —
+ *  a crash between the write and the save. Without recovery that record would
+ *  report the same duplicate-id error on every click forever. Adopting the
+ *  existing event as the baseline heals it in one click, and applies whatever the
+ *  record has changed relative to it. */
+async function createOrAdopt(ctx: PushContext, eventId: string, record: CollectionItem): Promise<PushOutcome> {
+  try {
+    return await createFromRecord(ctx, eventId, record);
+  } catch (error) {
+    if (!isGoogleApiError(error) || error.status !== HTTP_CONFLICT) throw error;
+    const fetched = await getCalendarEvent(ctx.accessToken, { calendarId: ctx.calendarId, eventId });
+    if (fetched === null) throw error;
+    const adopted = toShadowEvent(fetched.event);
+    const changed = locallyChangedFields(record, baselineRecord(eventId, adopted, ctx.map, ctx.primaryKey, ctx.fields), ctx.map);
+    if (changed.length === 0) return { kind: "unchanged", event: fetched.event };
+    return await updateFromRecord(ctx, eventId, record, changed, adopted);
+  }
 }
 
 async function pushRecord(ctx: PushContext, eventId: string, record: CollectionItem): Promise<PushOutcome> {
@@ -202,7 +246,7 @@ async function pushRecord(ctx: PushContext, eventId: string, record: CollectionI
     const shadow = ctx.shadow[eventId];
     const plan = planRecord(eventId, record, shadow, ctx.map, ctx.primaryKey, ctx.fields);
     if (plan.kind === "unchanged") return { kind: "unchanged" };
-    if (plan.kind === "create" || shadow === undefined) return await createFromRecord(ctx, eventId, record);
+    if (plan.kind === "create" || shadow === undefined) return await createOrAdopt(ctx, eventId, record);
     return await updateFromRecord(ctx, eventId, record, plan.fields, shadow);
   } catch (error) {
     // One rejected event must not abandon the rest of the collection.
@@ -210,10 +254,11 @@ async function pushRecord(ctx: PushContext, eventId: string, record: CollectionI
   }
 }
 
-/** The baseline each successful write establishes, so the next push sees the
- *  record as unchanged instead of pushing it again. */
+/** The baseline an outcome establishes, so the next push sees the record as
+ *  unchanged instead of pushing it again. Empty for anything that wrote nothing
+ *  and had no baseline to repair. */
 function pushedShadow(outcomes: readonly PushOutcome[]): Record<string, ShadowEvent> {
-  const written = outcomes.flatMap((outcome) => (outcome.kind === "created" || outcome.kind === "updated" ? [outcome.event] : []));
+  const written = outcomes.flatMap((outcome) => ("event" in outcome && outcome.event !== undefined ? [outcome.event] : []));
   return Object.fromEntries(written.map((event) => [event.id, toShadowEvent(event)]));
 }
 
@@ -253,9 +298,14 @@ async function pushNow(collection: LoadedCollection, workspaceRoot: string, deps
 
   const outcomes: PushOutcome[] = [];
   for (const record of records) {
-    outcomes.push(await pushRecord(ctx, fieldText(record[schema.primaryKey]), record));
+    const outcome = await pushRecord(ctx, fieldText(record[schema.primaryKey]), record);
+    outcomes.push(outcome);
+    // Persisted per record, not once at the end: an interruption after a
+    // successful write would otherwise leave that event with no baseline, and
+    // the next push would retry it as a create and hit Google's duplicate-id
+    // 409. Costs nothing for a record that wrote nothing (empty batch).
+    await saveCalendarShadow(calendarId, pushedShadow([outcome]), workspaceRoot);
   }
-  await saveCalendarShadow(calendarId, pushedShadow(outcomes), workspaceRoot);
   const deletes = locallyDeletedIds(
     shadow,
     records.map((record) => fieldText(record[schema.primaryKey])),
@@ -272,8 +322,16 @@ async function pushNow(collection: LoadedCollection, workspaceRoot: string, deps
  *  account for a collection that never declared a calendar sends them fixing the
  *  wrong thing. */
 export async function pushCalendarForCollection(slug: string, workspaceRoot: string, deps: CalendarPushDeps = liveDeps): Promise<CalendarPushOutcome> {
-  const collection = await deps.findCollection(slug, workspaceRoot);
-  if (collection === null) return { kind: "not-a-calendar" };
-  if (!(await deps.isLinked())) return { kind: "not-linked" };
-  return await withCalendarLock(collection.schema.googleCalendar?.calendarId, () => pushNow(collection, workspaceRoot, deps));
+  try {
+    const collection = await deps.findCollection(slug, workspaceRoot);
+    if (collection === null) return { kind: "not-a-calendar" };
+    if (!(await deps.isLinked())) return { kind: "not-linked" };
+    return await withCalendarLock(collection.schema.googleCalendar?.calendarId, () => pushNow(collection, workspaceRoot, deps));
+  } catch (error) {
+    // A throw here is a setup failure (revoked grant, Calendar API unreachable,
+    // unreadable workspace), not a per-record one. Reported in the same typed
+    // shape as the other setup problems so the route need not guess.
+    log.warn("google", "calendar push could not start", { slug, error: String(error) });
+    return { kind: "failed", message: String(error) };
+  }
 }

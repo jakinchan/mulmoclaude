@@ -55,6 +55,26 @@ export const fieldText = (value: unknown): string => {
   return JSON.stringify(value) ?? "";
 };
 
+/** A stored datetime with no seconds — what the collection's own date-time input
+ *  produces. Google's values always carry seconds, so the pull writes them and a
+ *  hand-typed value does not. */
+const SECONDLESS_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+const WHOLE_MINUTE = ":00";
+
+/** Field text with `…T09:30` and `…T09:30:00` collapsed to one spelling.
+ *
+ *  Without this, a record the user typed a time into never stops looking edited:
+ *  the push writes it, Google answers with seconds, the baseline projection keeps
+ *  them, and the seconds-less record then differs from its own baseline on every
+ *  later push — re-PATCHing the same event on every click, forever.
+ *
+ *  A value that carries a zone offset (a `start` mapped onto a `string` field) is
+ *  left alone: it is Google's own text on both sides already. */
+const comparableText = (value: unknown): string => {
+  const text = fieldText(value);
+  return SECONDLESS_DATETIME_RE.test(text) ? `${text}${WHOLE_MINUTE}` : text;
+};
+
 /** A baseline shaped as the event it came from, so the comparison can run
  *  through the very projection that wrote the record. `htmlLink`/`status` are
  *  never pushable, so their absence from the baseline cannot matter. */
@@ -78,7 +98,7 @@ export function baselineRecord(
 /** The mapped fields whose local value no longer matches the baseline. */
 export function locallyChangedFields(record: CollectionItem, baseline: CollectionItem, map: Record<string, PushableSourceField>): PushableSourceField[] {
   return Object.entries(map)
-    .filter(([field]) => fieldText(record[field]) !== fieldText(baseline[field]))
+    .filter(([field]) => comparableText(record[field]) !== comparableText(baseline[field]))
     .map(([, source]) => source);
 }
 
@@ -89,7 +109,7 @@ export function locallyChangedFields(record: CollectionItem, baseline: Collectio
  *  not a conflict, because the patch only carries the title. Comparing whole
  *  events would refuse those pushes for no reason. */
 export function conflictingFields(shadow: ShadowEvent, current: ShadowEvent, changed: readonly PushableSourceField[]): PushableSourceField[] {
-  return changed.filter((source) => fieldText(shadow[source]) !== fieldText(current[source]));
+  return changed.filter((source) => comparableText(shadow[source]) !== comparableText(current[source]));
 }
 
 export type RecordPlan =

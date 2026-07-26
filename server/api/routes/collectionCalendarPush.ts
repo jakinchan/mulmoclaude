@@ -43,5 +43,6 @@ export function calendarPushBody(outcome: CalendarPushOutcome): CollectionPushBo
   if (outcome.kind === "not-linked") return empty([PUSH_NOT_LINKED_ERROR]);
   if (outcome.kind === "not-a-calendar") return empty([PUSH_NOT_DECLARED_ERROR]);
   if (outcome.kind === "read-only") return empty([pushReadOnlyError(outcome.accessRole)]);
+  if (outcome.kind === "failed") return empty([outcome.message]);
   return fromResult(outcome.result);
 }

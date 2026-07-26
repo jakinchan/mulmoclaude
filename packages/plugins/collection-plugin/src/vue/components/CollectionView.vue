@@ -350,7 +350,8 @@ import CollectionRemoteViewPreview from "./CollectionRemoteViewPreview.vue";
 import CollectionTable from "./CollectionTable.vue";
 import { useCollectionRendering } from "../useCollectionRendering";
 import { writeCollectionViewMode, writeCollectionSort, writeCollectionFlagFilters, type CollectionViewMode, type BuiltInViewMode } from "../collectionViewMode";
-import { collectionUi } from "../uiContext";
+import { collectionUi, type CollectionPushResult } from "../uiContext";
+import { pushProblems } from "../calendarPushResult";
 import { useTableSort } from "../composables/useTableSort";
 import { useCollectionActions } from "../composables/useCollectionActions";
 import { useFlagFilters } from "../composables/useFlagFilters";
@@ -660,14 +661,18 @@ async function pushCalendar(): Promise<void> {
     return;
   }
   await loadCollection(current.slug);
-  // Setup problems (unlinked account, read-only calendar) arrive as `errors` on
-  // an HTTP 200, so a silent success here would read as "nothing to push".
-  const problems = [...result.data.errors, ...result.data.skipped];
+  reportPush(result.data);
+}
+
+/** Say what the push did. Problems arrive as fields on an HTTP 200, so a silent
+ *  success here would render a setup failure as "nothing to push". */
+function reportPush(result: CollectionPushResult): void {
+  const problems = pushProblems(result);
   if (problems.length > 0) {
     inlineError.value = t("collectionsView.pushFailed", { error: problems.join("; ") });
     return;
   }
-  const { created, updated, conflicts, localDeletes } = result.data;
+  const { created, updated, conflicts, localDeletes } = result;
   showRefreshNote(t("collectionsView.pushDone", { created, updated, conflicts, localDeletes }));
 }
 

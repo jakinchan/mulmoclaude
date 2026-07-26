@@ -478,6 +478,18 @@ router.post(API_ROUTES.collections.refresh, async (req: Request<{ slug: string }
 // (#2598) — the opposite direction from the Refresh button above. Deliberately a
 // separate route and a separate button: which way the data moved must never be
 // ambiguous, and this direction writes to a calendar other people may read.
+async function pushCalendarCollection(slug: string, res: ApiResponse<CollectionPushBody>): Promise<void> {
+  const body = calendarPushBody(await pushCalendarForCollection(slug, workspacePath));
+  log.info("collections", "calendar pushed via collection route", {
+    slug,
+    created: body.created,
+    updated: body.updated,
+    conflicts: body.conflicts,
+    errors: body.errors.length,
+  });
+  res.json(body);
+}
+
 router.post(API_ROUTES.collections.calendarPush, async (req: Request<{ slug: string }>, res: ApiResponse<CollectionPushBody>) => {
   const collection = await loadCollectionOr404(req.params.slug, res);
   if (!collection) return;
@@ -486,15 +498,7 @@ router.post(API_ROUTES.collections.calendarPush, async (req: Request<{ slug: str
     return;
   }
   try {
-    const body = calendarPushBody(await pushCalendarForCollection(collection.slug, workspacePath));
-    log.info("collections", "calendar pushed via collection route", {
-      slug: collection.slug,
-      created: body.created,
-      updated: body.updated,
-      conflicts: body.conflicts,
-      errors: body.errors.length,
-    });
-    res.json(body);
+    await pushCalendarCollection(collection.slug, res);
   } catch (err) {
     log.warn("collections", "calendar push failed", { slug: collection.slug, error: errorMessage(err) });
     serverError(res, errorMessage(err));

@@ -125,7 +125,9 @@ Reasons a record can be reported as skipped:
   characters from `0-9a-v`. Records created through the UI get a valid
   generated id; a semantic id you authored (`team-standup`) cannot be used. Fix
   by recreating the record without setting the primary field.
-- **No `start` / `end` is mapped.** An event cannot be created without a span.
+- **No `start` / `end` is mapped, on a record being CREATED.** An event cannot
+  be created without a span. Editing an existing event is unaffected — a changed
+  title or colour is patched on its own.
 - **The calendar reports no timezone**, and the stored clock carries no offset
   to fall back on.
 - **Clearing an event colour** — Google has no way to unset one.

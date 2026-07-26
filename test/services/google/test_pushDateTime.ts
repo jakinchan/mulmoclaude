@@ -114,6 +114,36 @@ describe("toGoogleEventTime — refuses to invent a time", () => {
   }
 });
 
+describe("toGoogleEventTime — out-of-range values are refused, not forwarded", () => {
+  // These used to pass the shape checks and become an opaque Google 400. The
+  // validity rule is now the shared strict parser, so the push agrees with the
+  // record lint on what a stored datetime is. (CodeRabbit review.)
+  const malformed: [string, string][] = [
+    ["an impossible month", "2026-13-01T09:00"],
+    ["an impossible day", "2026-99-99T09:00"],
+    ["a day that does not exist in that month", "2026-02-30T09:00"],
+    ["an hour past 23", "2026-07-19T25:00"],
+    ["a minute past 59", "2026-07-19T09:99"],
+    ["a second past 59", "2026-07-19T09:00:99"],
+    ["an all-day date that is not a real day", "2026-02-30"],
+    ["free text that merely ends in Z", "next tuesdayZ"],
+    ["a bad clock wearing a valid offset", "2026-07-19T25:00:00+09:00"],
+  ];
+  for (const [label, value] of malformed) {
+    it(`returns null for ${label}`, () => {
+      assert.equal(toGoogleEventTime(value, undefined, TOKYO), null);
+    });
+  }
+
+  it("still accepts a leap day that really exists", () => {
+    assert.deepEqual(toGoogleEventTime("2028-02-29T09:00", undefined, TOKYO), { dateTime: "2028-02-29T09:00:00", timeZone: TOKYO });
+  });
+
+  it("still accepts second 59", () => {
+    assert.deepEqual(toGoogleEventTime("2026-07-19T09:00:59", undefined, TOKYO), { dateTime: "2026-07-19T09:00:59", timeZone: TOKYO });
+  });
+});
+
 describe("round trip", () => {
   // The property that matters: pulling a value and pushing it back unedited must
   // reproduce what Google had. A regression here silently rewrites every event

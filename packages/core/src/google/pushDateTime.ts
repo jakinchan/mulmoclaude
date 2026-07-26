@@ -12,23 +12,42 @@
 // machine-dependence `collectionDateTime.ts` exists to avoid.
 //
 // Pure: no I/O, no clock, no locale.
+import { parseIsoDate, parseIsoDateTime } from "../collection/core/calendarGrid.js";
 import type { CalendarEventTime } from "./calendar.js";
 
-const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** RFC3339 zone designator: `Z`, `+09:00`, `-0500`. */
 const ZONE_SUFFIX_RE = /(?:Z|[+-]\d{2}:?\d{2})$/;
+const FRACTIONAL_SECONDS_RE = /\.\d+$/;
 const TWO_DIGITS_RE = /^\d{2}$/;
 const CLOCK_SEPARATOR = ":";
 const DATE_TIME_SEPARATOR = "T";
 const MIN_CLOCK_SEGMENTS = 2;
 const MAX_CLOCK_SEGMENTS = 3;
 const WHOLE_MINUTE_SECONDS = "00";
+const MAX_SECONDS = 59;
 
-/** A value Google already accepts verbatim. Reached when the schema maps `start`
- *  onto a `string` field: `projectValue` normalises only `datetime` fields, so
- *  that column holds Google's own text, zone and all. */
-function isRawGoogleTime(value: string): boolean {
-  return DATE_ONLY_RE.test(value) || ZONE_SUFFIX_RE.test(value);
+/** Whether `value` is a real calendar day (`2026-02-30` is not).
+ *
+ *  Delegated to the parser the record lint, the calendar grid and the day view
+ *  already share, so the push agrees with the rest of the app on what a valid
+ *  stored date IS — and rejects an impossible one here instead of turning it
+ *  into an opaque Google 400. */
+const isCalendarDate = (value: string): boolean => parseIsoDate(value) !== null;
+
+/** A value Google already accepts verbatim, as the event time to send, or null.
+ *
+ *  Reached when the schema maps `start` onto a `string` field: `projectValue`
+ *  normalises only `datetime` fields, so that column holds Google's own text,
+ *  zone and all. The civil part is still validated — matching a trailing `Z` is
+ *  not evidence that the rest is a date-time. */
+function rawGoogleTime(value: string): CalendarEventTime | null {
+  if (isCalendarDate(value)) return { date: value };
+  const zone = value.match(ZONE_SUFFIX_RE)?.[0];
+  if (zone === undefined) return null;
+  // Google may answer fractional seconds, which the shared parser rejects.
+  // Validate without them, then send the original — Calendar accepts them.
+  const civil = value.slice(0, value.length - zone.length).replace(FRACTIONAL_SECONDS_RE, "");
+  return parseIsoDateTime(civil) === null ? null : { dateTime: value };
 }
 
 /** Google's own all-day `end` is EXCLUSIVE — a single day on the 12th ends on
@@ -48,14 +67,19 @@ function clockSegments(clockPart: string): string | null {
   if (segments.length < MIN_CLOCK_SEGMENTS || segments.length > MAX_CLOCK_SEGMENTS) return null;
   if (!segments.every((segment) => TWO_DIGITS_RE.test(segment))) return null;
   const [hours, minutes, seconds] = segments;
+  // `parseIsoDateTime` validated the hours and minutes but ignores seconds.
+  if (seconds !== undefined && Number(seconds) > MAX_SECONDS) return null;
   return [hours, minutes, seconds ?? WHOLE_MINUTE_SECONDS].join(CLOCK_SEPARATOR);
 }
 
-/** `YYYY-MM-DDTHH:MM[:SS]` → its date and its RFC3339 clock, or null. */
+/** `YYYY-MM-DDTHH:MM[:SS]` → its date and its RFC3339 clock, or null.
+ *
+ *  Validity comes from the shared strict parser, so an out-of-range clock or an
+ *  impossible day is refused here rather than sent to Google. */
 function parseStoredDateTime(value: string): { datePart: string; clock: string } | null {
+  if (parseIsoDateTime(value) === null) return null;
   const [datePart, clockPart, ...extra] = value.split(DATE_TIME_SEPARATOR);
   if (datePart === undefined || clockPart === undefined || extra.length > 0) return null;
-  if (!DATE_ONLY_RE.test(datePart)) return null;
   const clock = clockSegments(clockPart);
   return clock === null ? null : { datePart, clock };
 }
@@ -76,12 +100,13 @@ export function toGoogleEventTime(local: unknown, previous: string | undefined, 
   if (typeof local !== "string") return null;
   const trimmed = local.trim();
   if (trimmed.length === 0) return null;
-  if (isRawGoogleTime(trimmed)) return DATE_ONLY_RE.test(trimmed) ? allDayFrom(trimmed) : { dateTime: trimmed };
+  const raw = rawGoogleTime(trimmed);
+  if (raw !== null) return raw;
   const parts = parseStoredDateTime(trimmed);
   if (parts === null) return null;
   // An all-day event stays all-day even when its date moves: the user edited a
   // date in a collection, not the event's kind.
-  if (previous !== undefined && DATE_ONLY_RE.test(previous)) return allDayFrom(parts.datePart);
+  if (previous !== undefined && isCalendarDate(previous)) return allDayFrom(parts.datePart);
   const zone = zoneSuffixOf(previous);
   const dateTime = `${parts.datePart}${DATE_TIME_SEPARATOR}${parts.clock}`;
   return zone === null ? { dateTime, timeZone: calendarTimeZone } : { dateTime: `${dateTime}${zone}` };

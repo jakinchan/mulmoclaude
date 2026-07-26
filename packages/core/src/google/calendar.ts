@@ -22,6 +22,15 @@ const HTTP_NOT_FOUND = 404;
 // A GET on an event that is not there: 404 when it never existed on this
 // calendar, 410 when it was deleted and the tombstone is no longer served.
 const EVENT_ABSENT_STATUSES: readonly number[] = [HTTP_NOT_FOUND, HTTP_GONE];
+/** An `If-Match` write whose etag no longer matches — someone else changed the
+ *  event since it was read. */
+export const HTTP_PRECONDITION_FAILED = 412;
+/** An `insert` whose caller-supplied event id is already taken. */
+export const HTTP_CONFLICT = 409;
+/** Google's status for an event that was deleted; a sync window reports it so
+ *  consumers can remove their copy. Single-sourced — the pull and the push both
+ *  branch on it. */
+export const CANCELLED_EVENT_STATUS = "cancelled";
 
 /** Resolve a declared calendarId to the one the API and the sync-token store
  *  both address. `||` (not `??`) so an empty string also falls back instead of
@@ -74,6 +83,10 @@ export interface UpdateCalendarEventInput {
   description?: string;
   calendarId?: string;
   colorId?: string;
+  /** Etag of the version this edit was computed against. Sent as `If-Match`, so
+   *  Google answers 412 rather than letting the PATCH clobber a change that
+   *  landed after the caller read the event. Omit for an unconditional write. */
+  ifMatch?: string;
 }
 
 export interface DeleteCalendarEventInput {
@@ -219,19 +232,32 @@ export const buildEventPatch = (input: UpdateCalendarEventInput): Record<string,
  *  reminders, recurrence). */
 export async function updateCalendarEvent(accessToken: string, input: UpdateCalendarEventInput): Promise<CalendarEventSummary> {
   const url = eventUrl(input.calendarId, input.eventId);
-  const updated = await googleRequest(CALENDAR_API_LABEL, accessToken, url, { method: "PATCH", body: JSON.stringify(buildEventPatch(input)) });
+  const updated = await googleRequest(CALENDAR_API_LABEL, accessToken, url, {
+    method: "PATCH",
+    body: JSON.stringify(buildEventPatch(input)),
+    ...(input.ifMatch ? { extraHeaders: { "If-Match": input.ifMatch } } : {}),
+  });
   return toEventSummary(updated);
 }
 
-/** Read ONE event, or null when it is gone (404) or already cancelled.
+/** An event plus the version token a conditional write needs. */
+export interface FetchedCalendarEvent {
+  event: CalendarEventSummary;
+  /** Google's `etag` for this version, `""` when absent. Sent back as
+   *  `If-Match` so a PATCH cannot overwrite a version we never read. */
+  etag: string;
+}
+
+/** Read ONE event, or null when it is gone (404 / 410).
  *
  *  A push needs Google's current value per changed record to tell a local-only
  *  edit from a both-sides conflict. Deliberately not `syncCalendarEvents`: that
  *  consumes the calendar's sync token, and the token's window is served once —
  *  spending it here would make the next pull miss everything in it. */
-export async function getCalendarEvent(accessToken: string, input: DeleteCalendarEventInput): Promise<CalendarEventSummary | null> {
+export async function getCalendarEvent(accessToken: string, input: DeleteCalendarEventInput): Promise<FetchedCalendarEvent | null> {
   try {
-    return toEventSummary(await googleRequest(CALENDAR_API_LABEL, accessToken, eventUrl(input.calendarId, input.eventId)));
+    const fetched = await googleRequest(CALENDAR_API_LABEL, accessToken, eventUrl(input.calendarId, input.eventId));
+    return { event: toEventSummary(fetched), etag: stringField(asRecord(fetched), "etag") };
   } catch (error) {
     if (isGoogleApiError(error) && EVENT_ABSENT_STATUSES.includes(error.status)) return null;
     throw error;
