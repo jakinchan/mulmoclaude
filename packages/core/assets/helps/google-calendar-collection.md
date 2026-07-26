@@ -6,9 +6,21 @@ events on a schedule and writes them as records — **without calling you**. No
 tool call, no tokens spent per sync, so hourly syncing is free.
 
 This is the mechanism for *keeping a collection fresh*. For one-off reads and
-for creating / editing / deleting events, use the `google` tool — see
+for deleting events, use the `google` tool — see
 [The `google` tool](google.md). There is no bundled calendar collection: you
 author the schema when the user asks for one.
+
+## Both directions, but only one of them automatic
+
+| Direction | How | When it runs |
+| --- | --- | --- |
+| Google → collection | the `googleCalendar` block | hourly, on creation, and on the **Sync** button |
+| collection → Google | the **Push to Google** button in the collection view | only when the user clicks it |
+
+There is no automatic write-back and no setting that enables one. If a user
+asks for "two-way sync", tell them plainly: the pull is automatic, the push is
+a button they press. Do not go looking for a config key for it — there isn't
+one, and hunting for it is what makes this conversation go in circles.
 
 ## Requirements
 
@@ -81,8 +93,50 @@ the calendar day view then draws each record as a proportional time block.
   records on that first pass.
 
 Records are ordinary collection records: the user can open, filter, and view
-them like any other. Edits they make locally are overwritten the next time
-Google reports a change to that event.
+them like any other.
+
+## Pushing local work back — the Push to Google button
+
+The collection view has a **Push to Google** button next to Sync. It creates
+events for records added locally and updates events for records edited locally.
+
+**Order matters, and this is the one thing to warn users about.** A pull
+overwrites a locally edited record as soon as Google reports any change to that
+event. So: push first, then sync. Syncing first can discard the edit that was
+waiting to be pushed.
+
+What the button does and deliberately does not do:
+
+- **Creates** an event for a record that never came from a sync.
+- **Updates** only the fields the user actually changed, so attendees,
+  reminders and recurrence rules stay untouched.
+- **Never deletes.** A record deleted locally leaves its Google event alone —
+  a Google delete removes the event for every attendee and cannot be undone.
+  The count is reported so the user knows it was skipped; deleting for real is
+  the `google` tool's `calendarDeleteEvent`, after confirming with them.
+- **Skips a record edited on both sides** and reports it, rather than picking a
+  winner. The user resolves it by editing one side to match.
+- Pushes only `summary`, `start`, `end` and `colorId` — `htmlLink` and `status`
+  are read-only in Google, so a column mapped to either is ignored.
+
+Reasons a record can be reported as skipped:
+
+- **Its record id cannot be a Google event id.** Google requires 5-1024
+  characters from `0-9a-v`. Records created through the UI get a valid
+  generated id; a semantic id you authored (`team-standup`) cannot be used. Fix
+  by recreating the record without setting the primary field.
+- **No `start` / `end` is mapped, on a record being CREATED.** An event cannot
+  be created without a span. Editing an existing event is unaffected — a changed
+  title or colour is patched on its own.
+- **The calendar reports no timezone**, and the stored clock carries no offset
+  to fall back on.
+- **Clearing an event colour** — Google has no way to unset one.
+
+If the user only has `reader` access to the calendar, the whole push is refused
+with that reason rather than failing event by event. A calendar the user can
+reach by id but has not added to their calendar list has no role to check, so
+the push goes ahead and reports Google's own refusal if the write turns out not
+to be allowed — being unlisted is not treated as being read-only.
 
 ## Not for this
 

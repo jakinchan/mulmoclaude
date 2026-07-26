@@ -141,6 +141,7 @@ configureCollectionUi({
   runItemAction: (slug, itemId, actionId, params) => apiPost(itemActionUrl(slug, itemId, actionId), params ? { params } : {}),
   runCollectionAction: (slug, actionId) => apiPost(collectionActionUrl(slug, actionId), {}),
   refreshCollection: (slug) => apiPost(withSlug(API_ROUTES.collections.refresh, slug), {}),
+  pushCalendarCollection: (slug) => apiPost(withSlug(API_ROUTES.collections.calendarPush, slug), {}),
 
   // routing (via the router instance — reactive through router.currentRoute)
   routeSlug: () => (typeof router.currentRoute.value.params.slug === "string" ? router.currentRoute.value.params.slug : undefined),

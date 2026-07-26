@@ -44,6 +44,7 @@ const sampleCalendar: CalendarSummary = {
   backgroundColor: "#16a765",
   foregroundColor: "#ffffff",
   colorId: "8",
+  timeZone: "Asia/Tokyo",
 };
 
 const sampleColors: CalendarColors = {
@@ -158,7 +159,11 @@ describe("createGoogleCalendarCreateEvent", () => {
     it(label, async () => {
       const { deps, calls } = stubDeps();
       await createGoogleCalendarCreateEvent(deps)({ ...validParams, start: given });
-      assert.equal(calls.createInputs[0]?.startDateTime, given);
+      // `CalendarEventInput`'s span is a union since #2598 (the flat pair or a
+      // structured one), so reading the flat field needs the narrowing.
+      const [input] = calls.createInputs;
+      assert.ok(input && "startDateTime" in input, "the remote-host handler passes the flat span");
+      assert.equal(input.startDateTime, given);
     });
   }
 

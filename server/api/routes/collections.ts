@@ -69,8 +69,9 @@ import { singleLineForLog } from "../../utils/logPreview.js";
 import { log } from "../../system/logger/index.js";
 import { workspacePath } from "../../workspace/workspace.js";
 import { refreshOne } from "@mulmoclaude/core/feeds/server";
-import { releaseOrphanedCalendarToken, syncCalendarForCollection } from "@mulmoclaude/core/google";
+import { pushCalendarForCollection, releaseOrphanedCalendarToken, syncCalendarForCollection } from "@mulmoclaude/core/google";
 import { calendarRefreshBody, type CollectionRefreshBody as RefreshResponse } from "./collectionCalendarRefresh.js";
+import { calendarPushBody, PUSH_NOT_DECLARED_ERROR, type CollectionPushBody } from "./collectionCalendarPush.js";
 import { manageCollection } from "../../agent/mcp-tools/manageCollection.js";
 import { dispatchAgentAction, runningAgentActions } from "./collectionAgentActions.js";
 import { clampCapabilities, mintViewToken, requireViewToken } from "../auth/viewToken.js";
@@ -469,6 +470,37 @@ router.post(API_ROUTES.collections.refresh, async (req: Request<{ slug: string }
     else await refreshCalendarCollection(collection.slug, res);
   } catch (err) {
     log.warn("collections", "collection refresh failed", { slug: collection.slug, error: errorMessage(err) });
+    serverError(res, errorMessage(err));
+  }
+});
+
+// Push locally created / edited records to the calendar the collection declares
+// (#2598) — the opposite direction from the Refresh button above. Deliberately a
+// separate route and a separate button: which way the data moved must never be
+// ambiguous, and this direction writes to a calendar other people may read.
+async function pushCalendarCollection(slug: string, res: ApiResponse<CollectionPushBody>): Promise<void> {
+  const body = calendarPushBody(await pushCalendarForCollection(slug, workspacePath));
+  log.info("collections", "calendar pushed via collection route", {
+    slug,
+    created: body.created,
+    updated: body.updated,
+    conflicts: body.conflicts,
+    errors: body.errors.length,
+  });
+  res.json(body);
+}
+
+router.post(API_ROUTES.collections.calendarPush, async (req: Request<{ slug: string }>, res: ApiResponse<CollectionPushBody>) => {
+  const collection = await loadCollectionOr404(req.params.slug, res);
+  if (!collection) return;
+  if (!collection.schema.googleCalendar) {
+    badRequest(res, PUSH_NOT_DECLARED_ERROR);
+    return;
+  }
+  try {
+    await pushCalendarCollection(collection.slug, res);
+  } catch (err) {
+    log.warn("collections", "calendar push failed", { slug: collection.slug, error: errorMessage(err) });
     serverError(res, errorMessage(err));
   }
 });

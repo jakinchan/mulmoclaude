@@ -7,7 +7,7 @@ import { fetchWithTimeout } from "../utils/fetch.js";
 
 export const GOOGLE_API_TIMEOUT_MS = 30 * ONE_SECOND_MS;
 const ERROR_BODY_MAX_CHARS = 300;
-const HTTP_FORBIDDEN = 403;
+export const HTTP_FORBIDDEN = 403;
 export const DEFAULT_LIST_MAX_RESULTS = 10;
 export const MAX_LIST_RESULTS = 50;
 
@@ -39,14 +39,19 @@ export interface GoogleRequestInit {
   contentType?: string;
   /** Response is not JSON (Drive media download) — return the raw text. */
   expectText?: boolean;
+  /** Extra request headers, merged after the defaults. Used for conditional
+   *  writes (`If-Match: <etag>`), which is how a caller makes a PATCH fail with
+   *  412 instead of silently overwriting a newer version. Cannot replace
+   *  `Authorization`. */
+  extraHeaders?: Record<string, string>;
 }
 
 export async function googleRequest(apiLabel: string, accessToken: string, url: string, init: GoogleRequestInit = {}): Promise<unknown> {
-  const { contentType = "application/json", expectText = false, ...rest } = init;
+  const { contentType = "application/json", expectText = false, extraHeaders, ...rest } = init;
   const response = await fetchWithTimeout(url, {
     ...rest,
     timeoutMs: GOOGLE_API_TIMEOUT_MS,
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": contentType },
+    headers: { ...extraHeaders, Authorization: `Bearer ${accessToken}`, "Content-Type": contentType },
   });
   if (!response.ok) {
     const body = await response.text().catch((err: unknown) => errorMessage(err));

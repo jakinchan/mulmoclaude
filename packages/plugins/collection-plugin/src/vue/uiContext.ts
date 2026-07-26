@@ -67,6 +67,20 @@ export interface CollectionRefreshResult {
   chatId?: string;
 }
 
+/** A Collection → Google Calendar push (#2598). `conflicts` and `localDeletes`
+ *  are reported, never acted on: a both-sides edit would destroy one version,
+ *  and a Google delete removes the event for every attendee. */
+export interface CollectionPushResult {
+  pushed: boolean;
+  created: number;
+  updated: number;
+  conflicts: number;
+  localDeletes: number;
+  /** Records that could not be pushed as they stand, each with its reason. */
+  skipped: string[];
+  errors: string[];
+}
+
 /** Scoped capability token for a sandboxed custom view (mirrors the host's mint
  *  response) — the iframe reads/writes the collection through it. */
 export interface CollectionViewToken {
@@ -233,6 +247,9 @@ export interface CollectionUi {
   runCollectionAction: (slug: string, actionId: string) => Promise<CollectionApiResult<CollectionActionResult>>;
   /** Refresh a feed-backed collection (`apiPost` over `…collections.refresh`). */
   refreshCollection: (slug: string) => Promise<CollectionApiResult<CollectionRefreshResult>>;
+  /** Push local records to the declared Google calendar
+   *  (`apiPost` over `…collections.calendarPush`). */
+  pushCalendarCollection: (slug: string) => Promise<CollectionApiResult<CollectionPushResult>>;
 
   // ── routing (host: the vue-router instance) ──
   /** Current route's `:slug` param (standalone page), or undefined. */
