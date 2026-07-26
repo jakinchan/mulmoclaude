@@ -11,9 +11,12 @@
 //                    Gemini image-fill, artifacts/documents store).
 //   - MulmoTerminal → its `server/backends/*` (next session).
 //
-// This file is pure types + the dispatch envelope; it imports nothing
-// host-specific so it lifts verbatim into `@mulmoclaude/markdown-plugin`
-// at extraction (Phase 3).
+// This file is the dispatch envelope: its types, plus the runtime guard
+// that decides whether an incoming payload IS one of them. It imports
+// nothing host-specific, so it lifts verbatim into
+// `@mulmoclaude/markdown-plugin` at extraction (Phase 3).
+
+import { isRecord } from "@mulmoclaude/common";
 
 /** A workspace Marp theme: the slug authors reference via frontmatter
  *  `theme: <name>` and the CSS to register on the Marp themeSet. */
@@ -91,4 +94,41 @@ export interface MarkdownDispatchResult {
   marpThemes: { themes: MarpThemeEntry[] };
   exportPdf: { pdfBase64: string };
   fillImages: { markdown: string };
+}
+
+// ── Runtime guard ───────────────────────────────────────────────────
+//
+// A dispatch payload arrives from the View over the host's HTTP surface, so
+// it is untyped data. `executeMarkdown` switches on `kind` and passes the
+// other fields straight to the host app without checking them, so an absent
+// `path` / `markdown` would reach a backend as `undefined` rather than being
+// refused here. The guard lives beside the shapes it checks so every host
+// narrows the same way instead of asserting by hand.
+//
+// Takes `unknown`: an interface gets no implicit index signature, so a
+// predicate narrowing FROM `Record<string, unknown>` would not type-check.
+
+const isString = (value: unknown): value is string => typeof value === "string";
+const isOptional = (value: unknown, check: (candidate: unknown) => boolean): boolean => value === undefined || check(value);
+
+/** Per-kind required-field check. `marpThemes` carries no payload. */
+const DISPATCH_SHAPE_CHECKS: Record<string, (args: Record<string, unknown>) => boolean> = {
+  loadDoc: (args) => isString(args.path),
+  saveDoc: (args) => isString(args.path) && isString(args.markdown),
+  marpThemes: () => true,
+  fillImages: (args) => isString(args.markdown),
+  exportPdf: (args) =>
+    isString(args.markdown) &&
+    isString(args.filename) &&
+    isOptional(args.marp, (value) => typeof value === "boolean") &&
+    isOptional(args.baseDir, isString) &&
+    isOptional(args.format, (value) => value === "Letter" || value === "A4") &&
+    isOptional(args.stripFrontmatter, (value) => typeof value === "boolean"),
+};
+
+/** True when `value` is a well-formed dispatch payload for some known kind. */
+export function isMarkdownDispatchArgs(value: unknown): value is MarkdownDispatchArgs {
+  if (!isRecord(value) || typeof value.kind !== "string") return false;
+  const check = DISPATCH_SHAPE_CHECKS[value.kind];
+  return check !== undefined && check(value);
 }

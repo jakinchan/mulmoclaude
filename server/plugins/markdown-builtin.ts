@@ -12,8 +12,8 @@
 // `@mulmoclaude/markdown-plugin` and this file stays behind as
 // MulmoClaude's host adapter.
 
-import { executeMarkdown } from "@mulmoclaude/markdown-plugin";
-import type { MarkdownDispatchArgs, MarkdownHostApp } from "@mulmoclaude/markdown-plugin";
+import { executeMarkdown, isMarkdownDispatchArgs } from "@mulmoclaude/markdown-plugin";
+import type { MarkdownHostApp } from "@mulmoclaude/markdown-plugin";
 import { isMarkdownPath, loadMarkdown, overwriteMarkdown, saveMarkdown } from "../utils/files/markdown-store.js";
 import { publishFileChange } from "../events/file-change.js";
 import { listMarpThemes } from "../workspace/marp-themes.js";
@@ -67,4 +67,12 @@ const markdownHostApp: MarkdownHostApp = {
   },
 };
 
-registerBuiltinDispatch(MARKDOWN_SCOPE, (args) => executeMarkdown({ app: markdownHostApp }, args as unknown as MarkdownDispatchArgs));
+// `args` is whatever the View put on the wire. `executeMarkdown` switches on
+// `kind` and forwards the rest to the host app unchecked, so narrowing here is
+// what keeps a malformed payload from reaching a backend as `undefined`.
+registerBuiltinDispatch(MARKDOWN_SCOPE, (args) => {
+  if (!isMarkdownDispatchArgs(args)) {
+    throw new Error(`markdown plugin: unrecognised dispatch payload (kind=${JSON.stringify(args.kind)})`);
+  }
+  return executeMarkdown({ app: markdownHostApp }, args);
+});

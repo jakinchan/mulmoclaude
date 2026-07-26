@@ -5,6 +5,7 @@ export { pluginCore, executeDocument } from "./plugin";
 export { executeMarkdown } from "../plugins/markdown/core";
 export type { MarkdownExecuteContext } from "../plugins/markdown/core";
 export type { MarkdownHostApp, MarkdownDispatchArgs, MarkdownDispatchResult, ExportPdfOptions, MarpThemeEntry } from "../plugins/markdown/contract";
+export { isMarkdownDispatchArgs } from "../plugins/markdown/contract";
 // Hosts whose workspace file server is not `/api/files/raw` call this.
 export { setFilesRawUrl } from "@mulmoclaude/markdown-utils/image/resolve";
 // Shared Marp render core — both hosts' PDF export + the MarpView preview.
