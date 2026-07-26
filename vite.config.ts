@@ -76,7 +76,16 @@ const requestFromLoopback = new AsyncLocalStorage<boolean>()
 // Every path this dev server forwards to Express. Kept in sync with
 // `server.proxy` below — a prefix added there without being added here is
 // reachable from the LAN whenever MULMOCLAUDE_DEV_LAN is set.
-const PROXIED_BACKEND_PREFIXES = ['/api', '/artifacts'] as const
+//
+// `/ws` is the backend pub/sub socket. It needs BOTH guards below: the
+// connect middleware never sees a WebSocket handshake (those arrive on the
+// http server's `upgrade` event, not the request pipeline), so the prefix
+// alone would not stop it.
+const PROXIED_BACKEND_PREFIXES = ['/api', '/artifacts', '/ws'] as const
+
+function startsWithProxiedPrefix(url: string | undefined): boolean {
+  return PROXIED_BACKEND_PREFIXES.some((prefix) => url?.startsWith(prefix) ?? false)
+}
 
 function mulmoclaudeAuthTokenPlugin(): Plugin {
   return {
@@ -102,13 +111,28 @@ function mulmoclaudeAuthTokenPlugin(): Plugin {
         // Express binds to 127.0.0.1. The proxy defeats that: Express sees
         // the proxy's own loopback socket, not the real client. Refusing
         // here is the only layer that can still tell the two apart.
-        if (!fromLoopback && PROXIED_BACKEND_PREFIXES.some((prefix) => req.url?.startsWith(prefix))) {
+        if (!fromLoopback && startsWithProxiedPrefix(req.url)) {
           res.statusCode = 403
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify({ error: 'Forbidden: backend access is loopback-only' }))
           return
         }
         requestFromLoopback.run(fromLoopback, next)
+      })
+
+      // WebSocket handshakes never reach the middleware above — Node routes
+      // them to the http server's `upgrade` event instead. Without this the
+      // `/ws` proxy would still carry backend pub/sub to a LAN client even
+      // though every HTTP path is refused.
+      //
+      // `prependListener` so this runs before the proxy's own upgrade
+      // handler, and only backend prefixes are destroyed — Vite's HMR socket
+      // is left alone, otherwise enabling LAN mode would break the very page
+      // it is meant to serve.
+      server.httpServer?.prependListener('upgrade', (req, socket) => {
+        if (isLoopbackAddress(socket.remoteAddress)) return
+        if (!startsWithProxiedPrefix(req.url)) return
+        socket.destroy()
       })
     },
     transformIndexHtml(html) {
