@@ -22,18 +22,14 @@ export const deriveItems = (schema: { fields?: Record<string, DerivableFieldSpec
 
 /** Build the paginated result.
  *
- *  The one place in this directory that still asserts. `toJsonObject` cannot
- *  serve it, and that is the honest answer rather than a gap in the helper:
- *  `CollectionDetail` reaches `schema.spawn.set`, typed `Record<string,
- *  unknown>`, so the payload genuinely CANNOT be proven JSON by the type
- *  system. It is JSON at runtime because the schema loader only ever puts
- *  JSON there — a fact about the loader, not something these types record.
+ *  `toJsonObject` cannot serve this one. `CollectionDetail` reaches
+ *  `schema.spawn.set`, typed `Record<string, unknown>`, so the payload
+ *  genuinely CANNOT be proven JSON by the type system — it is JSON at runtime
+ *  because the schema loader only ever puts JSON there, a fact about the
+ *  loader that these types do not record.
  *
- *  So this assertion buys something real, unlike the seven it replaced (those
- *  only worked around interfaces lacking an implicit index signature, which
- *  `toJsonObject` handles). Tightening it further means giving `spawn.set` a
- *  JSON-valued type at the schema layer; until then, the unchecked step is
- *  confined here rather than spread across eight handlers. */
+ *  Removing this assertion means giving `spawn.set` a JSON-valued type at the
+ *  schema layer, not adjusting anything here. */
 export const pageResult = (detail: unknown, items: unknown[], offset: number, limit: number): JsonObject =>
   ({
     collection: detail,

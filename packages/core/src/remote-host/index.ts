@@ -31,7 +31,20 @@ export type JsonObject = Record<string, JsonValue>;
  *  Recursive on purpose: a top-level-only map would still leave nested
  *  interfaces (`{ shortcuts: Shortcut[] }`) unassignable, which is the case
  *  every handler here actually has. */
-export type Jsonify<T> = T extends JsonValue ? T : T extends (infer U)[] ? Jsonify<U>[] : T extends object ? { [K in keyof T]: Jsonify<T[K]> } : never;
+// The function branch must come BEFORE the object branch: a function IS an
+// object to TypeScript, so without it a function maps to `{}` and sails
+// through — the helper would accept a payload that serialises to nothing.
+// Verified: `toJsonObject({ callback: () => undefined })` compiled clean until
+// this branch existed (CodeRabbit, #2596).
+export type Jsonify<T> = T extends JsonValue
+  ? T
+  : T extends (...args: never[]) => unknown
+    ? never
+    : T extends (infer U)[]
+      ? Jsonify<U>[]
+      : T extends object
+        ? { [K in keyof T]: Jsonify<T[K]> }
+        : never;
 
 /** Widen a JSON-shaped handler payload to the channel's `JsonObject`.
  *
