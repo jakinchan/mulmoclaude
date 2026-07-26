@@ -751,11 +751,25 @@ if (env.isProduction) {
   });
 }
 
-app.use((err: Error, _req: Request, res: Response, __next: NextFunction) => {
+app.use((err: Error, _req: Request, res: Response, next: NextFunction) => {
   log.error("express", "unhandled error", {
     error: err.message,
     stack: err.stack,
   });
+  // A partially-sent response can't take a status line. Without this guard
+  // `serverError` throws ERR_HTTP_HEADERS_SENT from inside the error handler:
+  // the socket still ends up destroyed (Express catches the secondary throw
+  // and falls through to finalhandler), but the logs then show the real error
+  // followed by a misleading second crash. Delegating instead reaches the same
+  // destroy via the intended path, logging only what actually happened.
+  //
+  // Reachable since asyncHandler started forwarding `next(err)` on the
+  // headersSent path (#2593) — before that, nothing routed a mid-response
+  // failure here.
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
   serverError(res, "Internal Server Error");
 });
 
