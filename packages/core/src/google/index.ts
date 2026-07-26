@@ -81,6 +81,7 @@ export {
   isClientSettableEventId,
   locallyChangedFields,
   locallyDeletedIds,
+  mayAdoptExisting,
   planRecord,
   pushableMap,
   PUSHABLE_SOURCE_FIELDS,

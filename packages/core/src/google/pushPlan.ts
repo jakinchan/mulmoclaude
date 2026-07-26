@@ -136,6 +136,29 @@ export function planRecord(
   return changed.length === 0 ? { kind: "unchanged" } : { kind: "changed", fields: changed };
 }
 
+/** Whether an event that already holds this record's id may be adopted as its
+ *  baseline.
+ *
+ *  A 409 from `insert` usually means a previous push created the event but its
+ *  baseline never landed. It can ALSO mean an unrelated event happens to hold
+ *  this id, and adopting that would bind the record to a stranger's event — so
+ *  adoption needs evidence the two are the same logical event, not just the same
+ *  id (Codex review).
+ *
+ *  The evidence is that the remote event ALREADY equals what this record would
+ *  write. Adoption then records a baseline and writes nothing, so it cannot
+ *  modify whatever that event is. Anything else is refused. */
+export function mayAdoptExisting(
+  eventId: string,
+  record: CollectionItem,
+  existing: ShadowEvent,
+  map: Record<string, PushableSourceField>,
+  primaryKey: string,
+  fields: Record<string, CollectionFieldSpec>,
+): boolean {
+  return locallyChangedFields(record, baselineRecord(eventId, existing, map, primaryKey, fields), map).length === 0;
+}
+
 /** Record ids the baseline knows but the collection no longer holds — deleted
  *  locally. v1 reports the count and pushes nothing: `calendarDeleteEvent`
  *  removes the event for every attendee and cannot be undone. */

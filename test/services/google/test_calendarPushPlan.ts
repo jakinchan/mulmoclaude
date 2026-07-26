@@ -16,6 +16,7 @@ import {
   isClientSettableEventId,
   locallyChangedFields,
   locallyDeletedIds,
+  mayAdoptExisting,
   mergeShadow,
   planRecord,
   pushableMap,
@@ -216,6 +217,36 @@ describe("isClientSettableEventId", () => {
       assert.equal(isClientSettableEventId(eventId), false);
     });
   }
+});
+
+describe("mayAdoptExisting — the 409 recovery gate", () => {
+  // A 409 from `insert` is usually a previous push whose baseline never landed,
+  // but it can also be an unrelated event holding the same id. Adoption is
+  // therefore gated on the remote event ALREADY equalling the record, and the
+  // recovery writes nothing — otherwise a push could modify a stranger's event.
+  // (Codex review on #2600.)
+  it("adopts an event that already matches the record", () => {
+    const existing = shadow();
+    assert.equal(mayAdoptExisting("ev1", syncedRecord("ev1", existing), existing, MAP, PRIMARY_KEY, fields), true);
+  });
+
+  it("refuses an event whose title differs — it may not be ours", () => {
+    const existing = shadow();
+    const record = { ...syncedRecord("ev1", existing), title: "Something else entirely" };
+    assert.equal(mayAdoptExisting("ev1", record, existing, MAP, PRIMARY_KEY, fields), false);
+  });
+
+  it("refuses an event whose time differs", () => {
+    const existing = shadow();
+    const record = { ...syncedRecord("ev1", existing), on: "2026-07-19T15:00" };
+    assert.equal(mayAdoptExisting("ev1", record, existing, MAP, PRIMARY_KEY, fields), false);
+  });
+
+  it("adopts across the seconds spelling, so a hand-typed time still heals", () => {
+    const existing = shadow({ start: "2026-07-19T09:30:00+09:00", end: "2026-07-19T10:00:00+09:00" });
+    const record = { ...syncedRecord("ev1", existing), on: "2026-07-19T09:30", until: "2026-07-19T10:00" };
+    assert.equal(mayAdoptExisting("ev1", record, existing, MAP, PRIMARY_KEY, fields), true);
+  });
 });
 
 describe("mergeShadow", () => {

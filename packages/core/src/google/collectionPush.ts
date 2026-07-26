@@ -30,13 +30,12 @@ import { loadCalendarShadow, saveCalendarShadow, toShadowEvent, type ShadowEvent
 import { withCalendarLock } from "./collectionSync.js";
 import { toGoogleEventTime } from "./pushDateTime.js";
 import {
-  baselineRecord,
   bySourceField,
   conflictingFields,
   fieldText,
   isClientSettableEventId,
-  locallyChangedFields,
   locallyDeletedIds,
+  mayAdoptExisting,
   planRecord,
   pushableMap,
   type PushableSourceField,
@@ -220,13 +219,17 @@ async function updateFromRecord(
   }
 }
 
-/** Create, recovering when Google says the id is already taken.
+/** Create, recovering from the one 409 that is provably safe to recover from.
  *
- *  A 409 means a previous push created the event but its baseline never landed —
- *  a crash between the write and the save. Without recovery that record would
- *  report the same duplicate-id error on every click forever. Adopting the
- *  existing event as the baseline heals it in one click, and applies whatever the
- *  record has changed relative to it. */
+ *  A 409 means the id is taken, which is USUALLY a previous push whose baseline
+ *  never landed. It can also be an unrelated event that happens to hold this id,
+ *  so the recovery never writes: it adopts the baseline only when the remote
+ *  event already equals what this record would write, and otherwise reports the
+ *  fix. Patching whatever answered the 409 would let a push modify a stranger's
+ *  event (Codex review).
+ *
+ *  Refusal is not a dead end — a Sync writes both the record and its baseline,
+ *  after which the record pushes normally. */
 async function createOrAdopt(ctx: PushContext, eventId: string, record: CollectionItem): Promise<PushOutcome> {
   try {
     return await createFromRecord(ctx, eventId, record);
@@ -234,10 +237,13 @@ async function createOrAdopt(ctx: PushContext, eventId: string, record: Collecti
     if (!isGoogleApiError(error) || error.status !== HTTP_CONFLICT) throw error;
     const fetched = await getCalendarEvent(ctx.accessToken, { calendarId: ctx.calendarId, eventId });
     if (fetched === null) throw error;
-    const adopted = toShadowEvent(fetched.event);
-    const changed = locallyChangedFields(record, baselineRecord(eventId, adopted, ctx.map, ctx.primaryKey, ctx.fields), ctx.map);
-    if (changed.length === 0) return { kind: "unchanged", event: fetched.event };
-    return await updateFromRecord(ctx, eventId, record, changed, adopted);
+    if (mayAdoptExisting(eventId, record, toShadowEvent(fetched.event), ctx.map, ctx.primaryKey, ctx.fields)) {
+      return { kind: "unchanged", event: fetched.event };
+    }
+    return {
+      kind: "skipped",
+      message: `${eventId}: an event with this id already exists in Google and differs from this record — press Sync to adopt it, then push again`,
+    };
   }
 }
 
