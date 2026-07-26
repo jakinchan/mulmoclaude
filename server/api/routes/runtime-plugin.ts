@@ -42,6 +42,7 @@ import { isRecord } from "../../utils/types.js";
 import { resolveWithinRoot } from "../../utils/files/safe.js";
 import { readPluginAsset } from "../../utils/files/plugins-io.js";
 import { log } from "../../system/logger/index.js";
+import { singleLineForLog } from "../../utils/logPreview.js";
 
 const LOG_PREFIX = "api/plugins/runtime";
 
@@ -156,7 +157,7 @@ router.get(API_ROUTES.plugins.runtimeOauthCallback, async (req: Request<{ alias:
     const result = await plugin.execute({}, buildOauthCallbackArgs(req.query));
     sendOauthCallbackResult(res, result);
   } catch (err) {
-    log.error(LOG_PREFIX, "oauth callback dispatch threw", { alias, plugin: plugin.name, error: errorMessage(err) });
+    log.error(LOG_PREFIX, "oauth callback dispatch threw", { alias: singleLineForLog(alias), plugin: plugin.name, error: errorMessage(err) });
     res
       .status(500)
       .type("text/html")

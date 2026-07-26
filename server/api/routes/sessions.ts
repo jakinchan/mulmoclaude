@@ -18,6 +18,7 @@ import { readManifest, removeSessionFromIndex } from "../../workspace/chat-index
 import type { ChatIndexEntry } from "../../workspace/chat-index/types.js";
 import { markRead, getSession, evictSession, publishSessionsChanged } from "../../events/session-store/index.js";
 import { notFound, type ApiResponse, type ErrorBody } from "../../utils/httpError.js";
+import { singleLineForLog } from "../../utils/logPreview.js";
 import { createStampedCache } from "../../utils/stampedCache.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { EVENT_TYPES } from "../../../src/types/events.js";
@@ -358,23 +359,24 @@ async function parseSessionEntry(line: string): Promise<unknown> {
 
 router.get(API_ROUTES.sessions.detail, async (req: Request<SessionIdParams>, res: ApiResponse<unknown[]>) => {
   const { id: sessionId } = req.params;
+  const sessionIdForLog = singleLineForLog(sessionId);
   const chatDir = WORKSPACE_PATHS.chat;
-  log.info("sessions", "detail: start", { sessionId });
+  log.info("sessions", "detail: start", { sessionId: sessionIdForLog });
   try {
     const meta = await readSessionMeta(chatDir, sessionId);
     const content = await readSessionJsonl(sessionId);
     if (!content) {
-      log.warn("sessions", "detail: not found", { sessionId });
+      log.warn("sessions", "detail: not found", { sessionId: sessionIdForLog });
       notFound(res, `Session ${sessionId} not found`);
       return;
     }
     const entries = (await Promise.all(content.split("\n").filter(Boolean).map(parseSessionEntry))).filter(Boolean);
     // Prepend metadata as session_meta entry for the frontend
     const result = meta ? [{ type: EVENT_TYPES.sessionMeta, ...meta }, ...entries] : entries;
-    log.info("sessions", "detail: ok", { sessionId, entries: result.length });
+    log.info("sessions", "detail: ok", { sessionId: sessionIdForLog, entries: result.length });
     res.json(result);
   } catch (err) {
-    log.error("sessions", "detail: threw", { sessionId, error: errorMessage(err) });
+    log.error("sessions", "detail: threw", { sessionId: sessionIdForLog, error: errorMessage(err) });
     notFound(res, "Session not found");
   }
 });
@@ -383,9 +385,9 @@ router.get(API_ROUTES.sessions.detail, async (req: Request<SessionIdParams>, res
 // Awaits persistence so the response only arrives after the disk write
 // completes — prevents the client from refetching stale hasUnread values.
 router.post(API_ROUTES.sessions.markRead, async (req: Request<SessionIdParams>, res: Response<{ ok: boolean }>) => {
-  log.info("sessions", "mark-read: start", { sessionId: req.params.id });
+  log.info("sessions", "mark-read: start", { sessionId: singleLineForLog(req.params.id) });
   await markRead(req.params.id);
-  log.info("sessions", "mark-read: ok", { sessionId: req.params.id });
+  log.info("sessions", "mark-read: ok", { sessionId: singleLineForLog(req.params.id) });
   res.json({ ok: true });
 });
 
@@ -397,14 +399,15 @@ router.post(
     "Failed to update bookmark",
     async (req, res) => {
       const { id: sessionId } = req.params;
+      const sessionIdForLog = singleLineForLog(sessionId);
       const bookmarked = Boolean(req.body?.bookmarked);
-      log.info("sessions", "bookmark: start", { sessionId, bookmarked });
+      log.info("sessions", "bookmark: start", { sessionId: sessionIdForLog, bookmarked });
       await updateIsBookmarked(sessionId, bookmarked);
       // Meta-mtime bumps on the write — cursor diff will pick up the
       // change on the next refetch — but every other tab also needs
       // to know to refetch right now.
       publishSessionsChanged();
-      log.info("sessions", "bookmark: ok", { sessionId, bookmarked });
+      log.info("sessions", "bookmark: ok", { sessionId: sessionIdForLog, bookmarked });
       res.json({ ok: true });
     },
   ),
@@ -432,16 +435,17 @@ router.delete(
   API_ROUTES.sessions.detail,
   asyncHandler<Request<SessionIdParams>, ApiResponse<{ ok: boolean }>>("sessions", "Failed to delete session", async (req, res) => {
     const { id: sessionId } = req.params;
-    log.info("sessions", "delete: start", { sessionId });
+    const sessionIdForLog = singleLineForLog(sessionId);
+    log.info("sessions", "delete: start", { sessionId: sessionIdForLog });
     if (getSession(sessionId)?.isRunning) {
-      log.warn("sessions", "delete: refused — session running", { sessionId });
+      log.warn("sessions", "delete: refused — session running", { sessionId: sessionIdForLog });
       res.status(409).json({ error: "Session is running. Cancel the run before deleting." });
       return;
     }
     await deleteSessionFiles(sessionId);
     await removeSessionFromIndex(workspacePath, sessionId);
     evictSession(sessionId);
-    log.info("sessions", "delete: ok", { sessionId });
+    log.info("sessions", "delete: ok", { sessionId: sessionIdForLog });
     res.json({ ok: true });
   }),
 );

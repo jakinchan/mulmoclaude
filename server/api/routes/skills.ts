@@ -33,6 +33,7 @@ import { workspacePath } from "../../workspace/workspace.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { bindRoute } from "../../utils/router.js";
 import { log } from "../../system/logger/index.js";
+import { singleLineForLog } from "../../utils/logPreview.js";
 import { refreshScheduledSkills } from "../../workspace/skills/scheduler.js";
 import { logBackgroundError } from "../../utils/logBackgroundError.js";
 import { badRequest, conflict, forbidden, notFound } from "../../utils/httpError.js";
@@ -254,7 +255,7 @@ bindRoute(
     }
     const result = await installExternalRepo({ url, subpath, ref });
     if (result.kind === "installed") {
-      log.info("skills", "external install: ok", { repoId: result.detail.repoId, skillCount: result.detail.skillCount });
+      log.info("skills", "external install: ok", { repoId: singleLineForLog(result.detail.repoId), skillCount: result.detail.skillCount });
       res.json({
         installed: true,
         repoId: result.detail.repoId,
@@ -265,7 +266,7 @@ bindRoute(
       return;
     }
     if (result.kind === "no-skills") {
-      log.warn("skills", "external install: no skills discovered", { repoId: result.repoId });
+      log.warn("skills", "external install: no skills discovered", { repoId: singleLineForLog(result.repoId) });
       res.status(422).json({ error: `no SKILL.md found in repo (${result.repoId})` });
       return;
     }
@@ -280,7 +281,7 @@ bindRoute(
       return;
     }
     if (result.kind === "id-collision") {
-      log.warn("skills", "external install: repoId collision", { repoId: result.repoId, existingUrl: result.existingUrl });
+      log.warn("skills", "external install: repoId collision", { repoId: singleLineForLog(result.repoId), existingUrl: result.existingUrl });
       conflict(res, `repo id "${result.repoId}" is already in use by ${result.existingUrl}. Uninstall it first if you intend to replace it.`);
       return;
     }
@@ -293,16 +294,16 @@ bindRoute(router, API_ROUTES.skills.externalReposRemove, async (req: Request<{ r
   const { repoId } = req.params;
   const result = await uninstallExternalRepo(repoId);
   if (result.kind === "uninstalled") {
-    log.info("skills", "external uninstall: ok", { repoId: result.repoId });
+    log.info("skills", "external uninstall: ok", { repoId: singleLineForLog(result.repoId) });
     res.json({ uninstalled: true, repoId: result.repoId });
     return;
   }
   if (result.kind === "not-found") {
-    log.warn("skills", "external uninstall: not found", { repoId: result.repoId });
+    log.warn("skills", "external uninstall: not found", { repoId: singleLineForLog(result.repoId) });
     notFound(res, `external repo not installed: ${result.repoId}`);
     return;
   }
-  log.warn("skills", "external uninstall: invalid repoId", { repoId: result.repoId });
+  log.warn("skills", "external uninstall: invalid repoId", { repoId: singleLineForLog(result.repoId) });
   badRequest(res, `invalid repoId: ${result.repoId}`);
 });
 
