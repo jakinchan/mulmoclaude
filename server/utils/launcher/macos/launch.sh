@@ -13,6 +13,7 @@ RESOURCES_DIR=$(cd "$BUNDLE_MACOS_DIR/../Resources" && pwd)
 LAUNCHER_DIR="$RESOURCES_DIR/utils/launcher"
 
 . "$LAUNCHER_DIR/macos/resolve-path.sh"
+. "$LAUNCHER_DIR/macos/message-file.sh"
 
 PATH=$(mc_resolve_path)
 export PATH
@@ -27,9 +28,8 @@ export PATH
 # someone has to retype by hand is a dead end for the exact user this
 # launcher is for.
 mc_alert_no_node() {
-  locale=$(/usr/bin/defaults read -g AppleLocale 2>/dev/null | /usr/bin/cut -d_ -f1)
-  file="$RESOURCES_DIR/messages/$locale.txt"
-  [ -f "$file" ] || file="$RESOURCES_DIR/messages/en.txt"
+  locale=$(/usr/bin/defaults read -g AppleLocale 2>/dev/null)
+  file=$(mc_message_file "$RESOURCES_DIR/messages" "$locale")
   title=$(/usr/bin/head -1 "$file")
   body=$(/usr/bin/tail -n +2 "$file")
   /usr/bin/osascript \

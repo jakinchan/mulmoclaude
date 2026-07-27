@@ -387,7 +387,11 @@ export function pickLauncherLocale(rawLocale) {
   if (exact) return exact;
   const [language] = normalized.split("-");
   const byLanguage = LAUNCHER_LOCALES.find((locale) => locale.toLowerCase() === language.toLowerCase());
-  return byLanguage ?? DEFAULT_LOCALE;
+  // Only a regional variant may be shipped, so `pt` and `pt-PT` resolve
+  // to `pt-BR` rather than to English — the same last step as the app's
+  // `resolveLocale()` in `src/lang/index.ts`.
+  const byVariant = LAUNCHER_LOCALES.find((locale) => locale.toLowerCase().startsWith(`${language.toLowerCase()}-`));
+  return byLanguage ?? byVariant ?? DEFAULT_LOCALE;
 }
 
 /**

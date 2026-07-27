@@ -194,7 +194,7 @@ This catalog only covers **cross-cutting** helpers — formatters, error helpers
 | `src/lib/vue-i18n.ts` | `createI18n` bootstrap (default export: the i18n instance) | i18n bootstrap. Keep all 8 locales (`src/lang/{en,ja,zh,ko,es,pt-BR,fr,de}.ts`) in lockstep when adding keys — type-checked via `typeof enMessages`. |
 | `src/lang/index.ts` | `SUPPORTED_LOCALES`, `Locale` | The locale list + its derived type. Import from here, not from `src/lib/vue-i18n.ts`. |
 | (Vue)                 | `$t()` / `useI18n().t`                  | All user-facing UI strings. Never hardcode in templates.                                                                                             |
-| `server/utils/launcher/messages.mjs` | `LAUNCHER_LOCALES`, `launcherMessages(locale)`, `pickLauncherLocale(raw)`, `fillPlaceholders(t, v)` | The icon launcher's own 8-locale catalog. **Deliberately separate from `src/lang/`** — it runs before the server exists, in plain Node with no vue-i18n. Keep it in lockstep too; `test/utils/launcher/test_messages.ts` enforces the shape. |
+| `server/utils/launcher/messages.mjs` | `LAUNCHER_LOCALES`, `launcherMessages(locale)`, `pickLauncherLocale(raw)`, `fillPlaceholders(t, v)` | The icon launcher's own 8-locale catalog. **Deliberately separate from `src/lang/`** — it runs before the server exists, in plain Node with no vue-i18n. Keep it in lockstep too; `test/utils/launcher/test_messages.ts` enforces the shape. `pickLauncherLocale` resolves like the app's `resolveLocale` (whole tag → language → shipped regional variant), and has a shell twin in `macos/message-file.sh` for the one alert that runs without Node — change one and `test/utils/launcher/test_messageFile.ts` will hold you to changing both. |
 
 ## UI Composables / Patterns
 

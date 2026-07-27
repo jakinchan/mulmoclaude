@@ -68,6 +68,12 @@ describe("pickLauncherLocale", () => {
     assert.equal(pickLauncherLocale("pt_BR"), "pt-BR");
     assert.equal(pickLauncherLocale("pt-br"), "pt-BR");
     assert.equal(pickLauncherLocale("zh_Hans_CN"), "zh");
+    assert.equal(pickLauncherLocale("zh-Hans_US"), "zh");
+  });
+
+  it("gives a language its shipped regional variant rather than English", () => {
+    assert.equal(pickLauncherLocale("pt"), "pt-BR");
+    assert.equal(pickLauncherLocale("pt_PT"), "pt-BR");
   });
 
   it("falls back to English instead of throwing", () => {

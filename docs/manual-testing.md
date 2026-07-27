@@ -339,7 +339,9 @@ Build it first: `npx mulmoclaude create-shortcut`.
    opens the download page. This is the only screen that cannot be a web page,
    so it is also the only one whose button cannot be tested.
 6. **System language** — switch macOS to another supported language, log out and
-   in, and confirm the progress page and any error page follow it.
+   in, and confirm the progress page and any error page follow it. Simplified
+   Chinese is the one worth picking: it reports `AppleLocale = zh-Hans_US`, a
+   script-tagged form that no other supported language produces.
 
 The launcher's own log is `~/Library/Logs/MulmoClaude/launcher.log`.
 

@@ -61,6 +61,7 @@ describe("createAppBundle", () => {
         "Contents/Resources/utils/launcher/messages.mjs",
         "Contents/Resources/utils/launcher/preflight.mjs",
         "Contents/Resources/utils/launcher/macos/resolve-path.sh",
+        "Contents/Resources/utils/launcher/macos/message-file.sh",
         // start.mjs imports `../port.mjs`; the bundle mirrors the repo
         // layout so that relative import still resolves.
         "Contents/Resources/utils/port.mjs",

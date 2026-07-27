@@ -33,6 +33,7 @@ const BUNDLED_FILES = [
   "launcher/messages.mjs",
   "launcher/preflight.mjs",
   "launcher/macos/resolve-path.sh",
+  "launcher/macos/message-file.sh",
   "port.mjs",
 ];
 
@@ -85,13 +86,19 @@ export function renderNodeMissingText(locale) {
   return [nodeMissing.title, nodeMissing.body, "", nodeMissing.action, "", nodeMissing.hint].join("\n");
 }
 
-function writeBundleMessages(resourcesDir) {
+/**
+ * Write the alert text the shell stub reads, one file per locale.
+ * @param {string} resourcesDir
+ * @returns {void}
+ */
+export function writeBundleMessages(resourcesDir) {
   const dir = join(resourcesDir, "messages");
   mkdirSync(dir, { recursive: true });
   LAUNCHER_LOCALES.forEach((locale) => {
     writeFileSync(join(dir, `${locale}.txt`), renderNodeMissingText(locale));
-    // The stub matches on the language part of `ja_JP`, so `pt-BR`
-    // needs a `pt` alias or Brazilian users fall back to English.
+    // The stub's second step is the language subtag, so a `pt` or `pt-PT`
+    // system needs a `pt` alias to get Portuguese instead of English —
+    // matching what `pickLauncherLocale` answers for those tags.
     const [language] = locale.split("-");
     if (language !== locale) writeFileSync(join(dir, `${language}.txt`), renderNodeMissingText(locale));
   });
