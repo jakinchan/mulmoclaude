@@ -87,6 +87,11 @@ describe("renderErrorPage", () => {
     assert.match(page, /user-select: all/);
   });
 
+  it("links the log with a URI the browser will actually open", () => {
+    const page = renderErrorPage({ messages, failure: messages.claudeMissing, logPath: "/tmp/x.log", locale: "en" });
+    assert.match(page, /href="file:\/\/\/tmp\/x\.log"/);
+  });
+
   it("has no polling script — this page is a dead end by design", () => {
     const page = renderErrorPage({ messages, failure: messages.claudeMissing, logPath: "/tmp/x.log", locale: "en" });
     assert.ok(!page.includes("<script>"));

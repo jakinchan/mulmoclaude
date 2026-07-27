@@ -30,7 +30,7 @@ The launcher boots the server and opens [http://localhost:3001](http://localhost
 
 > **Keep it running**: closing the terminal stops the server. To run in the background, launch inside `tmux` / `screen` (macOS/Linux) or as a startup task (Windows Task Scheduler).
 
-### Start it from an icon (macOS)
+### Start it from an icon (macOS / Windows)
 
 To launch without opening a terminal, create an app bundle once:
 
@@ -42,9 +42,11 @@ This writes `MulmoClaude.app` to `/Applications` (or `~/Applications` if that is
 
 When something is missing — Node.js, `npx`, or Claude Code — it says which one and what to run, in your system language. Its log is at `~/Library/Logs/MulmoClaude/launcher.log`.
 
-> **Where `.env` goes**: a terminal launch reads `.env` from the directory you launched in. An icon has no such directory (macOS starts apps in `/`), so the icon launch reads `~/.env` — your home directory.
+> **Where `.env` goes**: a terminal launch reads `.env` from the directory you launched in. An icon has no such directory — macOS starts apps in `/`, and Windows starts them wherever the shortcut points — so the icon launch reads `~/.env`, your home directory.
 
-Re-run the command after upgrading: the bundle carries its own copy of the launcher.
+On **Windows** the same command writes a shortcut to the Start Menu instead (`--dir` puts it elsewhere, e.g. the Desktop), with the launcher's own files under `%LOCALAPPDATA%\MulmoClaude`. It opens no console window. Everything else behaves identically.
+
+Re-run the command after upgrading: the shortcut carries its own copy of the launcher.
 
 ### Prerequisites
 

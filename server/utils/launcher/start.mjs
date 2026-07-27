@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { findRunningServerPort } from "./detect-server.mjs";
 import { fillPlaceholders, launcherMessages, pickLauncherLocale } from "./messages.mjs";
 import { renderErrorPage, renderLauncherPage } from "./launcher-page.mjs";
+import { browserOpenArgv, launcherPaths, npxCommand } from "./platform.mjs";
 import { runPreflight } from "./preflight.mjs";
 import { findAvailablePort } from "../port.mjs";
 
@@ -23,7 +24,7 @@ const LOG_SIZE_CAP_BYTES = 1_000_000;
 
 /** macOS keeps per-app logs here, which is also where Console.app looks. */
 export function launcherLogPath(home = homedir()) {
-  return join(home, "Library", "Logs", "MulmoClaude", "launcher.log");
+  return launcherPaths({ home }).logPath;
 }
 
 function log(logPath, message) {
@@ -56,15 +57,35 @@ function readAppleLocale() {
   }
 }
 
-/** The OS UI language, as macOS reports it (`ja_JP`, `pt_BR`, …). */
-export function detectLocale({ env = process.env, run = readAppleLocale } = {}) {
-  const fromSystem = run();
-  if (typeof fromSystem === "string" && fromSystem.trim().length > 0) return pickLauncherLocale(fromSystem.trim());
-  return pickLauncherLocale(env.LANG?.split(".")[0] ?? env.LC_ALL?.split(".")[0]);
+// Node resolves this from the OS, so it answers on every platform —
+// including a Windows GUI launch, which has neither `defaults` nor LANG.
+function readIntlLocale() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().locale;
+  } catch {
+    return "";
+  }
 }
 
-function openInBrowser(target) {
-  spawn("open", [target], { stdio: "ignore", detached: true }).unref();
+/**
+ * The OS UI language. macOS is asked through `defaults` because a GUI
+ * launch inherits no LANG and AppleLocale is the only reliable source
+ * there; everywhere else the env vars come first (a terminal run) and
+ * Intl closes the gap.
+ *
+ * Windows has neither source, which is how its pages ended up English
+ * on a Japanese machine while the .vbs no-node dialog spoke Japanese —
+ * the two halves disagreeing again, in a new place.
+ */
+export function detectLocale({ env = process.env, run = readAppleLocale, platform = process.platform, intl = readIntlLocale } = {}) {
+  const candidates = platform === "darwin" ? [run(), env.LANG, env.LC_ALL, intl()] : [env.LANG, env.LC_ALL, intl()];
+  const first = candidates.find((value) => typeof value === "string" && value.trim().length > 0);
+  return pickLauncherLocale(first?.trim().split(".")[0]);
+}
+
+function openInBrowser(target, platform = process.platform) {
+  const { command, args } = browserOpenArgv(target, platform);
+  spawn(command, args, { stdio: "ignore", detached: true }).unref();
 }
 
 function showPage(html, { tmpDir, name }) {
@@ -118,9 +139,12 @@ function toPageFailure(messages, { key, values }) {
  * @param {{ port: number, home?: string }} options
  * @returns {{ command: string, args: string[], cwd: string }}
  */
-export function serverSpawnPlan({ port, home = homedir() }) {
+export function serverSpawnPlan({ port, home = homedir(), platform = process.platform }) {
   return {
-    command: "npx",
+    // `npx.cmd` on Windows — a batch file, which spawn cannot resolve
+    // from the bare name. The plan owns it so the unit test pins the
+    // command as well as the cwd.
+    command: npxCommand(platform),
     args: ["mulmoclaude@latest", "--port", String(port), "--no-open"],
     cwd: home,
   };
@@ -152,7 +176,7 @@ export async function startLauncher({ env = process.env, tmpDir, localeRunner } 
   const logPath = launcherLogPath();
   const locale = detectLocale({ env, run: localeRunner });
   const messages = launcherMessages(locale);
-  const pageDir = tmpDir ?? join(homedir(), "Library", "Caches", "MulmoClaude");
+  const pageDir = tmpDir ?? launcherPaths().pageDir;
   log(logPath, `launcher start (locale=${locale})`);
 
   const runningPort = await findRunningServerPort(DEFAULT_PORT);

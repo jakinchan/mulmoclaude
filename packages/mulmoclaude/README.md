@@ -51,18 +51,18 @@ npx mulmoclaude --help                       # Full flag list
 
 Each boolean flag mirrors an environment variable, so `--disable-sandbox` and `DISABLE_SANDBOX=1` do the same thing. `--help` lists the rest: `--disable-macos-reminders` (skip the macOS Reminder notification sink) plus the `--journal-force-run`, `--chat-index-force-run`, and `--persist-tool-calls` debugging toggles.
 
-## Start from an icon (macOS)
+## Start from an icon (macOS / Windows)
 
 ```
-npx mulmoclaude create-shortcut              # Write MulmoClaude.app
+npx mulmoclaude create-shortcut              # macOS: MulmoClaude.app / Windows: MulmoClaude.lnk
 npx mulmoclaude create-shortcut --dir ~/Desktop
 npx mulmoclaude create-shortcut --yes        # Skip the confirmation prompt
 ```
 
-Creates a real app bundle (no Electron — an `Info.plist` and a shell stub) in `/Applications`, or `~/Applications` when that is not writable. Double-clicking it:
+Creates a real app bundle on macOS (no Electron — an `Info.plist` and a shell stub) in `/Applications`, or `~/Applications` when that is not writable. On Windows it creates a Start Menu shortcut pointing at a `.vbs` stub run through `wscript.exe`, so no console window appears; the launcher's files live under `%LOCALAPPDATA%\MulmoClaude`. Double-clicking it:
 
 1. reuses an already-running MulmoClaude by just opening the browser,
-2. checks Node.js, `npx` and Claude Code, and explains in your system language what to do when one is missing,
+2. checks Node.js, `npx`, and Claude Code, and explains in your system language what to do when one is missing,
 3. shows a progress page while `npx mulmoclaude@latest` starts, then switches to the app.
 
 A GUI launch gets none of your shell's `PATH`, so the bundle asks your login shell for it before looking for anything — this is why a version manager (nodebrew / nvm / asdf / Volta) still works from the icon.

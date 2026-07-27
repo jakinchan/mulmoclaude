@@ -322,6 +322,10 @@ const jaMessages = {
       enableLabel: "タスク完了時に Web Push を送る",
       enableHint: "ここで開始したチャットが完了したときに発火します。スケジュール実行やバックグラウンドのタスクでは発火しません。",
       remoteHostNote: "RemoteHost 接続（サインインを供給）と、登録済みデバイスが1台以上必要です。どちらかが欠けている場合は何も起きません。",
+      macosRemindersLabel: "タスク完了時に macOS のリマインダーを作成する",
+      macosRemindersHint: "完了したタスクを既定のリマインダーリストに追加します。iCloud 同期が iPhone に反映し、そこで通知が届きます。",
+      macosRemindersForcedOff:
+        "起動時に --disable-macos-reminders または DISABLE_MACOS_REMINDER_NOTIFICATIONS で無効化されています。フラグを外すか環境変数を解除して再起動すると、ここから操作できます。",
       statusOn: "Web Push は ON",
       statusOff: "Web Push は OFF",
       loadError: "設定の読み込みに失敗しました",

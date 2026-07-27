@@ -10,9 +10,15 @@ import { launcherLogPath, serverSpawnPlan } from "../../../server/utils/launcher
 
 describe("serverSpawnPlan", () => {
   it("asks npx for the latest release on the chosen port, without opening a browser", () => {
-    const { command, args } = serverSpawnPlan({ port: 3005 });
+    const { command, args } = serverSpawnPlan({ port: 3005, platform: "darwin" });
     assert.equal(command, "npx");
     assert.deepEqual(args, ["mulmoclaude@latest", "--port", "3005", "--no-open"]);
+  });
+
+  it("asks for npx.cmd on Windows — spawn cannot resolve a bare batch name", () => {
+    // The server is spawned DETACHED, so an ENOENT here surfaces as a
+    // progress page spinning until it times out, never as an error.
+    assert.equal(serverSpawnPlan({ port: 3005, platform: "win32" }).command, "npx.cmd");
   });
 
   it("passes --no-open — the progress page does the navigating, so the CLI must not open a second tab", () => {

@@ -10,7 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Highlights
 
-#### Start MulmoClaude from an icon, without a terminal (#2613, PR #2615)
+#### Start MulmoClaude from an icon, without a terminal (#2613, PRs #2615 / #2623)
 
 For anyone who does not open a terminal, `npx mulmoclaude@latest` was the whole barrier to entry. One command creates a clickable app:
 
@@ -18,7 +18,7 @@ For anyone who does not open a terminal, `npx mulmoclaude@latest` was the whole 
 npx mulmoclaude@latest create-shortcut
 ```
 
-It writes `MulmoClaude.app` to `/Applications` — or `~/Applications` when that is not writable, which is what a non-admin account gets. `--dir <path>` chooses somewhere else, `--yes` skips the confirmation. macOS only for now; the command refuses to run elsewhere.
+On macOS it writes `MulmoClaude.app` to `/Applications` — or `~/Applications` when that is not writable, which is what a non-admin account gets. On Windows it writes a shortcut to the Start Menu, with the launcher's own files under `%LOCALAPPDATA%\MulmoClaude`. `--dir <path>` chooses somewhere else, `--yes` skips the confirmation.
 
 Double-clicking it opens the browser straight to an **already-running** MulmoClaude rather than starting a second one, checks Node.js, `npx` and Claude Code before anything else, and shows a progress page while the server boots — `npx …@latest` looks at the network on every launch, so a silent thirty-second wait was not an option. When a prerequisite is missing, the page names it and gives the commands to run, in whichever of the 8 UI languages the system is set to. The launcher's log is at `~/Library/Logs/MulmoClaude/launcher.log`.
 
@@ -26,9 +26,13 @@ No Electron. A macOS app bundle is a directory with an `Info.plist` and an execu
 
 **The part that decides whether any of it works is `PATH`.** A GUI launch inherits `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else — `launchctl getenv PATH` is empty — so nodebrew, nvm, fnm, asdf, Volta and even Apple-Silicon Homebrew are all absent. The stub therefore asks the login shell for its `PATH` before looking for anything, and it has to be an **interactive** login shell: version managers and `~/.local/bin` are set up in `.zshrc`, which `-l` alone never reads. Measured on a nodebrew machine, `-l` resolved a different Node than the user's own and could not find `claude` at all — it would have told someone who has Claude Code installed to go install it.
 
-Re-run `create-shortcut` after upgrading: the bundle carries its own copy of the launcher.
+**Windows needed none of that** — a process started from Explorer inherits the user's `PATH` already (measured on a real runner: 73 entries, node found), so there is no shell hop at all. What it needed instead was a `.lnk` written through the `WScript.Shell` COM object, an `.ico` assembled by hand because Windows ships no `iconutil` equivalent, and a `.vbs` stub run through `wscript.exe` so **no console window appears**. The stub walks `%PATH%` itself rather than calling `where node`, because that would flash a black window on every single launch.
 
-Two known gaps, both tracked: the server keeps running with no way to stop it from the icon (#2616), and `--disable-macos-reminders` is a CLI flag an icon cannot pass (#2617).
+Re-run `create-shortcut` after upgrading: the shortcut carries its own copy of the launcher.
+
+**The macOS Reminder sink can now be switched off from Settings → Notifications** (#2617). It was previously a CLI flag only, and an icon launch can pass neither a flag nor an environment variable — so the people the launcher exists for had no way to turn it off. The flag still wins when it is set, and the toggle says so rather than pretending to work.
+
+One known gap remains, tracked as #2616: a server started from the icon keeps running, with no way to stop it from the UI.
 
 ---
 
