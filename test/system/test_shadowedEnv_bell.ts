@@ -24,11 +24,14 @@ let notifierDir: string;
 // `publishNotification` is fire-and-forget by contract (the legacy
 // wrapper swallows the promise), so tests wait for the write to land
 // rather than awaiting a handle they don't get.
+const POLL_INTERVAL_MS = 10;
+const POLL_ATTEMPTS = 50;
+
 async function activeEntries(expected: number) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt += 1) {
     const entries = await listAll();
     if (entries.length === expected) return entries;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
   return listAll();
 }
@@ -69,6 +72,13 @@ describe("announceShadowedEnv", () => {
     await announceShadowedEnv("GEMINI_API_KEY");
     const [entry] = await activeEntries(1);
     assert.ok(!`${entry.title}${entry.body ?? ""}`.includes("="));
+  });
+
+  it("raises nothing at all from a name=value handoff", async () => {
+    // `process.env` is writable by anything on the box, so the server
+    // must not typeset whatever it finds there into a bell entry.
+    await announceShadowedEnv("GEMINI_API_KEY=would-leak");
+    assert.deepEqual(await listAll(), []);
   });
 
   it("does not stack a duplicate when a reboot finds the same conflict", async () => {

@@ -121,6 +121,14 @@ Client-side env vars use the `VITE_` prefix so Vite exposes them to the bundled 
 | ------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `VITE_LOCALE` | `en`    | Locale passed to vue-i18n (`src/lib/vue-i18n.ts`). Supports `en` / `ja` / `zh` / `ko` / `es` / `pt-BR` / `fr` / `de` (see `SUPPORTED_LOCALES`). Missing keys fall back to English. See [i18n](#i18n-vue-i18n). |
 
+### Launcher → server handoff
+
+Set by `npx mulmoclaude` on the server it spawns. Auto-computed like the container vars below, but nothing to do with Docker — setting one by hand only misleads the server about its own launch.
+
+| Variable | Set by | Purpose |
+| -------- | ------ | ------- |
+| `MULMOCLAUDE_SHADOWED_ENV_KEYS` | launcher | CSV of launch-dir `.env` key NAMES the shell had already defined, so the file's values lost (#2604). Read once at boot by `server/system/shadowedEnv.ts`, which raises a bell notification — otherwise a user editing `.env` against a stale `export` gets no hint why nothing changes. Names only, never values; the server drops any token that isn't an env var name. Absent when there is no conflict, and absent entirely outside `npx mulmoclaude` (see #2610). |
+
 ### Container-only env (auto-set)
 
 You never set these by hand; the server constructs them when spawning Claude inside the Docker sandbox (`server/agent/config.ts` and `server/agent/mcp-server.ts`). They're listed here so log lines / failures involving them are decodable.
@@ -134,7 +142,6 @@ You never set these by hand; the server constructs them when spawning Claude ins
 | `MULMOCLAUDE_CHAT_SESSION_ID`    | per agent run  | Chat session id forwarded to Claude CLI's process env so the wiki-history `PostToolUse` hook can publish a `page-edit` toolResult to the right session. Claude CLI's own hook payload `session_id` is the _CLI_ session, which doesn't match our session store (#963 / #989). |
 | `MULMOCLAUDE_HOST`               | container only | `host.docker.internal` (Docker) so the wiki-history hook can POST back to the parent server from inside the container. Falls back to `127.0.0.1` outside Docker.                                                                                                              |
 | `MULMOCLAUDE_AUTH_TOKEN`         | per agent run  | Bearer token forwarded to the MCP subprocess so its `/api/*` calls authenticate without re-reading `<workspace>/.session-token`. The file fallback still works in container scenarios where the token file isn't bind-mounted.                                                |
-| `MULMOCLAUDE_SHADOWED_ENV_KEYS`  | launcher only  | CSV of launch-dir `.env` key NAMES the shell had already defined, so the file's values lost (#2604). Read once at boot by `server/system/shadowedEnv.ts`, which raises a bell notification — otherwise a user editing `.env` against a stale `export` gets no hint why nothing changes. Names only, never values. Absent when there is no conflict, and absent entirely outside `npx mulmoclaude` (see #2610). |
 | `MCP_HOST`                       | container only | `host.docker.internal` so the bridge inside the container can reach the host's Express server.                                                                                                                                                                                |
 | `NODE_PATH`                      | container only | `/app/node_modules` — points the container's tsx runtime at the bind-mounted modules.                                                                                                                                                                                         |
 | `HOME`                           | container only | `/home/node` so Claude CLI finds its credentials at `~/.claude`.                                                                                                                                                                                                              |

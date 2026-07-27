@@ -239,6 +239,11 @@ if (devPluginPaths.length > 0) {
 // in-app notification (#2604). The log line above is easy to scroll past,
 // and a user who edits `.env` while a stale shell export wins gets no
 // other hint that the file is being ignored. Key NAMES only, never values.
+// Deleted first, not just conditionally set: this var is ours to
+// compute, and a value inherited from the shell (or from the `.env` we
+// just merged) would otherwise reach the server and be reported as a
+// conflict that does not exist.
+delete serverEnv.MULMOCLAUDE_SHADOWED_ENV_KEYS;
 if (skippedKeys.length > 0) {
   serverEnv.MULMOCLAUDE_SHADOWED_ENV_KEYS = skippedKeys.join(",");
 }

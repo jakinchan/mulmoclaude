@@ -25,7 +25,8 @@ import { log } from "./logger/index.js";
 /** Env var the launcher uses to hand over the shadowed key names. */
 export const SHADOWED_ENV_KEYS_VAR = "MULMOCLAUDE_SHADOWED_ENV_KEYS";
 
-const LOG_PREFIX = "[shadowed-env]";
+// No brackets — the text formatter adds them (docs/logging.md).
+const LOG_PREFIX = "shadowed-env";
 
 const SHADOWED_ENV_TITLE_KEY = "shadowedEnv.title";
 const SHADOWED_ENV_BODY_KEY = "shadowedEnv.body";
@@ -48,15 +49,26 @@ export interface ShadowedEnvDiagnostic {
   i18n: NotificationI18n;
 }
 
+/** Shape of an environment variable name. Anything else in the handoff
+ *  is not a name we sent, and is dropped rather than rendered. */
+const ENV_VAR_NAME = /^[A-Za-z_]\w*$/;
+
 /** Parse the launcher's CSV into a clean key list: trimmed, de-duped,
  *  sorted. Sorted because the id is built from it and dotenv's parse
- *  order must not decide whether an entry counts as "already seen". */
+ *  order must not decide whether an entry counts as "already seen".
+ *
+ *  Tokens that aren't env var NAMES are dropped. The launcher only ever
+ *  sends `Object.keys(...)`, so this can't fire on our own output — but
+ *  the value arrives through `process.env`, which anything on the box
+ *  can set, and a `KEY=secret` token would otherwise be typeset straight
+ *  into a log line and a bell entry. Filtering here makes "names only" a
+ *  property of the code rather than a promise about the producer. */
 export function parseShadowedEnvKeys(raw: string | undefined): string[] {
   if (!raw) return [];
   const keys = raw
     .split(",")
     .map((key) => key.trim())
-    .filter((key) => key.length > 0);
+    .filter((key) => ENV_VAR_NAME.test(key));
   return [...new Set(keys)].sort();
 }
 

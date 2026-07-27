@@ -31,6 +31,14 @@ describe("parseShadowedEnvKeys", () => {
     assert.deepEqual(parseShadowedEnvKeys(" A , ,B ,"), ["A", "B"]);
   });
 
+  it("drops anything that isn't an env var name — a KEY=secret token must never be rendered", () => {
+    // The launcher only sends `Object.keys(...)`, but this value arrives
+    // through `process.env`, which anything on the box can set.
+    assert.deepEqual(parseShadowedEnvKeys("GEMINI_API_KEY=would-leak"), []);
+    assert.deepEqual(parseShadowedEnvKeys("OK_KEY,GEMINI_API_KEY=would-leak"), ["OK_KEY"]);
+    assert.deepEqual(parseShadowedEnvKeys("has space,has-dash,9leading,{}"), []);
+  });
+
   it("de-duplicates and sorts, so parse order can't change the identity", () => {
     assert.deepEqual(parseShadowedEnvKeys("B,A,B"), ["A", "B"]);
     assert.deepEqual(parseShadowedEnvKeys("A,B"), parseShadowedEnvKeys("B,A"));
@@ -74,9 +82,12 @@ describe("shadowedEnvDiagnostic", () => {
     assert.ok(diagnostic.id.includes("KEY_24"));
   });
 
-  it("never carries a value — only names", () => {
-    const diagnostic = shadowedEnvDiagnostic(["GEMINI_API_KEY"]);
-    assert.ok(diagnostic);
-    assert.ok(!diagnostic.message.includes("="), "a name=value pair would leak the secret into the bell");
+  it("never carries a value — a name=value handoff yields nothing at all", () => {
+    const clean = shadowedEnvDiagnostic(parseShadowedEnvKeys("GEMINI_API_KEY"));
+    assert.ok(clean);
+    assert.ok(!clean.message.includes("="), "a name=value pair would leak the secret into the bell");
+    // And the pair can't survive the parse in the first place, so there
+    // is nothing left to render.
+    assert.equal(shadowedEnvDiagnostic(parseShadowedEnvKeys("GEMINI_API_KEY=would-leak")), null);
   });
 });

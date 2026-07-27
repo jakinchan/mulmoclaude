@@ -112,5 +112,15 @@ shell environment.
 - only one place defines it → no notification
 - restart with the conflict unfixed → still one entry, not two
 
-Automated coverage stops at the pure functions (parse, dedupe, sort, cap, the
-nothing-to-say cases) and the id's stability across reorderings.
+Automated coverage goes further than the pure functions. Two layers:
+
+- **Pure** (`test_shadowedEnv.ts`) — parse, de-dupe, sort, cap, the nothing-to-say cases,
+  the id's stability across reorderings vs. its change when the key set changes, and the
+  rejection of any token that isn't an env var name.
+- **Wiring** (`test_shadowedEnv_bell.ts`, against a tmpdir `active.json`) — the entry
+  actually reaches the bell, carries the i18n keys, contains no `=`, doesn't stack on a
+  reboot, replaces itself when a key is fixed, and clears when the conflict is gone. The
+  replace and clear cases were confirmed to fail without the clear-superseded logic.
+
+What stays manual is the part that needs a real shell: that the launcher's own detection
+fires against a genuine `export`, end to end through `npx mulmoclaude`.
