@@ -67,9 +67,9 @@ const SYMLINK_UNSUPPORTED_CODES = new Set(["EPERM", "EACCES", "ENOTSUP", "EROFS"
 
 // Mirror the host server's dotenv load so the spec process can read
 // the same `X_BEARER_TOKEN` (and any future docker-relevant env) the
-// server saw at boot. `server/index.ts:1` imports
-// `server/system/loadEnv.ts`, which reads `<cwd>/.env` — the repo root
-// here — with the same shell-wins rule `dotenv/config` used to apply
+// server saw at boot. `server/index.ts` imports
+// `server/system/loadEnv.ts` first, which reads `<cwd>/.env` — the repo
+// root here — with the same shell-wins rule `dotenv/config` used to apply
 // (#2610 replaced the import to make the shadowed keys reportable, not
 // to change what gets loaded); yarn / node don't auto-load .env, so the
 // spec runner would otherwise read `process.env` without the .env

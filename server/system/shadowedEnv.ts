@@ -159,30 +159,34 @@ export async function announceShadowedEnv(
   raw: string | undefined = process.env[SHADOWED_ENV_KEYS_VAR],
   serverLoadKeys: readonly string[] = [],
 ): Promise<ShadowedEnvDiagnostic | null> {
-  const diagnostic = shadowedEnvDiagnostic(normalizeShadowedEnvKeys([...parseShadowedEnvKeys(raw), ...serverLoadKeys]));
-  // Nothing shadowed now, but a previous boot may have said otherwise —
-  // leaving that entry up would keep pointing at a conflict the user has
-  // already resolved.
-  if (!diagnostic) {
-    await clearStale((await inspectActive("")).staleEntryIds);
-    return null;
-  }
+  const keys = normalizeShadowedEnvKeys([...parseShadowedEnvKeys(raw), ...serverLoadKeys]);
+  const diagnostic = shadowedEnvDiagnostic(keys);
+  // `""` matches no id, so with nothing shadowed every existing entry
+  // counts as stale — a boot that finds the conflict resolved retracts
+  // the warning instead of leaving it pointing at a fixed problem.
+  const active = await inspectActive(diagnostic?.id ?? "");
+  await clearStale(active.staleEntryIds);
+  if (!diagnostic) return null;
 
   log.warn(LOG_PREFIX, diagnostic.message, { keys: diagnostic.keys });
-  const active = await inspectActive(diagnostic.id);
-  await clearStale(active.staleEntryIds);
   if (active.alreadyShowing) {
     log.debug(LOG_PREFIX, "already in active set; skipping republish", { id: diagnostic.id });
     return diagnostic;
   }
+  publishShadowedEnv(diagnostic);
+  return diagnostic;
+}
+
+function publishShadowedEnv(diagnostic: ShadowedEnvDiagnostic): void {
   publishNotification({
     id: diagnostic.id,
     kind: "system",
+    // English fallback for the log line and the macOS Reminder push,
+    // neither of which has vue-i18n; the UI reads `i18n` instead.
     title: "Shell env is overriding .env",
     body: diagnostic.message,
     action: { type: NOTIFICATION_ACTION_TYPES.none },
     priority: NOTIFICATION_PRIORITIES.high,
     i18n: diagnostic.i18n,
   });
-  return diagnostic;
 }

@@ -1,16 +1,17 @@
 // The server's own `.env` load (#2610) — what `import "dotenv/config"`
 // used to do, plus the part it threw away.
 //
-// `applyEnvFile` takes its cwd and its target as arguments precisely so
-// this file never touches `process.cwd()` / `process.env`; the module's
-// own one-shot call against the real ones is the only place that does.
+// `applyEnvFile` lives in its own module with no load-time side effect,
+// so importing it here cannot read the repository's real `.env` or touch
+// `process.env`. The one-shot call against the real ones is in
+// `loadEnv.ts`, which nothing but `server/index.ts` imports.
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { applyEnvFile, type MutableEnv } from "../../server/system/loadEnv.js";
+import { applyEnvFile, type MutableEnv } from "../../server/system/envFile.js";
 
 let dir: string;
 const writeEnv = (contents: string) => writeFileSync(path.join(dir, ".env"), contents);

@@ -6,38 +6,27 @@
 // information was computed and discarded, leaving `yarn dev` with no
 // signal at all that an edited `.env` was being ignored.
 //
-// This stays a SIDE-EFFECTING IMPORT, first in `server/index.ts`, and
-// must not become a function call there. ESM evaluates every import
-// before the first statement of the module body, so a call on line 1 of
-// the body would run after every imported module had already been
-// evaluated — `server/workspace/paths.ts` reads `process.env` at its own
-// module scope and would see an empty environment.
+// This module exists to be imported for its SIDE EFFECT, first in
+// `server/index.ts`, and that import must not become a function call
+// there. ESM evaluates every import before the first statement of the
+// module body, so a call on line 1 of the body would run after every
+// imported module had already been evaluated — `server/workspace/
+// paths.ts` reads `process.env` at its own module scope and would see an
+// unpopulated environment. That is measured, not assumed: moving the
+// load into the body makes `paths.ts` resolve `~/mulmoclaude` instead of
+// the `.env` value.
 //
-// Parsing is byte-identical to before: `parseEnvFile` calls
-// `dotenv.parse`. Nothing else is lost — `DOTENV_CONFIG_*` (the only
-// behaviour `dotenv/config` adds over `dotenv.config()`) is unused
-// across the repo.
+// The logic itself lives in `envFile.ts` precisely so a test can drive
+// it without triggering the load below.
+//
+// `DOTENV_CONFIG_*` is deliberately NOT honoured. `dotenv/config` read
+// `DOTENV_CONFIG_PATH` / `_OVERRIDE` / `_ENCODING` / `_DEBUG` /
+// `_QUIET`; nothing in this repo — code, scripts, CI, Docker — ever set
+// one, and they were never a documented way to configure the server. The
+// file is always `<cwd>/.env` and the shell always wins. Reintroduce an
+// option here only with a caller that needs it.
 
-import path from "node:path";
-import { mergeLaunchEnv, parseEnvFile } from "../utils/launch-env.mjs";
-
-/** The shape `process.env` presents. Spelled out rather than using the
- *  `NodeJS` global namespace, which this repo's eslint config does not
- *  declare. */
-export type MutableEnv = Record<string, string | undefined>;
-
-/** Apply `<cwd>/.env` to `target`, leaving keys it already defines
- *  alone, and return the names that lost.
- *
- *  Both inputs are arguments rather than `process.cwd()` / `process.env`
- *  so this is drivable from a test — the module-level call below is the
- *  only place that touches the real ones. */
-export function applyEnvFile(cwd: string, target: MutableEnv): string[] {
-  const { parsed } = parseEnvFile(path.join(cwd, ".env"));
-  const { loadedKeys, skippedKeys } = mergeLaunchEnv(target, parsed);
-  for (const key of loadedKeys) target[key] = parsed[key];
-  return skippedKeys;
-}
+import { applyEnvFile } from "./envFile.js";
 
 const shadowed: readonly string[] = Object.freeze(applyEnvFile(process.cwd(), process.env));
 

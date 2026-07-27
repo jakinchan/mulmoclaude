@@ -28,24 +28,29 @@ The load therefore stays a **side-effecting import**, listed first, exactly wher
 
 ## Change
 
-### 1. `server/system/loadEnv.ts` (new)
+### 1. `server/system/envFile.ts` + `server/system/loadEnv.ts` (new)
 
-Replaces `import "dotenv/config"` at `server/index.ts:1`.
+Together they replace `import "dotenv/config"` at the top of `server/index.ts`.
 
 Reuses the launcher's existing pieces rather than a second parser: `parseEnvFile` +
 `mergeLaunchEnv` (`server/utils/launch-env.mjs`) already implement dotenv's no-override
 semantics and already return `skippedKeys`. Parsing stays byte-identical because
 `parseEnvFile` calls `dotenv.parse`.
 
-Split so the logic is testable without a module-load side effect:
+Two modules, because a single one cannot be both:
 
-- `applyEnvFile(cwd, target)` — applies the file's non-shadowed keys to `target`, returns
-  the shadowed names. Takes both as arguments, so a test drives a temp dir and a plain
-  object.
-- the module body calls it once for `process.cwd()` / `process.env` and freezes the
-  result behind `shadowedByServerLoad()`.
+- `envFile.ts` — `applyEnvFile(cwd, target)`, pure, **no load-time side effect**. Takes
+  both as arguments, so a test drives a temp dir and a plain object without ever reading
+  the repository's real `.env`.
+- `loadEnv.ts` — the side-effect entrypoint. Calls it once for `process.cwd()` /
+  `process.env` and freezes the result behind `shadowedByServerLoad()`. Nothing but
+  `server/index.ts` imports it.
 
-Nothing is lost in the swap: `DOTENV_CONFIG_*` is unused anywhere in the repo.
+`DOTENV_CONFIG_*` is deliberately **not** honoured. `dotenv/config` read
+`DOTENV_CONFIG_PATH` / `_OVERRIDE` / `_ENCODING` / `_DEBUG` / `_QUIET`; nothing in this
+repo — code, scripts, CI, Docker — ever set one, and they were never documented as a way
+to configure the server. Rejecting them explicitly (in a comment at the load site) beats
+carrying a config surface no caller uses.
 
 ### 2. Feed it into the existing announce
 
