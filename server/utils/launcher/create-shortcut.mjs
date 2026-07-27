@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 
 import { createAppBundle } from "./macos/create-app.mjs";
+import { windowsLocalAppData } from "./platform.mjs";
+import { createWindowsShortcut, SHORTCUT_FILE_NAME } from "./windows/create-launcher.mjs";
 
 export const APP_NAME = "MulmoClaude";
 const BUNDLE_NAME = `${APP_NAME}.app`;
@@ -72,10 +74,60 @@ export function resolveBundlePath(dir) {
   return { installDir, bundlePath: join(installDir, BUNDLE_NAME) };
 }
 
-function reportCreated({ bundlePath, iconWritten }, log) {
-  log(`✓ ${bundlePath}`);
-  if (!iconWritten) log("  (icon could not be generated — the bundle uses the generic app icon)");
-  log("  Double-click it to start MulmoClaude. Re-run this command after upgrading to refresh the bundle.");
+/**
+ * The Start Menu's Programs folder — the closest Windows has to
+ * `/Applications`: it is what Start's search looks through, and the
+ * user can pin from there. `--dir` overrides it (Desktop, typically).
+ * @param {{ env?: Record<string, string | undefined>, home?: string }} [deps]
+ * @returns {string}
+ */
+export function defaultShortcutDir({ env = process.env, home = homedir() } = {}) {
+  const roaming = env.APPDATA?.trim() ? env.APPDATA : join(home, "AppData", "Roaming");
+  return join(roaming, "Microsoft", "Windows", "Start Menu", "Programs");
+}
+
+/**
+ * Where the launcher's own files live. `%LOCALAPPDATA%` rather than
+ * `%APPDATA%` deliberately: a roaming profile would copy these to
+ * another machine, where the shortcut's absolute paths — and the node
+ * install they assume — no longer mean anything.
+ * @param {{ env?: Record<string, string | undefined>, home?: string }} [deps]
+ * @returns {string}
+ */
+export function windowsLauncherRoot({ env = process.env, home = homedir() } = {}) {
+  return join(windowsLocalAppData({ home, env }), APP_NAME);
+}
+
+/**
+ * @param {string | null} dir
+ * @returns {{ installDir: string, shortcutPath: string, rootDir: string }}
+ */
+export function resolveShortcutPath(dir) {
+  const installDir = dir ?? defaultShortcutDir();
+  return { installDir, shortcutPath: join(installDir, SHORTCUT_FILE_NAME), rootDir: windowsLauncherRoot() };
+}
+
+function reportCreated({ path, iconWritten }, log) {
+  log(`✓ ${path}`);
+  if (!iconWritten) log("  (icon could not be generated — the launcher uses the generic icon)");
+  log("  Double-click it to start MulmoClaude. Re-run this command after upgrading to refresh it.");
+}
+
+async function createForDarwin(dir, version, log, assumeYes) {
+  const { installDir, bundlePath } = resolveBundlePath(dir);
+  if (!assumeYes && !(await confirmTarget(bundlePath, log))) return null;
+  mkdirSync(installDir, { recursive: true });
+  const { iconWritten } = await createAppBundle({ bundlePath, name: APP_NAME, version });
+  return { path: bundlePath, iconWritten };
+}
+
+async function createForWindows(dir, log, assumeYes) {
+  const { installDir, shortcutPath, rootDir } = resolveShortcutPath(dir);
+  if (!assumeYes && !(await confirmTarget(shortcutPath, log))) return null;
+  mkdirSync(installDir, { recursive: true });
+  const { iconWritten } = await createWindowsShortcut({ rootDir, shortcutPath });
+  log(`  launcher files: ${rootDir}`);
+  return { path: shortcutPath, iconWritten };
 }
 
 /**
@@ -84,8 +136,8 @@ function reportCreated({ bundlePath, iconWritten }, log) {
  * @returns {Promise<number>} process exit code
  */
 export async function runCreateShortcut(argv, { version, log = console.log, error = console.error }) {
-  if (process.platform !== "darwin") {
-    error(`create-shortcut currently supports macOS only (this is ${process.platform}).`);
+  if (process.platform !== "darwin" && process.platform !== "win32") {
+    error(`create-shortcut supports macOS and Windows only (this is ${process.platform}).`);
     return 1;
   }
   const parsed = parseCreateShortcutArgs(argv);
@@ -93,13 +145,15 @@ export async function runCreateShortcut(argv, { version, log = console.log, erro
     error(parsed.reason);
     return 1;
   }
-  const { installDir, bundlePath } = resolveBundlePath(parsed.dir);
-  if (!parsed.assumeYes && !(await confirmTarget(bundlePath, log))) {
+  const created =
+    process.platform === "darwin"
+      ? await createForDarwin(parsed.dir, version, log, parsed.assumeYes)
+      : await createForWindows(parsed.dir, log, parsed.assumeYes);
+  if (!created) {
     log("Cancelled.");
     return 0;
   }
-  mkdirSync(installDir, { recursive: true });
-  reportCreated(await createAppBundle({ bundlePath, name: APP_NAME, version }), log);
+  reportCreated(created, log);
   return 0;
 }
 

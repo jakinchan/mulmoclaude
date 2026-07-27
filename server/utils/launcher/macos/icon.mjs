@@ -1,10 +1,7 @@
 // Builds the .icns for the generated app bundle.
 //
-// The artwork is the same mark the web app uses for its favicon (see
-// index.html): a rounded grey square with a white M. Drawn here as a
-// stroked path rather than an SVG <text> element — text would depend on
-// whichever font the rasteriser happens to pick, and the mark has to
-// look identical on every machine.
+// The artwork itself lives in `../mark.mjs`, shared with the Windows
+// .ico builder so the app cannot end up with two different faces.
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -13,12 +10,7 @@ import { join } from "node:path";
 
 import sharp from "sharp";
 
-const CANVAS = 1024;
-const MARK_BACKGROUND = "#6B7280";
-// macOS icons sit inset from the canvas edge; ~9% keeps the mark clear
-// of the Dock's own spacing without looking lost.
-const INSET = 96;
-const CORNER_RADIUS = 208;
+import { markSvg } from "../mark.mjs";
 
 // Rendered sizes an .iconset must contain, as [pixels, filename].
 const ICONSET_ENTRIES = [
@@ -33,16 +25,6 @@ const ICONSET_ENTRIES = [
   [512, "icon_512x512.png"],
   [1024, "icon_512x512@2x.png"],
 ];
-
-/** The mark as a standalone SVG document. */
-export function markSvg() {
-  const size = CANVAS - INSET * 2;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${CANVAS}" height="${CANVAS}" viewBox="0 0 ${CANVAS} ${CANVAS}">
-  <rect x="${INSET}" y="${INSET}" width="${size}" height="${size}" rx="${CORNER_RADIUS}" fill="${MARK_BACKGROUND}"/>
-  <path d="M 300 690 L 300 340 L 512 560 L 724 340 L 724 690" fill="none" stroke="#ffffff"
-        stroke-width="96" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>`;
-}
 
 async function writeIconsetPngs(iconsetDir, svg) {
   const source = Buffer.from(svg);

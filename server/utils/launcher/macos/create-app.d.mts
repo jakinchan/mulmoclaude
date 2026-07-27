@@ -10,8 +10,6 @@ export interface InfoPlistOptions {
 
 export function renderInfoPlist(options: InfoPlistOptions): string;
 
-export function renderNodeMissingText(locale: string): string;
-
 export function writeBundleMessages(resourcesDir: string): void;
 
 export interface CreateAppBundleOptions {

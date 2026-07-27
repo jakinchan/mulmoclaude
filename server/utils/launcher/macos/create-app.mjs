@@ -11,7 +11,8 @@ import { chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { LAUNCHER_LOCALES, launcherMessages } from "../messages.mjs";
+import { LAUNCHER_LOCALES } from "../messages.mjs";
+import { renderNodeMissingText } from "../node-missing-text.mjs";
 import { buildIcns } from "./icon.mjs";
 
 const LAUNCHER_SRC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -68,22 +69,6 @@ ${body}
 </dict>
 </plist>
 `;
-}
-
-/**
- * The "Node.js is missing" text, flattened for the shell stub: first
- * line is the alert title, the rest is its message. A file rather than
- * a generated shell string so translated prose never has to survive
- * quoting into both sh and AppleScript.
- * @param {string} locale
- * @returns {string}
- */
-export function renderNodeMissingText(locale) {
-  const { nodeMissing } = launcherMessages(locale);
-  // Line 1 is the title and line 2 starts the body — the stub splits on
-  // exactly that, so a blank second line would open the alert with an
-  // empty paragraph.
-  return [nodeMissing.title, nodeMissing.body, "", nodeMissing.action, "", nodeMissing.hint].join("\n");
 }
 
 /**

@@ -17,6 +17,8 @@
 // or copied. The one failure that still needs a native dialog is a
 // missing Node.js, since without node nothing here can run at all.
 
+import { fileUrl } from "./platform.mjs";
+
 const POLL_INTERVAL_MS = 500;
 const GIVE_UP_AFTER_MS = 120_000;
 
@@ -138,7 +140,7 @@ function renderSteps(steps) {
 
 function logLink(messages, logPath) {
   if (!logPath) return "";
-  const href = `file://${escapeHtml(encodeURI(logPath))}`;
+  const href = escapeHtml(fileUrl(logPath));
   return `<p class="muted">${escapeHtml(messages.log.label)}: <a href="${href}">${escapeHtml(messages.log.reveal)}</a></p>`;
 }
 

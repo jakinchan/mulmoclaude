@@ -8,7 +8,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createAppBundle, renderInfoPlist, renderNodeMissingText } from "../../../server/utils/launcher/macos/create-app.mjs";
+import { createAppBundle, renderInfoPlist } from "../../../server/utils/launcher/macos/create-app.mjs";
+import { renderNodeMissingText } from "../../../server/utils/launcher/node-missing-text.mjs";
 import { LAUNCHER_LOCALES, launcherMessages } from "../../../server/utils/launcher/messages.mjs";
 
 describe("renderInfoPlist", () => {
