@@ -345,10 +345,43 @@ Build it first: `npx mulmoclaude create-shortcut`.
 
 The launcher's own log is `~/Library/Logs/MulmoClaude/launcher.log`.
 
-**Windows is not covered at all yet** — `create-shortcut` refuses to run there.
-When the Windows half lands, this section needs the equivalent list (Explorer
-double-click, `.lnk` icon, hidden console window, SmartScreen), because
-`lint_test_windows.yaml` can assert the generated files but never the gesture.
+---
+
+## 12. Windows icon launch (`create-shortcut`)
+
+Same rule as §11: the CI on `windows-latest` writes a real `.lnk`, reads it back
+through the COM object Explorer itself uses, and confirms Windows can load the
+hand-assembled `.ico` — but no runner can perform a double-click, and nothing
+can assert what a window looks like.
+
+Run `npx mulmoclaude@latest create-shortcut` on a Windows machine, then:
+
+1. **The Start Menu entry appears** under its own name and is found by typing
+   "MulmoClaude" into Start. `--dir <path>` puts it elsewhere (the Desktop is
+   the usual choice); the launcher's own files stay under
+   `%LOCALAPPDATA%\MulmoClaude` either way.
+2. **The icon renders** in the Start Menu, on the taskbar when pinned, and in
+   Explorer — at several sizes, since each view picks a different entry out of
+   the `.ico`.
+3. **No console window appears.** Not even a flash. This is the single most
+   likely regression: anything that shells out through `WshShell.Exec`, or a
+   shortcut retargeted at `node.exe` / `cmd.exe` instead of `wscript.exe`,
+   brings the black rectangle back.
+4. **Double-click with nothing running** → the progress page appears, then the
+   app replaces it.
+5. **Double-click while MulmoClaude is already running** → the browser opens
+   straight to the app, and no second server starts.
+6. **Node.js missing** (test on a machine without it, or rename the binary):
+   the native `MsgBox` appears in the system language, and answering **Yes**
+   opens nodejs.org.
+7. **SmartScreen does not appear.** A locally generated file carries no
+   Mark-of-the-Web, so it should not — but this is the assumption that cannot
+   be checked from CI, and a managed machine may decide otherwise.
+8. **A version manager still resolves.** Install node via nvm-windows / fnm /
+   Volta and launch from the icon. CI runs on a plain toolchain, so this path
+   has never been exercised by anything but a human.
+
+The launcher's own log is `%LOCALAPPDATA%\MulmoClaude\logs\launcher.log`.
 
 ---
 

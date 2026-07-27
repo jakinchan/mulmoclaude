@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 
 import { createAppBundle } from "./macos/create-app.mjs";
+import { windowsLocalAppData } from "./platform.mjs";
 import { createWindowsShortcut, SHORTCUT_FILE_NAME } from "./windows/create-launcher.mjs";
 
 export const APP_NAME = "MulmoClaude";
@@ -94,8 +95,7 @@ export function defaultShortcutDir({ env = process.env, home = homedir() } = {})
  * @returns {string}
  */
 export function windowsLauncherRoot({ env = process.env, home = homedir() } = {}) {
-  const local = env.LOCALAPPDATA?.trim() ? env.LOCALAPPDATA : join(home, "AppData", "Local");
-  return join(local, APP_NAME);
+  return join(windowsLocalAppData({ home, env }), APP_NAME);
 }
 
 /**

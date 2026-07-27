@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 import { findRunningServerPort } from "./detect-server.mjs";
 import { fillPlaceholders, launcherMessages, pickLauncherLocale } from "./messages.mjs";
 import { renderErrorPage, renderLauncherPage } from "./launcher-page.mjs";
-import { browserOpenArgv, npxCommand } from "./platform.mjs";
+import { browserOpenArgv, launcherPaths, npxCommand } from "./platform.mjs";
 import { runPreflight } from "./preflight.mjs";
 import { findAvailablePort } from "../port.mjs";
 
@@ -24,7 +24,7 @@ const LOG_SIZE_CAP_BYTES = 1_000_000;
 
 /** macOS keeps per-app logs here, which is also where Console.app looks. */
 export function launcherLogPath(home = homedir()) {
-  return join(home, "Library", "Logs", "MulmoClaude", "launcher.log");
+  return launcherPaths({ home }).logPath;
 }
 
 function log(logPath, message) {
@@ -131,7 +131,7 @@ export async function startLauncher({ env = process.env, tmpDir, localeRunner } 
   const logPath = launcherLogPath();
   const locale = detectLocale({ env, run: localeRunner });
   const messages = launcherMessages(locale);
-  const pageDir = tmpDir ?? join(homedir(), "Library", "Caches", "MulmoClaude");
+  const pageDir = tmpDir ?? launcherPaths().pageDir;
   log(logPath, `launcher start (locale=${locale})`);
 
   const runningPort = await findRunningServerPort(DEFAULT_PORT);

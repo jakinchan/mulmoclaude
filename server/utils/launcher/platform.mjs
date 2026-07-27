@@ -7,8 +7,47 @@
 // that line intact — without them `start.mjs` would have to fork, and
 // the check order and wording would drift apart on each side.
 //
-// Pure on purpose: they decide a command line and nothing else, so
-// both platforms' answers are pinned by tests that run on either OS.
+// Pure on purpose: they decide a command line or a path and nothing
+// else, so both platforms' answers are pinned by tests that run on
+// either OS.
+
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const APP_DIR_NAME = "MulmoClaude";
+
+/**
+ * `%LOCALAPPDATA%` with the conventional fallback. Local rather than
+ * roaming on purpose: these are machine-specific paths and caches, and
+ * a roaming profile would carry them to a machine where they mean
+ * nothing.
+ * @param {{ home?: string, env?: Record<string, string | undefined> }} [deps]
+ * @returns {string}
+ */
+export function windowsLocalAppData({ home = homedir(), env = process.env } = {}) {
+  return env.LOCALAPPDATA?.trim() ? env.LOCALAPPDATA : join(home, "AppData", "Local");
+}
+
+/**
+ * Where the launcher writes its log and the progress page it opens.
+ *
+ * macOS conventions (`~/Library/Logs`, `~/Library/Caches`) were the only
+ * ones here until Windows arrived; left alone they would have created a
+ * literal `Library\Logs` folder in the Windows user profile, which is
+ * both wrong and invisible to anyone looking for a log.
+ * @param {{ home?: string, platform?: string, env?: Record<string, string | undefined> }} [deps]
+ * @returns {{ logPath: string, pageDir: string }}
+ */
+export function launcherPaths({ home = homedir(), platform = process.platform, env = process.env } = {}) {
+  if (platform === "win32") {
+    const root = join(windowsLocalAppData({ home, env }), APP_DIR_NAME);
+    return { logPath: join(root, "logs", "launcher.log"), pageDir: join(root, "cache") };
+  }
+  return {
+    logPath: join(home, "Library", "Logs", APP_DIR_NAME, "launcher.log"),
+    pageDir: join(home, "Library", "Caches", APP_DIR_NAME),
+  };
+}
 
 /**
  * How to hand a file path or URL to the user's browser.

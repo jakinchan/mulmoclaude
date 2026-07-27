@@ -9,7 +9,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { browserOpenArgv, npxCommand } from "../../../server/utils/launcher/platform.mjs";
+import { browserOpenArgv, launcherPaths, npxCommand, windowsLocalAppData } from "../../../server/utils/launcher/platform.mjs";
+import { join } from "node:path";
 
 describe("browserOpenArgv", () => {
   it("uses each platform's opener", () => {
@@ -44,5 +45,29 @@ describe("npxCommand", () => {
   it("stays npx everywhere else", () => {
     assert.equal(npxCommand("darwin"), "npx");
     assert.equal(npxCommand("linux"), "npx");
+  });
+});
+
+describe("launcherPaths", () => {
+  const home = String.raw`C:\Users\a`;
+
+  it("keeps the macOS conventions on darwin", () => {
+    const { logPath, pageDir } = launcherPaths({ home: "/Users/a", platform: "darwin", env: {} });
+    assert.equal(logPath, "/Users/a/Library/Logs/MulmoClaude/launcher.log");
+    assert.equal(pageDir, "/Users/a/Library/Caches/MulmoClaude");
+  });
+
+  it("uses LOCALAPPDATA on Windows rather than inventing a Library folder", () => {
+    // Left unported, the macOS path would create a literal `Library\Logs`
+    // in the Windows profile — the launcher tells the user where its log
+    // is, so it would be pointing at a folder no Windows user expects.
+    const { logPath, pageDir } = launcherPaths({ home, platform: "win32", env: { LOCALAPPDATA: String.raw`C:\Users\a\AppData\Local` } });
+    assert.equal(logPath, join(String.raw`C:\Users\a\AppData\Local`, "MulmoClaude", "logs", "launcher.log"));
+    assert.equal(pageDir, join(String.raw`C:\Users\a\AppData\Local`, "MulmoClaude", "cache"));
+  });
+
+  it("falls back to the conventional location when LOCALAPPDATA is absent", () => {
+    assert.equal(windowsLocalAppData({ home, env: {} }), join(home, "AppData", "Local"));
+    assert.equal(windowsLocalAppData({ home, env: { LOCALAPPDATA: "  " } }), join(home, "AppData", "Local"));
   });
 });
