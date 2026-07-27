@@ -32,6 +32,28 @@ Two known gaps, both tracked: the server keeps running with no way to stop it fr
 
 ---
 
+## [1.7.2] - 2026-07-27
+
+**A `.env` you edit that has no effect, and no way to tell why.**
+
+### Highlights
+
+#### The app says when your shell is overriding `.env` (#2604, PR #2612 — and #2610, PR #2614)
+
+`.env` loses to an exported shell variable. That is dotenv's documented rule and it was working correctly — the problem was that losing was invisible. With a stale `export GEMINI_API_KEY=…` left in `~/.zshrc`, you can correct `.env` as many times as you like, restart every time, and nothing changes, with nothing anywhere pointing at the shell. The report that started this came out of exactly that loop.
+
+A single definition is unambiguous and fine. The failure needs two definitions and no visible precedence.
+
+The launcher already knew which keys had lost — `mergeLaunchEnv` returns them — and turned the fact into one terminal log line that is easy to scroll past. It now hands the key **names** (never values) to the server, which raises a notification in the bell naming them and saying which side won. The entry is de-duplicated by a stable id, so restarting with the conflict unfixed does not stack a second one; fixing one of two keys **replaces** the entry rather than leaving one that still names the key you just fixed; and a boot with nothing shadowed **retracts** the warning entirely.
+
+`yarn dev` reached a `.env` by a second route that got none of this (#2610): the server's own `import "dotenv/config"` read `<cwd>/.env` with the same shell-wins rule and discarded what it skipped — the same dead end with even less to go on, since the launcher's log line is not there either. That import is now a reporting loader, and both routes feed one notification.
+
+Along the way, `error-recovery.md` — the file the agent reads before asking you a clarifying question about a tool failure — gained a section for this state. It needed one: the section already there told the agent to *"add the missing key to `.env` (restart the server)"*, which is precisely the advice that fails silently here. It also corrects two things the obvious guidance gets wrong: an **empty** export (`export GEMINI_API_KEY=`) shadows just as hard, and `echo "$VAR"` cannot detect that case because unset and set-but-empty both print blank.
+
+Ships the same scoped package versions as 1.7.1, except `@mulmoclaude/core@1.7.1` (the `error-recovery.md` addition).
+
+---
+
 ## [1.7.1] - 2026-07-27
 
 **Icons that rendered as their own names instead of glyphs.**
