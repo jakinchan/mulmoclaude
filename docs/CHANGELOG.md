@@ -10,6 +10,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ---
 
+## [1.7.1] - 2026-07-27
+
+**Icons that rendered as their own names instead of glyphs.**
+
+### Highlights
+
+#### Action, custom-view and spinner icons draw with the font their names belong to (#2605, #2606, PR #2608)
+
+Both icon fonts resolve a glyph from the element's **text**, via a ligature. A name the font does not carry forms no ligature, so the browser typesets the letters instead — invisible as an icon, but still taking the width. Eleven sites moved from `.material-icons` to `material-symbols-outlined`: six spinners hardcoding `progress_activity` (#2605), and five icons whose name comes from a collection's `schema.json` (#2606), where the docs already told the LLM to write Material Symbols names and the code was the side that disagreed. A static guard pins the regression so it cannot return silently. Nothing is added to the bundle — `material-symbols/outlined.css` was already imported.
+
+**This fix is the whole reason 1.7.1 exists.** It merged while the 1.7.0 release PR was in review, twenty minutes after `mulmoclaude@1.7.0` had already gone to npm, so **1.7.0 on npm does not contain it**. Rather than tag a `v1.7.0` whose tree differs from its own published tarball, the fix ships as 1.7.1 and both versions keep a tag matching exactly what was published.
+
+Ships the same scoped package versions as 1.7.0, except `@mulmoclaude/collection-plugin@1.2.1` (five of the eleven icon sites live there).
+
+---
+
 ## [1.7.0] - 2026-07-27
 
 **Google Calendar sync stops being one-way, and a cycle of hardening closes the gaps where external data was trusted without checking.**
