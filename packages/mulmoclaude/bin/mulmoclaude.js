@@ -235,6 +235,18 @@ const serverEnv = {
 if (devPluginPaths.length > 0) {
   serverEnv.MULMOCLAUDE_DEV_PLUGINS = devPluginPaths.join(PATH_DELIMITER);
 }
+// Hand the shell-shadowed `.env` keys to the server so it can raise an
+// in-app notification (#2604). The log line above is easy to scroll past,
+// and a user who edits `.env` while a stale shell export wins gets no
+// other hint that the file is being ignored. Key NAMES only, never values.
+// Deleted first, not just conditionally set: this var is ours to
+// compute, and a value inherited from the shell (or from the `.env` we
+// just merged) would otherwise reach the server and be reported as a
+// conflict that does not exist.
+delete serverEnv.MULMOCLAUDE_SHADOWED_ENV_KEYS;
+if (skippedKeys.length > 0) {
+  serverEnv.MULMOCLAUDE_SHADOWED_ENV_KEYS = skippedKeys.join(",");
+}
 // Boolean CLI flags that mirror an env var (#1089 + bundle): inject
 // the corresponding VAR=1 into the spawned server so the flag is
 // equivalent to the env-var prefix. The server reads these via

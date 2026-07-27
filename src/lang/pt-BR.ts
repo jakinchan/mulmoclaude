@@ -100,6 +100,10 @@ const ptBRMessages = {
     intraBody:
       'Os plugins "{first}" e "{second}" registram o mesmo {dimension} "{key}". "{first}" o reivindicou primeiro, portanto o registro de "{second}" é ignorado.',
   },
+  shadowedEnv: {
+    title: "O shell está sobrepondo o .env",
+    body: "Definido tanto no shell quanto no .env: {keys}. O valor do shell prevalece, portanto o .env é ignorado. Se você editou o .env, atualize ou remova o valor do shell e reinicie.",
+  },
   optionalDeps: {
     // `title` genérico mantido para compatibilidade com entradas do
     // histórico persistidas antes da divisão por motivo; as novas

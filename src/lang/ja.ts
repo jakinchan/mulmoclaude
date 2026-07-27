@@ -107,6 +107,10 @@ const jaMessages = {
     intraBody:
       "プラグイン「{first}」と「{second}」が同じ {dimension}「{key}」を登録しています。「{first}」が先に確保したため、「{second}」の登録は無視されます。",
   },
+  shadowedEnv: {
+    title: "シェルの環境変数が .env を上書きしています",
+    body: "シェルと .env の両方に設定されています: {keys}。シェル側の値が使われるため .env は無視されます。.env を編集した場合は、シェル側の値を更新するか解除して再起動してください。",
+  },
   optionalDeps: {
     // 旧来の `title` キーは、永続化済み履歴エントリの後方互換のため残す。
     // 新規発火は `titleNotFound` / `titleNotResponding` を使用。

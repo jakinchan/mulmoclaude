@@ -66,6 +66,7 @@ import { capturePhotoLocation } from "./workspace/photo-locations/index.js";
 import { createJournalRouter } from "./api/routes/journal.js";
 import { createTranslationRouter } from "./api/routes/translation.js";
 import { announcePluginMetaDiagnostics } from "./plugins/diagnostics.js";
+import { announceShadowedEnv } from "./system/shadowedEnv.js";
 import { announceOptionalDeps } from "./system/announceOptionalDeps.js";
 import { announceGeminiKey } from "./system/announceGeminiKey.js";
 import { migrateLegacyBillingPresets } from "./workspace/billing-migration.js";
@@ -913,6 +914,11 @@ async function initBootDiagnostics(): Promise<void> {
   // collision detected at module load via log.warn + a system
   // notification.
   await announcePluginMetaDiagnostics();
+
+  // --- Shell-shadows-`.env` diagnostic (#2604) ---
+  // The launcher reports which `.env` keys the shell had already defined;
+  // without this the user sees no reason why editing `.env` changes nothing.
+  await announceShadowedEnv();
 
   // One settings read shared by the dep announce (gates the whisper warning on
   // voice-input opt-in) and the sidecar warm-up below.

@@ -121,6 +121,10 @@ const enMessages = {
     hostBody: 'Plugin "{plugin}" tried to register the {label} key "{key}" but it is reserved by the host. The plugin\'s entry has been dropped.',
     intraBody: 'Plugins "{first}" and "{second}" both register {dimension} "{key}". "{first}" claimed it first, so "{second}"\'s registration is ignored.',
   },
+  shadowedEnv: {
+    title: "Shell env is overriding .env",
+    body: "Set in both your shell and .env: {keys}. The shell value wins, so .env is ignored. If you edited .env, update or unset the shell value and restart.",
+  },
   optionalDeps: {
     // Generic `title` kept for backward compatibility with persisted
     // history entries published before the reason-aware split below;

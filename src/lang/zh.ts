@@ -103,6 +103,10 @@ const zhMessages = {
     hostBody: '插件 "{plugin}" 尝试注册 {label} 键 "{key}",但该键由宿主保留。该插件条目已被丢弃。',
     intraBody: '插件 "{first}" 和 "{second}" 都注册了 {dimension} "{key}"。"{first}" 先注册,因此 "{second}" 的注册被忽略。',
   },
+  shadowedEnv: {
+    title: "Shell 环境变量正在覆盖 .env",
+    body: "以下变量同时设置在 Shell 和 .env 中：{keys}。实际生效的是 Shell 中的值，因此 .env 被忽略。如果你修改了 .env，请更新或取消 Shell 中的值后重启。",
+  },
   optionalDeps: {
     // 通用 `title` 键保留以便兼容已持久化的历史条目;新发布的通知改用
     // `titleNotFound` / `titleNotResponding`。

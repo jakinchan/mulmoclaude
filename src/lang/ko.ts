@@ -107,6 +107,10 @@ const koMessages = {
     intraBody:
       '플러그인 "{first}"과(와) "{second}"이(가) 동일한 {dimension} "{key}"을(를) 등록합니다. "{first}"이(가) 먼저 등록했으므로 "{second}"의 등록은 무시됩니다.',
   },
+  shadowedEnv: {
+    title: "셸 환경 변수가 .env를 덮어쓰고 있습니다",
+    body: "셸과 .env 양쪽에 모두 설정되어 있습니다: {keys}. 셸의 값이 우선하므로 .env는 무시됩니다. .env를 수정했다면 셸의 값을 갱신하거나 해제한 뒤 다시 시작하세요.",
+  },
   optionalDeps: {
     // 영구 저장된 기존 히스토리 항목과의 호환을 위해 일반적인 `title` 키는
     // 그대로 둔다. 새 발화는 `titleNotFound` / `titleNotResponding` 사용.
