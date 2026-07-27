@@ -343,7 +343,7 @@ const enMessages = {
       macosRemindersHint:
         "Adds the finished task to your default Reminders list. iCloud sync then mirrors it to your iPhone, which is what delivers the notification.",
       macosRemindersForcedOff:
-        "Turned off at startup by --disable-macos-reminders (or DISABLE_MACOS_REMINDER_NOTIFICATIONS). Drop the flag to control it from here.",
+        "Turned off at startup by --disable-macos-reminders or DISABLE_MACOS_REMINDER_NOTIFICATIONS. Remove the flag or unset the variable, then restart, to control it from here.",
       statusOn: "Web Push is ON",
       statusOff: "Web Push is OFF",
       loadError: "Failed to load settings",

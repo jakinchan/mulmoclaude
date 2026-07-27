@@ -324,7 +324,7 @@ const frMessages = {
       macosRemindersHint:
         "Ajoute la tâche terminée à votre liste de Rappels par défaut. La synchronisation iCloud la répercute sur votre iPhone, qui délivre la notification.",
       macosRemindersForcedOff:
-        "Désactivé au démarrage par --disable-macos-reminders (ou DISABLE_MACOS_REMINDER_NOTIFICATIONS). Retirez l'option pour le contrôler ici.",
+        "Désactivé au démarrage par --disable-macos-reminders ou DISABLE_MACOS_REMINDER_NOTIFICATIONS. Retirez l'option ou supprimez la variable d'environnement, puis redémarrez pour le contrôler ici.",
       statusOn: "Web Push est ACTIVÉ",
       statusOff: "Web Push est DÉSACTIVÉ",
       loadError: "Échec du chargement des paramètres",

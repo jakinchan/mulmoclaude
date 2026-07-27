@@ -329,7 +329,7 @@ const esMessages = {
       macosRemindersHint:
         "Añade la tarea terminada a tu lista de Recordatorios predeterminada. La sincronización de iCloud la refleja en tu iPhone, que es quien entrega la notificación.",
       macosRemindersForcedOff:
-        "Desactivado al iniciar con --disable-macos-reminders (o DISABLE_MACOS_REMINDER_NOTIFICATIONS). Quita esa opción para controlarlo desde aquí.",
+        "Desactivado al iniciar con --disable-macos-reminders o DISABLE_MACOS_REMINDER_NOTIFICATIONS. Quita la opción o anula la variable de entorno y reinicia para controlarlo desde aquí.",
       statusOn: "Web Push está ACTIVADO",
       statusOff: "Web Push está DESACTIVADO",
       loadError: "Error al cargar los ajustes",

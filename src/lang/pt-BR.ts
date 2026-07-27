@@ -323,7 +323,7 @@ const ptBRMessages = {
       macosRemindersHint:
         "Adiciona a tarefa concluída à sua lista padrão de Lembretes. A sincronização do iCloud espelha no seu iPhone, que é quem entrega a notificação.",
       macosRemindersForcedOff:
-        "Desativado na inicialização por --disable-macos-reminders (ou DISABLE_MACOS_REMINDER_NOTIFICATIONS). Remova a flag para controlar por aqui.",
+        "Desativado na inicialização por --disable-macos-reminders ou DISABLE_MACOS_REMINDER_NOTIFICATIONS. Remova a flag ou limpe a variável de ambiente e reinicie para controlar por aqui.",
       statusOn: "Web Push está ATIVADO",
       statusOff: "Web Push está DESATIVADO",
       loadError: "Falha ao carregar as configurações",

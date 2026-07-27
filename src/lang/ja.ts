@@ -325,7 +325,7 @@ const jaMessages = {
       macosRemindersLabel: "タスク完了時に macOS のリマインダーを作成する",
       macosRemindersHint: "完了したタスクを既定のリマインダーリストに追加します。iCloud 同期が iPhone に反映し、そこで通知が届きます。",
       macosRemindersForcedOff:
-        "起動時に --disable-macos-reminders（または DISABLE_MACOS_REMINDER_NOTIFICATIONS）で無効化されています。ここから操作するにはフラグを外してください。",
+        "起動時に --disable-macos-reminders または DISABLE_MACOS_REMINDER_NOTIFICATIONS で無効化されています。フラグを外すか環境変数を解除して再起動すると、ここから操作できます。",
       statusOn: "Web Push は ON",
       statusOff: "Web Push は OFF",
       loadError: "設定の読み込みに失敗しました",

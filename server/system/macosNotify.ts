@@ -25,7 +25,7 @@
 
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { env } from "./env.js";
-import { isMacosRemindersEnabled, loadSettings } from "./config.js";
+import { isMacosRemindersEnabled, loadSettings, type AppSettings } from "./config.js";
 import { log } from "./logger/index.js";
 
 // Re-declared (instead of `NodeJS.Platform`) so the file doesn't need
@@ -99,19 +99,20 @@ export function resolveMacosReminderDisabled(input: { envDisabled: boolean; insi
   return !input.settingEnabled;
 }
 
-export function isMacosReminderSinkDisabled(): boolean {
-  return resolveMacosReminderDisabled({
-    envDisabled: env.disableMacosReminderNotifications,
-    insideNodeTest: autoDisabledForTests,
-    settingEnabled: isMacosRemindersEnabled(loadSettings()),
-  });
-}
-
-function currentDeps(): Deps {
+/**
+ * Built per call from a settings reader, never memoised — a `disabled`
+ * captured once would keep firing reminders after the Settings toggle
+ * turned them off, until a restart.
+ */
+export function buildMacosReminderDeps(input: { platform: Platform; readSettings: () => AppSettings; envDisabled: boolean; insideNodeTest: boolean }): Deps {
   return {
     spawner: spawn,
-    platform: process.platform as Platform,
-    disabled: isMacosReminderSinkDisabled(),
+    platform: input.platform,
+    disabled: resolveMacosReminderDisabled({
+      envDisabled: input.envDisabled,
+      insideNodeTest: input.insideNodeTest,
+      settingEnabled: isMacosRemindersEnabled(input.readSettings()),
+    }),
   };
 }
 
@@ -131,7 +132,20 @@ if (autoDisabledForTests && !env.disableMacosReminderNotifications && process.pl
 }
 
 export function pushToMacosReminder(title: string, body?: string): Promise<void> {
-  return pushToMacosReminderWithDeps(currentDeps(), title, body);
+  const platform = process.platform as Platform;
+  // Off darwin the sink is a no-op, so don't pay for the synchronous
+  // settings read just to reach the same answer.
+  if (platform !== "darwin") return Promise.resolve();
+  return pushToMacosReminderWithDeps(
+    buildMacosReminderDeps({
+      platform,
+      readSettings: loadSettings,
+      envDisabled: env.disableMacosReminderNotifications,
+      insideNodeTest: autoDisabledForTests,
+    }),
+    title,
+    body,
+  );
 }
 
 // Internal — exposed for tests. Lets the test suite inject a fake

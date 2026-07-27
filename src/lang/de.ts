@@ -327,7 +327,7 @@ const deMessages = {
       macosRemindersHint:
         "Legt die erledigte Aufgabe in deiner Standard-Erinnerungsliste an. Die iCloud-Synchronisierung spiegelt sie auf dein iPhone, das die Mitteilung zustellt.",
       macosRemindersForcedOff:
-        "Beim Start durch --disable-macos-reminders (oder DISABLE_MACOS_REMINDER_NOTIFICATIONS) deaktiviert. Entferne die Option, um sie hier zu steuern.",
+        "Beim Start durch --disable-macos-reminders oder DISABLE_MACOS_REMINDER_NOTIFICATIONS deaktiviert. Entferne die Option oder die Umgebungsvariable und starte neu, um sie hier zu steuern.",
       statusOn: "Web Push ist AN",
       statusOff: "Web Push ist AUS",
       loadError: "Einstellungen konnten nicht geladen werden",

@@ -323,9 +323,9 @@ const koMessages = {
       enableHint: "여기서 시작한 채팅이 완료되면 실행됩니다. 예약 작업이나 백그라운드 작업에서는 실행되지 않습니다.",
       remoteHostNote: "RemoteHost 연결(로그인 제공)과 등록된 기기가 하나 이상 필요합니다. 둘 중 하나라도 없으면 아무 동작도 하지 않습니다.",
       macosRemindersLabel: "작업 완료 시 macOS 미리 알림 만들기",
-      macosRemindersHint: "완료된 작업을 기본 미리 알림 목록에 추가합니다. iCloud 동기화가 iPhone에 반영하고, 거기서 알림이 전달됩니다.",
+      macosRemindersHint: "완료된 작업을 기본 미리 알림 목록에 추가합니다. iCloud를 통해 iPhone에 동기화되며, iPhone에서 알림이 전달됩니다.",
       macosRemindersForcedOff:
-        "시작할 때 --disable-macos-reminders(또는 DISABLE_MACOS_REMINDER_NOTIFICATIONS)로 꺼졌습니다. 여기서 제어하려면 해당 플래그를 제거하세요.",
+        "시작할 때 --disable-macos-reminders 또는 DISABLE_MACOS_REMINDER_NOTIFICATIONS로 꺼졌습니다. 플래그를 제거하거나 환경 변수를 해제한 뒤 다시 시작하면 여기서 제어할 수 있습니다.",
       statusOn: "Web Push 켜짐",
       statusOff: "Web Push 꺼짐",
       loadError: "설정을 불러오지 못했습니다",
