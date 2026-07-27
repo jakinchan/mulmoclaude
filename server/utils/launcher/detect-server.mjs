@@ -13,6 +13,8 @@
 
 import { get as httpGet } from "node:http";
 
+import { MAX_PORT_PROBES } from "../port.mjs";
+
 export const HEALTH_PATH = "/api/health";
 
 // A loopback request that hasn't answered in this long is not going to.
@@ -70,4 +72,29 @@ export function detectRunningServer(port, { get = httpGet } = {}) {
       resolve(classifyHealthProbe({ errorCode: "ETIMEDOUT" }));
     });
   });
+}
+
+/**
+ * The port an already-running MulmoClaude answers on, or null.
+ *
+ * Probing only the default port is not enough: when something else
+ * holds it, the launcher starts on the next free one — and then every
+ * later click would find the default still foreign and start yet
+ * another server. The window scanned here therefore has to match the
+ * one `findAvailablePort` can hand out (`[start, start + MAX_PORT_PROBES)`),
+ * or the launcher can miss an instance it started itself.
+ *
+ * Probes run concurrently (a refused loopback connection is immediate)
+ * and the lowest answering port wins, so the result does not depend on
+ * which reply arrives first.
+ *
+ * @param {number} startPort
+ * @param {{ probeCount?: number, probe?: (port: number) => Promise<string> }} [deps]
+ * @returns {Promise<number | null>}
+ */
+export async function findRunningServerPort(startPort, { probeCount = MAX_PORT_PROBES, probe = detectRunningServer } = {}) {
+  const ports = Array.from({ length: probeCount }, (_unused, offset) => startPort + offset);
+  const presences = await Promise.all(ports.map((port) => probe(port)));
+  const index = presences.indexOf(SERVER_PRESENCE.mulmoclaude);
+  return index === -1 ? null : ports[index];
 }

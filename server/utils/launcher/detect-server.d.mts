@@ -17,3 +17,10 @@ export interface HealthProbeOutcome {
 export function classifyHealthProbe(outcome: HealthProbeOutcome): ServerPresence;
 
 export function detectRunningServer(port: number, deps?: { get?: typeof httpGet }): Promise<ServerPresence>;
+
+export interface FindRunningServerOptions {
+  probeCount?: number;
+  probe?: (port: number) => Promise<ServerPresence>;
+}
+
+export function findRunningServerPort(startPort: number, deps?: FindRunningServerOptions): Promise<number | null>;

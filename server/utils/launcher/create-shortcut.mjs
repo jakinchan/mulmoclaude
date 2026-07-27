@@ -35,13 +35,21 @@ function isWritable(path) {
 }
 
 /**
+ * Fails on a `--dir` with no value the way `--port` does in the main
+ * CLI entry point. Taking the next token unconditionally turns
+ * `create-shortcut --dir --yes` into a literal `--yes/` directory —
+ * silently writing the bundle somewhere nobody will find it.
  * @param {string[]} argv
- * @returns {{ dir: string | null, assumeYes: boolean }}
+ * @returns {import("./create-shortcut.d.mts").CreateShortcutArgs}
  */
 export function parseCreateShortcutArgs(argv) {
+  const assumeYes = argv.includes("--yes") || argv.includes("-y");
   const dirIndex = argv.indexOf("--dir");
-  const dir = dirIndex === -1 ? null : (argv[dirIndex + 1] ?? null);
-  return { dir, assumeYes: argv.includes("--yes") || argv.includes("-y") };
+  if (dirIndex === -1) return { ok: true, dir: null, assumeYes };
+  const value = argv[dirIndex + 1];
+  if (value === undefined) return { ok: false, reason: "--dir requires a directory path" };
+  if (value.startsWith("-")) return { ok: false, reason: `--dir requires a directory path (got "${value}")` };
+  return { ok: true, dir: value, assumeYes };
 }
 
 async function confirm(question) {
@@ -64,7 +72,12 @@ export async function runCreateShortcut(argv, { version, log = console.log, erro
     error(`create-shortcut currently supports macOS only (this is ${process.platform}).`);
     return 1;
   }
-  const { dir, assumeYes } = parseCreateShortcutArgs(argv);
+  const parsed = parseCreateShortcutArgs(argv);
+  if (!parsed.ok) {
+    error(parsed.reason);
+    return 1;
+  }
+  const { dir, assumeYes } = parsed;
   const installDir = dir ?? defaultInstallDir();
   const bundlePath = join(installDir, BUNDLE_NAME);
 

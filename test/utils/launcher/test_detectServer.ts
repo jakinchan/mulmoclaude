@@ -10,7 +10,9 @@ import type { Server } from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 
-import { classifyHealthProbe, detectRunningServer } from "../../../server/utils/launcher/detect-server.mjs";
+import { classifyHealthProbe, detectRunningServer, findRunningServerPort } from "../../../server/utils/launcher/detect-server.mjs";
+import type { ServerPresence } from "../../../server/utils/launcher/detect-server.d.mts";
+import { MAX_PORT_PROBES } from "../../../server/utils/port.mjs";
 
 describe("classifyHealthProbe", () => {
   it("reads a 401 as MulmoClaude — /api/health sits behind bearerAuth, so that IS our answer", () => {
@@ -77,5 +79,53 @@ describe("detectRunningServer", () => {
     server.close();
     await once(server, "close");
     assert.equal(await detectRunningServer(port), "absent");
+  });
+});
+
+describe("findRunningServerPort", () => {
+  // A stub presence map keeps these deterministic: the real probe would
+  // depend on whatever happens to be listening on the test machine.
+  const probeFrom =
+    (byPort: Record<number, ServerPresence>) =>
+    (port: number): Promise<ServerPresence> =>
+      Promise.resolve(byPort[port] ?? "absent");
+
+  it("finds MulmoClaude on the default port", async () => {
+    assert.equal(await findRunningServerPort(3001, { probe: probeFrom({ 3001: "mulmoclaude" }) }), 3001);
+  });
+
+  it("finds it on a fallback port — the case that used to start a second server", async () => {
+    // 3001 taken by something else, MulmoClaude pushed to 3002 by an
+    // earlier launch. Probing only 3001 would report "foreign" and
+    // launch yet another instance on 3003, and again on every click.
+    const presence = probeFrom({ 3001: "foreign", 3002: "mulmoclaude" });
+    assert.equal(await findRunningServerPort(3001, { probe: presence }), 3002);
+  });
+
+  it("returns null when nothing in the window is ours", async () => {
+    assert.equal(await findRunningServerPort(3001, { probe: probeFrom({ 3001: "foreign", 3005: "foreign" }) }), null);
+  });
+
+  it("prefers the lowest port when several answer", async () => {
+    const presence = probeFrom({ 3002: "mulmoclaude", 3004: "mulmoclaude" });
+    assert.equal(await findRunningServerPort(3001, { probe: presence }), 3002);
+  });
+
+  it("scans exactly the window findAvailablePort can hand out", async () => {
+    const probed: number[] = [];
+    await findRunningServerPort(3001, {
+      probe: (port) => {
+        probed.push(port);
+        return Promise.resolve("absent");
+      },
+    });
+    assert.equal(probed.length, MAX_PORT_PROBES);
+    assert.equal(Math.min(...probed), 3001);
+    assert.equal(Math.max(...probed), 3001 + MAX_PORT_PROBES - 1);
+  });
+
+  it("still finds the instance sitting on the last port of the window", async () => {
+    const lastPort = 3001 + MAX_PORT_PROBES - 1;
+    assert.equal(await findRunningServerPort(3001, { probe: probeFrom({ [lastPort]: "mulmoclaude" }) }), lastPort);
   });
 });

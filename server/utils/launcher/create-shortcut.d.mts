@@ -4,7 +4,9 @@ export const APP_NAME: string;
 
 export function defaultInstallDir(deps?: { home?: string; canWrite?: (path: string) => boolean }): string;
 
-export function parseCreateShortcutArgs(argv: string[]): { dir: string | null; assumeYes: boolean };
+export type CreateShortcutArgs = { ok: true; dir: string | null; assumeYes: boolean } | { ok: false; reason: string };
+
+export function parseCreateShortcutArgs(argv: string[]): CreateShortcutArgs;
 
 export interface CreateShortcutContext {
   version: string;

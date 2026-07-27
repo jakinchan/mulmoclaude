@@ -12,7 +12,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -21,12 +21,14 @@ const GUI_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 const darwinOnly = { skip: process.platform !== "darwin" };
 
 // Runs a shell snippet with the script sourced, under the environment a
-// GUI launch actually gets.
-const runShell = (script: string, home: string): { stdout: string; ms: number } => {
+// GUI launch actually gets. Absolute paths reach the shell as environment
+// values rather than being interpolated into the command string, so no
+// path this test discovers can alter the command's shape.
+const runShell = (script: string, home: string, extraEnv: Record<string, string> = {}): { stdout: string; ms: number } => {
   const startedAt = Date.now();
-  const stdout = execFileSync("/bin/sh", ["-c", `. "${SCRIPT}"\n${script}`], {
+  const stdout = execFileSync("/bin/sh", ["-c", `. "$MC_SCRIPT"\n${script}`], {
     encoding: "utf8",
-    env: { HOME: home, PATH: GUI_PATH, TMPDIR: tmpdir() },
+    env: { HOME: home, PATH: GUI_PATH, TMPDIR: tmpdir(), MC_SCRIPT: SCRIPT, ...extraEnv },
   });
   return { stdout, ms: Date.now() - startedAt };
 };
@@ -52,7 +54,7 @@ describe("resolve-path.sh", () => {
       const fakeShell = join(home, "fake-shell");
       // Invoked as `<shell> -l -i -c <script>`, so the script is $4.
       writeExecutable(fakeShell, '#!/bin/sh\nexec /bin/sh -c "$4"\n');
-      const { stdout } = runShell(`mc_login_shell() { echo ${fakeShell}; }\nmc_resolve_path`, home);
+      const { stdout } = runShell('mc_login_shell() { echo "$MC_FAKE_SHELL"; }\nmc_resolve_path', home, { MC_FAKE_SHELL: fakeShell });
       assert.match(stdout.trim(), new RegExp(`^${GUI_PATH}:${GUI_PATH}$`));
     });
   });
@@ -62,9 +64,9 @@ describe("resolve-path.sh", () => {
       // Records the flags it was invoked with instead of answering.
       const fakeShell = join(home, "record-flags");
       const flagLog = join(home, "flags.txt");
-      writeExecutable(fakeShell, `#!/bin/sh\necho "$1 $2 $3" > ${flagLog}\n`);
-      runShell(`mc_login_shell() { echo ${fakeShell}; }\nmc_resolve_path > /dev/null`, home);
-      const flags = execFileSync("/bin/cat", [flagLog], { encoding: "utf8" });
+      writeExecutable(fakeShell, '#!/bin/sh\necho "$1 $2 $3" > "$MC_FLAG_LOG"\n');
+      runShell('mc_login_shell() { echo "$MC_FAKE_SHELL"; }\nmc_resolve_path > /dev/null', home, { MC_FAKE_SHELL: fakeShell, MC_FLAG_LOG: flagLog });
+      const flags = readFileSync(flagLog, "utf8");
       assert.match(flags, /-l/);
       assert.match(flags, /-i/);
       assert.match(flags, /-c/);
@@ -78,7 +80,7 @@ describe("resolve-path.sh", () => {
         fakeShell,
         ["#!/bin/sh", 'echo "welcome to my shell"', 'echo "some warning" >&2', '/bin/sh -c "$4"', 'echo "trailing chatter"', ""].join("\n"),
       );
-      const { stdout } = runShell(`mc_login_shell() { echo ${fakeShell}; }\nmc_resolve_path`, home);
+      const { stdout } = runShell('mc_login_shell() { echo "$MC_FAKE_SHELL"; }\nmc_resolve_path', home, { MC_FAKE_SHELL: fakeShell });
       assert.ok(!stdout.includes("welcome"), "banner leaked into the resolved PATH");
       assert.ok(!stdout.includes("chatter"), "trailing output leaked into the resolved PATH");
       assert.match(stdout.trim(), new RegExp(`^${GUI_PATH}:`));
@@ -89,7 +91,9 @@ describe("resolve-path.sh", () => {
     withTempHome((home) => {
       const fakeShell = join(home, "hanging-shell");
       writeExecutable(fakeShell, "#!/bin/sh\nsleep 30\n");
-      const { ms } = runShell(`MC_HOP_TIMEOUT_S=2\nmc_login_shell() { echo ${fakeShell}; }\nmc_resolve_path > /dev/null`, home);
+      const { ms } = runShell('MC_HOP_TIMEOUT_S=2\nmc_login_shell() { echo "$MC_FAKE_SHELL"; }\nmc_resolve_path > /dev/null', home, {
+        MC_FAKE_SHELL: fakeShell,
+      });
       assert.ok(ms < 10_000, `took ${ms}ms — the watchdog did not fire`);
       assert.ok(ms >= 2_000, `took ${ms}ms — returned before the timeout, so nothing was actually waited for`);
     });
@@ -103,7 +107,9 @@ describe("resolve-path.sh", () => {
       // Regression guard: a watchdog whose stdout is not detached keeps
       // the command substitution's pipe open, and every launch pays the
       // full timeout even though the work finished in milliseconds.
-      const { ms } = runShell(`MC_HOP_TIMEOUT_S=20\nmc_login_shell() { echo ${fakeShell}; }\nmc_resolve_path > /dev/null`, home);
+      const { ms } = runShell('MC_HOP_TIMEOUT_S=20\nmc_login_shell() { echo "$MC_FAKE_SHELL"; }\nmc_resolve_path > /dev/null', home, {
+        MC_FAKE_SHELL: fakeShell,
+      });
       assert.ok(ms < 10_000, `took ${ms}ms — the watchdog is holding the output pipe open`);
     });
   });
@@ -114,14 +120,14 @@ describe("resolve-path.sh", () => {
       // node in it. Scanning for node alone would drop this directory
       // and then report Claude Code as missing on a machine that has it.
       writeExecutable(join(home, ".local", "bin", "claude"), "#!/bin/sh\necho 1.0.0\n");
-      const { stdout } = runShell(`mc_login_path() { echo ""; }\nmc_resolve_path`, home);
+      const { stdout } = runShell('mc_login_path() { echo ""; }\nmc_resolve_path', home);
       assert.match(stdout.trim(), new RegExp(`^${home}/.local/bin:`));
     });
   });
 
   it("still yields a usable PATH when the shell hop finds nothing at all", darwinOnly, () => {
     withTempHome((home) => {
-      const { stdout } = runShell(`mc_login_path() { echo ""; }\nmc_resolve_path`, home);
+      const { stdout } = runShell('mc_login_path() { echo ""; }\nmc_resolve_path', home);
       // The scan also probes absolute locations (/opt/homebrew/bin,
       // /usr/local/bin) whose contents depend on the machine running
       // the test, so only the invariant is asserted: whatever it finds

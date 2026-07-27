@@ -12,7 +12,7 @@ import { appendFileSync, closeSync, mkdirSync, openSync, statSync, truncateSync,
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { detectRunningServer, SERVER_PRESENCE } from "./detect-server.mjs";
+import { findRunningServerPort } from "./detect-server.mjs";
 import { fillPlaceholders, launcherMessages, pickLauncherLocale } from "./messages.mjs";
 import { renderErrorPage, renderLauncherPage } from "./launcher-page.mjs";
 import { runPreflight } from "./preflight.mjs";
@@ -132,10 +132,10 @@ export async function startLauncher({ env = process.env, tmpDir, localeRunner } 
   const pageDir = tmpDir ?? join(homedir(), "Library", "Caches", "MulmoClaude");
   log(logPath, `launcher start (locale=${locale})`);
 
-  const existing = await detectRunningServer(DEFAULT_PORT);
-  if (existing === SERVER_PRESENCE.mulmoclaude) {
-    log(logPath, `already running on ${DEFAULT_PORT} — opening browser`);
-    openInBrowser(`http://localhost:${DEFAULT_PORT}/`);
+  const runningPort = await findRunningServerPort(DEFAULT_PORT);
+  if (runningPort !== null) {
+    log(logPath, `already running on ${runningPort} — opening browser`);
+    openInBrowser(`http://localhost:${runningPort}/`);
     return "opened-existing";
   }
 
@@ -146,7 +146,7 @@ export async function startLauncher({ env = process.env, tmpDir, localeRunner } 
     return "preflight-failed";
   }
 
-  const port = existing === SERVER_PRESENCE.absent ? DEFAULT_PORT : await findAvailablePort(DEFAULT_PORT + 1);
+  const port = await findAvailablePort(DEFAULT_PORT);
   if (port === null) {
     log(logPath, `no free port from ${DEFAULT_PORT}`);
     const { noPort } = messages;
