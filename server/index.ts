@@ -1,4 +1,9 @@
-import "dotenv/config";
+// Must stay FIRST and stay an import: importing it populates
+// `process.env` from `<cwd>/.env` during the import phase, before any
+// module below reads env at its own scope. A call in the body would run
+// after every import had already been evaluated — too late. See
+// server/system/loadEnv.ts.
+import { shadowedByServerLoad } from "./system/loadEnv.js";
 // Wire @mulmoclaude/core/collection/server to this host's workspace + logger
 // before any module that touches collection storage loads.
 import "./workspace/collections/configure.js";
@@ -66,7 +71,7 @@ import { capturePhotoLocation } from "./workspace/photo-locations/index.js";
 import { createJournalRouter } from "./api/routes/journal.js";
 import { createTranslationRouter } from "./api/routes/translation.js";
 import { announcePluginMetaDiagnostics } from "./plugins/diagnostics.js";
-import { announceShadowedEnv } from "./system/shadowedEnv.js";
+import { announceShadowedEnv, SHADOWED_ENV_KEYS_VAR } from "./system/shadowedEnv.js";
 import { announceOptionalDeps } from "./system/announceOptionalDeps.js";
 import { announceGeminiKey } from "./system/announceGeminiKey.js";
 import { migrateLegacyBillingPresets } from "./workspace/billing-migration.js";
@@ -915,10 +920,12 @@ async function initBootDiagnostics(): Promise<void> {
   // notification.
   await announcePluginMetaDiagnostics();
 
-  // --- Shell-shadows-`.env` diagnostic (#2604) ---
-  // The launcher reports which `.env` keys the shell had already defined;
-  // without this the user sees no reason why editing `.env` changes nothing.
-  await announceShadowedEnv();
+  // --- Shell-shadows-`.env` diagnostic (#2604, #2610) ---
+  // Two `.env` files can lose to the shell: the user's launch dir, which
+  // the launcher reports, and this process's own cwd, which `yarn dev`
+  // lands in. Without this the user sees no reason why editing `.env`
+  // changes nothing.
+  await announceShadowedEnv(process.env[SHADOWED_ENV_KEYS_VAR], shadowedByServerLoad());
 
   // One settings read shared by the dep announce (gates the whisper warning on
   // voice-input opt-in) and the sidecar warm-up below.

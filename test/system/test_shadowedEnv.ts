@@ -13,7 +13,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseShadowedEnvKeys, shadowedEnvDiagnostic } from "../../server/system/shadowedEnv.js";
+import { normalizeShadowedEnvKeys, parseShadowedEnvKeys, shadowedEnvDiagnostic } from "../../server/system/shadowedEnv.js";
 
 describe("parseShadowedEnvKeys", () => {
   it("reads the launcher's CSV", () => {
@@ -42,6 +42,17 @@ describe("parseShadowedEnvKeys", () => {
   it("de-duplicates and sorts, so parse order can't change the identity", () => {
     assert.deepEqual(parseShadowedEnvKeys("B,A,B"), ["A", "B"]);
     assert.deepEqual(parseShadowedEnvKeys("A,B"), parseShadowedEnvKeys("B,A"));
+  });
+});
+
+describe("normalizeShadowedEnvKeys", () => {
+  // The server's own `.env` load hands keys over as a list, not a CSV
+  // (#2610). Both entry points must reduce to the same identity, or the
+  // two sources would produce two different ids for one conflict.
+  it("applies the same rule as the CSV path", () => {
+    assert.deepEqual(normalizeShadowedEnvKeys([" B ", "A", "B"]), parseShadowedEnvKeys("A,B"));
+    assert.deepEqual(normalizeShadowedEnvKeys(["GEMINI_API_KEY=would-leak"]), []);
+    assert.deepEqual(normalizeShadowedEnvKeys([]), []);
   });
 });
 

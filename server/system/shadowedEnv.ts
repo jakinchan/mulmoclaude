@@ -64,12 +64,16 @@ const ENV_VAR_NAME = /^[A-Za-z_]\w*$/;
  *  into a log line and a bell entry. Filtering here makes "names only" a
  *  property of the code rather than a promise about the producer. */
 export function parseShadowedEnvKeys(raw: string | undefined): string[] {
-  if (!raw) return [];
-  const keys = raw
-    .split(",")
-    .map((key) => key.trim())
-    .filter((key) => ENV_VAR_NAME.test(key));
-  return [...new Set(keys)].sort();
+  return raw ? normalizeShadowedEnvKeys(raw.split(",")) : [];
+}
+
+/** The same trim / validate / de-dupe / sort rule applied to keys that
+ *  arrive as a list rather than a CSV — the server's own `.env` load
+ *  (#2610) hands them over directly. Shared so both sources produce one
+ *  identity for the same conflict. */
+export function normalizeShadowedEnvKeys(keys: readonly string[]): string[] {
+  const clean = keys.map((key) => key.trim()).filter((key) => ENV_VAR_NAME.test(key));
+  return [...new Set(clean)].sort();
 }
 
 /** Render the key list for humans, capped. */
@@ -143,9 +147,19 @@ async function clearStale(entryIds: readonly string[]): Promise<void> {
 }
 
 /** Run at boot, after the notifier engine is initialised. No-ops unless
- *  the launcher reported shadowed keys. */
-export async function announceShadowedEnv(raw: string | undefined = process.env[SHADOWED_ENV_KEYS_VAR]): Promise<ShadowedEnvDiagnostic | null> {
-  const diagnostic = shadowedEnvDiagnostic(parseShadowedEnvKeys(raw));
+ *  something reported shadowed keys.
+ *
+ *  Two sources, one notification. The launcher covers the user's launch
+ *  directory (#2604); `serverLoadKeys` covers the `.env` this process
+ *  read from its own cwd (#2610) — which is where `yarn dev` lands, and
+ *  had no signal at all before. Only one of the two is ever non-empty in
+ *  practice, but they union rather than compete so neither can mask the
+ *  other. */
+export async function announceShadowedEnv(
+  raw: string | undefined = process.env[SHADOWED_ENV_KEYS_VAR],
+  serverLoadKeys: readonly string[] = [],
+): Promise<ShadowedEnvDiagnostic | null> {
+  const diagnostic = shadowedEnvDiagnostic(normalizeShadowedEnvKeys([...parseShadowedEnvKeys(raw), ...serverLoadKeys]));
   // Nothing shadowed now, but a previous boot may have said otherwise —
   // leaving that entry up would keep pointing at a conflict the user has
   // already resolved.
