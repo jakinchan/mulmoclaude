@@ -24,6 +24,25 @@
       <span :class="statusColour" data-testid="settings-notifications-status">{{ statusText }}</span>
     </div>
 
+    <div v-if="remindersSupported" class="flex items-start gap-3 border-t border-gray-200 pt-3">
+      <input
+        id="settings-notifications-macos-reminders"
+        v-model="remindersEnabled"
+        type="checkbox"
+        class="mt-1 h-4 w-4"
+        :disabled="saving || remindersForcedOff"
+        data-testid="settings-notifications-macos-reminders-input"
+        @change="saveReminders"
+      />
+      <label for="settings-notifications-macos-reminders" class="flex-1">
+        <span class="block text-sm font-medium text-gray-800">{{ t("settingsModal.notificationsTab.macosRemindersLabel") }}</span>
+        <span class="block text-xs text-gray-500 mt-0.5">{{ t("settingsModal.notificationsTab.macosRemindersHint") }}</span>
+        <span v-if="remindersForcedOff" class="block text-xs text-amber-700 mt-1" data-testid="settings-notifications-macos-reminders-forced">
+          {{ t("settingsModal.notificationsTab.macosRemindersForcedOff") }}
+        </span>
+      </label>
+    </div>
+
     <p v-if="errorMessage" class="text-sm text-red-700" role="alert" data-testid="settings-notifications-error">{{ errorMessage }}</p>
   </div>
 </template>
@@ -50,11 +69,17 @@ interface SettingsResponse {
   settings: {
     extraAllowedTools: string[];
     pushEnabled?: boolean;
+    macosRemindersEnabled?: boolean;
   };
+  macosReminders?: { supported: boolean; forcedOffByEnv: boolean };
 }
 
 const pushEnabled = ref(false);
 const stored = ref(false);
+const remindersEnabled = ref(true);
+const remindersStored = ref(true);
+const remindersSupported = ref(false);
+const remindersForcedOff = ref(false);
 const loaded = ref(false);
 const saving = ref(false);
 const errorMessage = ref("");
@@ -83,7 +108,32 @@ async function load(): Promise<void> {
   const value = response.data.settings.pushEnabled ?? false;
   stored.value = value;
   pushEnabled.value = value;
+  // Default true matches `isMacosRemindersEnabled` on the server — the sink
+  // shipped enabled, so a settings file predating the field keeps firing.
+  const reminders = response.data.settings.macosRemindersEnabled ?? true;
+  remindersStored.value = reminders;
+  remindersEnabled.value = reminders;
+  remindersSupported.value = response.data.macosReminders?.supported ?? false;
+  remindersForcedOff.value = response.data.macosReminders?.forcedOffByEnv ?? false;
   loaded.value = true;
+}
+
+async function saveReminders(): Promise<void> {
+  if (saving.value) return;
+  if (remindersEnabled.value === remindersStored.value) return;
+  saving.value = true;
+  errorMessage.value = "";
+  const response = await apiPut<unknown>(API_ROUTES.config.settings, {
+    macosRemindersEnabled: remindersEnabled.value,
+  });
+  saving.value = false;
+  if (!response.ok) {
+    errorMessage.value = response.error || t("settingsModal.notificationsTab.saveError");
+    remindersEnabled.value = remindersStored.value;
+    return;
+  }
+  remindersStored.value = remindersEnabled.value;
+  emit("saved");
 }
 
 async function save(): Promise<void> {

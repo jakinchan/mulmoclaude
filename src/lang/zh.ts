@@ -313,6 +313,10 @@ const zhMessages = {
       enableLabel: "任务完成时发送 Web Push",
       enableHint: "在你于此处发起的对话完成时触发。定时任务和后台任务不会触发它。",
       remoteHostNote: "需要 RemoteHost 连接（用于提供登录）以及至少一台已注册的设备。缺少任一项时不会有任何操作。",
+      macosRemindersLabel: "任务完成时创建 macOS 提醒事项",
+      macosRemindersHint: "将已完成的任务添加到默认的提醒事项列表。iCloud 同步会将其镜像到 iPhone，通知由此送达。",
+      macosRemindersForcedOff:
+        "启动时已通过 --disable-macos-reminders 或 DISABLE_MACOS_REMINDER_NOTIFICATIONS 关闭。移除该参数或取消该环境变量后重启，即可在此处控制。",
       statusOn: "Web Push 已开启",
       statusOff: "Web Push 已关闭",
       loadError: "加载设置失败",

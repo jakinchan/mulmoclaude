@@ -25,6 +25,7 @@
 
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { env } from "./env.js";
+import { isMacosRemindersEnabled, loadSettings, type AppSettings } from "./config.js";
 import { log } from "./logger/index.js";
 
 // Re-declared (instead of `NodeJS.Platform`) so the file doesn't need
@@ -82,11 +83,38 @@ function isInsideNodeTest(): boolean {
 
 const autoDisabledForTests = isInsideNodeTest();
 
-const defaultDeps: Deps = {
-  spawner: spawn,
-  platform: process.platform as Platform,
-  disabled: env.disableMacosReminderNotifications || autoDisabledForTests,
-};
+/**
+ * Resolved per call, never cached: the Settings toggle (#2617) changes
+ * `settings.json` while the server runs, and a value frozen at module
+ * load would keep firing reminders until a restart — which, for a
+ * toggle whose entire job is to stop them, reads as broken.
+ *
+ * The env flag wins over the setting so an existing
+ * `DISABLE_MACOS_REMINDER_NOTIFICATIONS=1` invocation keeps silencing
+ * the sink no matter what is stored. Nothing is lost for the users this
+ * setting exists for — an icon launch passes no env at all.
+ */
+export function resolveMacosReminderDisabled(input: { envDisabled: boolean; insideNodeTest: boolean; settingEnabled: boolean }): boolean {
+  if (input.envDisabled || input.insideNodeTest) return true;
+  return !input.settingEnabled;
+}
+
+/**
+ * Built per call from a settings reader, never memoised — a `disabled`
+ * captured once would keep firing reminders after the Settings toggle
+ * turned them off, until a restart.
+ */
+export function buildMacosReminderDeps(input: { platform: Platform; readSettings: () => AppSettings; envDisabled: boolean; insideNodeTest: boolean }): Deps {
+  return {
+    spawner: spawn,
+    platform: input.platform,
+    disabled: resolveMacosReminderDisabled({
+      envDisabled: input.envDisabled,
+      insideNodeTest: input.insideNodeTest,
+      settingEnabled: isMacosRemindersEnabled(input.readSettings()),
+    }),
+  };
+}
 
 // Observability hook — log once at module load if the auto-disable
 // fired but the user didn't set the explicit DISABLE_… flag. Lets a
@@ -104,7 +132,20 @@ if (autoDisabledForTests && !env.disableMacosReminderNotifications && process.pl
 }
 
 export function pushToMacosReminder(title: string, body?: string): Promise<void> {
-  return pushToMacosReminderWithDeps(defaultDeps, title, body);
+  const platform = process.platform as Platform;
+  // Off darwin the sink is a no-op, so don't pay for the synchronous
+  // settings read just to reach the same answer.
+  if (platform !== "darwin") return Promise.resolve();
+  return pushToMacosReminderWithDeps(
+    buildMacosReminderDeps({
+      platform,
+      readSettings: loadSettings,
+      envDisabled: env.disableMacosReminderNotifications,
+      insideNodeTest: autoDisabledForTests,
+    }),
+    title,
+    body,
+  );
 }
 
 // Internal — exposed for tests. Lets the test suite inject a fake

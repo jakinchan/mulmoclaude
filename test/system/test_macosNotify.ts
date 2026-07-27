@@ -2,7 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { pushToMacosReminderWithDeps, type Spawner } from "../../server/system/macosNotify.js";
+import { buildMacosReminderDeps, pushToMacosReminderWithDeps, resolveMacosReminderDisabled, type Spawner } from "../../server/system/macosNotify.js";
+import type { AppSettings } from "../../server/system/config.js";
 
 interface SpawnCall {
   command: string;
@@ -127,5 +128,56 @@ describe("pushToMacosReminderWithDeps — failure handling", () => {
     // as `doesNotReject` so the failure mode is explicit rather than
     // relying on "reached the next line".
     await assert.doesNotReject(() => pushToMacosReminderWithDeps({ spawner: throwingSpawner, platform: "darwin", disabled: false }, "Hello"));
+  });
+});
+
+describe("resolveMacosReminderDisabled — precedence", () => {
+  const resolve = (over: Partial<Parameters<typeof resolveMacosReminderDisabled>[0]>) =>
+    resolveMacosReminderDisabled({ envDisabled: false, insideNodeTest: false, settingEnabled: true, ...over });
+
+  it("fires when nothing asks it not to", () => {
+    assert.equal(resolve({}), false);
+  });
+
+  it("is silenced by the Settings toggle alone (#2617 — the icon-launch case, where no env can be passed)", () => {
+    assert.equal(resolve({ settingEnabled: false }), true);
+  });
+
+  it("keeps the env flag winning over a setting that says on", () => {
+    // An existing DISABLE_MACOS_REMINDER_NOTIFICATIONS=1 invocation must
+    // not start firing reminders because a settings file says enabled.
+    assert.equal(resolve({ envDisabled: true, settingEnabled: true }), true);
+  });
+
+  it("stays disabled inside node:test even with the setting on", () => {
+    assert.equal(resolve({ insideNodeTest: true, settingEnabled: true }), true);
+  });
+});
+
+describe("buildMacosReminderDeps — reads the setting on every call", () => {
+  it("follows a setting flipped between calls, with no restart", () => {
+    // The regression this pins: `disabled` used to be computed once at
+    // module load, so turning the Settings toggle off left the sink
+    // firing until the server was restarted.
+    let enabled = true;
+    const readSettings = (): AppSettings => ({ extraAllowedTools: [], macosRemindersEnabled: enabled });
+    const build = () => buildMacosReminderDeps({ platform: "darwin", readSettings, envDisabled: false, insideNodeTest: false });
+
+    assert.equal(build().disabled, false);
+    enabled = false;
+    assert.equal(build().disabled, true, "second call must observe the new setting");
+    enabled = true;
+    assert.equal(build().disabled, false, "and back again");
+  });
+
+  it("does not consult the setting once the env flag has spoken", () => {
+    let reads = 0;
+    const readSettings = (): AppSettings => {
+      reads += 1;
+      return { extraAllowedTools: [], macosRemindersEnabled: true };
+    };
+    const deps = buildMacosReminderDeps({ platform: "darwin", readSettings, envDisabled: true, insideNodeTest: false });
+    assert.equal(deps.disabled, true);
+    assert.equal(reads, 1, "the read is cheap and unconditional — this pins it at exactly one per build");
   });
 });

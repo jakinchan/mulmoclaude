@@ -101,6 +101,14 @@ after(async () => {
   await rm(tmpRoot, { recursive: true, force: true });
 });
 
+// The route reports platform + env context for the macOS Reminders toggle
+// (#2617). Both values are properties of the machine running the suite, not
+// of the request, so the expectation is derived rather than hard-coded.
+const macosRemindersContext = {
+  supported: process.platform === "darwin",
+  forcedOffByEnv: process.env.DISABLE_MACOS_REMINDER_NOTIFICATIONS === "1",
+};
+
 describe("GET /config", () => {
   beforeEach(() => {
     rmSync(configMod.configsDir(), { recursive: true, force: true });
@@ -114,6 +122,7 @@ describe("GET /config", () => {
       settings: { extraAllowedTools: [] },
       mcp: { servers: [] },
       csp: {},
+      macosReminders: macosRemindersContext,
     });
   });
 
@@ -127,6 +136,7 @@ describe("GET /config", () => {
       settings: { extraAllowedTools: ["mcp__claude_ai_Gmail"] },
       mcp: { servers: [] },
       csp: {},
+      macosReminders: macosRemindersContext,
     });
   });
 });
@@ -141,7 +151,7 @@ describe("PUT /config/settings", () => {
     const { state, res } = mockRes();
     putSettingsHandler({ body } as Request, res);
     assert.equal(state.status, 200);
-    assert.deepEqual(state.body, { settings: body, mcp: { servers: [] }, csp: {} });
+    assert.deepEqual(state.body, { settings: body, mcp: { servers: [] }, csp: {}, macosReminders: macosRemindersContext });
     assert.deepEqual(configMod.loadSettings(), body);
   });
 
