@@ -62,10 +62,18 @@ export function launcherPaths({ home = homedir(), platform = process.platform, e
  * @returns {string}
  */
 export function fileUrl(path, platform = process.platform) {
-  if (platform !== "win32") return `file://${encodeURI(path)}`;
+  if (platform !== "win32") return `file://${encodePathSegments(path)}`;
   // A UNC path (\\server\share) keeps its host: `file://server/share`.
-  if (path.startsWith(String.raw`\\`)) return `file://${encodeURI(path.slice(2).replace(/\\/g, "/"))}`;
-  return `file:///${encodeURI(path.replace(/\\/g, "/").replace(/^\/+/, ""))}`;
+  if (path.startsWith(String.raw`\\`)) return `file://${encodePathSegments(path.slice(2).replace(/\\/g, "/"))}`;
+  return `file:///${encodePathSegments(path.replace(/\\/g, "/").replace(/^\/+/, ""))}`;
+}
+
+// `encodeURI` leaves `#` and `?` alone — they are legal URL syntax, just
+// not what they mean inside a PATH. A home directory containing either
+// (both are legal filename characters) would otherwise cut the URL into
+// a fragment or a query, and the link would open the wrong file or none.
+function encodePathSegments(path) {
+  return encodeURI(path).replace(/#/g, "%23").replace(/\?/g, "%3F");
 }
 
 /**

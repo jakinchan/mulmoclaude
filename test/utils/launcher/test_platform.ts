@@ -93,6 +93,16 @@ describe("fileUrl", () => {
     assert.equal(fileUrl(String.raw`\\server\share\launcher.log`, "win32"), "file://server/share/launcher.log");
   });
 
+  it("encodes `#` and `?`, which are legal in a filename but not in a URL path", () => {
+    // `encodeURI` passes both through: a home directory named `a#b` would
+    // cut the URL into a fragment, so the link opens the wrong file — or
+    // nothing — on the page whose job is handing over the log.
+    assert.equal(fileUrl("/Users/a#b/launcher.log", "darwin"), "file:///Users/a%23b/launcher.log");
+    assert.equal(fileUrl("/Users/a?b/launcher.log", "darwin"), "file:///Users/a%3Fb/launcher.log");
+    assert.equal(fileUrl(String.raw`C:\Users\a#b\launcher.log`, "win32"), "file:///C:/Users/a%23b/launcher.log");
+    assert.equal(fileUrl(String.raw`\\server\share\a#b.log`, "win32"), "file://server/share/a%23b.log");
+  });
+
   it("leaves POSIX paths as they were", () => {
     assert.equal(fileUrl("/Users/a/Library/Logs/MulmoClaude/launcher.log", "darwin"), "file:///Users/a/Library/Logs/MulmoClaude/launcher.log");
     assert.equal(fileUrl("/tmp/a b.log", "linux"), "file:///tmp/a%20b.log");
