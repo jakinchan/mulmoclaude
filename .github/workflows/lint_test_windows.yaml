@@ -22,6 +22,17 @@ on:
       - 'docs/**'
       - 'plans/**'
       - '**/*.md'
+  # The icon launcher's Windows half can only be verified ON Windows —
+  # a .lnk is written by a COM object and the hand-assembled .ico is
+  # loadable or not at Windows' discretion. Those tests would otherwise
+  # first run after merge, on push to main, which is too late to be a
+  # gate. Scoped by path so ordinary PRs still don't pay for a Windows
+  # runner (#2613).
+  pull_request:
+    paths:
+      - 'server/utils/launcher/**'
+      - 'test/utils/launcher/**'
+      - '.github/workflows/lint_test_windows.yaml'
   workflow_dispatch:
 
 permissions:

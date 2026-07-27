@@ -9,7 +9,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { browserOpenArgv, launcherPaths, npxCommand, windowsLocalAppData } from "../../../server/utils/launcher/platform.mjs";
+import { browserOpenArgv, fileUrl, launcherPaths, npxCommand, windowsLocalAppData } from "../../../server/utils/launcher/platform.mjs";
 import { join } from "node:path";
 
 describe("browserOpenArgv", () => {
@@ -69,5 +69,30 @@ describe("launcherPaths", () => {
   it("falls back to the conventional location when LOCALAPPDATA is absent", () => {
     assert.equal(windowsLocalAppData({ home, env: {} }), join(home, "AppData", "Local"));
     assert.equal(windowsLocalAppData({ home, env: { LOCALAPPDATA: "  " } }), join(home, "AppData", "Local"));
+  });
+});
+
+describe("fileUrl", () => {
+  it("makes a valid file URI from a Windows drive path", () => {
+    // `file://C:\\...` is not merely ugly, it is wrong: the browser reads
+    // `C:` as the HOST, so the link on the error page — whose entire job
+    // is handing the user their log — silently opens nothing.
+    assert.equal(
+      fileUrl(String.raw`C:\Users\a\AppData\Local\MulmoClaude\logs\launcher.log`, "win32"),
+      "file:///C:/Users/a/AppData/Local/MulmoClaude/logs/launcher.log",
+    );
+  });
+
+  it("percent-encodes the space every Windows profile path can contain", () => {
+    assert.equal(fileUrl(String.raw`C:\Users\a b\launcher.log`, "win32"), "file:///C:/Users/a%20b/launcher.log");
+  });
+
+  it("keeps a UNC path's host where it belongs", () => {
+    assert.equal(fileUrl(String.raw`\\server\share\launcher.log`, "win32"), "file://server/share/launcher.log");
+  });
+
+  it("leaves POSIX paths as they were", () => {
+    assert.equal(fileUrl("/Users/a/Library/Logs/MulmoClaude/launcher.log", "darwin"), "file:///Users/a/Library/Logs/MulmoClaude/launcher.log");
+    assert.equal(fileUrl("/tmp/a b.log", "linux"), "file:///tmp/a%20b.log");
   });
 });

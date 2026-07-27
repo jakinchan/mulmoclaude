@@ -50,6 +50,25 @@ export function launcherPaths({ home = homedir(), platform = process.platform, e
 }
 
 /**
+ * A `file:` URL for a local path.
+ *
+ * `file://` + the path is right on POSIX and wrong on Windows: a drive
+ * path has to become `file:///C:/Users/...`, and the backslashes have to
+ * turn into forward slashes first. Left unconverted the browser reads
+ * `C:` as the HOST, so the link silently opens nothing — on the error
+ * page, whose whole job is to hand the user their log.
+ * @param {string} path
+ * @param {string} [platform]
+ * @returns {string}
+ */
+export function fileUrl(path, platform = process.platform) {
+  if (platform !== "win32") return `file://${encodeURI(path)}`;
+  // A UNC path (\\server\share) keeps its host: `file://server/share`.
+  if (path.startsWith(String.raw`\\`)) return `file://${encodeURI(path.slice(2).replace(/\\/g, "/"))}`;
+  return `file:///${encodeURI(path.replace(/\\/g, "/").replace(/^\/+/, ""))}`;
+}
+
+/**
  * How to hand a file path or URL to the user's browser.
  *
  * `start` is a cmd builtin, not an executable, hence the `cmd /c`. Its
