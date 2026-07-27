@@ -325,6 +325,11 @@ const esMessages = {
       enableHint: "Se activa cuando se completa un chat que iniciaste aquí. Las tareas programadas y en segundo plano no lo activan.",
       remoteHostNote:
         "Requiere la conexión RemoteHost (que proporciona el inicio de sesión) y al menos un dispositivo registrado. Si falta alguno, no hace nada.",
+      macosRemindersLabel: "Crear un recordatorio de macOS al terminar una tarea",
+      macosRemindersHint:
+        "Añade la tarea terminada a tu lista de Recordatorios predeterminada. La sincronización de iCloud la refleja en tu iPhone, que es quien entrega la notificación.",
+      macosRemindersForcedOff:
+        "Desactivado al iniciar con --disable-macos-reminders (o DISABLE_MACOS_REMINDER_NOTIFICATIONS). Quita esa opción para controlarlo desde aquí.",
       statusOn: "Web Push está ACTIVADO",
       statusOff: "Web Push está DESACTIVADO",
       loadError: "Error al cargar los ajustes",

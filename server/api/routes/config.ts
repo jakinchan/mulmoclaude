@@ -15,6 +15,7 @@ import {
   type McpConfigFile,
   type McpServerEntry,
 } from "../../system/config.js";
+import { env } from "../../system/env.js";
 import { readCspExtraSync } from "../../utils/files/csp-io.js";
 import type { CspExtraHosts } from "../../../src/utils/html/previewCsp.js";
 import { badRequest, serverError, type ApiResponse } from "../../utils/httpError.js";
@@ -43,6 +44,10 @@ export interface ConfigResponse {
    *  validated server-side. The client threads it into the custom-view /
    *  file-preview CSP. Empty object ⇒ base policy only. */
   csp: CspExtraHosts;
+  /** Read-only context for the macOS Reminders toggle (#2617). The
+   *  client can see neither the server's platform nor its env, and a
+   *  toggle that silently does nothing is worse than no toggle. */
+  macosReminders: { supported: boolean; forcedOffByEnv: boolean };
 }
 
 type ConfigRes = ApiResponse<ConfigResponse>;
@@ -52,6 +57,10 @@ function buildFullResponse(): ConfigResponse {
     settings: loadSettings(),
     mcp: { servers: toMcpEntries(loadMcpConfig()) },
     csp: readCspExtraSync(),
+    macosReminders: {
+      supported: process.platform === "darwin",
+      forcedOffByEnv: env.disableMacosReminderNotifications,
+    },
   };
 }
 

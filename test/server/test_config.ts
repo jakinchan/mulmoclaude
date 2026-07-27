@@ -244,6 +244,29 @@ describe("pushEnabled (Web Push on task finish)", () => {
   });
 });
 
+describe("macosRemindersEnabled (#2617)", () => {
+  it("validates a boolean on both the full and patch shapes", () => {
+    assert.ok(mod.isAppSettings({ extraAllowedTools: [], macosRemindersEnabled: false }));
+    assert.equal(mod.isAppSettings({ extraAllowedTools: [], macosRemindersEnabled: "no" }), false);
+    assert.ok(mod.isAppSettingsPatch({ macosRemindersEnabled: true }));
+    assert.equal(mod.isAppSettingsPatch({ macosRemindersEnabled: 0 }), false);
+  });
+
+  it("round-trips through save/load", () => {
+    // `cloneAppSettings` on the read path is a separate choke point from the
+    // `saveSettings` projection — a field registered in only one of them
+    // survives the write and vanishes on the next read.
+    mod.saveSettings({ extraAllowedTools: [], macosRemindersEnabled: false });
+    assert.equal(mod.loadSettings().macosRemindersEnabled, false);
+  });
+
+  it("defaults to ON when unset — the sink shipped enabled, so an older settings file keeps firing", () => {
+    assert.equal(mod.isMacosRemindersEnabled({ extraAllowedTools: [] }), true);
+    assert.equal(mod.isMacosRemindersEnabled({ extraAllowedTools: [], macosRemindersEnabled: false }), false);
+    assert.equal(mod.isMacosRemindersEnabled({ extraAllowedTools: [], macosRemindersEnabled: true }), true);
+  });
+});
+
 describe("isMcpServerSpec", () => {
   it("accepts valid http specs", () => {
     assert.ok(mod.isMcpServerSpec({ type: "http", url: "https://example.com/mcp" }));

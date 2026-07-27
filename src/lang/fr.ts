@@ -320,6 +320,11 @@ const frMessages = {
       enableHint: "Se déclenche à la fin d'une conversation que vous avez lancée ici. Les tâches planifiées et en arrière-plan ne la déclenchent pas.",
       remoteHostNote:
         "Nécessite la connexion RemoteHost (qui fournit l'authentification) et au moins un appareil enregistré. Si l'un manque, rien ne se passe.",
+      macosRemindersLabel: "Créer un rappel macOS à la fin d'une tâche",
+      macosRemindersHint:
+        "Ajoute la tâche terminée à votre liste de Rappels par défaut. La synchronisation iCloud la répercute sur votre iPhone, qui délivre la notification.",
+      macosRemindersForcedOff:
+        "Désactivé au démarrage par --disable-macos-reminders (ou DISABLE_MACOS_REMINDER_NOTIFICATIONS). Retirez l'option pour le contrôler ici.",
       statusOn: "Web Push est ACTIVÉ",
       statusOff: "Web Push est DÉSACTIVÉ",
       loadError: "Échec du chargement des paramètres",

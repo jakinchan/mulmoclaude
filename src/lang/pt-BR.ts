@@ -319,6 +319,11 @@ const ptBRMessages = {
       enableLabel: "Enviar um Web Push quando uma tarefa terminar",
       enableHint: "Dispara quando um chat que você iniciou aqui é concluído. Tarefas agendadas e em segundo plano não o acionam.",
       remoteHostNote: "Requer a conexão RemoteHost (que fornece o login) e pelo menos um dispositivo registrado. Se algum faltar, não faz nada.",
+      macosRemindersLabel: "Criar um lembrete do macOS quando uma tarefa terminar",
+      macosRemindersHint:
+        "Adiciona a tarefa concluída à sua lista padrão de Lembretes. A sincronização do iCloud espelha no seu iPhone, que é quem entrega a notificação.",
+      macosRemindersForcedOff:
+        "Desativado na inicialização por --disable-macos-reminders (ou DISABLE_MACOS_REMINDER_NOTIFICATIONS). Remova a flag para controlar por aqui.",
       statusOn: "Web Push está ATIVADO",
       statusOff: "Web Push está DESATIVADO",
       loadError: "Falha ao carregar as configurações",

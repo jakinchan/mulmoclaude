@@ -323,6 +323,11 @@ const deMessages = {
       enableHint: "Wird ausgelöst, wenn ein hier gestarteter Chat abgeschlossen ist. Geplante und Hintergrundaufgaben lösen es nicht aus.",
       remoteHostNote:
         "Erfordert die RemoteHost-Verbindung (sie liefert die Anmeldung) und mindestens ein registriertes Gerät. Fehlt eines davon, passiert nichts.",
+      macosRemindersLabel: "Bei Aufgabenende eine macOS-Erinnerung anlegen",
+      macosRemindersHint:
+        "Legt die erledigte Aufgabe in deiner Standard-Erinnerungsliste an. Die iCloud-Synchronisierung spiegelt sie auf dein iPhone, das die Mitteilung zustellt.",
+      macosRemindersForcedOff:
+        "Beim Start durch --disable-macos-reminders (oder DISABLE_MACOS_REMINDER_NOTIFICATIONS) deaktiviert. Entferne die Option, um sie hier zu steuern.",
       statusOn: "Web Push ist AN",
       statusOff: "Web Push ist AUS",
       loadError: "Einstellungen konnten nicht geladen werden",

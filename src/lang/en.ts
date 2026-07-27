@@ -339,6 +339,11 @@ const enMessages = {
       enableHint: "Fires when a chat you started here completes. Scheduled and background tasks don't trigger it.",
       remoteHostNote:
         "Requires the RemoteHost connection (it supplies the sign-in) and at least one registered device. With either missing, this does nothing.",
+      macosRemindersLabel: "Create a macOS Reminder when a task finishes",
+      macosRemindersHint:
+        "Adds the finished task to your default Reminders list. iCloud sync then mirrors it to your iPhone, which is what delivers the notification.",
+      macosRemindersForcedOff:
+        "Turned off at startup by --disable-macos-reminders (or DISABLE_MACOS_REMINDER_NOTIFICATIONS). Drop the flag to control it from here.",
       statusOn: "Web Push is ON",
       statusOff: "Web Push is OFF",
       loadError: "Failed to load settings",
