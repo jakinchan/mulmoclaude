@@ -8,6 +8,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Highlights
+
+#### Start MulmoClaude from an icon, without a terminal (#2613, PR #2615)
+
+For anyone who does not open a terminal, `npx mulmoclaude@latest` was the whole barrier to entry. One command creates a clickable app:
+
+```bash
+npx mulmoclaude@latest create-shortcut
+```
+
+It writes `MulmoClaude.app` to `/Applications` — or `~/Applications` when that is not writable, which is what a non-admin account gets. `--dir <path>` chooses somewhere else, `--yes` skips the confirmation. macOS only for now; the command refuses to run elsewhere.
+
+Double-clicking it opens the browser straight to an **already-running** MulmoClaude rather than starting a second one, checks Node.js, `npx` and Claude Code before anything else, and shows a progress page while the server boots — `npx …@latest` looks at the network on every launch, so a silent thirty-second wait was not an option. When a prerequisite is missing, the page names it and gives the commands to run, in whichever of the 8 UI languages the system is set to. The launcher's log is at `~/Library/Logs/MulmoClaude/launcher.log`.
+
+No Electron. A macOS app bundle is a directory with an `Info.plist` and an executable, so this is one of each — no native module rebuilds, no signing, no notarisation, and no Gatekeeper prompt, since a bundle written locally never carries the quarantine attribute that triggers one. A Mac under managed policy can still be told to refuse unsigned apps outright.
+
+**The part that decides whether any of it works is `PATH`.** A GUI launch inherits `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else — `launchctl getenv PATH` is empty — so nodebrew, nvm, fnm, asdf, Volta and even Apple-Silicon Homebrew are all absent. The stub therefore asks the login shell for its `PATH` before looking for anything, and it has to be an **interactive** login shell: version managers and `~/.local/bin` are set up in `.zshrc`, which `-l` alone never reads. Measured on a nodebrew machine, `-l` resolved a different Node than the user's own and could not find `claude` at all — it would have told someone who has Claude Code installed to go install it.
+
+Re-run `create-shortcut` after upgrading: the bundle carries its own copy of the launcher.
+
+Two known gaps, both tracked: the server keeps running with no way to stop it from the icon (#2616), and `--disable-macos-reminders` is a CLI flag an icon cannot pass (#2617).
+
 ---
 
 ## [1.7.2] - 2026-07-27

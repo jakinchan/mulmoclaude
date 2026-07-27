@@ -307,6 +307,51 @@ such task" instead of finding it.
 
 ---
 
+## 11. Icon launcher — the parts of a double-click no harness reaches (#2613)
+
+**Why manual**: `create-shortcut` and every decision the launcher makes are
+unit-tested, and `test/utils/launcher/test_resolvePath.ts` runs the PATH
+recovery under the stripped environment a GUI launch really gets. What no test
+can do is *be a person double-clicking an icon in the Finder* — LaunchServices,
+icon rendering, and a modal `osascript` alert are outside any runner.
+
+Note that `open MulmoClaude.app` **from a terminal is not a substitute**: it
+leaks the terminal's environment to the app (measured: 59 env vars and a full
+`PATH`), so it passes even when a real double-click would fail. The closest
+scriptable approximation is
+`env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin open -n MulmoClaude.app`.
+
+### What to check
+
+Build it first: `npx mulmoclaude create-shortcut`.
+
+1. **The icon looks right** in the Finder and in the Dock — a grey rounded
+   square with a white M, not the generic app icon. A generic icon means
+   `buildIcns` failed (it degrades instead of aborting).
+2. **Double-click with nothing running** → a progress page appears within a
+   second or two, and the app replaces it when the server is up.
+3. **Double-click while MulmoClaude is already running** → the browser opens
+   straight to the app. No second server: `lsof -ti:3001` still shows one PID.
+4. **Quit the terminal you installed from, then double-click again.** This is
+   the case that catches a PATH regression on a machine using a version manager.
+5. **Node.js missing** (test on a machine without it, or temporarily rename the
+   binary): a native alert appears with the "nodejs.org" button, and clicking it
+   opens the download page. This is the only screen that cannot be a web page,
+   so it is also the only one whose button cannot be tested.
+6. **System language** — switch macOS to another supported language, log out and
+   in, and confirm the progress page and any error page follow it. Simplified
+   Chinese is the one worth picking: it reports `AppleLocale = zh-Hans_US`, a
+   script-tagged form that no other supported language produces.
+
+The launcher's own log is `~/Library/Logs/MulmoClaude/launcher.log`.
+
+**Windows is not covered at all yet** — `create-shortcut` refuses to run there.
+When the Windows half lands, this section needs the equivalent list (Explorer
+double-click, `.lnk` icon, hidden console window, SmartScreen), because
+`lint_test_windows.yaml` can assert the generated files but never the gesture.
+
+---
+
 ## Updating this document
 
 When you land a PR:

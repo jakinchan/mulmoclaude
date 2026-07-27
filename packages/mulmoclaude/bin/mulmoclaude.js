@@ -100,6 +100,11 @@ const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
   console.log(`
 Usage: npx mulmoclaude [options]
+       npx mulmoclaude create-shortcut [--dir <path>] [--yes]
+
+Commands:
+  create-shortcut      Create a clickable MulmoClaude.app (macOS) so the
+                       app can be started without a terminal
 
 Options:
   --port <number>      Server port (default: ${DEFAULT_PORT})
@@ -119,6 +124,15 @@ if (args.includes("--version")) {
   const { version } = require(join(PKG_DIR, "package.json"));
   console.log(`mulmoclaude ${version}`);
   process.exit(0);
+}
+
+// Generates the clickable app bundle and exits — it never starts a
+// server. Imported lazily because the icon builder pulls in `sharp`,
+// which nothing else on the launch path needs.
+if (args[0] === "create-shortcut") {
+  const { runCreateShortcut } = await import("../server/utils/launcher/create-shortcut.mjs");
+  const { version } = require(join(PKG_DIR, "package.json"));
+  process.exit(await runCreateShortcut(args.slice(1), { version }));
 }
 
 const { requestedPort, portExplicit } = parsePortArg();
