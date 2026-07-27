@@ -30,6 +30,20 @@ The launcher boots the server and opens [http://localhost:3001](http://localhost
 
 > **Keep it running**: closing the terminal stops the server. To run in the background, launch inside `tmux` / `screen` (macOS/Linux) or as a startup task (Windows Task Scheduler).
 
+### Start it from an icon (macOS)
+
+To launch without opening a terminal, create an app bundle once:
+
+```bash
+npx mulmoclaude@latest create-shortcut
+```
+
+This writes `MulmoClaude.app` to `/Applications` (or `~/Applications` if that is not writable — pass `--dir <path>` to choose, `--yes` to skip the prompt). Double-clicking it checks the prerequisites, shows a progress page while the server starts, and opens the app when it is ready. If the server is already running it just opens the browser rather than starting a second one.
+
+When something is missing — Node.js, npm, or Claude Code — it says which one and what to run, in your system language. Its log is at `~/Library/Logs/MulmoClaude/launcher.log`.
+
+Re-run the command after upgrading: the bundle carries its own copy of the launcher.
+
 ### Prerequisites
 
 - **Node.js 20+** — runtime
