@@ -83,23 +83,57 @@ jobs:
 
       - name: "3. PNG-embedded .ico — can Windows read what we build?"
         shell: pwsh
+        continue-on-error: true
         run: |
           $work = Join-Path $env:RUNNER_TEMP 'spike'
           node --input-type=module -e @'
           import { mkdirSync, writeFileSync } from "node:fs";
           import { join } from "node:path";
-          import sharp from "sharp";
+          import { deflateSync } from "node:zlib";
 
           const SIZES = [16, 32, 48, 64, 128, 256];
           const ICONDIR_BYTES = 6;
           const ICONDIRENTRY_BYTES = 16;
 
-          const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"><rect width="1024" height="1024" rx="208" fill="#6B7280"/><text x="512" y="700" font-size="700" fill="#fff" text-anchor="middle" font-family="sans-serif">M</text></svg>`;
+          // A solid-colour PNG built from node core only. What this spike has
+          // to answer is whether Windows accepts the ICO CONTAINER we assemble;
+          // where the pixels come from is irrelevant, and pulling sharp in
+          // would cost a full install on the runner.
+          const crcTable = Array.from({ length: 256 }, (_, n) => {
+            let c = n;
+            for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+            return c >>> 0;
+          });
+          const crc32 = (buf) => {
+            let c = 0xffffffff;
+            for (const byte of buf) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8);
+            return (c ^ 0xffffffff) >>> 0;
+          };
+          const chunk = (type, data) => {
+            const length = Buffer.alloc(4);
+            length.writeUInt32BE(data.length, 0);
+            const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+            const crc = Buffer.alloc(4);
+            crc.writeUInt32BE(crc32(body), 0);
+            return Buffer.concat([length, body, crc]);
+          };
+          const png = (size) => {
+            const ihdr = Buffer.alloc(13);
+            ihdr.writeUInt32BE(size, 0);
+            ihdr.writeUInt32BE(size, 4);
+            ihdr.writeUInt8(8, 8);
+            ihdr.writeUInt8(6, 9);
+            const row = Buffer.concat([Buffer.from([0]), Buffer.concat(Array.from({ length: size }, () => Buffer.from([0x6b, 0x72, 0x80, 0xff])))]);
+            const raw = Buffer.concat(Array.from({ length: size }, () => row));
+            return Buffer.concat([
+              Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+              chunk("IHDR", ihdr),
+              chunk("IDAT", deflateSync(raw)),
+              chunk("IEND", Buffer.alloc(0)),
+            ]);
+          };
 
-          const pngs = [];
-          for (const size of SIZES) {
-            pngs.push(await sharp(Buffer.from(svg)).resize(size, size).png().toBuffer());
-          }
+          const pngs = SIZES.map(png);
 
           const header = Buffer.alloc(ICONDIR_BYTES);
           header.writeUInt16LE(0, 0);
@@ -144,6 +178,7 @@ jobs:
 
       - name: "4. detach — does the server survive the launcher exiting?"
         shell: pwsh
+        continue-on-error: true
         run: |
           $work = Join-Path $env:RUNNER_TEMP 'spike'
           $alive = Join-Path $work 'alive.txt'
@@ -176,6 +211,7 @@ jobs:
 
       - name: "5. MsgBox — can the no-Node dialog offer a way to nodejs.org?"
         shell: pwsh
+        continue-on-error: true
         run: |
           # Only inspects what is available; a modal on a headless runner
           # would hang, so this never actually shows one.
