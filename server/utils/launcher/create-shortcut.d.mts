@@ -8,6 +8,8 @@ export type CreateShortcutArgs = { ok: true; dir: string | null; assumeYes: bool
 
 export function parseCreateShortcutArgs(argv: string[]): CreateShortcutArgs;
 
+export function resolveBundlePath(dir: string | null): { installDir: string; bundlePath: string };
+
 export interface CreateShortcutContext {
   version: string;
   log?: (message: string) => void;

@@ -24,11 +24,19 @@ const darwinOnly = { skip: process.platform !== "darwin" };
 // GUI launch actually gets. Absolute paths reach the shell as environment
 // values rather than being interpolated into the command string, so no
 // path this test discovers can alter the command's shape.
+// The hanging-shell case depends on the script's own watchdog firing.
+// Without a hard ceiling here, a regression in that watchdog would hang
+// CI instead of failing it, so the subprocess is bounded well above the
+// longest legitimate run.
+const SHELL_TIMEOUT_MS = 30_000;
+
 const runShell = (script: string, home: string, extraEnv: Record<string, string> = {}): { stdout: string; ms: number } => {
   const startedAt = Date.now();
   const stdout = execFileSync("/bin/sh", ["-c", `. "$MC_SCRIPT"\n${script}`], {
     encoding: "utf8",
     env: { HOME: home, PATH: GUI_PATH, TMPDIR: tmpdir(), MC_SCRIPT: SCRIPT, ...extraEnv },
+    timeout: SHELL_TIMEOUT_MS,
+    killSignal: "SIGKILL",
   });
   return { stdout, ms: Date.now() - startedAt };
 };
@@ -55,7 +63,7 @@ describe("resolve-path.sh", () => {
       // Invoked as `<shell> -l -i -c <script>`, so the script is $4.
       writeExecutable(fakeShell, '#!/bin/sh\nexec /bin/sh -c "$4"\n');
       const { stdout } = runShell('mc_login_shell() { echo "$MC_FAKE_SHELL"; }\nmc_resolve_path', home, { MC_FAKE_SHELL: fakeShell });
-      assert.match(stdout.trim(), new RegExp(`^${GUI_PATH}:${GUI_PATH}$`));
+      assert.equal(stdout.trim(), `${GUI_PATH}:${GUI_PATH}`);
     });
   });
 
@@ -83,7 +91,7 @@ describe("resolve-path.sh", () => {
       const { stdout } = runShell('mc_login_shell() { echo "$MC_FAKE_SHELL"; }\nmc_resolve_path', home, { MC_FAKE_SHELL: fakeShell });
       assert.ok(!stdout.includes("welcome"), "banner leaked into the resolved PATH");
       assert.ok(!stdout.includes("chatter"), "trailing output leaked into the resolved PATH");
-      assert.match(stdout.trim(), new RegExp(`^${GUI_PATH}:`));
+      assert.ok(stdout.trim().startsWith(`${GUI_PATH}:`), `unexpected resolved PATH: ${stdout.trim()}`);
     });
   });
 
@@ -121,7 +129,7 @@ describe("resolve-path.sh", () => {
       // and then report Claude Code as missing on a machine that has it.
       writeExecutable(join(home, ".local", "bin", "claude"), "#!/bin/sh\necho 1.0.0\n");
       const { stdout } = runShell('mc_login_path() { echo ""; }\nmc_resolve_path', home);
-      assert.match(stdout.trim(), new RegExp(`^${home}/.local/bin:`));
+      assert.ok(stdout.trim().startsWith(`${home}/.local/bin:`), `scan dropped the claude-only dir: ${stdout.trim()}`);
     });
   });
 

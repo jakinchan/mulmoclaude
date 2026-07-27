@@ -47,7 +47,7 @@ export function parseCreateShortcutArgs(argv) {
   const dirIndex = argv.indexOf("--dir");
   if (dirIndex === -1) return { ok: true, dir: null, assumeYes };
   const value = argv[dirIndex + 1];
-  if (value === undefined) return { ok: false, reason: "--dir requires a directory path" };
+  if (value === undefined || value.trim().length === 0) return { ok: false, reason: "--dir requires a directory path" };
   if (value.startsWith("-")) return { ok: false, reason: `--dir requires a directory path (got "${value}")` };
   return { ok: true, dir: value, assumeYes };
 }
@@ -63,8 +63,24 @@ async function confirm(question) {
 }
 
 /**
+ * Where the bundle goes, given an explicit `--dir` or none.
+ * @param {string | null} dir
+ * @returns {{ installDir: string, bundlePath: string }}
+ */
+export function resolveBundlePath(dir) {
+  const installDir = dir ?? defaultInstallDir();
+  return { installDir, bundlePath: join(installDir, BUNDLE_NAME) };
+}
+
+function reportCreated({ bundlePath, iconWritten }, log) {
+  log(`✓ ${bundlePath}`);
+  if (!iconWritten) log("  (icon could not be generated — the bundle uses the generic app icon)");
+  log("  Double-click it to start MulmoClaude. Re-run this command after upgrading to refresh the bundle.");
+}
+
+/**
  * @param {string[]} argv
- * @param {{ version: string, log?: (message: string) => void, error?: (message: string) => void }} context
+ * @param {import("./create-shortcut.d.mts").CreateShortcutContext} context
  * @returns {Promise<number>} process exit code
  */
 export async function runCreateShortcut(argv, { version, log = console.log, error = console.error }) {
@@ -77,20 +93,13 @@ export async function runCreateShortcut(argv, { version, log = console.log, erro
     error(parsed.reason);
     return 1;
   }
-  const { dir, assumeYes } = parsed;
-  const installDir = dir ?? defaultInstallDir();
-  const bundlePath = join(installDir, BUNDLE_NAME);
-
-  if (!assumeYes && !(await confirmTarget(bundlePath, log))) {
+  const { installDir, bundlePath } = resolveBundlePath(parsed.dir);
+  if (!parsed.assumeYes && !(await confirmTarget(bundlePath, log))) {
     log("Cancelled.");
     return 0;
   }
-
   mkdirSync(installDir, { recursive: true });
-  const { iconWritten } = await createAppBundle({ bundlePath, name: APP_NAME, version });
-  log(`✓ ${bundlePath}`);
-  if (!iconWritten) log("  (icon could not be generated — the bundle uses the generic app icon)");
-  log(`  Double-click it to start MulmoClaude. Re-run this command after upgrading to refresh the bundle.`);
+  reportCreated(await createAppBundle({ bundlePath, name: APP_NAME, version }), log);
   return 0;
 }
 
