@@ -100,6 +100,10 @@ const frMessages = {
     intraBody:
       "Les plugins « {first} » et « {second} » enregistrent tous deux le {dimension} « {key} ». « {first} » l'a réclamé en premier, donc l'enregistrement de « {second} » est ignoré.",
   },
+  shadowedEnv: {
+    title: "Le shell remplace .env",
+    body: "Défini à la fois dans le shell et dans .env : {keys}. La valeur du shell l'emporte, donc .env est ignoré. Si vous avez modifié .env, mettez à jour ou supprimez la valeur du shell puis redémarrez.",
+  },
   optionalDeps: {
     // `title` générique conservé pour la compatibilité avec les
     // entrées d'historique persistées avant la séparation par motif ;

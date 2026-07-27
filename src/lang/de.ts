@@ -101,6 +101,10 @@ const deMessages = {
     intraBody:
       "Die Plugins „{first}“ und „{second}“ registrieren beide {dimension} „{key}“. „{first}“ hat ihn zuerst beansprucht, daher wird die Registrierung von „{second}“ ignoriert.",
   },
+  shadowedEnv: {
+    title: "Shell-Umgebung überschreibt .env",
+    body: "Sowohl in der Shell als auch in .env gesetzt: {keys}. Der Wert aus der Shell gewinnt, daher wird .env ignoriert. Wenn Sie .env bearbeitet haben, aktualisieren oder entfernen Sie den Wert in der Shell und starten Sie neu.",
+  },
   optionalDeps: {
     // Generischer `title` aus Abwärtskompatibilität für persistierte
     // History-Einträge vor der Aufteilung nach Grund; neue Pfade

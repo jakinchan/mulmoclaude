@@ -105,6 +105,10 @@ const esMessages = {
     intraBody:
       'Los plugins "{first}" y "{second}" registran ambos el {dimension} "{key}". "{first}" lo reclamó primero, por lo que el registro de "{second}" se ignora.',
   },
+  shadowedEnv: {
+    title: "El shell está anulando .env",
+    body: "Definido tanto en el shell como en .env: {keys}. Prevalece el valor del shell, por lo que .env se ignora. Si editaste .env, actualiza o elimina el valor del shell y reinicia.",
+  },
   optionalDeps: {
     // `title` genérico conservado por compatibilidad con entradas de
     // historial persistidas antes de la división por motivo; las
