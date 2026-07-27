@@ -1,0 +1,186 @@
+# TEMPORARY — spike for #2613 PR2 (Windows launcher).
+#
+# The development machine is macOS, so none of the Windows behaviour the
+# launcher depends on can be measured locally. This measures it on a real
+# windows-latest runner before any implementation is written, the same way
+# PR1 measured the macOS unknowns (and disproved one of the issue's own
+# proposals in the process).
+#
+# Delete this file once the results are recorded in
+# plans/feat-2613-launcher-windows.md.
+
+name: spike (Windows launcher)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/2613-launcher-windows]
+
+jobs:
+  spike:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+
+      - name: "1. PATH — what a launched process actually sees"
+        shell: pwsh
+        run: |
+          Write-Host "--- where node / npx ---"
+          (Get-Command node).Source
+          (Get-Command npx -ErrorAction SilentlyContinue).Source
+          Write-Host "--- PATH entry count ---"
+          ($env:PATH -split ';').Count
+
+      - name: "2. .lnk via WScript.Shell COM — create, inspect, run"
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'spike'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $marker = Join-Path $work 'lnk-ran.txt'
+          $vbs = Join-Path $work 'launch.vbs'
+          # The .vbs the shortcut points at: hidden window, writes a marker,
+          # and records the environment IT sees (not the one we created it from).
+          @"
+          Set fso = CreateObject("Scripting.FileSystemObject")
+          Set sh = CreateObject("WScript.Shell")
+          Set out = fso.CreateTextFile("$($marker -replace '\\','\\')", True)
+          out.WriteLine "ran"
+          out.WriteLine sh.ExpandEnvironmentStrings("%PATH%")
+          out.WriteLine GetLocale()
+          out.Close
+          "@ | Set-Content -Path $vbs -Encoding ASCII
+
+          $lnk = Join-Path $work 'MulmoClaude.lnk'
+          $ws = New-Object -ComObject WScript.Shell
+          $sc = $ws.CreateShortcut($lnk)
+          $sc.TargetPath = "$env:SystemRoot\System32\wscript.exe"
+          $sc.Arguments = "`"$vbs`""
+          $sc.WorkingDirectory = $work
+          $sc.WindowStyle = 7
+          $sc.Save()
+          Write-Host "--- .lnk created: $((Test-Path $lnk)) ---"
+          $read = $ws.CreateShortcut($lnk)
+          Write-Host "target=$($read.TargetPath)"
+          Write-Host "args=$($read.Arguments)"
+
+          Write-Host "--- launching the .lnk the way Explorer would ---"
+          Start-Process -FilePath $lnk
+          $deadline = (Get-Date).AddSeconds(20)
+          while (-not (Test-Path $marker) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          if (Test-Path $marker) {
+            Write-Host "RESULT lnk-run=OK"
+            $lines = Get-Content $marker
+            Write-Host "child locale (LCID) = $($lines[2])"
+            Write-Host "child PATH entries  = $(($lines[1] -split ';').Count)"
+            Write-Host "child sees node?    = $(($lines[1] -split ';' | Where-Object { Test-Path (Join-Path $_ 'node.exe') -ErrorAction SilentlyContinue }) -join ',')"
+          } else {
+            Write-Host "RESULT lnk-run=FAILED (no marker after 20s)"
+          }
+
+      - name: "3. PNG-embedded .ico — can Windows read what we build?"
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'spike'
+          node --input-type=module -e @'
+          import { mkdirSync, writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          import sharp from "sharp";
+
+          const SIZES = [16, 32, 48, 64, 128, 256];
+          const ICONDIR_BYTES = 6;
+          const ICONDIRENTRY_BYTES = 16;
+
+          const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"><rect width="1024" height="1024" rx="208" fill="#6B7280"/><text x="512" y="700" font-size="700" fill="#fff" text-anchor="middle" font-family="sans-serif">M</text></svg>`;
+
+          const pngs = [];
+          for (const size of SIZES) {
+            pngs.push(await sharp(Buffer.from(svg)).resize(size, size).png().toBuffer());
+          }
+
+          const header = Buffer.alloc(ICONDIR_BYTES);
+          header.writeUInt16LE(0, 0);
+          header.writeUInt16LE(1, 2);
+          header.writeUInt16LE(SIZES.length, 4);
+
+          let offset = ICONDIR_BYTES + ICONDIRENTRY_BYTES * SIZES.length;
+          const entries = SIZES.map((size, i) => {
+            const e = Buffer.alloc(ICONDIRENTRY_BYTES);
+            e.writeUInt8(size === 256 ? 0 : size, 0);
+            e.writeUInt8(size === 256 ? 0 : size, 1);
+            e.writeUInt16LE(1, 4);
+            e.writeUInt16LE(32, 6);
+            e.writeUInt32LE(pngs[i].length, 8);
+            e.writeUInt32LE(offset, 12);
+            offset += pngs[i].length;
+            return e;
+          });
+
+          const out = join(process.env.RUNNER_TEMP, "spike", "icon.ico");
+          mkdirSync(join(process.env.RUNNER_TEMP, "spike"), { recursive: true });
+          writeFileSync(out, Buffer.concat([header, ...entries, ...pngs]));
+          console.log("wrote", out);
+          '@
+          $ico = Join-Path $work 'icon.ico'
+          Add-Type -AssemblyName System.Drawing
+          try {
+            $icon = New-Object System.Drawing.Icon($ico)
+            Write-Host "RESULT ico-read=OK size=$($icon.Width)x$($icon.Height)"
+            $bmp = $icon.ToBitmap()
+            Write-Host "RESULT ico-bitmap=OK $($bmp.Width)x$($bmp.Height)"
+          } catch {
+            Write-Host "RESULT ico-read=FAILED $($_.Exception.Message)"
+          }
+          # Does a shortcut accept it as its icon?
+          $ws = New-Object -ComObject WScript.Shell
+          $sc = $ws.CreateShortcut((Join-Path $work 'Icon.lnk'))
+          $sc.TargetPath = "$env:SystemRoot\System32\wscript.exe"
+          $sc.IconLocation = "$ico,0"
+          $sc.Save()
+          Write-Host "RESULT lnk-icon-assigned=$((Test-Path (Join-Path $work 'Icon.lnk')))"
+
+      - name: "4. detach — does the server survive the launcher exiting?"
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'spike'
+          $alive = Join-Path $work 'alive.txt'
+          $server = Join-Path $work 'server.mjs'
+          @"
+          import { writeFileSync } from 'node:fs';
+          setInterval(() => writeFileSync(process.argv[2], String(Date.now())), 500);
+          setTimeout(() => process.exit(0), 30000);
+          "@ | Set-Content -Path $server -Encoding ASCII
+
+          $vbs = Join-Path $work 'detach.vbs'
+          @"
+          Set sh = CreateObject("WScript.Shell")
+          sh.Run "node ""$($server -replace '\\','\\')"" ""$($alive -replace '\\','\\')""", 0, False
+          "@ | Set-Content -Path $vbs -Encoding ASCII
+
+          Remove-Item $alive -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath "$env:SystemRoot\System32\wscript.exe" -ArgumentList "`"$vbs`"" -PassThru
+          $p.WaitForExit()
+          Write-Host "launcher (wscript) exited: $($p.HasExited), code=$($p.ExitCode)"
+          Start-Sleep -Seconds 4
+          if (Test-Path $alive) {
+            $first = Get-Content $alive
+            Start-Sleep -Seconds 3
+            $second = Get-Content $alive
+            Write-Host "RESULT detach=$(if ($first -ne $second) { 'OK — child still writing after parent exit' } else { 'FAILED — child stopped' })"
+          } else {
+            Write-Host "RESULT detach=FAILED (child never started)"
+          }
+
+      - name: "5. MsgBox — can the no-Node dialog offer a way to nodejs.org?"
+        shell: pwsh
+        run: |
+          # Only inspects what is available; a modal on a headless runner
+          # would hang, so this never actually shows one.
+          Write-Host "wscript.exe present: $(Test-Path "$env:SystemRoot\System32\wscript.exe")"
+          Write-Host "mshta.exe present:   $(Test-Path "$env:SystemRoot\System32\mshta.exe")"
+          Write-Host "powershell present:  $(Test-Path "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe")"
+          Write-Host "--- default locale of this runner ---"
+          Get-Culture | Format-List Name, LCID, DisplayName
