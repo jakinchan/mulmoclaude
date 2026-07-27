@@ -10,6 +10,12 @@ export function parseCreateShortcutArgs(argv: string[]): CreateShortcutArgs;
 
 export function resolveBundlePath(dir: string | null): { installDir: string; bundlePath: string };
 
+export function defaultShortcutDir(deps?: { env?: Record<string, string | undefined>; home?: string }): string;
+
+export function windowsLauncherRoot(deps?: { env?: Record<string, string | undefined>; home?: string }): string;
+
+export function resolveShortcutPath(dir: string | null): { installDir: string; shortcutPath: string; rootDir: string };
+
 export interface CreateShortcutContext {
   version: string;
   log?: (message: string) => void;

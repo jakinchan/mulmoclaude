@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { findRunningServerPort } from "./detect-server.mjs";
 import { fillPlaceholders, launcherMessages, pickLauncherLocale } from "./messages.mjs";
 import { renderErrorPage, renderLauncherPage } from "./launcher-page.mjs";
+import { browserOpenArgv, npxCommand } from "./platform.mjs";
 import { runPreflight } from "./preflight.mjs";
 import { findAvailablePort } from "../port.mjs";
 
@@ -63,8 +64,9 @@ export function detectLocale({ env = process.env, run = readAppleLocale } = {}) 
   return pickLauncherLocale(env.LANG?.split(".")[0] ?? env.LC_ALL?.split(".")[0]);
 }
 
-function openInBrowser(target) {
-  spawn("open", [target], { stdio: "ignore", detached: true }).unref();
+function openInBrowser(target, platform = process.platform) {
+  const { command, args } = browserOpenArgv(target, platform);
+  spawn(command, args, { stdio: "ignore", detached: true }).unref();
 }
 
 function showPage(html, { tmpDir, name }) {
@@ -109,7 +111,7 @@ function spawnServer({ port, logPath, env }) {
   mkdirSync(dirname(logPath), { recursive: true });
   const logFd = openSync(logPath, "a");
   try {
-    const child = spawn("npx", ["mulmoclaude@latest", "--port", String(port), "--no-open"], {
+    const child = spawn(npxCommand(process.platform), ["mulmoclaude@latest", "--port", String(port), "--no-open"], {
       env,
       detached: true,
       stdio: ["ignore", logFd, logFd],

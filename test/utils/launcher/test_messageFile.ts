@@ -17,7 +17,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { pickLauncherLocale } from "../../../server/utils/launcher/messages.mjs";
-import { renderNodeMissingText, writeBundleMessages } from "../../../server/utils/launcher/macos/create-app.mjs";
+import { writeBundleMessages } from "../../../server/utils/launcher/macos/create-app.mjs";
+import { renderNodeMissingText } from "../../../server/utils/launcher/node-missing-text.mjs";
 
 const SCRIPT = join(process.cwd(), "server", "utils", "launcher", "macos", "message-file.sh");
 
