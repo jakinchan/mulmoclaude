@@ -127,7 +127,7 @@ Set by `npx mulmoclaude` on the server it spawns. Auto-computed like the contain
 
 | Variable | Set by | Purpose |
 | -------- | ------ | ------- |
-| `MULMOCLAUDE_SHADOWED_ENV_KEYS` | launcher | CSV of launch-dir `.env` key NAMES the shell had already defined, so the file's values lost (#2604). Read once at boot by `server/system/shadowedEnv.ts`, which raises a bell notification — otherwise a user editing `.env` against a stale `export` gets no hint why nothing changes. Names only, never values; the server drops any token that isn't an env var name. Absent when there is no conflict, and absent entirely outside `npx mulmoclaude` (see #2610). |
+| `MULMOCLAUDE_SHADOWED_ENV_KEYS` | launcher | CSV of launch-dir `.env` key NAMES the shell had already defined, so the file's values lost (#2604). Read once at boot by `server/system/shadowedEnv.ts`, which raises a bell notification — otherwise a user editing `.env` against a stale `export` gets no hint why nothing changes. Names only, never values; the server drops any token that isn't an env var name. Absent when there is no conflict. Outside `npx mulmoclaude` the same notification still fires, from the server's own `.env` load instead (`server/system/loadEnv.ts`, #2610) — that path is where `yarn dev` lands. |
 
 ### Container-only env (auto-set)
 
