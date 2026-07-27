@@ -2,7 +2,7 @@
 
 export function launcherLogPath(home?: string): string;
 
-export function detectLocale(options?: { env?: Record<string, string | undefined>; run?: () => string }): string;
+export function detectLocale(options?: { env?: Record<string, string | undefined>; run?: () => string; platform?: string; intl?: () => string }): string;
 
 export interface StartLauncherOptions {
   env?: Record<string, string | undefined>;

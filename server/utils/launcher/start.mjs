@@ -57,11 +57,30 @@ function readAppleLocale() {
   }
 }
 
-/** The OS UI language, as macOS reports it (`ja_JP`, `pt_BR`, …). */
-export function detectLocale({ env = process.env, run = readAppleLocale } = {}) {
-  const fromSystem = run();
-  if (typeof fromSystem === "string" && fromSystem.trim().length > 0) return pickLauncherLocale(fromSystem.trim());
-  return pickLauncherLocale(env.LANG?.split(".")[0] ?? env.LC_ALL?.split(".")[0]);
+// Node resolves this from the OS, so it answers on every platform —
+// including a Windows GUI launch, which has neither `defaults` nor LANG.
+function readIntlLocale() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().locale;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The OS UI language. macOS is asked through `defaults` because a GUI
+ * launch inherits no LANG and AppleLocale is the only reliable source
+ * there; everywhere else the env vars come first (a terminal run) and
+ * Intl closes the gap.
+ *
+ * Windows has neither source, which is how its pages ended up English
+ * on a Japanese machine while the .vbs no-node dialog spoke Japanese —
+ * the two halves disagreeing again, in a new place.
+ */
+export function detectLocale({ env = process.env, run = readAppleLocale, platform = process.platform, intl = readIntlLocale } = {}) {
+  const candidates = platform === "darwin" ? [run(), env.LANG, env.LC_ALL, intl()] : [env.LANG, env.LC_ALL, intl()];
+  const first = candidates.find((value) => typeof value === "string" && value.trim().length > 0);
+  return pickLauncherLocale(first?.trim().split(".")[0]);
 }
 
 function openInBrowser(target, platform = process.platform) {
