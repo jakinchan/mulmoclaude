@@ -53,8 +53,10 @@ describe("launcherPaths", () => {
 
   it("keeps the macOS conventions on darwin", () => {
     const { logPath, pageDir } = launcherPaths({ home: "/Users/a", platform: "darwin", env: {} });
-    assert.equal(logPath, "/Users/a/Library/Logs/MulmoClaude/launcher.log");
-    assert.equal(pageDir, "/Users/a/Library/Caches/MulmoClaude");
+    // Built with `join` rather than written out: the separator follows the
+    // HOST running the suite, and the Windows job runs it too.
+    assert.equal(logPath, join("/Users/a", "Library", "Logs", "MulmoClaude", "launcher.log"));
+    assert.equal(pageDir, join("/Users/a", "Library", "Caches", "MulmoClaude"));
   });
 
   it("uses LOCALAPPDATA on Windows rather than inventing a Library folder", () => {

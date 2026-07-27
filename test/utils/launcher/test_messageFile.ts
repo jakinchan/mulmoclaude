@@ -7,7 +7,8 @@
 // asserts the file the shell picks holds exactly the text the Node half
 // would have rendered for the same tag.
 //
-// Plain POSIX sh with no macOS-only binaries, so it runs on every CI OS.
+// Plain POSIX sh with no macOS-only binaries, so it runs on Linux as
+// well as macOS — but not on Windows, which has no /bin/sh at all.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -21,6 +22,7 @@ import { writeBundleMessages } from "../../../server/utils/launcher/macos/create
 import { renderNodeMissingText } from "../../../server/utils/launcher/node-missing-text.mjs";
 
 const SCRIPT = join(process.cwd(), "server", "utils", "launcher", "macos", "message-file.sh");
+const posixOnly = { skip: process.platform === "win32" };
 
 // The locale reaches the shell as an environment value rather than being
 // interpolated into the command string, so no tag this test feeds in can
@@ -42,7 +44,7 @@ const withMessagesDir = (body: (messagesDir: string) => void) => {
 };
 
 describe("message-file.sh", () => {
-  it("resolves the tags macOS actually reports for AppleLocale", () => {
+  it("resolves the tags macOS actually reports for AppleLocale", posixOnly, () => {
     withMessagesDir((dir) => {
       const cases: [string, string][] = [
         ["en_US", "en.txt"],
@@ -64,7 +66,7 @@ describe("message-file.sh", () => {
     });
   });
 
-  it("picks the same text the Node half would have rendered", () => {
+  it("picks the same text the Node half would have rendered", posixOnly, () => {
     withMessagesDir((dir) => {
       const tags = ["en_US", "ja_JP", "ja", "zh-Hans_US", "zh_Hans_CN", "pt_BR", "pt", "pt_PT", "ko_KR", "fr_FR", "de_DE", "es_ES", "kl_GL", ""];
       tags.forEach((rawLocale) => {
@@ -74,13 +76,13 @@ describe("message-file.sh", () => {
     });
   });
 
-  it("falls back to English for an unknown or empty tag", () => {
+  it("falls back to English for an unknown or empty tag", posixOnly, () => {
     withMessagesDir((dir) => {
       ["kl_GL", "sw", "", "   "].forEach((rawLocale) => assert.equal(pickFile(dir, rawLocale), join(dir, "en.txt"), rawLocale));
     });
   });
 
-  it("refuses a tag that is not a plain language tag", () => {
+  it("refuses a tag that is not a plain language tag", posixOnly, () => {
     withMessagesDir((dir) => {
       // AppleLocale becomes a path component, so a traversal attempt has
       // to land on English rather than on some other file's first line.

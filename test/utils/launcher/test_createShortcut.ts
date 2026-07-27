@@ -45,13 +45,16 @@ describe("defaultInstallDir", () => {
   });
 
   it("falls back to ~/Applications rather than failing for a non-admin account", () => {
-    assert.equal(defaultInstallDir({ home: "/Users/example", canWrite: () => false }), "/Users/example/Applications");
+    // `join` so the expectation matches on a Windows host too — the
+    // Windows CI job runs this suite, and a literal POSIX string would
+    // fail there for no reason the code is responsible for.
+    assert.equal(defaultInstallDir({ home: "/Users/example", canWrite: () => false }), join("/Users/example", "Applications"));
   });
 });
 
 describe("resolveBundlePath", () => {
   it("puts the bundle inside an explicit --dir", () => {
-    assert.deepEqual(resolveBundlePath("/tmp/apps"), { installDir: "/tmp/apps", bundlePath: "/tmp/apps/MulmoClaude.app" });
+    assert.deepEqual(resolveBundlePath("/tmp/apps"), { installDir: "/tmp/apps", bundlePath: join("/tmp/apps", "MulmoClaude.app") });
   });
 
   it("falls back to the default install dir when none was given", () => {
