@@ -20,6 +20,10 @@
 
     <p class="text-xs text-gray-500" data-testid="settings-notifications-remote-note">{{ t("settingsModal.notificationsTab.remoteHostNote") }}</p>
 
+    <div v-if="loaded" class="flex items-center gap-3 text-xs">
+      <span :class="statusColour" data-testid="settings-notifications-status">{{ statusText }}</span>
+    </div>
+
     <div v-if="remindersSupported" class="flex items-start gap-3 border-t border-gray-200 pt-3">
       <input
         id="settings-notifications-macos-reminders"
@@ -37,10 +41,6 @@
           {{ t("settingsModal.notificationsTab.macosRemindersForcedOff") }}
         </span>
       </label>
-    </div>
-
-    <div v-if="loaded" class="flex items-center gap-3 text-xs">
-      <span :class="statusColour" data-testid="settings-notifications-status">{{ statusText }}</span>
     </div>
 
     <p v-if="errorMessage" class="text-sm text-red-700" role="alert" data-testid="settings-notifications-error">{{ errorMessage }}</p>
