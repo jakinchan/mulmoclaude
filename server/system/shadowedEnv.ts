@@ -64,12 +64,16 @@ const ENV_VAR_NAME = /^[A-Za-z_]\w*$/;
  *  into a log line and a bell entry. Filtering here makes "names only" a
  *  property of the code rather than a promise about the producer. */
 export function parseShadowedEnvKeys(raw: string | undefined): string[] {
-  if (!raw) return [];
-  const keys = raw
-    .split(",")
-    .map((key) => key.trim())
-    .filter((key) => ENV_VAR_NAME.test(key));
-  return [...new Set(keys)].sort();
+  return raw ? normalizeShadowedEnvKeys(raw.split(",")) : [];
+}
+
+/** The same trim / validate / de-dupe / sort rule applied to keys that
+ *  arrive as a list rather than a CSV — the server's own `.env` load
+ *  (#2610) hands them over directly. Shared so both sources produce one
+ *  identity for the same conflict. */
+export function normalizeShadowedEnvKeys(keys: readonly string[]): string[] {
+  const clean = keys.map((key) => key.trim()).filter((key) => ENV_VAR_NAME.test(key));
+  return [...new Set(clean)].sort();
 }
 
 /** Render the key list for humans, capped. */
@@ -143,32 +147,46 @@ async function clearStale(entryIds: readonly string[]): Promise<void> {
 }
 
 /** Run at boot, after the notifier engine is initialised. No-ops unless
- *  the launcher reported shadowed keys. */
-export async function announceShadowedEnv(raw: string | undefined = process.env[SHADOWED_ENV_KEYS_VAR]): Promise<ShadowedEnvDiagnostic | null> {
-  const diagnostic = shadowedEnvDiagnostic(parseShadowedEnvKeys(raw));
-  // Nothing shadowed now, but a previous boot may have said otherwise —
-  // leaving that entry up would keep pointing at a conflict the user has
-  // already resolved.
-  if (!diagnostic) {
-    await clearStale((await inspectActive("")).staleEntryIds);
-    return null;
-  }
+ *  something reported shadowed keys.
+ *
+ *  Two sources, one notification. The launcher covers the user's launch
+ *  directory (#2604); `serverLoadKeys` covers the `.env` this process
+ *  read from its own cwd (#2610) — which is where `yarn dev` lands, and
+ *  had no signal at all before. Only one of the two is ever non-empty in
+ *  practice, but they union rather than compete so neither can mask the
+ *  other. */
+export async function announceShadowedEnv(
+  raw: string | undefined = process.env[SHADOWED_ENV_KEYS_VAR],
+  serverLoadKeys: readonly string[] = [],
+): Promise<ShadowedEnvDiagnostic | null> {
+  const keys = normalizeShadowedEnvKeys([...parseShadowedEnvKeys(raw), ...serverLoadKeys]);
+  const diagnostic = shadowedEnvDiagnostic(keys);
+  // `""` matches no id, so with nothing shadowed every existing entry
+  // counts as stale — a boot that finds the conflict resolved retracts
+  // the warning instead of leaving it pointing at a fixed problem.
+  const active = await inspectActive(diagnostic?.id ?? "");
+  await clearStale(active.staleEntryIds);
+  if (!diagnostic) return null;
 
   log.warn(LOG_PREFIX, diagnostic.message, { keys: diagnostic.keys });
-  const active = await inspectActive(diagnostic.id);
-  await clearStale(active.staleEntryIds);
   if (active.alreadyShowing) {
     log.debug(LOG_PREFIX, "already in active set; skipping republish", { id: diagnostic.id });
     return diagnostic;
   }
+  publishShadowedEnv(diagnostic);
+  return diagnostic;
+}
+
+function publishShadowedEnv(diagnostic: ShadowedEnvDiagnostic): void {
   publishNotification({
     id: diagnostic.id,
     kind: "system",
+    // English fallback for the log line and the macOS Reminder push,
+    // neither of which has vue-i18n; the UI reads `i18n` instead.
     title: "Shell env is overriding .env",
     body: diagnostic.message,
     action: { type: NOTIFICATION_ACTION_TYPES.none },
     priority: NOTIFICATION_PRIORITIES.high,
     i18n: diagnostic.i18n,
   });
-  return diagnostic;
 }

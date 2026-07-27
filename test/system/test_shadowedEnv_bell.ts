@@ -81,6 +81,23 @@ describe("announceShadowedEnv", () => {
     assert.deepEqual(await listAll(), []);
   });
 
+  it("merges the launcher's keys with the server's own into ONE notification (#2610)", async () => {
+    // Launcher saw the launch-dir `.env` lose A; this process saw its own
+    // cwd `.env` lose B. Two sources, one conflict to describe.
+    await announceShadowedEnv("A", ["B"]);
+    const entries = await activeEntries(1);
+    assert.equal(entries.length, 1, "two sources must not produce two notifications");
+    assert.match(entries[0].body ?? "", /A/);
+    assert.match(entries[0].body ?? "", /B/);
+  });
+
+  it("raises the notification from the server's own load alone — the yarn dev case", async () => {
+    await announceShadowedEnv(undefined, ["GEMINI_API_KEY"]);
+    const [entry] = await activeEntries(1);
+    assert.ok(entry);
+    assert.match(entry.body ?? "", /GEMINI_API_KEY/);
+  });
+
   it("does not stack a duplicate when a reboot finds the same conflict", async () => {
     await announceShadowedEnv("A,B");
     await activeEntries(1);

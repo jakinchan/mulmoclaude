@@ -623,3 +623,49 @@ queue of paths, with one short-delay retry on 429. See the throttled-resolver
 example in `custom-view.md` ("Displaying images"). Do NOT widen the server
 cap, switch to base64-embedding images in the HTML, or treat the 429'd paths
 as bad values.
+
+## An API key in `.env` has no effect — the shell is shadowing it
+
+### Symptoms
+
+- The user says they put a key (`GEMINI_API_KEY`, `OPENAI_API_KEY`, …) in
+  `.env` and restarted, but generation still fails with an auth / 401 /
+  "API key not valid" error from the provider.
+- They may have edited `.env` several times, each time with no change.
+- The bell may show **"Shell env is overriding .env"**, and the server log
+  a `[shadowed-env]` warning naming the keys.
+
+### Cause
+
+An exported shell variable beats the file. `.env` is loaded with
+no-override semantics, so if `~/.zshrc` (or the current shell) still holds
+`export GEMINI_API_KEY=<old value>`, the file's value is read and
+discarded. Editing `.env` cannot fix it, which is why the loop repeats.
+
+An **empty** export shadows just as hard: `export GEMINI_API_KEY=` counts
+as set, so the provider receives an empty key while a perfectly good one
+sits in `.env`.
+
+Two files can be shadowed this way — the directory the user launched from
+(`npx mulmoclaude`) and the server's own working directory (`yarn dev`).
+
+### Fix
+
+Have the user check the shell, not the file. Test whether the variable
+is **set**, not whether it prints something — `export GEMINI_API_KEY=`
+prints nothing and still shadows, which is the case `echo` cannot see:
+
+```bash
+[ -n "${GEMINI_API_KEY+x}" ] && echo "set in the shell — this is what the app uses" \
+                             || echo "not set — the shell is not the problem"
+```
+
+If it reports "set", that shell value is what the app is using, whatever
+`.env` says. Either correct the export, or remove it — from the current
+shell AND from `~/.zshrc` / `~/.bashrc`, or the next terminal brings it
+straight back — so the `.env` value takes effect. Restart the app
+afterwards; the load happens once at boot.
+
+Do NOT tell the user to re-check the spelling in `.env`, add the key
+again, or move it elsewhere; the file is already correct, and it is being
+read. The conflict is the whole problem.
