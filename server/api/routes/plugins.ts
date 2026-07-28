@@ -117,13 +117,13 @@ async function saveAndPresentDocument(res: Response<PresentDocumentSuccess | Pre
     badRequest(res, "provide either `markdown` or `path`");
     return;
   }
-  if (!isNonEmpty(filenamePrefix)) {
-    log.warn("plugins", "presentDocument: missing filenamePrefix");
-    badRequest(res, "filenamePrefix is required");
-    return;
-  }
+  // A missing prefix is no longer a 400: `path` made `filenamePrefix`
+  // conditional, and JSON Schema can't say "required only with `markdown`", so
+  // a caller reading `required` can legitimately omit it. `saveMarkdown`
+  // slugifies to "document" on empty — the same default the shared plugin core
+  // applies (`filenamePrefix ?? "document"`), so both hosts behave alike.
   const filledMarkdown = await fillMarkdownImagePlaceholders(markdown);
-  const markdownPath = await saveMarkdown(filledMarkdown, filenamePrefix);
+  const markdownPath = await saveMarkdown(filledMarkdown, filenamePrefix ?? "");
   log.info("plugins", "presentDocument: ok", { markdownPath, bytes: filledMarkdown.length });
   res.json({ message: `Saved markdown to ${markdownPath}`, instructions: PRESENT_DOCUMENT_ACK, title, data: { markdown: markdownPath, filenamePrefix } });
 }

@@ -21,12 +21,23 @@ export interface MarkdownArgs {
   path?: string;
 }
 
-/** True when the `markdown` field is a workspace-relative file path
- *  rather than inline content. Accepts the canonical
- *  `artifacts/documents/*.md` prefix. */
+const DOCUMENTS_PREFIX = "artifacts/documents/";
+
+/** True when the value is a workspace-relative document path rather than
+ *  inline content — the `markdown` field's two shapes, and the gate on the
+ *  tool's `path` argument.
+ *
+ *  Canonical form is enforced, not just prefix + extension: this also runs in
+ *  hosts that pass the value straight to their file layer, so a prefixed
+ *  traversal (`artifacts/documents/../../secrets.md`) must not pass here just
+ *  because MulmoClaude happens to re-validate with `isMarkdownPath`. Same
+ *  constraints as the host's `makePathValidator`, expressed without node's
+ *  `path` because this module is also bundled for the browser. */
 export function isFilePath(value: string): boolean {
   if (!value.endsWith(".md")) return false;
-  return value.startsWith("artifacts/documents/");
+  if (!value.startsWith(DOCUMENTS_PREFIX)) return false;
+  if (value.includes("..") || value.includes("\0") || value.includes("\\")) return false;
+  return value.split("/").every((segment) => segment.length > 0 && segment !== ".");
 }
 
 export const TOOL_DEFINITION: ToolDefinition = {
@@ -76,7 +87,7 @@ export const TOOL_DEFINITION: ToolDefinition = {
       filenamePrefix: {
         type: "string",
         description:
-          "Short English filename prefix (without extension), required with `markdown`. Use lowercase with hyphens, e.g. 'project-summary'. The server sanitizes the value and appends a random id to prevent collisions.",
+          "Short English filename prefix (without extension). Always send it with `markdown` — it is what makes the saved file findable; omitting it falls back to 'document'. Ignored with `path`. Use lowercase with hyphens, e.g. 'project-summary'. The server sanitizes the value and appends a random id to prevent collisions.",
       },
       path: {
         type: "string",

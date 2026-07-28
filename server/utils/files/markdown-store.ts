@@ -1,4 +1,4 @@
-import { access, readFile } from "fs/promises";
+import { readFile, stat } from "fs/promises";
 import path from "path";
 import { workspacePath } from "../../workspace/workspace.js";
 import { WORKSPACE_DIRS } from "../../workspace/paths.js";
@@ -22,13 +22,23 @@ export async function loadMarkdown(relativePath: string): Promise<string> {
 // Strict — overwriteMarkdown's path.join doesn't normalize traversal, so this gate is the primary defence.
 export const isMarkdownPath = makePathValidator({ prefix: WORKSPACE_DIRS.markdowns, ext: ".md" });
 
-// Existence probe for presentDocument's `path` form. Gated on isMarkdownPath
-// first for the same traversal reason as overwriteMarkdown.
+// Readable-regular-file probe for presentDocument's `path` form. Gated on
+// isMarkdownPath first for the same traversal reason as overwriteMarkdown,
+// then re-checked with the `path.relative` containment pattern — redundant
+// at runtime, but it is what CodeQL's js/path-injection data flow recognizes
+// as a sanitizer (same reasoning as `escapesRoot` in ./safe.ts).
+//
+// `isFile()` rather than a bare existence check: a DIRECTORY named
+// `…/report.md` satisfies access(), so the route would report a presented
+// document whose subsequent loadDoc (readFile) fails with EISDIR.
 export async function markdownExists(relativePath: string): Promise<boolean> {
   if (!isMarkdownPath(relativePath)) return false;
+  const absPath = path.resolve(workspacePath, relativePath);
+  const relative = path.relative(workspacePath, absPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return false;
   try {
-    await access(path.join(workspacePath, relativePath));
-    return true;
+    const stats = await stat(absPath);
+    return stats.isFile();
   } catch {
     return false;
   }
