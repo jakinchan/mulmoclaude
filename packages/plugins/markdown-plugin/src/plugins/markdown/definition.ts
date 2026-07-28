@@ -8,30 +8,47 @@ export interface MarkdownToolData {
   filenamePrefix?: string;
 }
 
-/** Args the LLM passes when invoking the tool (the create path). All
- *  three are `required` in TOOL_DEFINITION.parameters, so they're
- *  non-optional here too. */
+/** Args the LLM passes when invoking the tool. Two shapes share this
+ *  type: the create path (`markdown` + `filenamePrefix`, saved to a
+ *  fresh artifact path) and the present-existing path (`path`, rendered
+ *  in place). Only `title` is `required` in TOOL_DEFINITION.parameters
+ *  because JSON Schema can't express that either-or; the executor
+ *  enforces the mutual exclusion. */
 export interface MarkdownArgs {
   title: string;
-  markdown: string;
-  filenamePrefix: string;
+  markdown?: string;
+  filenamePrefix?: string;
+  path?: string;
 }
 
-/** True when the `markdown` field is a workspace-relative file path
- *  rather than inline content. Accepts the canonical
- *  `artifacts/documents/*.md` prefix. */
+const DOCUMENTS_PREFIX = "artifacts/documents/";
+
+/** True when the value is a workspace-relative document path rather than
+ *  inline content — the `markdown` field's two shapes, and the gate on the
+ *  tool's `path` argument.
+ *
+ *  Canonical form is enforced, not just prefix + extension: this also runs in
+ *  hosts that pass the value straight to their file layer, so a prefixed
+ *  traversal (`artifacts/documents/../../secrets.md`) must not pass here just
+ *  because MulmoClaude happens to re-validate with `isMarkdownPath`. Same
+ *  constraints as the host's `makePathValidator`, expressed without node's
+ *  `path` because this module is also bundled for the browser. */
 export function isFilePath(value: string): boolean {
   if (!value.endsWith(".md")) return false;
-  return value.startsWith("artifacts/documents/");
+  if (!value.startsWith(DOCUMENTS_PREFIX)) return false;
+  if (value.includes("..") || value.includes("\0") || value.includes("\\")) return false;
+  return value.split("/").every((segment) => segment.length > 0 && segment !== ".");
 }
 
 export const TOOL_DEFINITION: ToolDefinition = {
   type: "function",
   name: TOOL_NAME,
-  description: "Display a document in markdown format.",
+  description: "Display a document in markdown format — either new markdown (saved) or an existing saved document (by path).",
   prompt:
     `Use the ${TOOL_NAME} tool when the user asks for a document that combines text with embedded images — guides, reports, tutorials, articles, or any structured content with visuals. ` +
     `Prefer this over standalone image generation when the user wants informational content with supporting visuals.\n\n` +
+    "Provide EITHER `markdown` + `filenamePrefix` (new content, saved under `artifacts/documents/<YYYY>/<MM>/…`) OR `path` (the workspace-relative path of a document you already wrote under `artifacts/documents/`), not both. " +
+    "`path` presents that existing document without re-saving a copy, and edits the user makes in the view write back to that same file.\n\n" +
     "Format embedded images as: ![Detailed image prompt](__too_be_replaced_image_path__)\n\n" +
     "── Slide-deck (Marp) mode ──\n" +
     "When the user asks for a slide deck / presentation / スライド, opt into Marp by writing this YAML frontmatter at the very top of the markdown:\n" +
@@ -65,15 +82,22 @@ export const TOOL_DEFINITION: ToolDefinition = {
       markdown: {
         type: "string",
         description:
-          "The markdown content to display. Describe embedded images in the following format: ![Detailed image prompt](__too_be_replaced_image_path__). IMPORTANT: For embedded images, you MUST use the EXACT placeholder path '__too_be_replaced_image_path__'.",
+          "The markdown content to display. Provide this (with `filenamePrefix`) OR `path`. Describe embedded images in the following format: ![Detailed image prompt](__too_be_replaced_image_path__). IMPORTANT: For embedded images, you MUST use the EXACT placeholder path '__too_be_replaced_image_path__'.",
       },
       filenamePrefix: {
         type: "string",
         description:
-          "Short English filename prefix (without extension). Use lowercase with hyphens, e.g. 'project-summary'. The server sanitizes the value and appends a random id to prevent collisions.",
+          "Short English filename prefix (without extension). Always send it with `markdown` — it is what makes the saved file findable; omitting it falls back to 'document'. Ignored with `path`. Use lowercase with hyphens, e.g. 'project-summary'. The server sanitizes the value and appends a random id to prevent collisions.",
+      },
+      path: {
+        type: "string",
+        description:
+          "Workspace-relative path to an existing markdown file under `artifacts/documents/` to present without re-saving (e.g. `artifacts/documents/2026/07/report-abc123.md`). Provide this OR `markdown`.",
       },
     },
-    required: ["title", "markdown", "filenamePrefix"],
+    // `markdown` + `filenamePrefix` and `path` are mutually exclusive, which
+    // JSON Schema can't express — the executor validates the pairing.
+    required: ["title"],
   },
 };
 

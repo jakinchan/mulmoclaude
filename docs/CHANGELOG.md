@@ -10,6 +10,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Highlights
 
+#### `presentDocument` can open a document you already wrote
+
+Until now the tool only ever created: it took `markdown` inline, saved a fresh file under `artifacts/documents/<YYYY>/<MM>/`, and showed that. Re-displaying an existing document meant reading it and writing a second copy.
+
+It now accepts a `path` instead — the workspace-relative path of an existing `artifacts/documents/**.md` — and presents that file in place, with nothing written. `markdown` and `path` are mutually exclusive, exactly as `html` and `path` already are on `presentHtml`. Edits the user makes in the document view (Apply, or an inline task-list checkbox) write back to that same file, so the agent and the user are editing one document rather than diverging copies.
+
 #### Start MulmoClaude from an icon, without a terminal (#2613, PRs #2615 / #2623)
 
 For anyone who does not open a terminal, `npx mulmoclaude@latest` was the whole barrier to entry. One command creates a clickable app:

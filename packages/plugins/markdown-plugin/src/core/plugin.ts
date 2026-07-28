@@ -1,22 +1,70 @@
 import type { ToolContext, ToolResult, ToolPluginCore } from "gui-chat-protocol";
-import { TOOL_NAME, TOOL_DEFINITION, type MarkdownToolData, type MarkdownArgs } from "../plugins/markdown/definition";
+import { TOOL_NAME, TOOL_DEFINITION, isFilePath, type MarkdownToolData, type MarkdownArgs } from "../plugins/markdown/definition";
 import { executeMarkdown, type MarkdownExecuteContext } from "../plugins/markdown/core";
-import type { MarkdownDispatchArgs } from "../plugins/markdown/contract";
+import type { MarkdownDispatchArgs, MarkdownHostApp } from "../plugins/markdown/contract";
 
-async function createDocument(context: MarkdownExecuteContext, args: MarkdownArgs): Promise<ToolResult<MarkdownToolData>> {
-  const { app } = context;
-  if (!app) {
-    throw new Error("markdown plugin: context.app (MarkdownHostApp) was not provided by the host");
+const PRESENT_ACK = "The document has been presented to the user in a rendered markdown view.";
+
+const nonEmptyString = (value: unknown): value is string => typeof value === "string" && value.length > 0;
+
+/** Present a document already on disk under `artifacts/documents/**` without
+ *  re-saving. `loadDoc` doubles as the existence check — the host app has no
+ *  separate `exists`, and a read is what the View does next anyway. Edits the
+ *  user applies in the View dispatch `saveDoc` against this same path, so they
+ *  land on the original file. */
+async function presentExistingDocument(app: MarkdownHostApp, path: string, title: string): Promise<ToolResult<MarkdownToolData>> {
+  if (!isFilePath(path)) {
+    return {
+      message: "path must be an existing .md file under artifacts/documents/",
+      instructions: "Acknowledge the error and retry with a valid artifacts/documents/… path or inline `markdown`.",
+    };
   }
+  try {
+    await app.loadDoc(path);
+  } catch {
+    return {
+      message: `No document exists at ${path}`,
+      instructions: "Acknowledge that the file was not found and retry with a path that exists or inline `markdown`.",
+    };
+  }
+  return { message: `Presented existing document${title ? `: ${title}` : ""}`, data: { markdown: path }, instructions: PRESENT_ACK };
+}
+
+/** Persist new markdown under a fresh artifact path, then present it. */
+async function saveAndPresentDocument(app: MarkdownHostApp, args: MarkdownArgs): Promise<ToolResult<MarkdownToolData>> {
   const { title, markdown, filenamePrefix } = args;
-  const filled = (await app.fillImages(markdown)).markdown;
+  const filled = (await app.fillImages(markdown ?? "")).markdown;
   const { path } = await app.saveNewDoc(filenamePrefix ?? "document", filled);
   return {
     message: `Document created${title ? `: ${title}` : ""}`,
     // `data` is the host's render-gate signal + the view's source.
     data: { markdown: path, filenamePrefix },
-    instructions: "The document has been presented to the user in a rendered markdown view.",
+    instructions: PRESENT_ACK,
   };
+}
+
+/** `markdown` and `path` are mutually exclusive: inline markdown is written to
+ *  a fresh `artifacts/documents/**` path, `path` presents an existing document
+ *  in place. Same contract as presentHtml's `html` / `path`. */
+async function createDocument(context: MarkdownExecuteContext, args: MarkdownArgs): Promise<ToolResult<MarkdownToolData>> {
+  const { app } = context;
+  if (!app) {
+    throw new Error("markdown plugin: context.app (MarkdownHostApp) was not provided by the host");
+  }
+  const { title, markdown, path } = args;
+  if (nonEmptyString(path) && nonEmptyString(markdown)) {
+    return {
+      message: "provide either `markdown` or `path`, not both",
+      instructions: "Acknowledge the error and retry with exactly one of `markdown` or `path`.",
+    };
+  }
+  if (nonEmptyString(path)) {
+    return presentExistingDocument(app, path, title);
+  }
+  if (nonEmptyString(markdown)) {
+    return saveAndPresentDocument(app, args);
+  }
+  return { message: "provide either `markdown` or `path`", instructions: "Acknowledge the error and retry with inline `markdown` or an existing `path`." };
 }
 
 const DISPATCH_KINDS: ReadonlySet<string> = new Set(["loadDoc", "saveDoc", "marpThemes", "exportPdf", "fillImages"]);
