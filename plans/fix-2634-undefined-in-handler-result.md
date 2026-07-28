@@ -21,7 +21,7 @@ phone, with the cause visible only in the host's own console.
 
 Firestore's error names the document, never the field:
 
-```
+```text
 Unsupported field value: undefined (found in field result.sessions.11.work
   in document users/…/hosts/…/commands/…)
 ```
@@ -37,8 +37,10 @@ every host that uses core.
 - `undefinedPaths(value)` → every offending path in `a.b.0.c` form.
 - `stripUndefined(value)` → the same value with object keys dropped and array holes
   turned into `null`, so surrounding indexes still line up.
-- `matchesPathPattern(path, pattern)` / `unexpectedUndefinedPaths(value, expected)`
-  → which of those paths are worth reporting.
+- `matchesPathPattern(path, pattern)` / `unexpectedPaths(paths, expected)`
+  → which of those paths are worth reporting. It takes the paths, not the value, so
+  the runner walks the reply once — that walk is also what tells it whether
+  stripping (a full copy) is needed at all.
 
 Wired into `runHandler`: report the unexpected paths through `onEvent`, then write
 the stripped value.

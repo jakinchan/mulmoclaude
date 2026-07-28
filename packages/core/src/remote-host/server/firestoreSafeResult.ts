@@ -21,10 +21,22 @@
 /** Path reported for a reply that is itself `undefined` — it has no field name. */
 export const ROOT_PATH = "(root)";
 
+// Only arrays and plain objects are walked. A class instance is left ALONE, because
+// rebuilding it from its entries destroys it: Firestore accepts `Date`, `Timestamp`,
+// `GeoPoint`, `DocumentReference` and its own sentinels as values, and
+// `Object.fromEntries(Object.entries(new Date()))` is `{}`. Silently turning a
+// timestamp into an empty object would be a worse bug than the one being fixed.
+const isPlainObject = (value: object): boolean => {
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
+const isWalkable = (value: unknown): value is object => typeof value === "object" && value !== null && (Array.isArray(value) || isPlainObject(value));
+
 /** Every path holding `undefined`, in `a.b.0.c` form. Empty when the value is safe to write. */
 export const undefinedPaths = (value: unknown, prefix = ""): string[] => {
   if (value === undefined) return [prefix || ROOT_PATH];
-  if (value === null || typeof value !== "object") return [];
+  if (!isWalkable(value)) return [];
   const child = (key: string | number) => (prefix ? `${prefix}.${key}` : String(key));
   // Array.from, not flatMap: a SPARSE array's holes are skipped by flatMap/map, so
   // `[1, , 3]` would be reported clean and then written with a hole Firestore rejects.
@@ -41,7 +53,9 @@ export const stripUndefined = (value: unknown): unknown => {
   // The whole reply can be undefined (a handler with no explicit return); `null` is
   // what the runner already substitutes for a missing result.
   if (value === undefined) return null;
-  if (value === null || typeof value !== "object") return value;
+  // Anything that is not an array or a plain object is handed back untouched — see
+  // isPlainObject: a Date rebuilt from its entries is an empty object.
+  if (!isWalkable(value)) return value;
   if (Array.isArray(value)) return Array.from(value, (item) => stripUndefined(item));
   return Object.fromEntries(Object.entries(value).flatMap(([key, item]) => (item === undefined ? [] : [[key, stripUndefined(item)]])));
 };

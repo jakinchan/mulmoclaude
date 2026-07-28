@@ -84,6 +84,38 @@ describe("stripUndefined", () => {
     const clean = { sessions: [{ title: "a", work: null }], count: 2 };
     assert.deepEqual(stripUndefined(clean), clean);
   });
+
+  // Firestore accepts Date / Timestamp / GeoPoint / DocumentReference as VALUES,
+  // and rebuilding one from its entries produces `{}`. Turning a timestamp into an
+  // empty object because some unrelated field was undefined would be a worse bug
+  // than the one this guard exists to fix (CodeRabbit, #2638).
+  it("leaves a Date intact when a sibling key is stripped", () => {
+    const createdAt = new Date("2026-07-29T00:00:00.000Z");
+    const stripped = stripUndefined({ createdAt, work: undefined });
+    assert.deepEqual(stripped, { createdAt });
+    assert.ok(Reflect.get(Object(stripped), "createdAt") instanceof Date);
+  });
+
+  it("leaves a class instance (Timestamp-like) intact", () => {
+    class Timestamp {
+      constructor(readonly seconds: number) {}
+      toMillis(): number {
+        return this.seconds * 1_000;
+      }
+    }
+    const stamp = new Timestamp(5);
+    const stripped = stripUndefined({ stamp, gone: undefined });
+    assert.equal(Reflect.get(Object(stripped), "stamp"), stamp);
+  });
+
+  it("does not report paths inside a class instance it will not rewrite", () => {
+    // Reporting a path the strip cannot reach would promise a fix that never
+    // happens — Firestore refuses a custom object outright, which is its own error.
+    class Holder {
+      readonly missing: undefined = undefined;
+    }
+    assert.deepEqual(undefinedPaths({ held: new Holder() }), []);
+  });
 });
 
 describe("matchesPathPattern", () => {
