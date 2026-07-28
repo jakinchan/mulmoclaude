@@ -13,17 +13,20 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import { createAppBundle } from "../../../server/utils/launcher/macos/create-app.mjs";
 import { createWindowsShortcut } from "../../../server/utils/launcher/windows/create-launcher.mjs";
 
-// Matches the specifier of a static import or a top-level `await
-// import(...)`. Only relative ones matter: bare specifiers are node
-// built-ins here, and the launcher deliberately has no dependencies.
-const IMPORT_PATTERN = /(?:from\s*|import\s*\(\s*)["'](\.[^"']+)["']/g;
+// Every syntax that can pull in another file: `from "./x"` (covering
+// re-exports too), `import("./x")`, and the bare side-effect form
+// `import "./x"`. Missing that last one would make this whole check
+// quietly weaker than it claims to be — a launcher module switching to
+// it would go unnoticed again. Only relative specifiers matter: bare
+// ones are node built-ins, the launcher having no dependencies.
+const IMPORT_PATTERN = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)["'](\.[^"']+)["']/g;
 
 // `{import("./x.d.mts").Foo}` in a JSDoc type annotation is erased before
 // anything runs, and the sibling `.d.mts` files are deliberately NOT
@@ -67,6 +70,39 @@ const withTempDir = async (body: (dir: string) => Promise<void>) => {
 };
 
 const report = (missing: MissingImport[]) => missing.map(({ from, specifier }) => `${from} imports ${specifier}`).join("\n");
+
+describe("unresolvedImports — the matcher itself", () => {
+  // Written because the first version of this matcher only understood
+  // `from "..."` and `import("...")`, so a side-effect import could have
+  // hidden a missing module from the very check meant to catch it.
+  const eachSyntax: [string, string][] = [
+    ["static default", 'import thing from "./missing-a.mjs";'],
+    ["static named", 'import { thing } from "./missing-b.mjs";'],
+    ["side-effect", 'import "./missing-c.mjs";'],
+    ["dynamic", 'const mod = await import("./missing-d.mjs");'],
+    ["re-export", 'export { thing } from "./missing-e.mjs";'],
+  ];
+
+  eachSyntax.forEach(([label, source]) => {
+    it(`sees a missing module imported by ${label}`, async () => {
+      await withTempDir(async (dir) => {
+        const entry = join(dir, "entry.mjs");
+        writeFileSync(entry, `${source}\n`);
+        const missing = unresolvedImports(entry);
+        assert.equal(missing.length, 1, `${label} was not detected: ${report(missing)}`);
+      });
+    });
+  });
+
+  it("does not chase a specifier that resolves", async () => {
+    await withTempDir(async (dir) => {
+      writeFileSync(join(dir, "present.mjs"), "export const ok = true;\n");
+      const entry = join(dir, "entry.mjs");
+      writeFileSync(entry, 'import "./present.mjs";\n');
+      assert.deepEqual(unresolvedImports(entry), []);
+    });
+  });
+});
 
 describe("generated bundle import graph", () => {
   it("macOS: every module run.mjs reaches is present in the .app", async () => {
