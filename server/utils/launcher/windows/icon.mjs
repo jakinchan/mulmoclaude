@@ -7,7 +7,7 @@
 //
 // Measured on a real windows-latest runner before this was written:
 // `System.Drawing.Icon` loads the result and `.lnk` accepts it as an
-// IconLocation (see plans/feat-2613-launcher-windows.md).
+// IconLocation (see plans/done/feat-2613-launcher-windows.md).
 
 import { writeFile } from "node:fs/promises";
 

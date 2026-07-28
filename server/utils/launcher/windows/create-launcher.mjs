@@ -6,7 +6,7 @@
 // thing every Windows install has that can write one: the WScript.Shell
 // COM object, driven from PowerShell. Measured on a real runner before
 // this was written — created, read back, and launched (see
-// plans/feat-2613-launcher-windows.md).
+// plans/done/feat-2613-launcher-windows.md).
 
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
