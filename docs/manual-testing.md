@@ -349,37 +349,31 @@ The launcher's own log is `~/Library/Logs/MulmoClaude/launcher.log`.
 
 ## 12. Windows icon launch (`create-shortcut`)
 
-Same rule as §11: the CI on `windows-latest` writes a real `.lnk`, reads it back
-through the COM object Explorer itself uses, and confirms Windows can load the
-hand-assembled `.ico` — but no runner can perform a double-click, and nothing
-can assert what a window looks like.
+Most of this section used to be here. It is now in CI, because the *cause*
+of each failure turned out to be checkable even where the appearance is not
+— see `test/utils/launcher/test_windowsShortcutIntegration.ts`:
 
-Run `npx mulmoclaude@latest create-shortcut` on a Windows machine, then:
+| Was manual | Now asserted on `windows-latest` |
+|---|---|
+| The icon renders | Every size decodes out of the `.ico` and has opaque pixels — a blank icon fails |
+| SmartScreen stays quiet | None of the generated files carries a `Zone.Identifier` stream, which is the attribute SmartScreen keys on |
+| A version-manager node resolves | The real `launch.vbs` runs with node reachable only through an nvm-like PATH entry, and the handover names that node |
+| No console window | The stub is asserted never to call `WshShell.Exec` (which always allocates a console) and to run node with `Run(…, 0, False)` |
 
-1. **The Start Menu entry appears** under its own name and is found by typing
-   "MulmoClaude" into Start. `--dir <path>` puts it elsewhere (the Desktop is
-   the usual choice); the launcher's own files stay under
-   `%LOCALAPPDATA%\MulmoClaude` either way.
-2. **The icon renders** in the Start Menu, on the taskbar when pinned, and in
-   Explorer — at several sizes, since each view picks a different entry out of
-   the `.ico`.
-3. **No console window appears.** Not even a flash. This is the single most
-   likely regression: anything that shells out through `WshShell.Exec`, or a
-   shortcut retargeted at `node.exe` / `cmd.exe` instead of `wscript.exe`,
-   brings the black rectangle back.
-4. **Double-click with nothing running** → the progress page appears, then the
-   app replaces it.
-5. **Double-click while MulmoClaude is already running** → the browser opens
-   straight to the app, and no second server starts.
-6. **Node.js missing** (test on a machine without it, or rename the binary):
-   the native `MsgBox` appears in the system language, and answering **Yes**
-   opens nodejs.org.
-7. **SmartScreen does not appear.** A locally generated file carries no
-   Mark-of-the-Web, so it should not — but this is the assumption that cannot
-   be checked from CI, and a managed machine may decide otherwise.
-8. **A version manager still resolves.** Install node via nvm-windows / fnm /
-   Volta and launch from the icon. CI runs on a plain toolchain, so this path
-   has never been exercised by anything but a human.
+**What is still human, and cannot stop being:**
+
+1. **What it looks like.** That the icon is the right artwork at each size,
+   that the progress page is legible, that the `MsgBox` is readable. CI can
+   prove pixels exist; it cannot prove they look right.
+2. **The gesture.** A real Explorer double-click, and the Start Menu entry
+   appearing under a search for "MulmoClaude".
+3. **A genuinely unsigned-app-hostile machine.** The Mark-of-the-Web check
+   covers the documented mechanism, but a machine under managed policy can
+   refuse unsigned apps on grounds CI has no way to reproduce.
+4. **The no-Node dialog end to end.** Rename node, double-click, confirm the
+   `MsgBox` appears in the system language and that **Yes** opens nodejs.org.
+   A modal on a headless runner would hang the job, so it is never fired
+   there.
 
 The launcher's own log is `%LOCALAPPDATA%\MulmoClaude\logs\launcher.log`.
 

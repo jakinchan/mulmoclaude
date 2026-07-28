@@ -108,6 +108,29 @@ describe("writeWindowsMessages", () => {
   });
 });
 
+describe("launch.vbs — the console window", () => {
+  const stub = readFileSync(join(process.cwd(), "server", "utils", "launcher", "windows", "launch.vbs"), "utf8");
+
+  it("never uses WshShell.Exec, which always creates a console window", () => {
+    // Measured, not assumed: `Exec` allocates a console for a console
+    // program, so `where node` would flash a black rectangle on EVERY
+    // launch — on the one screen whose whole promise is that clicking an
+    // icon just works. The stub walks %PATH% itself instead.
+    assert.doesNotMatch(stub, /\.Exec\s*\(/, "the stub shells out somewhere — that is a visible console window on every launch");
+  });
+
+  it("hides every process it starts", () => {
+    // `Run(cmd, 0, False)`: 0 hides the window, False detaches. Checked
+    // per line rather than as one pattern so a second Run added later is
+    // covered too — this is the whole reason the stub exists as a .vbs.
+    const runLines = stub.split("\n").filter((line) => line.includes("sh.Run"));
+    assert.ok(runLines.length > 0, "no sh.Run found — has the stub been rewritten?");
+    runLines.forEach((line) => {
+      assert.match(line.trim(), /, 0, False$/, `this Run is not hidden and detached: ${line.trim()}`);
+    });
+  });
+});
+
 describe("Windows install locations", () => {
   it("puts the launcher's files under LOCALAPPDATA, which does not roam", () => {
     const root = windowsLauncherRoot({ env: { LOCALAPPDATA: String.raw`C:\Users\a\AppData\Local` }, home: String.raw`C:\Users\a` });
