@@ -28,6 +28,8 @@ No Electron. A macOS app bundle is a directory with an `Info.plist` and an execu
 
 **Windows needed none of that** — a process started from Explorer inherits the user's `PATH` already (measured on a real runner: 73 entries, node found), so there is no shell hop at all. What it needed instead was a `.lnk` written through the `WScript.Shell` COM object, an `.ico` assembled by hand because Windows ships no `iconutil` equivalent, and a `.vbs` stub run through `wscript.exe` so **no console window appears**. The stub walks `%PATH%` itself rather than calling `where node`, because that would flash a black window on every single launch.
 
+**Where your `.env` goes changed for icon launches** (#2621). A GUI launch starts with cwd `/` — measured with a probe bundle, not assumed — and the CLI reads `<cwd>/.env`, so the only `.env` an icon could ever have read was `/.env`, a path you cannot write. The documented way to supply `GEMINI_API_KEY` did nothing for exactly the people who never open a terminal. The server is now started from your home directory, which makes **`~/.env`** the answer, and both READMEs say so.
+
 Re-run `create-shortcut` after upgrading: the shortcut carries its own copy of the launcher.
 
 **The macOS Reminder sink can now be switched off from Settings → Notifications** (#2617). It was previously a CLI flag only, and an icon launch can pass neither a flag nor an environment variable — so the people the launcher exists for had no way to turn it off. The flag still wins when it is set, and the toggle says so rather than pretending to work.
