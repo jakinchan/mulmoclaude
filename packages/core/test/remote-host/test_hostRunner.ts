@@ -12,7 +12,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { backoffDelayMs, classifyListenerError, MAX_LISTEN_RETRIES, resolveCommandHandler } from "../../src/remote-host/server/hostRunner.js";
+import {
+  LISTEN_RETRY_WINDOW_MS,
+  backoffDelayMs,
+  classifyListenerError,
+  resolveCommandHandler,
+  shouldGiveUpListening,
+} from "../../src/remote-host/server/hostRunner.js";
 import type { CommandHandlers } from "../../src/remote-host/index.js";
 
 const handlers: CommandHandlers = {
@@ -50,13 +56,17 @@ describe("classifyListenerError", () => {
     });
   }
 
-  // Auth failures can't be fixed by re-listening; treating them as transient
-  // would spin the runner in a doomed retry loop.
-  for (const code of ["permission-denied", "unauthenticated"]) {
-    it(`treats "${code}" as fatal`, () => {
-      assert.equal(classifyListenerError({ code }), "fatal");
-    });
-  }
+  // #2633: the SDK refreshes tokens by itself, so an expired one is fixed by
+  // trying again. Stopping the host on the first expiry left it unreachable
+  // until someone re-connected from the browser.
+  it('treats "unauthenticated" as transient — the token refreshes on retry', () => {
+    assert.equal(classifyListenerError({ code: "unauthenticated" }), "transient");
+  });
+
+  // A revoked grant is not re-listenable: no amount of retrying restores it.
+  it('treats "permission-denied" as fatal', () => {
+    assert.equal(classifyListenerError({ code: "permission-denied" }), "fatal");
+  });
 
   it("treats an unrecognized code as fatal (never loop forever on the unknown)", () => {
     assert.equal(classifyListenerError({ code: "not-a-real-code" }), "fatal");
@@ -79,6 +89,33 @@ describe("backoffDelayMs", () => {
 
   it("saturates at the cap for large attempts", () => {
     assert.equal(backoffDelayMs(10), 30_000);
-    assert.equal(backoffDelayMs(MAX_LISTEN_RETRIES), 30_000);
+    assert.equal(backoffDelayMs(20), 30_000);
+  });
+});
+
+// #2633: the give-up rule used to be a retry COUNT (5 tries ≈ 31s of backoff),
+// which any laptop sleep outlasts — after which the host never re-subscribed.
+describe("shouldGiveUpListening", () => {
+  const startedAt = 1_000_000;
+
+  it("keeps retrying through an outage far longer than the old 31s retry budget", () => {
+    assert.equal(shouldGiveUpListening(startedAt, startedAt + 31_000), false);
+    assert.equal(shouldGiveUpListening(startedAt, startedAt + 4 * 60_000), false);
+  });
+
+  it("gives up once the window has elapsed", () => {
+    assert.equal(shouldGiveUpListening(startedAt, startedAt + LISTEN_RETRY_WINDOW_MS + 1), true);
+  });
+
+  it("treats exactly the window as elapsed (boundary)", () => {
+    assert.equal(shouldGiveUpListening(startedAt, startedAt + LISTEN_RETRY_WINDOW_MS - 1), false);
+    assert.equal(shouldGiveUpListening(startedAt, startedAt + LISTEN_RETRY_WINDOW_MS), true);
+  });
+
+  it("measures from the FIRST failure, so a failing ladder cannot extend its own deadline", () => {
+    // Five minutes of failures, each one 30s apart: the last attempt is recent,
+    // but the outage is not — that distinction is the whole point of the change.
+    const lastAttemptAt = startedAt + LISTEN_RETRY_WINDOW_MS - 30_000;
+    assert.equal(shouldGiveUpListening(startedAt, lastAttemptAt + 30_000), true);
   });
 });

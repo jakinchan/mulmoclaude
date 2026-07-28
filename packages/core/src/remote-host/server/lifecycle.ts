@@ -12,7 +12,7 @@
 // Single-account, single-host per instance, in-memory session: a host restart
 // drops the session and needs a re-connect.
 import type { Channel, Command, CommandHandlers } from "../index.js";
-import type { HostRunnerOptions } from "./hostRunner.js";
+import type { HostEvent, HostRunnerOptions } from "./hostRunner.js";
 
 export interface RemoteHostStatus {
   connected: boolean;
@@ -64,6 +64,11 @@ export interface RemoteHostLifecycle {
 const noop = () => undefined;
 const silentLogger: RemoteHostLogger = { info: noop, warn: noop, debug: noop };
 
+// The message carries the Firestore error code — the only thing that says whether
+// a dead channel is the credential or the network. Logging just the phase and the
+// method threw that away at the last step (#2633).
+const eventText = (event: HostEvent): string => (event.message ? `${event.phase} ${event.method} — ${event.message}` : `${event.phase} ${event.method}`);
+
 export const createRemoteHost = (deps: RemoteHostDeps): RemoteHostLifecycle => {
   const log = deps.log ?? silentLogger;
 
@@ -97,7 +102,7 @@ export const createRemoteHost = (deps: RemoteHostDeps): RemoteHostLifecycle => {
   const attach = (uid: string, verb: string): RemoteHostStatus => {
     stopIfRunning();
     const runner = deps.startRunner({ uid, hostId: deps.hostId }, deps.handlers, {
-      onEvent: (event) => log.debug(`host event: ${event.phase} ${event.method}`),
+      onEvent: (event) => log.debug(`host event: ${eventText(event)}`),
       onExpire: deps.onExpire,
       // Fatal listener death: drop the handle so status() stops reporting
       // connected — but only if it still points at THIS runner (a later
