@@ -37,6 +37,15 @@ describe("serverSpawnPlan", () => {
 
 describe("launcherLogPath", () => {
   it("uses the per-app location Console.app also looks at", () => {
-    assert.equal(launcherLogPath("/Users/example"), join("/Users/example", "Library", "Logs", "MulmoClaude", "launcher.log"));
+    // Platform passed explicitly: the answer is per-OS since #2623, so
+    // leaving it to the host would assert macOS behaviour on the Windows
+    // runner and fail for a reason the code is not responsible for.
+    assert.equal(launcherLogPath("/Users/example", "darwin"), join("/Users/example", "Library", "Logs", "MulmoClaude", "launcher.log"));
+  });
+
+  it("uses LOCALAPPDATA on Windows, not a Library folder that means nothing there", () => {
+    const windowsLog = launcherLogPath(String.raw`C:\Users\example`, "win32");
+    assert.match(windowsLog, /MulmoClaude/);
+    assert.doesNotMatch(windowsLog, /Library/);
   });
 });

@@ -23,8 +23,8 @@ const DEFAULT_PORT = 3001;
 const LOG_SIZE_CAP_BYTES = 1_000_000;
 
 /** macOS keeps per-app logs here, which is also where Console.app looks. */
-export function launcherLogPath(home = homedir()) {
-  return launcherPaths({ home }).logPath;
+export function launcherLogPath(home = homedir(), platform = process.platform) {
+  return launcherPaths({ home, platform }).logPath;
 }
 
 function log(logPath, message) {
