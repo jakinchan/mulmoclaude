@@ -153,7 +153,10 @@ admits it is disconnected.
   undelivered write). A stale doc, or a read that throws, enters the same recovery
   a listener death does. `null` — no document, an unresolved `serverTimestamp`, or
   the runner's own `online: false` goodbye — is deliberately not actionable: a
-  false positive spins a reconnect loop.
+  false positive spins a reconnect loop. The read carries its own deadline
+  (`withTimeout`): Firestore takes no abort signal, and a read that never settles
+  would leave the probe un-rearmed — a sensor dying quietly, which is the failure
+  this whole section exists to catch.
 - Surviving the settle window (60 s) counts as recovery **only** if the probe
   agrees. Core now takes minutes to report a broken channel, so "it hasn't
   complained yet" proves nothing — and if that reset the outage clock, a host with

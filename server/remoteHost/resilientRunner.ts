@@ -195,14 +195,20 @@ function onUnderlyingClosed(ctx: RunnerContext): void {
   else scheduleRelaunch(ctx);
 }
 
+// Which failures describe the CHANNEL. A handler that threw is worth logging but
+// says nothing about reachability, and remembering it would let it be quoted as the
+// cause of an unrelated outage minutes later.
+const CHANNEL_METHODS = new Set(["listen", "presence"]);
+
 const runnerOptions = (ctx: RunnerContext): HostRunnerOptions => ({
   ...ctx.deps.options,
   onEvent: (event) => {
     // The error code is the one thing that says whether the credential or the
     // network is at fault, so keep the latest for the log lines above.
     if (event.phase === "error") {
-      ctx.lastError = `${event.method}: ${event.message ?? "no detail"}`;
-      ctx.deps.log.warn(`host runner event error — ${ctx.lastError}`);
+      const text = `${event.method}: ${event.message ?? "no detail"}`;
+      if (CHANNEL_METHODS.has(event.method)) ctx.lastError = text;
+      ctx.deps.log.warn(`host runner event error — ${text}`);
     }
     ctx.deps.options.onEvent?.(event);
   },

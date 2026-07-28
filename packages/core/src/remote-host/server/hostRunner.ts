@@ -278,6 +278,13 @@ interface HostRun {
 
 const heartbeatMs = (options: HostRunnerOptions): number => options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
 
+// How old an acknowledged presence write may be before this runner stops claiming
+// to be online. Exported because a host that judges the same freshness from the
+// OUTSIDE (a probe reading the doc back) has to apply the runner's threshold, not
+// a second copy of it — pass that host's own runner options and the two cannot
+// drift when `heartbeatMs` is customised.
+export const presenceStaleAfterMs = (options: HostRunnerOptions = {}): number => heartbeatMs(options) * PRESENCE_STALE_BEATS;
+
 // Advertise online/offline + the capability set (method names + protocol version)
 // on the same doc the remote already listens to for presence, and watch whether
 // those writes are landing — see presenceBeat.ts for why the sensor is the age of
@@ -298,7 +305,7 @@ const buildPresenceBeat = (
       report(`no presence write acknowledged for ${Math.round(silentMs / 1_000)}s — the remote cannot see this host`);
       onStale();
     },
-    staleAfterMs: heartbeatMs(options) * PRESENCE_STALE_BEATS,
+    staleAfterMs: presenceStaleAfterMs(options),
   });
 };
 

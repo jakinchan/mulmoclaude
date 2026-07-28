@@ -10,7 +10,7 @@
 // Single-account, single-host (HOST_ID = "mulmoclaude"). The Firebase session is
 // parked in the browser (case A', mulmoserver#50), so a server restart doesn't
 // force a re-login: the client reconnects from its stored blob.
-import { createRemoteHost, startHostRunner, type HostRunnerOptions } from "@mulmoclaude/core/remote-host/server";
+import { createRemoteHost, presenceStaleAfterMs, startHostRunner, type HostRunnerOptions } from "@mulmoclaude/core/remote-host/server";
 import type { Channel, CommandHandlers } from "@mulmoclaude/core/remote-host";
 
 import { log } from "../system/logger/index.js";
@@ -40,7 +40,10 @@ const startRunner = (channel: Channel, hostHandlers: CommandHandlers, options: H
   startResilientRunner({
     start: (runnerOptions) => startHostRunner(currentFirestore(), channel, hostHandlers, runnerOptions),
     options,
-    checkAlive: createPresenceProbe({ firestore: currentFirestore, channel }),
+    // The probe judges freshness against the SAME threshold the runner beats on —
+    // derived from the options it is about to run with, so a custom `heartbeatMs`
+    // can never leave the two applying different rules.
+    checkAlive: createPresenceProbe({ firestore: currentFirestore, channel, staleAfterMs: presenceStaleAfterMs(options) }),
     log: hostLog,
   });
 

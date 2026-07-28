@@ -136,3 +136,48 @@ describe("createPresenceBeat", () => {
     assert.deepEqual(errors, ["just a string"]);
   });
 });
+
+// The heartbeat runs on a timer and its callbacks belong to the host. A throw from
+// one of them would surface as an uncaught exception (from `beat`) or an unhandled
+// rejection (from the write chain) — killing the command channel over a broken
+// observer, which is a worse outcome than the one being reported.
+describe("createPresenceBeat — a broken observer must not take the host down", () => {
+  const boom = () => {
+    throw new Error("observer blew up");
+  };
+
+  it("survives an onStale that throws, and keeps beating afterwards", async () => {
+    const { beat, clock, writes } = makeBeat({ onStale: boom });
+    clock.nowMs += STALE_AFTER_MS;
+    assert.doesNotThrow(() => beat.beat());
+
+    // A later ack clears the staleness, and the next beat writes again.
+    beat.announce(true);
+    writes.at(-1)?.resolve();
+    await settle();
+    beat.beat();
+    assert.equal(writes.length, 2); // the announce above, then this beat
+  });
+
+  it("survives an onError that throws (an unhandled rejection would end the process)", async () => {
+    const { beat, writes } = makeBeat({ onError: boom });
+    beat.announce(true);
+    writes[0].reject(new Error("permission-denied"));
+    await settle();
+    assert.equal(writes.length, 1);
+  });
+
+  it("reports a write that throws synchronously instead of letting it escape the timer", () => {
+    const errors: string[] = [];
+    const beat = createPresenceBeat({
+      write: () => {
+        throw new Error("firestore is gone");
+      },
+      onStale: () => undefined,
+      onError: (message) => errors.push(message),
+      staleAfterMs: STALE_AFTER_MS,
+    });
+    assert.doesNotThrow(() => beat.beat());
+    assert.deepEqual(errors, ["firestore is gone"]);
+  });
+});

@@ -6,7 +6,7 @@
 // The browser-safe protocol (wire types + Firestore path helpers) lives at the
 // parent `@mulmoclaude/core/remote-host` so the remote/mobile client can share
 // it without pulling this server surface.
-export { startHostRunner, DEFAULT_HEARTBEAT_MS, LISTEN_RETRY_WINDOW_MS } from "./hostRunner.js";
+export { startHostRunner, DEFAULT_HEARTBEAT_MS, LISTEN_RETRY_WINDOW_MS, presenceStaleAfterMs } from "./hostRunner.js";
 export type { HostEvent, HostRunnerOptions } from "./hostRunner.js";
 export { PRESENCE_STALE_BEATS } from "./presenceBeat.js";
 export { createRemoteHost } from "./lifecycle.js";

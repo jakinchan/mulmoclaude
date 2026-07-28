@@ -13,12 +13,17 @@ import { getDocFromServer } from "firebase/firestore";
 import type { Firestore } from "firebase/firestore";
 import { hostDoc } from "@mulmoclaude/core/remote-host";
 import type { Channel } from "@mulmoclaude/core/remote-host";
-import { DEFAULT_HEARTBEAT_MS, PRESENCE_STALE_BEATS } from "@mulmoclaude/core/remote-host/server";
+import { presenceStaleAfterMs } from "@mulmoclaude/core/remote-host/server";
 
-// The same slack the runner gives itself, derived from the same constants: a laptop
-// waking up gets three beats to write again before anyone calls it dead. Being wrong
-// here costs a reconnect cycle, so the threshold leans towards patience.
-export const PRESENCE_STALE_MS = DEFAULT_HEARTBEAT_MS * PRESENCE_STALE_BEATS;
+// The runner's own threshold, taken from the runner rather than recomputed: a
+// laptop waking up gets three beats to write again before anyone calls it dead.
+// Being wrong here costs a reconnect cycle, so it leans towards patience.
+export const PRESENCE_STALE_MS = presenceStaleAfterMs();
+
+// A read that never settles would leave the probe un-rearmed — a sensor dying
+// quietly, which is the very failure this module exists to catch. Firestore takes
+// no abort signal, so the deadline has to be a race.
+const PROBE_TIMEOUT_MS = 30_000;
 
 /** `null` = cannot be judged, which is NOT a failure: the document may simply not
  *  exist yet (a runner that has never announced), and treating "no answer" as
@@ -36,7 +41,7 @@ const asMillis = (value: unknown): number | null => {
 
 /** Judge a presence document that was read successfully. Exported for its own test:
  *  the freshness rule is the part worth pinning, and it needs no Firestore. */
-export const presenceIsFresh = (data: Record<string, unknown> | undefined, now: number): Liveness => {
+export const presenceIsFresh = (data: Record<string, unknown> | undefined, now: number, staleAfterMs: number = PRESENCE_STALE_MS): Liveness => {
   if (!data) return null;
   const updatedAt = asMillis(data.updatedAt);
   // A pending serverTimestamp() reads as null until the write is acknowledged;
@@ -45,12 +50,29 @@ export const presenceIsFresh = (data: Record<string, unknown> | undefined, now: 
   // `online: false` is the runner's own goodbye, written on teardown. A truthful
   // state, not a broken one — it is meant to be down.
   if (data.online === false) return null;
-  return now - updatedAt < PRESENCE_STALE_MS;
+  return now - updatedAt < staleAfterMs;
+};
+
+/** Reject once `timeoutMs` has passed, so a stalled read answers instead of hanging. */
+export const withTimeout = async <T>(work: Promise<T>, timeoutMs: number): Promise<T> => {
+  const timer: { handle: ReturnType<typeof setTimeout> | null } = { handle: null };
+  const deadline = new Promise<never>((_, reject) => {
+    timer.handle = setTimeout(() => reject(new Error(`presence read did not answer within ${Math.round(timeoutMs / 1_000)}s`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    if (timer.handle) clearTimeout(timer.handle);
+  }
 };
 
 export interface PresenceProbeDeps {
   firestore: () => Firestore;
   channel: Channel;
+  /** The runner's own staleness threshold. Pass `presenceStaleAfterMs(options)` when
+   *  the runner uses a custom `heartbeatMs`, so the two judgments cannot diverge. */
+  staleAfterMs?: number;
+  timeoutMs?: number;
   now?: () => number;
 }
 
@@ -60,7 +82,7 @@ export const createPresenceProbe = (deps: PresenceProbeDeps): (() => Promise<Liv
   return async () => {
     // From the server, never the cache: a cached copy of our own last write answers
     // "fresh" precisely when the connection that should have carried it is dead.
-    const snapshot = await getDocFromServer(hostDoc(deps.firestore(), deps.channel));
-    return presenceIsFresh(snapshot.data(), now());
+    const snapshot = await withTimeout(getDocFromServer(hostDoc(deps.firestore(), deps.channel)), deps.timeoutMs ?? PROBE_TIMEOUT_MS);
+    return presenceIsFresh(snapshot.data(), now(), deps.staleAfterMs ?? PRESENCE_STALE_MS);
   };
 };

@@ -249,6 +249,21 @@ describe("startResilientRunner", () => {
     assert.ok(logs.warn.at(-1)?.includes("no error reported"), logs.warn.join(" | "));
   });
 
+  // A handler that threw is worth logging, but it says nothing about whether the
+  // phone can reach this host — quoted later as the cause of an outage, it sends
+  // the reader after the wrong thing entirely.
+  it("logs a handler-level error but does not remember it as the channel's", () => {
+    const { clock, runner, logs } = setup();
+    runner.started[0]?.onEvent?.({ phase: "error", method: "startChat", message: "handler blew up" });
+    assert.ok(
+      logs.warn.some((msg) => msg.includes("startChat: handler blew up")),
+      logs.warn.join(" | "),
+    );
+    runner.die();
+    clock.advance(1_000);
+    assert.ok(logs.warn.at(-1)?.includes("no error reported"), logs.warn.at(-1) ?? "");
+  });
+
   it("forwards events to the owner's handler", () => {
     const seen: string[] = [];
     const { runner } = setup({ options: { onEvent: (event) => seen.push(event.method) } });

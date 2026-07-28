@@ -40,6 +40,22 @@ export interface PresenceBeat {
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+// The callbacks belong to the host, and a heartbeat must not be the thing that
+// takes the process down: an observer that throws would otherwise surface as an
+// uncaught exception from a timer, or as an unhandled rejection from the write
+// chain. There is nowhere to report it — `onError` is the reporter — so the only
+// honest move is to keep beating.
+const notify = (report: () => void, onThrow?: (error: unknown) => void): void => {
+  try {
+    report();
+  } catch (error) {
+    // Without an `onThrow` there is nowhere left to report to — the reporter is
+    // what just threw. A throwing observer is the host's bug; losing the command
+    // channel over it would be ours.
+    onThrow?.(error);
+  }
+};
+
 export const createPresenceBeat = (deps: PresenceBeatDeps): PresenceBeat => {
   const now = deps.now ?? Date.now;
   // Starts at "just acknowledged" so a host is given a full window to land its
@@ -47,12 +63,17 @@ export const createPresenceBeat = (deps: PresenceBeatDeps): PresenceBeat => {
   const state = { lastAckMs: now() };
 
   const announce = (online: boolean): void => {
-    deps.write(online).then(
-      () => {
+    const fail = (error: unknown) => notify(() => deps.onError(errorText(error)));
+    const ack = () =>
+      notify(() => {
         state.lastAckMs = now();
-      },
-      (error: unknown) => deps.onError(errorText(error)),
-    );
+      });
+    // A write can also fail SYNCHRONOUSLY — Firestore validates the payload before
+    // it returns a promise (that is how one bad field throws before anything is
+    // sent) — and that throw would otherwise escape through the heartbeat timer.
+    notify(() => {
+      deps.write(online).then(ack, fail);
+    }, fail);
   };
 
   const beat = (): void => {
@@ -60,7 +81,7 @@ export const createPresenceBeat = (deps: PresenceBeatDeps): PresenceBeat => {
     // Deliberately no write here: another mutation would only queue up behind the
     // ones already stuck, and the answer for this beat is already known.
     if (silentMs >= deps.staleAfterMs) {
-      deps.onStale(silentMs);
+      notify(() => deps.onStale(silentMs));
       return;
     }
     announce(true);

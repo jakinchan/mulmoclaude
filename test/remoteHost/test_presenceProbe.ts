@@ -11,7 +11,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { PRESENCE_STALE_MS, presenceIsFresh } from "../../server/remoteHost/presenceProbe.js";
+import { PRESENCE_STALE_MS, presenceIsFresh, withTimeout } from "../../server/remoteHost/presenceProbe.js";
 
 const NOW = 1_700_000_000_000;
 
@@ -49,5 +49,31 @@ describe("presenceIsFresh", () => {
 
   it("ignores a non-numeric updatedAt rather than guessing", () => {
     assert.equal(presenceIsFresh({ online: true, updatedAt: "yesterday" }, NOW), null);
+  });
+
+  // A runner started with a custom `heartbeatMs` beats on a different rhythm, and
+  // the probe has to judge against THAT one — the caller passes the runner's own
+  // `presenceStaleAfterMs(options)` rather than letting a second copy drift.
+  it("judges against the threshold it is given, not only the default", () => {
+    const tenSeconds = 10_000;
+    assert.equal(presenceIsFresh({ online: true, updatedAt: NOW - 20_000 }, NOW, tenSeconds), false);
+    assert.equal(presenceIsFresh({ online: true, updatedAt: NOW - 20_000 }, NOW), true); // fresh under the 3-minute default
+  });
+});
+
+// A read that never settles would leave the probe un-rearmed — a sensor dying
+// quietly, which is exactly the failure mode this module exists to catch.
+describe("withTimeout", () => {
+  it("passes a value through when the work answers in time", async () => {
+    assert.equal(await withTimeout(Promise.resolve("answered"), 1_000), "answered");
+  });
+
+  it("rejects when the work never settles", async () => {
+    const never = new Promise<string>(() => undefined);
+    await assert.rejects(withTimeout(never, 5), /did not answer/);
+  });
+
+  it("keeps the work's own failure rather than masking it as a timeout", async () => {
+    await assert.rejects(withTimeout(Promise.reject(new Error("unavailable")), 1_000), /unavailable/);
   });
 });
