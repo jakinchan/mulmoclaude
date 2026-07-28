@@ -5,6 +5,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createDevWatchIgnore } from './scripts/lib/devWatchIgnore'
 
 // Token file path mirrors `WORKSPACE_PATHS.sessionToken` in
 // server/workspace-paths.ts. Duplicated here (rather than imported)
@@ -29,6 +30,27 @@ function resolveWorkspacePath(): string {
 }
 const TOKEN_FILE_PATH = path.join(resolveWorkspacePath(), '.session-token')
 const TOKEN_PLACEHOLDER = '__MULMOCLAUDE_AUTH_TOKEN__'
+
+// The workspace-is-the-Vite-root comparison below has to survive symlinked
+// homes (macOS resolves `/tmp` and some `$HOME` layouts through `/private`) and
+// NTFS junctions, so both sides go through realpath first. A workspace that
+// doesn't exist yet (first boot) keeps its literal path.
+function realpathOrSelf(candidate: string): string {
+  try {
+    return fs.realpathSync.native(candidate)
+  } catch {
+    return candidate
+  }
+}
+
+// #2632: prune runtime writes and (on Windows) sandbox-mount mtime bumps from
+// the dev watcher, both of which full-reload the page mid-agent-turn.
+const devWatchIgnore = createDevWatchIgnore({
+  projectRoot: realpathOrSelf(__dirname),
+  workspacePath: realpathOrSelf(resolveWorkspacePath()),
+  platform: process.platform,
+  watchPackageDists: process.env.MULMOCLAUDE_DEV_WATCH_PACKAGES === '1',
+})
 
 // Dev-side half of the bearer-token injection (#272). The server
 // writes the token to `TOKEN_FILE_PATH` at startup (mode 0600); this
@@ -272,6 +294,9 @@ export default defineConfig({
     // `mulmoclaudeAuthTokenPlugin`), so opting in exposes the page, not
     // the API. Only do it on a network you trust.
     host: process.env.MULMOCLAUDE_DEV_LAN === '1' ? true : '127.0.0.1',
+    watch: {
+      ignored: [devWatchIgnore],
+    },
     // Disable Vite's dev CORS middleware. The app itself is same-origin in dev
     // (the page and the proxied `/api` both live on :5173), so it needs no CORS
     // headers from Vite. The one cross-origin consumer is a custom collection

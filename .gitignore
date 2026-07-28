@@ -23,5 +23,19 @@ test-results-live/
 # Local, machine-only secrets files — never commit
 .twitter_memo
 
+# Runtime workspace data, for the layout where the workspace IS the checkout
+# (MULMOCLAUDE_WORKSPACE_PATH defaults to ~/mulmoclaude, so cloning there makes
+# them the same directory). Keeps personal chat/artifacts uncommittable, and out
+# of Tailwind's gitignore-honouring source scan (#2632). Inert otherwise.
+# Anchored with a leading `/`: the unanchored form would also match
+# packages/core/src/{artifacts,feeds}/ and silently untrack new files there.
+/conversations/
+/data/
+/artifacts/
+/feeds/
+/.mulmoclaude/
+/.session-token
+/.server-port
+
 # V8 heap snapshots written by the dev server on near-OOM (scripts/dev-server.mjs)
 *.heapsnapshot
