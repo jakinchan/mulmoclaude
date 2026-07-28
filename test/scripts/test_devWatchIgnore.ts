@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createDevWatchIgnore, devWatchIgnoredPrefixes, type DevWatchIgnoreOptions } from "../../scripts/lib/devWatchIgnore.js";
+import { WORKSPACE_DIRS, WORKSPACE_FILES } from "../../server/workspace/paths.js";
 
 const ROOT = "/home/dev/mulmoclaude";
 
@@ -51,7 +52,15 @@ describe("createDevWatchIgnore — workspace IS the Vite root", () => {
     assert.equal(ignore(`${ROOT}/data/scheduler/items.json`), true);
     assert.equal(ignore(`${ROOT}/artifacts/html/report.html`), true);
     assert.equal(ignore(`${ROOT}/feeds/hn/latest.json`), true);
+    assert.equal(ignore(`${ROOT}/archive/2026/old.jsonl`), true);
+    assert.equal(ignore(`${ROOT}/github/receptron/notes.md`), true);
+    assert.equal(ignore(`${ROOT}/models/whisper/base.bin`), true);
+    assert.equal(ignore(`${ROOT}/plugins/.cache/chart/1.0.0/index.js`), true);
     assert.equal(ignore(`${ROOT}/.mulmoclaude/mcp-abc.json`), true);
+  });
+
+  it("keeps watching .github, which is repo source and not the workspace's github/", () => {
+    assert.equal(ignore(`${ROOT}/.github/workflows/pull_request.yaml`), false);
   });
 
   it("prunes the root sidecar files", () => {
@@ -115,6 +124,37 @@ describe("createDevWatchIgnore — path normalisation", () => {
   it("tolerates a trailing separator on the configured roots", () => {
     const ignore = createDevWatchIgnore({ projectRoot: `${ROOT}/`, workspacePath: `${ROOT}/`, platform: "linux" });
     assert.equal(ignore(`${ROOT}/artifacts/x.md`), true);
+  });
+});
+
+// The predicate's entry list is a literal, because `WORKSPACE_DIRS` is a
+// plugin-aggregated record and pulling it into `vite.config.ts` would drag the
+// whole plugin meta graph into config load. These tests are where the two are
+// held together instead: a new top-level workspace directory fails here rather
+// than silently bringing the reload storms back.
+describe("createDevWatchIgnore — stays in sync with the real workspace layout", () => {
+  const ignore = ignoreFor({ workspacePath: ROOT });
+  const topLevelOf = (workspaceRelative: string): string => workspaceRelative.split("/")[0];
+
+  // Top-level entries the watcher deliberately keeps watching: both are tracked
+  // repo directories here as well as workspace dirs, so pruning them would stop
+  // HMR for real source.
+  const DELIBERATELY_WATCHED = new Set(["config", ".claude"]);
+
+  const unprunedTopLevels = (workspaceRelativePaths: string[]): string[] =>
+    [...new Set(workspaceRelativePaths.map(topLevelOf))].filter((name) => !DELIBERATELY_WATCHED.has(name) && !ignore(`${ROOT}/${name}`)).sort();
+
+  it("prunes every top-level workspace directory", () => {
+    assert.deepEqual(
+      unprunedTopLevels(Object.values(WORKSPACE_DIRS)),
+      [],
+      "new top-level workspace dir — add it to WORKSPACE_RUNTIME_ENTRIES in scripts/lib/devWatchIgnore.ts, or to DELIBERATELY_WATCHED here if it is also tracked repo source",
+    );
+  });
+
+  it("prunes every workspace file that sits at the workspace root", () => {
+    const rootLevelFiles = Object.values(WORKSPACE_FILES).filter((relative) => !relative.includes("/"));
+    assert.deepEqual(unprunedTopLevels(rootLevelFiles), []);
   });
 });
 

@@ -33,6 +33,10 @@ test-results-live/
 /data/
 /artifacts/
 /feeds/
+/archive/
+/github/
+/models/
+/plugins/
 /.mulmoclaude/
 /.session-token
 /.server-port

@@ -1,7 +1,10 @@
 // Paths the `yarn dev` file watcher must not react to (#2632).
 //
-// Pure: no imports, no I/O. Every path is supplied already resolved so the
-// predicate stays unit-testable across platforms from any CI host.
+// Every path is supplied already resolved, and comparison happens in a
+// posix-normalised string space, so the predicate is unit-testable for every
+// platform from any CI host. `path.posix` rather than `path` for the same
+// reason: a native `path.join` would emit backslashes on Windows and stop
+// matching the normalised candidate.
 //
 // Two independent reload classes reach Vite's watcher:
 //
@@ -18,6 +21,8 @@
 //    there — and has no HMR accept boundary, so an mtime-only bump full-reloads
 //    the page.
 
+import path from "node:path";
+
 export interface DevWatchIgnoreOptions {
   /** Vite root, realpath-resolved. */
   projectRoot: string;
@@ -29,30 +34,46 @@ export interface DevWatchIgnoreOptions {
 }
 
 // Top-level workspace entries that only ever hold runtime data, used when the
-// workspace IS the Vite root. `config/` is absent on purpose: it is a tracked
-// repo directory here as well as a workspace dir, and it is not a storm driver.
-const WORKSPACE_RUNTIME_ENTRIES = ["conversations", "data", "artifacts", "feeds", ".mulmoclaude", ".session-token", ".server-port"] as const;
+// workspace IS the Vite root. `config` and `.claude` are absent on purpose:
+// both are tracked repo directories here as well as workspace dirs, so pruning
+// them would stop HMR for real source. `test/scripts/test_devWatchIgnore.ts`
+// fails if a new top-level workspace dir appears without a decision here.
+const WORKSPACE_RUNTIME_ENTRIES = [
+  "conversations",
+  "data",
+  "artifacts",
+  "feeds",
+  "archive",
+  "github",
+  "models",
+  "plugins",
+  ".mulmoclaude",
+  ".session-token",
+  ".server-port",
+] as const;
+
+const SERVER_LOG_DIR = ["server", "system", "logs"] as const;
 
 const toPosix = (filePath: string): string => filePath.replace(/\\/g, "/").replace(/\/+$/, "");
 
 const isInside = (candidate: string, directory: string): boolean => candidate === directory || candidate.startsWith(`${directory}/`);
 
 const workspacePrefixes = (projectRoot: string, workspacePath: string): string[] => {
-  if (workspacePath === projectRoot) return WORKSPACE_RUNTIME_ENTRIES.map((entry) => `${projectRoot}/${entry}`);
+  if (workspacePath === projectRoot) return WORKSPACE_RUNTIME_ENTRIES.map((entry) => path.posix.join(projectRoot, entry));
   return isInside(workspacePath, projectRoot) ? [workspacePath] : [];
 };
 
 /** Absolute, posix-normalised directories pruned from the dev watcher. */
 export const devWatchIgnoredPrefixes = (options: DevWatchIgnoreOptions): string[] => {
   const projectRoot = toPosix(options.projectRoot);
-  return [`${projectRoot}/server/system/logs`, ...workspacePrefixes(projectRoot, toPosix(options.workspacePath))];
+  return [path.posix.join(projectRoot, ...SERVER_LOG_DIR), ...workspacePrefixes(projectRoot, toPosix(options.workspacePath))];
 };
 
 // Segment-wise so `packages/foo/src/dist-utils.ts` is left alone.
 const isPackageDist = (candidate: string, projectRoot: string): boolean => {
-  const packagesRoot = `${projectRoot}/packages/`;
-  if (!candidate.startsWith(packagesRoot)) return false;
-  return candidate.slice(packagesRoot.length).split("/").includes("dist");
+  const packagesRoot = path.posix.join(projectRoot, "packages");
+  if (!isInside(candidate, packagesRoot)) return false;
+  return candidate.slice(packagesRoot.length + 1).split("/").includes("dist");
 };
 
 /** Predicate for Vite's `server.watch.ignored` (anymatch-compatible). */

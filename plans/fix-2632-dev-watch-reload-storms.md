@@ -13,7 +13,7 @@ Both failure classes were reproduced with a Playwright probe against a real
 Bumping **only the mtime** of `packages/protocol/dist/index.js` (identical bytes,
 `fs.utimesSync`) while a page is open:
 
-```
+```text
 content identical after utimes: true
 mtime 2026-07-28T20:38:49.747Z -> 2026-07-28T20:44:11.748Z
 window.__probe after mtime bump: null  => PAGE WAS RELOADED
@@ -60,12 +60,13 @@ Pruned:
 - `server/system/logs/` — always (already gitignored; the events are pure waste).
 - Workspace runtime paths — only when the workspace is inside the Vite root.
   - workspace **inside** root → the whole workspace directory.
-  - workspace **equals** root → `conversations/`, `data/`, `artifacts/`,
-    `feeds/`, `.mulmoclaude/`, `.session-token`, `.server-port`.
-  - `config/` is deliberately **not** pruned: it is a tracked repo directory
-    (`config/eslint.packages.mjs`, `config/tsconfig.packages.json`) as well as a
-    workspace dir, and the reporter's ~20 h of server logs show it is not a storm
-    driver.
+  - workspace **equals** root → every top-level workspace entry:
+    `conversations/`, `data/`, `artifacts/`, `feeds/`, `archive/`, `github/`,
+    `models/`, `plugins/`, `.mulmoclaude/`, `.session-token`, `.server-port`.
+  - `config/` and `.claude/` are deliberately **not** pruned: both are tracked
+    repo directories as well as workspace dirs, so pruning them would stop HMR
+    for real source. (`.github/` is repo source and is a different name from the
+    workspace's `github/`, so the anchored entry does not touch it.)
 - `packages/**/dist` — **win32 only**, and only when
   `MULMOCLAUDE_DEV_WATCH_PACKAGES=1` is unset. macOS/Linux keep package-rebuild
   HMR untouched. The Windows trade-off is to restart `yarn dev` after really
@@ -86,11 +87,15 @@ path when the workspace does not exist yet, then wire the predicate into
 
 Add the workspace runtime paths, each **anchored with a leading `/`**:
 
-```
+```text
 /conversations/
 /data/
 /artifacts/
 /feeds/
+/archive/
+/github/
+/models/
+/plugins/
 /.mulmoclaude/
 /.session-token
 /.server-port
@@ -98,9 +103,11 @@ Add the workspace runtime paths, each **anchored with a leading `/`**:
 
 Anchoring matters. The unanchored form proposed in the issue (`artifacts/`,
 `feeds/`, …) matches a directory of that name at *any* depth, which in this repo
-means `packages/core/src/artifacts/`, `packages/core/src/feeds/` — real, tracked
-source. Already-tracked files stay tracked, so nothing breaks today, but any new
-file added under those directories would be silently untracked.
+means `packages/core/src/artifacts/`, `packages/core/src/feeds/` — and, once the
+list is complete, all of `packages/plugins/`. Already-tracked files stay tracked,
+so nothing breaks today, but any new file added under those directories would be
+silently untracked. Verified after anchoring:
+`git ls-files | git check-ignore --stdin` returns nothing.
 
 Inert for a checkout whose workspace lives elsewhere; when the workspace *is* the
 checkout it both keeps personal data uncommittable and keeps it out of Tailwind's
@@ -111,6 +118,15 @@ gitignore-honouring scanner (defence in depth behind the watcher prune).
 `test/scripts/test_devWatchIgnore.ts` — unit tests over the pure predicate,
 parameterised by platform, so the win32 behaviour is covered from every CI host
 (the existing daily `lint_test (Windows)` job runs it natively too).
+
+The entry list is a literal rather than a derivation, because `WORKSPACE_DIRS`
+is a plugin-aggregated record whose import would drag the whole plugin meta
+graph into Vite config load — and a naive derivation would also prune `config/`
+and `.claude/`, which must stay watched. The two are held together in the test
+file instead, which imports `WORKSPACE_DIRS` / `WORKSPACE_FILES` and fails when
+a top-level workspace entry is neither pruned nor explicitly exempted. That
+guard is not theoretical: it caught `archive/`, `github/`, `models/` and
+`plugins/` missing from the first version of the list.
 
 ## Verification
 
