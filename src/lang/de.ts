@@ -267,6 +267,7 @@ const deMessages = {
       notifications: "Web Push",
       skills: "Skills",
       roles: "Rollen",
+      quit: "Beenden",
     },
     groups: {
       llm: "LLM",
@@ -275,6 +276,7 @@ const deMessages = {
       notifications: "Benachrichtigungen",
       plugins: "Plugins",
       management: "Verwaltung",
+      server: "Server",
     },
     navAriaLabel: "Einstellungsbereiche",
     googleTab: {
@@ -315,6 +317,18 @@ const deMessages = {
       statusOff: "Automatische Erfassung AUS",
       loadError: "Einstellungen konnten nicht geladen werden",
       saveError: "Speichern fehlgeschlagen",
+    },
+    quitTab: {
+      description:
+        "Beendet den MulmoClaude-Server auf diesem Rechner. Über das Symbol gestartet, läuft er weiter, auch wenn du diesen Tab schließt — hier beendest du ihn ohne Terminal.",
+      restartHint: "Zum erneuten Starten doppelklicke auf das MulmoClaude-Symbol (oder führe `npx mulmoclaude@latest` aus).",
+      quitLabel: "MulmoClaude beenden",
+      confirmBody: "Der Server hält an und diese Seite funktioniert nicht mehr. Laufende Vorgänge werden abgebrochen.",
+      confirmLabel: "Beenden",
+      stopping: "Wird beendet…",
+      stoppedTitle: "MulmoClaude wurde beendet",
+      stoppedBody: "Du kannst diesen Tab schließen. Doppelklicke auf das Symbol, um neu zu starten.",
+      error: "Server konnte nicht beendet werden",
     },
     notificationsTab: {
       description:

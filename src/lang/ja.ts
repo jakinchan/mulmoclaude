@@ -268,6 +268,7 @@ const jaMessages = {
       notifications: "Web Push",
       skills: "スキル",
       roles: "ロール",
+      quit: "終了",
     },
     groups: {
       llm: "LLM",
@@ -276,6 +277,7 @@ const jaMessages = {
       notifications: "通知",
       plugins: "プラグイン",
       management: "管理",
+      server: "サーバー",
     },
     navAriaLabel: "設定セクション",
     googleTab: {
@@ -315,6 +317,18 @@ const jaMessages = {
       statusOff: "自動取得は OFF",
       loadError: "設定の読み込みに失敗しました",
       saveError: "保存に失敗しました",
+    },
+    quitTab: {
+      description:
+        "このマシンで動いている MulmoClaude サーバーを終了します。アイコンから起動した場合、このタブを閉じてもサーバーは動き続けます。ターミナルを使わずに止める手段がここです。",
+      restartHint: "もう一度起動するには、MulmoClaude のアイコンをダブルクリックしてください（または `npx mulmoclaude@latest`）。",
+      quitLabel: "MulmoClaude を終了",
+      confirmBody: "サーバーが停止し、このページは動かなくなります。実行中の処理は中断されます。",
+      confirmLabel: "終了する",
+      stopping: "終了しています…",
+      stoppedTitle: "MulmoClaude を終了しました",
+      stoppedBody: "このタブは閉じて構いません。もう一度使うにはアイコンをダブルクリックしてください。",
+      error: "サーバーの終了に失敗しました",
     },
     notificationsTab: {
       description:

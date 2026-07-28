@@ -269,6 +269,7 @@ const koMessages = {
       notifications: "Web Push",
       skills: "스킬",
       roles: "역할",
+      quit: "종료",
     },
     groups: {
       llm: "LLM",
@@ -277,6 +278,7 @@ const koMessages = {
       notifications: "알림",
       plugins: "플러그인",
       management: "관리",
+      server: "서버",
     },
     navAriaLabel: "설정 섹션",
     googleTab: {
@@ -315,6 +317,18 @@ const koMessages = {
       statusOff: "자동 수집 꺼짐",
       loadError: "설정을 불러오지 못했습니다",
       saveError: "저장에 실패했습니다",
+    },
+    quitTab: {
+      description:
+        "이 컴퓨터에서 실행 중인 MulmoClaude 서버를 종료합니다. 아이콘으로 시작한 경우 이 탭을 닫아도 서버는 계속 실행됩니다. 터미널 없이 종료하는 방법이 여기입니다.",
+      restartHint: "다시 시작하려면 MulmoClaude 아이콘을 두 번 클릭하세요(또는 `npx mulmoclaude@latest`).",
+      quitLabel: "MulmoClaude 종료",
+      confirmBody: "서버가 멈추고 이 페이지는 동작하지 않게 됩니다. 진행 중인 작업은 중단됩니다.",
+      confirmLabel: "종료",
+      stopping: "종료하는 중…",
+      stoppedTitle: "MulmoClaude가 종료되었습니다",
+      stoppedBody: "이 탭을 닫아도 됩니다. 다시 시작하려면 아이콘을 두 번 클릭하세요.",
+      error: "서버를 종료하지 못했습니다",
     },
     notificationsTab: {
       description:

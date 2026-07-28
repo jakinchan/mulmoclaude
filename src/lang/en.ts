@@ -284,6 +284,7 @@ const enMessages = {
       notifications: "Web Push",
       skills: "Skills",
       roles: "Roles",
+      quit: "Quit",
     },
     groups: {
       llm: "LLM",
@@ -292,6 +293,7 @@ const enMessages = {
       notifications: "Notifications",
       plugins: "Plugins",
       management: "Management",
+      server: "Server",
     },
     navAriaLabel: "Settings sections",
     googleTab: {
@@ -331,6 +333,18 @@ const enMessages = {
       statusOff: "Auto-capture is OFF",
       loadError: "Failed to load settings",
       saveError: "Failed to save",
+    },
+    quitTab: {
+      description:
+        "Stop the MulmoClaude server running on this machine. Started from the icon, it keeps running after you close this tab — this is how you stop it without a terminal.",
+      restartHint: "To start it again, double-click the MulmoClaude icon (or run `npx mulmoclaude@latest`).",
+      quitLabel: "Quit MulmoClaude",
+      confirmBody: "The server stops and this page stops working. Anything still running is interrupted.",
+      confirmLabel: "Quit",
+      stopping: "Stopping…",
+      stoppedTitle: "MulmoClaude has stopped",
+      stoppedBody: "You can close this tab. Double-click the icon to start it again.",
+      error: "Failed to stop the server",
     },
     notificationsTab: {
       description:

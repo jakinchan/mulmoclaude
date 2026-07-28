@@ -265,6 +265,7 @@ const ptBRMessages = {
       notifications: "Web Push",
       skills: "Skills",
       roles: "Papéis",
+      quit: "Encerrar",
     },
     groups: {
       llm: "LLM",
@@ -273,6 +274,7 @@ const ptBRMessages = {
       notifications: "Notificações",
       plugins: "Plugins",
       management: "Gerenciamento",
+      server: "Servidor",
     },
     navAriaLabel: "Seções de configurações",
     googleTab: {
@@ -312,6 +314,18 @@ const ptBRMessages = {
       statusOff: "Captura automática DESATIVADA",
       loadError: "Falha ao carregar as configurações",
       saveError: "Falha ao salvar",
+    },
+    quitTab: {
+      description:
+        "Encerra o servidor do MulmoClaude em execução nesta máquina. Iniciado pelo ícone, ele continua rodando mesmo se você fechar esta aba — é assim que se encerra sem um terminal.",
+      restartHint: "Para iniciar de novo, dê um duplo clique no ícone do MulmoClaude (ou rode `npx mulmoclaude@latest`).",
+      quitLabel: "Encerrar o MulmoClaude",
+      confirmBody: "O servidor para e esta página deixa de funcionar. O que estiver em andamento é interrompido.",
+      confirmLabel: "Encerrar",
+      stopping: "Encerrando…",
+      stoppedTitle: "O MulmoClaude foi encerrado",
+      stoppedBody: "Você pode fechar esta aba. Dê um duplo clique no ícone para iniciar de novo.",
+      error: "Falha ao encerrar o servidor",
     },
     notificationsTab: {
       description:

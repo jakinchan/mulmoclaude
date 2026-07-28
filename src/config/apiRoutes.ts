@@ -91,6 +91,8 @@ const HOST_API_ROUTES = {
   // Single source of truth: @mulmobridge/protocol. See plans/done/messaging_transports.md.
   chatService: CHAT_SERVICE_ROUTES,
 
+  shutdown: "/api/shutdown",
+
   config: {
     base: "/api/config",
     settings: "/api/config/settings",

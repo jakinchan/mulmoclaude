@@ -264,6 +264,7 @@ const zhMessages = {
       notifications: "Web Push",
       skills: "技能",
       roles: "角色",
+      quit: "退出",
     },
     groups: {
       llm: "LLM",
@@ -272,6 +273,7 @@ const zhMessages = {
       notifications: "通知",
       plugins: "插件",
       management: "管理",
+      server: "服务器",
     },
     navAriaLabel: "设置分区",
     googleTab: {
@@ -307,6 +309,17 @@ const zhMessages = {
       statusOff: "自动捕获已关闭",
       loadError: "加载设置失败",
       saveError: "保存失败",
+    },
+    quitTab: {
+      description: "停止本机上运行的 MulmoClaude 服务器。从图标启动时，即使关闭此标签页服务器仍会继续运行——这里就是无需终端即可停止它的入口。",
+      restartHint: "要再次启动，请双击 MulmoClaude 图标（或运行 `npx mulmoclaude@latest`）。",
+      quitLabel: "退出 MulmoClaude",
+      confirmBody: "服务器将停止，此页面将无法继续使用。正在进行的处理会被中断。",
+      confirmLabel: "退出",
+      stopping: "正在停止…",
+      stoppedTitle: "MulmoClaude 已停止",
+      stoppedBody: "可以关闭此标签页。双击图标即可重新启动。",
+      error: "停止服务器失败",
     },
     notificationsTab: {
       description: "当你在此处发起的任务完成时，向你已注册的设备发送推送通知——当你提出问题后离开、想在答案就绪的那一刻收到提醒时很有用。",
