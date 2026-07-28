@@ -32,6 +32,7 @@ const BUNDLED_FILES = [
   "launcher/detect-server.mjs",
   "launcher/launcher-page.mjs",
   "launcher/messages.mjs",
+  "launcher/platform.mjs",
   "launcher/preflight.mjs",
   "launcher/macos/resolve-path.sh",
   "launcher/macos/message-file.sh",
