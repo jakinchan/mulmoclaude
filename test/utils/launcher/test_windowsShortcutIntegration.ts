@@ -19,7 +19,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -30,6 +30,9 @@ const windowsOnly = { skip: process.platform !== "win32" };
 // A hand-assembled .ico that Windows refuses would show up as a blank
 // icon in Explorer and nowhere else — no error, no log line.
 const POWERSHELL_TIMEOUT_MS = 60_000;
+// The probe writes its marker milliseconds after the stub returns; a long
+// wait here only delays the report of a failure that already happened.
+const HANDOVER_TIMEOUT_MS = 15_000;
 
 const powershell = (script: string): string =>
   execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
@@ -42,7 +45,10 @@ const withTempRoot = async (body: (paths: { rootDir: string; shortcutPath: strin
   try {
     await body({ rootDir: join(dir, "launcher"), shortcutPath: join(dir, "shortcut", "MulmoClaude.lnk") });
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    // A node.exe we copied and launched keeps the directory locked for a
+    // moment after it exits, so a plain rmSync raises EBUSY and buries
+    // whatever the test actually found under a cleanup error.
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 };
 
@@ -153,12 +159,15 @@ describe("what §12 called human-only (Windows)", () => {
 
   it("hands over to node found on PATH the way a version manager puts it there", windowsOnly, async () => {
     // CI runs a plain toolchain, so nvm-windows/fnm/Volta were written off
-    // as untestable. What they actually do is put a node.exe on the user's
-    // PATH — which is reproducible: a directory that is not the system one,
+    // as untestable. What they actually do is put a node.exe on PATH —
+    // which is reproducible: a directory that is not the system one,
     // holding node.exe, reachable only through PATH.
     //
-    // The real launch.vbs runs; only run.mjs is swapped for a probe, so the
-    // app never starts but the whole stub path is exercised.
+    // The real launch.vbs runs; only run.mjs is swapped for a probe, so
+    // the app never starts while the whole stub path is exercised. The
+    // stub is invoked directly through cscript rather than by launching
+    // the .lnk: the environment is then explicit rather than inherited
+    // through the shell, which is what makes the result meaningful.
     await withTempRoot(async ({ rootDir, shortcutPath }) => {
       await createWindowsShortcut({ rootDir, shortcutPath });
       const marker = join(rootDir, "handover.json");
@@ -168,24 +177,26 @@ describe("what §12 called human-only (Windows)", () => {
       );
 
       const versionManagerDir = join(rootDir, "nvm-like", "v24.0.0", "bin");
-      const escaped = (value: string) => value.replace(/'/g, "''");
-      powershell(
-        [
-          `New-Item -ItemType Directory -Force -Path '${escaped(versionManagerDir)}' | Out-Null`,
-          `Copy-Item (Get-Command node).Source -Destination '${escaped(join(versionManagerDir, "node.exe"))}'`,
-          // Only the fake version-manager dir plus the system ones: if the
-          // stub resolved node any other way, the marker would name it.
-          `$env:PATH = '${escaped(versionManagerDir)};' + $env:SystemRoot + '\\System32;' + $env:SystemRoot`,
-          `Start-Process -FilePath '${escaped(shortcutPath)}'`,
-        ].join("\n"),
-      );
+      const fakeNode = join(versionManagerDir, "node.exe");
+      mkdirSync(versionManagerDir, { recursive: true });
+      copyFileSync(process.execPath, fakeNode);
 
-      const deadline = Date.now() + POWERSHELL_TIMEOUT_MS;
-      while (!existsSync(marker) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 500));
-      assert.ok(existsSync(marker), "the stub never reached run.mjs — node was not found on the version-manager PATH");
+      const systemRoot = process.env.SystemRoot ?? String.raw`C:\\Windows`;
+      execFileSync("cscript.exe", ["//nologo", join(rootDir, "utils", "launcher", "windows", "launch.vbs")], {
+        timeout: POWERSHELL_TIMEOUT_MS,
+        // Only the version-manager directory and the system ones: if the
+        // stub found node any other way, the probe would name it.
+        env: { ...process.env, PATH: `${versionManagerDir};${join(systemRoot, "System32")};${systemRoot}` },
+      });
+
+      // `sh.Run(..., False)` returns immediately, so the probe finishes
+      // just after the stub does.
+      const deadline = Date.now() + HANDOVER_TIMEOUT_MS;
+      while (!existsSync(marker) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 200));
+      assert.ok(existsSync(marker), `the stub never reached run.mjs — node was not found at ${fakeNode}`);
 
       const { execPath } = JSON.parse(readFileSync(marker, "utf8")) as { execPath: string };
-      assert.equal(execPath.toLowerCase(), join(versionManagerDir, "node.exe").toLowerCase(), `handed over to the wrong node: ${execPath}`);
+      assert.equal(execPath.toLowerCase(), fakeNode.toLowerCase(), `handed over to the wrong node: ${execPath}`);
     });
   });
 });
