@@ -270,6 +270,7 @@ const esMessages = {
       notifications: "Web Push",
       skills: "Skills",
       roles: "Roles",
+      quit: "Salir",
     },
     groups: {
       llm: "LLM",
@@ -278,6 +279,7 @@ const esMessages = {
       notifications: "Notificaciones",
       plugins: "Plugins",
       management: "Gestión",
+      server: "Servidor",
     },
     navAriaLabel: "Secciones de ajustes",
     googleTab: {
@@ -317,6 +319,21 @@ const esMessages = {
       statusOff: "Captura automática DESACTIVADA",
       loadError: "Error al cargar los ajustes",
       saveError: "Error al guardar",
+    },
+    quitTab: {
+      description:
+        "Detén el servidor de MulmoClaude que se ejecuta en este equipo. Si lo abriste desde el icono, sigue funcionando aunque cierres esta pestaña: así se detiene sin usar una terminal.",
+      // Message function form — skips vue-i18n's message compiler so the
+      // literal `@` in `mulmoclaude@latest` is not parsed as a linked-message
+      // reference (the compiler throws, and the whole tab renders as nothing).
+      restartHint: () => "Para volver a iniciarlo, haz doble clic en el icono de MulmoClaude (o ejecuta `npx mulmoclaude@latest`).",
+      quitLabel: "Salir de MulmoClaude",
+      confirmBody: "El servidor se detiene y esta página deja de funcionar. Se interrumpe todo lo que esté en curso.",
+      confirmLabel: "Salir",
+      stopping: "Deteniendo…",
+      stoppedTitle: "MulmoClaude se ha detenido",
+      stoppedBody: "Puedes cerrar esta pestaña. Haz doble clic en el icono para volver a iniciarlo.",
+      error: "No se pudo detener el servidor",
     },
     notificationsTab: {
       description:

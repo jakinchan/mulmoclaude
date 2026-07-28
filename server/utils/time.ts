@@ -42,6 +42,12 @@ export const STARTUP_FAILURE_FORCE_EXIT_MS = 5 * ONE_SECOND_MS;
  *  to delay a crash-restart loop. */
 export const FATAL_LOG_FLUSH_MS = 100;
 
+/** Gap between answering `POST /api/shutdown` and actually stopping
+ *  (#2616). Zero would race the response: the socket can close before
+ *  the browser reads it, and the user sees a failed request from a
+ *  button that in fact worked. */
+export const SHUTDOWN_RESPONSE_GRACE_MS = 250;
+
 /** Heavy subprocess work (libreoffice conversion, etc.) */
 export const SUBPROCESS_WORK_TIMEOUT_MS = ONE_MINUTE_MS;
 

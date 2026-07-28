@@ -175,6 +175,11 @@
             <SettingsJournalTab v-else-if="activeTab === 'journal'" :reload-token="journalReloadToken" @saved="emit('saved')" />
 
             <SettingsNotificationsTab v-else-if="activeTab === 'notifications'" :reload-token="notificationsReloadToken" @saved="emit('saved')" />
+            <!-- Its own `v-if`, not part of the chain above: the chain is
+                 long and every entry added to it has to stay adjacent to
+                 survive the compiler. This tab is mutually exclusive with
+                 the rest by construction, so it does not need to be in it. -->
+            <SettingsQuitTab v-if="activeTab === 'quit'" @stopped="emit('stopped')" />
           </template>
         </div>
       </div>
@@ -209,6 +214,7 @@ import SettingsVoiceTab from "./SettingsVoiceTab.vue";
 import SettingsChatIndexTab from "./SettingsChatIndexTab.vue";
 import SettingsJournalTab from "./SettingsJournalTab.vue";
 import SettingsNotificationsTab from "./SettingsNotificationsTab.vue";
+import SettingsQuitTab from "./SettingsQuitTab.vue";
 import SkillsView from "../plugins/manageSkills/View.vue";
 import RolesView from "./RolesView.vue";
 import PluginScopedRoot from "./PluginScopedRoot.vue";
@@ -249,6 +255,7 @@ const emit = defineEmits<{
   "update:open": [value: boolean];
   saved: [];
   "ask-gemini": [];
+  stopped: [];
 }>();
 
 // Typed ref to the SettingsMcpTab. Needed so close() can check
@@ -272,7 +279,8 @@ type TabId =
   | "journal"
   | "notifications"
   | "skills"
-  | "roles";
+  | "roles"
+  | "quit";
 
 const activeTab = ref<TabId>("tools");
 
@@ -296,6 +304,9 @@ const GROUPS: readonly { key: string; items: readonly TabId[] }[] = [
   // Management surfaces relocated from the top-bar launcher (#skills /
   // #roles). Both are static configuration, not dynamic workspace data.
   { key: "management", items: ["skills", "roles"] },
+  // Last on purpose: stopping the server is a deliberate act, not
+  // something to sit a mis-click away from the controls above (#2616).
+  { key: "server", items: ["quit"] },
 ];
 
 const visibleGroups = computed(() =>

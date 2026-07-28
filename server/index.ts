@@ -65,6 +65,7 @@ import { setActiveBackend } from "./agent/backend/index.js";
 import { fakeEchoBackend } from "./agent/backend/fake-echo.js";
 import { startMacosReminderAdapter } from "./notifier/macosReminderAdapter.js";
 import notifierRoutes from "./api/routes/notifier.js";
+import { createShutdownRouter } from "./api/routes/shutdown.js";
 import { initNotifier } from "./notifier/engine.js";
 import { registerSaveAttachmentHook } from "./utils/files/attachment-store.js";
 import { capturePhotoLocation } from "./workspace/photo-locations/index.js";
@@ -725,6 +726,7 @@ app.use(createJournalRouter());
 app.use(createTranslationRouter());
 app.use(mcpToolsRouter);
 app.use(schedulerTasksRoutes);
+app.use(createShutdownRouter());
 
 if (env.isProduction) {
   // `{ index: false }` so express.static doesn't intercept `GET /`

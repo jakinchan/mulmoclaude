@@ -328,7 +328,22 @@
       @update:open="onSettingsOpenChange"
       @ask-gemini="handleAskGemini"
       @saved="refreshGoogleMapsApiKey"
+      @stopped="onServerStopped"
     />
+
+    <!-- Rendered on the response to POST /api/shutdown, i.e. while the
+         server is still answering. Once it is gone the page cannot be
+         navigated anywhere, so this has to be up first (#2616). -->
+    <div v-if="serverStopped" class="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/80 p-6" data-testid="server-stopped-overlay">
+      <!-- `role="alert"` (assertive by definition) rather than a dialog:
+           there is nothing here to focus or dismiss, and this is the one
+           state a screen-reader user most needs told — the app is gone
+           and no further interaction will do anything. -->
+      <div class="max-w-md rounded-lg bg-white p-6 text-center shadow-xl" role="alert" aria-live="assertive">
+        <p class="text-base font-medium text-gray-900">{{ t("settingsModal.quitTab.stoppedTitle") }}</p>
+        <p class="mt-2 text-sm text-gray-600">{{ t("settingsModal.quitTab.stoppedBody") }}</p>
+      </div>
+    </div>
 
     <!-- Global confirm dialog. Renders the module-global confirm state opened
          via useConfirm()/the collection plugin's confirm() capability — mounted
@@ -595,6 +610,16 @@ const {
 
 const { showRightSidebar, toggleRightSidebar } = useRightSidebar();
 const showSettings = ref(false);
+// Set when the server acknowledged POST /api/shutdown. One-way: nothing
+// can clear it, because there is no server left to talk to (#2616).
+const serverStopped = ref(false);
+function onServerStopped(): void {
+  // Close the modal too: leaving it open puts a live-looking settings
+  // pane behind the "stopped" card, which reads as if something still
+  // works. Nothing does — the server is gone.
+  showSettings.value = false;
+  serverStopped.value = true;
+}
 
 // When the Settings modal closes, re-check voice-input availability: the
 // user may have just enabled it / started the model download, and the
