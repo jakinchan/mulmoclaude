@@ -1,4 +1,4 @@
-import { readFile, stat } from "fs/promises";
+import { readFile, realpath, stat } from "fs/promises";
 import path from "path";
 import { workspacePath } from "../../workspace/workspace.js";
 import { WORKSPACE_DIRS } from "../../workspace/paths.js";
@@ -22,23 +22,35 @@ export async function loadMarkdown(relativePath: string): Promise<string> {
 // Strict — overwriteMarkdown's path.join doesn't normalize traversal, so this gate is the primary defence.
 export const isMarkdownPath = makePathValidator({ prefix: WORKSPACE_DIRS.markdowns, ext: ".md" });
 
+// `path.relative(root, candidate)` starts with `..` when `candidate` escapes
+// `root`. Lexically redundant after `isMarkdownPath`, but it is the sanitizer
+// pattern CodeQL's js/path-injection data flow recognizes — and applied to a
+// REALPATH it is also the symlink check (same shape as `escapesRoot` in
+// ./safe.ts).
+function escapesWorkspace(rootReal: string, candidate: string): boolean {
+  const relative = path.relative(rootReal, candidate);
+  return relative.startsWith("..") || path.isAbsolute(relative);
+}
+
 // Readable-regular-file probe for presentDocument's `path` form. Gated on
-// isMarkdownPath first for the same traversal reason as overwriteMarkdown,
-// then re-checked with the `path.relative` containment pattern — redundant
-// at runtime, but it is what CodeQL's js/path-injection data flow recognizes
-// as a sanitizer (same reasoning as `escapesRoot` in ./safe.ts).
+// isMarkdownPath first, for the same traversal reason as overwriteMarkdown.
 //
 // `isFile()` rather than a bare existence check: a DIRECTORY named
 // `…/report.md` satisfies access(), so the route would report a presented
-// document whose subsequent loadDoc (readFile) fails with EISDIR.
+// document whose subsequent read fails with EISDIR.
+//
+// Realpath rather than the lexical path alone: `stat` follows symlinks, so
+// `artifacts/documents/report.md -> /etc/secret` would otherwise present as a
+// workspace document.
 export async function markdownExists(relativePath: string): Promise<boolean> {
   if (!isMarkdownPath(relativePath)) return false;
-  const absPath = path.resolve(workspacePath, relativePath);
-  const relative = path.relative(workspacePath, absPath);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) return false;
   try {
-    const stats = await stat(absPath);
-    return stats.isFile();
+    const rootReal = await realpath(workspacePath);
+    const absPath = path.resolve(rootReal, relativePath);
+    if (escapesWorkspace(rootReal, absPath)) return false;
+    const absReal = await realpath(absPath);
+    if (escapesWorkspace(rootReal, absReal)) return false;
+    return (await stat(absReal)).isFile();
   } catch {
     return false;
   }

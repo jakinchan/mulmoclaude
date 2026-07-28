@@ -46,4 +46,26 @@ describe("markdown isFilePath", () => {
     assert.equal(isFilePath("markdowns/abc.md"), false);
     assert.equal(isFilePath("markdowns/sub/nested.md"), false);
   });
+
+  // The prefix + extension pair alone let a traversal through
+  // (`artifacts/documents/../../secrets.md`). It also gates the
+  // `path` argument of presentDocument in the host-agnostic core, where
+  // no second validator stands behind it — so canonical form is checked
+  // here, matching the host's `makePathValidator`.
+  it("rejects traversal segments under the documents prefix", () => {
+    assert.equal(isFilePath("artifacts/documents/../../secrets.md"), false);
+    assert.equal(isFilePath("artifacts/documents/sub/../../../etc/passwd.md"), false);
+    assert.equal(isFilePath("artifacts/documents/..md"), false);
+  });
+
+  it("rejects non-canonical segments", () => {
+    assert.equal(isFilePath("artifacts/documents/./foo.md"), false);
+    assert.equal(isFilePath("artifacts/documents//foo.md"), false);
+    assert.equal(isFilePath("artifacts/documents/sub//deep.md"), false);
+  });
+
+  it("rejects backslashes and NUL bytes", () => {
+    assert.equal(isFilePath("artifacts/documents/sub\\foo.md"), false);
+    assert.equal(isFilePath("artifacts/documents/foo\0.md"), false);
+  });
 });
