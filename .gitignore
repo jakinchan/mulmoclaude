@@ -26,9 +26,11 @@ test-results-live/
 # Runtime workspace data, for the layout where the workspace IS the checkout
 # (MULMOCLAUDE_WORKSPACE_PATH defaults to ~/mulmoclaude, so cloning there makes
 # them the same directory). Keeps personal chat/artifacts uncommittable, and out
-# of Tailwind's gitignore-honouring source scan (#2632). Inert otherwise.
-# Anchored with a leading `/`: the unanchored form would also match
-# packages/core/src/{artifacts,feeds}/ and silently untrack new files there.
+# of Tailwind's gitignore-honouring source scan (#2632). Moot where those root
+# paths don't exist, which is every checkout whose workspace lives elsewhere.
+# Anchored with a leading `/` — unanchored, these match a directory of the same
+# name at ANY depth: packages/core/src/{artifacts,feeds}/ and all of
+# packages/plugins/.
 /conversations/
 /data/
 /artifacts/

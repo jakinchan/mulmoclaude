@@ -106,12 +106,23 @@ Anchoring matters. The unanchored form proposed in the issue (`artifacts/`,
 means `packages/core/src/artifacts/`, `packages/core/src/feeds/` — and, once the
 list is complete, all of `packages/plugins/`. Already-tracked files stay tracked,
 so nothing breaks today, but any new file added under those directories would be
-silently untracked. Verified after anchoring:
-`git ls-files | git check-ignore --stdin` returns nothing.
+silently untracked.
 
-Inert for a checkout whose workspace lives elsewhere; when the workspace *is* the
-checkout it both keeps personal data uncommittable and keeps it out of Tailwind's
-gitignore-honouring scanner (defence in depth behind the watcher prune).
+Verified after anchoring with `git ls-files | git check-ignore --no-index --stdin`
+→ nothing. **`--no-index` is load-bearing**: without it `check-ignore` reports
+only untracked paths, so running it over `git ls-files` can never produce a hit
+and the empty result proves nothing. The mechanism itself was pinned in a scratch
+repo — unanchored `artifacts/ feeds/ plugins/` match
+`packages/core/src/artifacts/paths.ts`, `packages/core/src/feeds/index.ts` and
+`packages/plugins/chart-plugin/package.json`; the anchored form matches none of
+them.
+
+Scope, precisely: the **watcher predicate** is inert for a checkout whose
+workspace lives elsewhere, because it compares realpaths. The **`.gitignore`
+rules** are not conditional — they apply to matching root paths always; they are
+simply moot in a checkout where those root paths do not exist. Where they do,
+they keep personal data uncommittable and out of Tailwind's gitignore-honouring
+scanner (defence in depth behind the watcher prune).
 
 ## Tests
 
