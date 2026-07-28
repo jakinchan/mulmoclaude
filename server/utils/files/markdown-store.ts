@@ -1,4 +1,4 @@
-import { readFile } from "fs/promises";
+import { access, readFile } from "fs/promises";
 import path from "path";
 import { workspacePath } from "../../workspace/workspace.js";
 import { WORKSPACE_DIRS } from "../../workspace/paths.js";
@@ -21,6 +21,18 @@ export async function loadMarkdown(relativePath: string): Promise<string> {
 
 // Strict — overwriteMarkdown's path.join doesn't normalize traversal, so this gate is the primary defence.
 export const isMarkdownPath = makePathValidator({ prefix: WORKSPACE_DIRS.markdowns, ext: ".md" });
+
+// Existence probe for presentDocument's `path` form. Gated on isMarkdownPath
+// first for the same traversal reason as overwriteMarkdown.
+export async function markdownExists(relativePath: string): Promise<boolean> {
+  if (!isMarkdownPath(relativePath)) return false;
+  try {
+    await access(path.join(workspacePath, relativePath));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Defense in depth (matches `overwriteSvg`): if a caller forgets to
 // pre-check via `isMarkdownPath`, `path.join(workspacePath, relativePath)`
