@@ -8,6 +8,7 @@
 // it without pulling this server surface.
 export { startHostRunner } from "./hostRunner.js";
 export type { HostEvent, HostRunnerOptions } from "./hostRunner.js";
+export { stripUndefined, undefinedPaths, unexpectedPaths } from "./firestoreSafeResult.js";
 export { createRemoteHost } from "./lifecycle.js";
 export type { RemoteHostStatus, RemoteHostLogger, RemoteHostDeps, RemoteHostLifecycle } from "./lifecycle.js";
 export { createRemoteHostAuth } from "./auth.js";

@@ -34,6 +34,7 @@ import {
   hostDoc,
   isExpired,
 } from "../index.js";
+import { stripUndefined, undefinedPaths, unexpectedPaths } from "./firestoreSafeResult.js";
 
 const DEFAULT_HEARTBEAT_MS = 60_000;
 
@@ -80,6 +81,12 @@ export interface HostRunnerOptions {
   onExpire?: (command: Command, uid: string) => void | Promise<void>;
   // Presence heartbeat interval; defaults to one minute.
   heartbeatMs?: number;
+  // Paths in a handler's reply where `undefined` is expected rather than a bug,
+  // keyed by method name — `{ listSessions: ["sessions.*.work"] }`, `*` matching
+  // exactly one segment. Firestore refuses `undefined` either way, so these are
+  // still stripped; declaring them only silences the report, which is what keeps
+  // it worth reading (#2634).
+  expectedUndefined?: Record<string, readonly string[]>;
 }
 
 interface Claim {
@@ -111,10 +118,25 @@ const claimCommand = (firestore: Firestore, ref: DocumentReference): Promise<Cla
 export const resolveCommandHandler = (handlers: CommandHandlers, method: string): CommandHandler | undefined =>
   Object.hasOwn(handlers, method) ? handlers[method] : undefined;
 
-const runHandler = async (ref: DocumentReference, claim: Claim, handler: CommandHandler): Promise<HostEvent> => {
+// Firestore refuses a write containing `undefined` at any depth, so one stray
+// value would cost the whole reply — `status: "done"` never lands and the remote
+// waits out its timeout. Strip instead, and name the paths: Firestore's own error
+// points at the document, never at the field, which is where the debugging time
+// goes. Paths the caller declared as legitimately-optional are stripped silently.
+const reportStripped = (dropped: string[], claim: Claim, options: HostRunnerOptions): void => {
+  if (dropped.length === 0) return;
+  const paths = dropped.map((path) => `result.${path}`).join(", ");
+  options.onEvent?.({ phase: "error", method: claim.method, message: `undefined dropped at ${paths} — Firestore would have refused the whole reply` });
+};
+
+const runHandler = async (ref: DocumentReference, claim: Claim, handler: CommandHandler, options: HostRunnerOptions): Promise<HostEvent> => {
   try {
-    const result = await handler(claim.params);
-    await updateDoc(ref, { status: "done", result: result ?? null, updatedAt: serverTimestamp() });
+    const returned = await handler(claim.params);
+    const dropped = undefinedPaths(returned);
+    reportStripped(unexpectedPaths(dropped, options.expectedUndefined?.[claim.method]), claim, options);
+    // The walk above already answered "is there anything to strip", so a clean
+    // reply — every reply, normally — is written without copying it first.
+    await updateDoc(ref, { status: "done", result: dropped.length === 0 ? returned : stripUndefined(returned), updatedAt: serverTimestamp() });
     return { phase: "done", method: claim.method };
   } catch (error) {
     const message = errorMessage(error);
@@ -171,7 +193,7 @@ const processCommand = async (ctx: RunnerContext, ref: DocumentReference, comman
     options.onEvent?.({ phase: "error", method: claim.method, message: "unknown method" });
     return;
   }
-  options.onEvent?.(await runHandler(ref, claim, handler));
+  options.onEvent?.(await runHandler(ref, claim, handler, options));
 };
 
 // A resilient command listener: its mutable retry state plus the fixed collaborators.
