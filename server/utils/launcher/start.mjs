@@ -23,8 +23,8 @@ const DEFAULT_PORT = 3001;
 const LOG_SIZE_CAP_BYTES = 1_000_000;
 
 /** macOS keeps per-app logs here, which is also where Console.app looks. */
-export function launcherLogPath(home = homedir()) {
-  return launcherPaths({ home }).logPath;
+export function launcherLogPath(home = homedir(), platform = process.platform) {
+  return launcherPaths({ home, platform }).logPath;
 }
 
 function log(logPath, message) {
@@ -126,12 +126,38 @@ function toPageFailure(messages, { key, values }) {
 // holding the read ends — the process never exits, which is the exact
 // opposite of detaching — and killing it would then break the server's
 // stdout mid-write.
+/**
+ * What to spawn, and from where.
+ *
+ * The working directory is set explicitly because a GUI launch runs with
+ * cwd `/` (measured), and the CLI loads `<cwd>/.env` to pick up keys like
+ * `GEMINI_API_KEY`. Left alone, an icon user's `.env` could only ever be
+ * `/.env` — a path they cannot write — so the documented way to supply a
+ * key would silently do nothing for exactly the people who never open a
+ * terminal. Home is the one directory that is theirs and always exists.
+ *
+ * @param {{ port: number, home?: string }} options
+ * @returns {{ command: string, args: string[], cwd: string }}
+ */
+export function serverSpawnPlan({ port, home = homedir(), platform = process.platform }) {
+  return {
+    // `npx.cmd` on Windows — a batch file, which spawn cannot resolve
+    // from the bare name. The plan owns it so the unit test pins the
+    // command as well as the cwd.
+    command: npxCommand(platform),
+    args: ["mulmoclaude@latest", "--port", String(port), "--no-open"],
+    cwd: home,
+  };
+}
+
 function spawnServer({ port, logPath, env }) {
   mkdirSync(dirname(logPath), { recursive: true });
   const logFd = openSync(logPath, "a");
+  const { command, args, cwd } = serverSpawnPlan({ port });
   try {
-    const child = spawn(npxCommand(process.platform), ["mulmoclaude@latest", "--port", String(port), "--no-open"], {
+    const child = spawn(command, args, {
       env,
+      cwd,
       detached: true,
       stdio: ["ignore", logFd, logFd],
     });

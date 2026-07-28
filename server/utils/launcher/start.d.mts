@@ -1,8 +1,10 @@
 // Type declarations for start.mjs.
 
-export function launcherLogPath(home?: string): string;
+export function launcherLogPath(home?: string, platform?: string): string;
 
 export function detectLocale(options?: { env?: Record<string, string | undefined>; run?: () => string; platform?: string; intl?: () => string }): string;
+
+export function serverSpawnPlan(options: { port: number; home?: string; platform?: string }): { command: string; args: string[]; cwd: string };
 
 export interface StartLauncherOptions {
   env?: Record<string, string | undefined>;

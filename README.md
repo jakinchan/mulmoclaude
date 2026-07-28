@@ -42,6 +42,8 @@ This writes `MulmoClaude.app` to `/Applications` (or `~/Applications` if that is
 
 When something is missing — Node.js, `npx`, or Claude Code — it says which one and what to run, in your system language. Its log is at `~/Library/Logs/MulmoClaude/launcher.log`.
 
+> **Where `.env` goes**: a terminal launch reads `.env` from the directory you launched in. An icon has no such directory — macOS starts apps in `/`, and Windows starts them wherever the shortcut points — so the icon launch reads `~/.env`, your home directory.
+
 On **Windows** the same command writes a shortcut to the Start Menu instead (`--dir` puts it elsewhere, e.g. the Desktop), with the launcher's own files under `%LOCALAPPDATA%\MulmoClaude`. It opens no console window. Everything else behaves identically.
 
 Re-run the command after upgrading: the shortcut carries its own copy of the launcher.
