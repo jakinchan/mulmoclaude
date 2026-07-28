@@ -32,7 +32,9 @@ Re-run `create-shortcut` after upgrading: the shortcut carries its own copy of t
 
 **The macOS Reminder sink can now be switched off from Settings → Notifications** (#2617). It was previously a CLI flag only, and an icon launch can pass neither a flag nor an environment variable — so the people the launcher exists for had no way to turn it off. The flag still wins when it is set, and the toggle says so rather than pretending to work.
 
-One known gap remains, tracked as #2616: a server started from the icon keeps running, with no way to stop it from the UI.
+**You can now stop it from the app** (#2616). A server started from the icon outlives the launcher by design, which used to leave `kill $(lsof -ti:3001)` as the only way to stop it — a terminal command, for the people the icon exists to spare from terminals. **Settings → Server → Quit** asks for confirmation, then stops the server and switches the page to a "stopped" screen. The server answers before it stops, because after it is gone the page cannot be navigated anywhere.
+
+Not reachable from a phone: the server binds to `127.0.0.1` and the RemoteHost channel dispatches its own handlers, so remote-stop would be a one-way door with no way to start it again.
 
 ---
 
