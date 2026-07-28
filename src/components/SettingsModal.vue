@@ -175,7 +175,11 @@
             <SettingsJournalTab v-else-if="activeTab === 'journal'" :reload-token="journalReloadToken" @saved="emit('saved')" />
 
             <SettingsNotificationsTab v-else-if="activeTab === 'notifications'" :reload-token="notificationsReloadToken" @saved="emit('saved')" />
-            <SettingsQuitTab v-else-if="activeTab === 'quit'" @stopped="emit('stopped')" />
+            <!-- Its own `v-if`, not part of the chain above: the chain is
+                 long and every entry added to it has to stay adjacent to
+                 survive the compiler. This tab is mutually exclusive with
+                 the rest by construction, so it does not need to be in it. -->
+            <SettingsQuitTab v-if="activeTab === 'quit'" @stopped="emit('stopped')" />
           </template>
         </div>
       </div>

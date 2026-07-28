@@ -328,7 +328,7 @@
       @update:open="onSettingsOpenChange"
       @ask-gemini="handleAskGemini"
       @saved="refreshGoogleMapsApiKey"
-      @stopped="serverStopped = true"
+      @stopped="onServerStopped"
     />
 
     <!-- Rendered on the response to POST /api/shutdown, i.e. while the
@@ -609,6 +609,13 @@ const showSettings = ref(false);
 // Set when the server acknowledged POST /api/shutdown. One-way: nothing
 // can clear it, because there is no server left to talk to (#2616).
 const serverStopped = ref(false);
+function onServerStopped(): void {
+  // Close the modal too: leaving it open puts a live-looking settings
+  // pane behind the "stopped" card, which reads as if something still
+  // works. Nothing does — the server is gone.
+  showSettings.value = false;
+  serverStopped.value = true;
+}
 
 // When the Settings modal closes, re-check voice-input availability: the
 // user may have just enabled it / started the model download, and the

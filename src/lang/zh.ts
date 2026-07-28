@@ -312,7 +312,10 @@ const zhMessages = {
     },
     quitTab: {
       description: "停止本机上运行的 MulmoClaude 服务器。从图标启动时，即使关闭此标签页服务器仍会继续运行——这里就是无需终端即可停止它的入口。",
-      restartHint: "要再次启动，请双击 MulmoClaude 图标（或运行 `npx mulmoclaude@latest`）。",
+      // Message function form — skips vue-i18n's message compiler so the
+      // literal `@` in `mulmoclaude@latest` is not parsed as a linked-message
+      // reference (the compiler throws, and the whole tab renders as nothing).
+      restartHint: () => "要再次启动，请双击 MulmoClaude 图标（或运行 `npx mulmoclaude@latest`）。",
       quitLabel: "退出 MulmoClaude",
       confirmBody: "服务器将停止，此页面将无法继续使用。正在进行的处理会被中断。",
       confirmLabel: "退出",

@@ -321,7 +321,10 @@ const jaMessages = {
     quitTab: {
       description:
         "このマシンで動いている MulmoClaude サーバーを終了します。アイコンから起動した場合、このタブを閉じてもサーバーは動き続けます。ターミナルを使わずに止める手段がここです。",
-      restartHint: "もう一度起動するには、MulmoClaude のアイコンをダブルクリックしてください（または `npx mulmoclaude@latest`）。",
+      // Message function form — skips vue-i18n's message compiler so the
+      // literal `@` in `mulmoclaude@latest` is not parsed as a linked-message
+      // reference (the compiler throws, and the whole tab renders as nothing).
+      restartHint: () => "もう一度起動するには、MulmoClaude のアイコンをダブルクリックしてください（または `npx mulmoclaude@latest`）。",
       quitLabel: "MulmoClaude を終了",
       confirmBody: "サーバーが停止し、このページは動かなくなります。実行中の処理は中断されます。",
       confirmLabel: "終了する",

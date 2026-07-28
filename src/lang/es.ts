@@ -323,7 +323,10 @@ const esMessages = {
     quitTab: {
       description:
         "Detén el servidor de MulmoClaude que se ejecuta en este equipo. Si lo abriste desde el icono, sigue funcionando aunque cierres esta pestaña: así se detiene sin usar una terminal.",
-      restartHint: "Para volver a iniciarlo, haz doble clic en el icono de MulmoClaude (o ejecuta `npx mulmoclaude@latest`).",
+      // Message function form — skips vue-i18n's message compiler so the
+      // literal `@` in `mulmoclaude@latest` is not parsed as a linked-message
+      // reference (the compiler throws, and the whole tab renders as nothing).
+      restartHint: () => "Para volver a iniciarlo, haz doble clic en el icono de MulmoClaude (o ejecuta `npx mulmoclaude@latest`).",
       quitLabel: "Salir de MulmoClaude",
       confirmBody: "El servidor se detiene y esta página deja de funcionar. Se interrumpe todo lo que esté en curso.",
       confirmLabel: "Salir",

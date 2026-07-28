@@ -321,7 +321,10 @@ const koMessages = {
     quitTab: {
       description:
         "이 컴퓨터에서 실행 중인 MulmoClaude 서버를 종료합니다. 아이콘으로 시작한 경우 이 탭을 닫아도 서버는 계속 실행됩니다. 터미널 없이 종료하는 방법이 여기입니다.",
-      restartHint: "다시 시작하려면 MulmoClaude 아이콘을 두 번 클릭하세요(또는 `npx mulmoclaude@latest`).",
+      // Message function form — skips vue-i18n's message compiler so the
+      // literal `@` in `mulmoclaude@latest` is not parsed as a linked-message
+      // reference (the compiler throws, and the whole tab renders as nothing).
+      restartHint: () => "다시 시작하려면 MulmoClaude 아이콘을 두 번 클릭하세요(또는 `npx mulmoclaude@latest`).",
       quitLabel: "MulmoClaude 종료",
       confirmBody: "서버가 멈추고 이 페이지는 동작하지 않게 됩니다. 진행 중인 작업은 중단됩니다.",
       confirmLabel: "종료",

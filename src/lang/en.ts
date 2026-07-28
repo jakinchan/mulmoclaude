@@ -337,7 +337,10 @@ const enMessages = {
     quitTab: {
       description:
         "Stop the MulmoClaude server running on this machine. Started from the icon, it keeps running after you close this tab — this is how you stop it without a terminal.",
-      restartHint: "To start it again, double-click the MulmoClaude icon (or run `npx mulmoclaude@latest`).",
+      // Message function form — skips vue-i18n's message compiler so the
+      // literal `@` in `mulmoclaude@latest` is not parsed as a linked-message
+      // reference (the compiler throws, and the whole tab renders as nothing).
+      restartHint: () => "To start it again, double-click the MulmoClaude icon (or run `npx mulmoclaude@latest`).",
       quitLabel: "Quit MulmoClaude",
       confirmBody: "The server stops and this page stops working. Anything still running is interrupted.",
       confirmLabel: "Quit",

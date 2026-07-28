@@ -318,7 +318,10 @@ const frMessages = {
     quitTab: {
       description:
         "Arrête le serveur MulmoClaude qui tourne sur cette machine. Lancé depuis l'icône, il continue de tourner même si vous fermez cet onglet — c'est ici qu'on l'arrête sans terminal.",
-      restartHint: "Pour le relancer, double-cliquez sur l'icône MulmoClaude (ou lancez `npx mulmoclaude@latest`).",
+      // Message function form — skips vue-i18n's message compiler so the
+      // literal `@` in `mulmoclaude@latest` is not parsed as a linked-message
+      // reference (the compiler throws, and the whole tab renders as nothing).
+      restartHint: () => "Pour le relancer, double-cliquez sur l'icône MulmoClaude (ou lancez `npx mulmoclaude@latest`).",
       quitLabel: "Quitter MulmoClaude",
       confirmBody: "Le serveur s'arrête et cette page cesse de fonctionner. Tout traitement en cours est interrompu.",
       confirmLabel: "Quitter",

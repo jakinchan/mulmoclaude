@@ -318,7 +318,10 @@ const ptBRMessages = {
     quitTab: {
       description:
         "Encerra o servidor do MulmoClaude em execução nesta máquina. Iniciado pelo ícone, ele continua rodando mesmo se você fechar esta aba — é assim que se encerra sem um terminal.",
-      restartHint: "Para iniciar de novo, dê um duplo clique no ícone do MulmoClaude (ou rode `npx mulmoclaude@latest`).",
+      // Message function form — skips vue-i18n's message compiler so the
+      // literal `@` in `mulmoclaude@latest` is not parsed as a linked-message
+      // reference (the compiler throws, and the whole tab renders as nothing).
+      restartHint: () => "Para iniciar de novo, dê um duplo clique no ícone do MulmoClaude (ou rode `npx mulmoclaude@latest`).",
       quitLabel: "Encerrar o MulmoClaude",
       confirmBody: "O servidor para e esta página deixa de funcionar. O que estiver em andamento é interrompido.",
       confirmLabel: "Encerrar",

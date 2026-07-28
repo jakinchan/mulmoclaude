@@ -321,7 +321,10 @@ const deMessages = {
     quitTab: {
       description:
         "Beendet den MulmoClaude-Server auf diesem Rechner. Über das Symbol gestartet, läuft er weiter, auch wenn du diesen Tab schließt — hier beendest du ihn ohne Terminal.",
-      restartHint: "Zum erneuten Starten doppelklicke auf das MulmoClaude-Symbol (oder führe `npx mulmoclaude@latest` aus).",
+      // Message function form — skips vue-i18n's message compiler so the
+      // literal `@` in `mulmoclaude@latest` is not parsed as a linked-message
+      // reference (the compiler throws, and the whole tab renders as nothing).
+      restartHint: () => "Zum erneuten Starten doppelklicke auf das MulmoClaude-Symbol (oder führe `npx mulmoclaude@latest` aus).",
       quitLabel: "MulmoClaude beenden",
       confirmBody: "Der Server hält an und diese Seite funktioniert nicht mehr. Laufende Vorgänge werden abgebrochen.",
       confirmLabel: "Beenden",
