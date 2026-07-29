@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createDevWatchIgnore } from './scripts/lib/devWatchIgnore'
 import { resolveServerPort, serverOrigins } from './scripts/lib/devServerPort'
+import { parseEnvFile } from './server/utils/launch-env.mjs'
 
 // Token file path mirrors `WORKSPACE_PATHS.sessionToken` in
 // server/workspace-paths.ts. Duplicated here (rather than imported)
@@ -39,16 +40,12 @@ const TOKEN_FILE_PATH = path.join(resolveWorkspacePath(), '.session-token')
 // `.env` is consulted for the same reason `resolveWorkspacePath()` consults it —
 // the server's loader populates `process.env` from that file, so a `PORT` set
 // there and nowhere else must not split the two halves apart.
-function readEnvFileText(): string | undefined {
-  try {
-    return fs.readFileSync(path.join(process.cwd(), '.env'), 'utf-8')
-  } catch {
-    return undefined
-  }
-}
 const SERVER_PORT = resolveServerPort({
   processEnv: process.env,
-  envFileText: readEnvFileText(),
+  // The launcher's parser — i.e. `dotenv.parse`, the same one the server's loader
+  // uses. Reading the file by hand here would let the two disagree about inline
+  // comments, an `export ` prefix or quoting, which is this bug one level down.
+  envFileValues: parseEnvFile(path.join(process.cwd(), '.env')).parsed,
   onInvalid: (source, raw) => console.warn(`[vite] ignoring ${source}="${raw}" — not a port; proxying to the default instead`),
 })
 const { http: SERVER_ORIGIN, ws: SERVER_WS_ORIGIN } = serverOrigins(SERVER_PORT)

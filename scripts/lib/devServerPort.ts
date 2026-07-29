@@ -10,6 +10,12 @@
 // because `vite.config.ts` runs outside the server tsconfig (the same constraint
 // that makes it duplicate the session-token path), and here it can be unit-tested
 // without booting Vite.
+//
+// The `.env` VALUES are supplied by the caller, parsed with the launcher's
+// `parseEnvFile` — the same `dotenv.parse` the server's own loader uses. Parsing
+// the file here by hand would reintroduce the bug one level down: dotenv strips
+// inline comments, honours an `export ` prefix and understands quoting, so
+// `PORT=3100 # dev` would give the server 3100 and the proxy the default.
 
 /** The backend's own default. Mirrors `env.port`'s fallback in `server/system/env.ts`;
  *  the two files cannot share a module, so a change there belongs here as well. */
@@ -27,21 +33,10 @@ export const parseServerPort = (raw: string | undefined | null): number | null =
   return Number.isInteger(port) && port > 0 && port <= MAX_PORT ? port : null;
 };
 
-/** `PORT=` from a `.env` file's text. Last assignment wins, matching dotenv, and a
- *  commented-out line is not one. Values may be quoted. */
-export const parseEnvFilePort = (envFileText: string | undefined | null): number | null => {
-  if (!envFileText) return null;
-  const assignments = envFileText.split(/\r?\n/).filter((line) => /^\s*PORT\s*=/.test(line));
-  const last = assignments.at(-1);
-  if (last === undefined) return null;
-  const value = last.slice(last.indexOf("=") + 1).trim();
-  return parseServerPort(value.replace(/^(['"])(.*)\1$/, "$2"));
-};
-
 export interface ServerPortSources {
   processEnv?: Record<string, string | undefined>;
-  /** Contents of `<cwd>/.env`, or undefined when there is none. */
-  envFileText?: string | null;
+  /** `.env` as the launcher's `parseEnvFile` parsed it — NOT raw file text. */
+  envFileValues?: Record<string, string | undefined> | null;
   /** Reported when a value was present but unusable, so a typo is not silently ignored. */
   onInvalid?: (source: string, raw: string) => void;
 }
@@ -52,14 +47,15 @@ export interface ServerPortSources {
  * `process.env` and an exported shell variable wins over the file.
  */
 export const resolveServerPort = (sources: ServerPortSources = {}): number => {
-  const fromProcess = sources.processEnv?.PORT;
-  const parsedProcess = parseServerPort(fromProcess);
-  if (parsedProcess !== null) return parsedProcess;
-  if (fromProcess?.trim()) sources.onInvalid?.("PORT", fromProcess);
-
-  const parsedFile = parseEnvFilePort(sources.envFileText);
-  if (parsedFile !== null) return parsedFile;
-
+  const candidates: { source: string; raw: string | undefined }[] = [
+    { source: "PORT", raw: sources.processEnv?.PORT },
+    { source: ".env PORT", raw: sources.envFileValues?.PORT },
+  ];
+  for (const { source, raw } of candidates) {
+    const parsed = parseServerPort(raw);
+    if (parsed !== null) return parsed;
+    if (raw?.trim()) sources.onInvalid?.(source, raw);
+  }
   return DEFAULT_SERVER_PORT;
 };
 
