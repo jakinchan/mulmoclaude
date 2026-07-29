@@ -118,6 +118,72 @@ describe("stripUndefined", () => {
   });
 });
 
+// A reply that points back at itself has no bottom. The walk used to recurse until
+// the stack gave out: the runner caught the RangeError, so nothing crashed, but the
+// command failed with `Maximum call stack size exceeded` — naming neither the cause
+// nor the field, which is the one thing this module exists to provide (CodeRabbit,
+// #2637 thread).
+describe("circular replies", () => {
+  // Built by mutation: a cycle cannot be written as a literal.
+  const selfReferential = () => {
+    const node: Record<string, unknown> = { title: "a" };
+    node.self = node;
+    return node;
+  };
+
+  const mutuallyRecursive = () => {
+    const left: Record<string, unknown> = { name: "left" };
+    const right: Record<string, unknown> = { name: "right", left };
+    left.right = right;
+    return { left };
+  };
+
+  it("names the path where undefinedPaths closed the loop", () => {
+    assert.throws(() => undefinedPaths(selfReferential()), /circular reference at self/);
+  });
+
+  it("catches a mutual cycle, not just a direct self-reference", () => {
+    assert.throws(() => undefinedPaths(mutuallyRecursive()), /circular reference at left\.right\.left/);
+  });
+
+  it("catches a cycle through an array", () => {
+    const items: unknown[] = [1];
+    items.push(items);
+    assert.throws(() => undefinedPaths({ items }), /circular reference at items\.1/);
+  });
+
+  // The same three shapes against stripUndefined: the two walks share a guard but
+  // stay separate functions, so each cycle kind is pinned on both sides.
+  it("stripUndefined refuses a cycle too, rather than recursing", () => {
+    assert.throws(() => stripUndefined(selfReferential()), /circular reference at self/);
+  });
+
+  it("stripUndefined catches a mutual cycle", () => {
+    assert.throws(() => stripUndefined(mutuallyRecursive()), /circular reference at left\.right\.left/);
+  });
+
+  it("stripUndefined catches a cycle through an array", () => {
+    const items: unknown[] = [1];
+    items.push(items);
+    assert.throws(() => stripUndefined({ items }), /circular reference at items\.1/);
+  });
+
+  it("reports the root when the reply is its own container", () => {
+    const items: unknown[] = [];
+    items.push(items);
+    assert.throws(() => undefinedPaths(items), /circular reference at 0/);
+  });
+
+  // The guard tracks ANCESTORS only. The same object reached twice from different
+  // branches is ordinary JSON — treating it as a cycle would reject valid replies.
+  it("allows a value referenced twice from different branches", () => {
+    const shared = { label: "shared", missing: undefined };
+    const reply = { first: shared, second: shared };
+    assert.deepEqual(undefinedPaths(reply), ["first.missing", "second.missing"]);
+    assert.deepEqual(stripUndefined(reply), { first: { label: "shared" }, second: { label: "shared" } });
+  });
+});
+
 describe("matchesPathPattern", () => {
   it("matches a literal path", () => {
     assert.equal(matchesPathPattern("sessions.1.work", "sessions.1.work"), true);

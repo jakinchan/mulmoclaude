@@ -35,32 +35,65 @@ const isPlainObject = (value: object): boolean => {
 
 const isWalkable = (value: unknown): value is object => typeof value === "object" && value !== null && (Array.isArray(value) || isPlainObject(value));
 
-/** Every path holding `undefined`, in `a.b.0.c` form. Empty when the value is safe to write. */
-export const undefinedPaths = (value: unknown, prefix = ""): string[] => {
-  if (value === undefined) return [prefix || ROOT_PATH];
-  if (!isWalkable(value)) return [];
-  const child = (key: string | number) => (prefix ? `${prefix}.${key}` : String(key));
-  // Array.from, not flatMap: a SPARSE array's holes are skipped by flatMap/map, so
-  // `[1, , 3]` would be reported clean and then written with a hole Firestore rejects.
-  if (Array.isArray(value)) return Array.from(value).flatMap((item, index) => undefinedPaths(item, child(index)));
-  return Object.entries(value).flatMap(([key, item]) => undefinedPaths(item, child(key)));
+const childPath = (prefix: string, key: string | number): string => (prefix ? `${prefix}.${key}` : String(key));
+
+// A reply that points back at itself has no bottom, so the walks below would recurse
+// until the stack gives out. `RangeError: Maximum call stack size exceeded` is caught
+// by the runner and written back as the command's error, so nothing crashes — but it
+// names neither the cause nor the field, which is the one thing this module exists to
+// provide. Ancestors only: a value referenced twice from different branches is
+// ordinary JSON, so each branch removes itself on the way out. One home for the rule
+// because the two walks are structurally twins — applied separately, a later edit to
+// the safety logic would land in only one of them.
+const withCycleGuard = <T>(value: object, ancestors: WeakSet<object>, path: string, walk: () => T): T => {
+  if (ancestors.has(value)) throw new Error(`circular reference at ${path || ROOT_PATH} — Firestore cannot serialise it`);
+  ancestors.add(value);
+  try {
+    return walk();
+  } finally {
+    ancestors.delete(value);
+  }
 };
 
-/**
- * The same value with every `undefined` removed — object keys dropped, array holes
- * turned into `null` so the surrounding indexes still line up with what the sender
- * meant. Returns `unknown` because a stripped object is no longer the input type.
- */
-export const stripUndefined = (value: unknown): unknown => {
+const pathsIn = (value: unknown, prefix: string, ancestors: WeakSet<object>): string[] => {
+  if (value === undefined) return [prefix || ROOT_PATH];
+  if (!isWalkable(value)) return [];
+  return withCycleGuard(value, ancestors, prefix, () =>
+    // Array.from, not flatMap: a SPARSE array's holes are skipped by flatMap/map, so
+    // `[1, , 3]` would be reported clean and then written with a hole Firestore rejects.
+    Array.isArray(value)
+      ? Array.from(value).flatMap((item, index) => pathsIn(item, childPath(prefix, index), ancestors))
+      : Object.entries(value).flatMap(([key, item]) => pathsIn(item, childPath(prefix, key), ancestors)),
+  );
+};
+
+/** Every path holding `undefined`, in `a.b.0.c` form. Empty when the value is safe to write.
+ *  Throws on a circular reply, naming the path it closed the loop at. */
+export const undefinedPaths = (value: unknown, prefix = ""): string[] => pathsIn(value, prefix, new WeakSet());
+
+const strippedIn = (value: unknown, prefix: string, ancestors: WeakSet<object>): unknown => {
   // The whole reply can be undefined (a handler with no explicit return); `null` is
   // what the runner already substitutes for a missing result.
   if (value === undefined) return null;
   // Anything that is not an array or a plain object is handed back untouched — see
   // isPlainObject: a Date rebuilt from its entries is an empty object.
   if (!isWalkable(value)) return value;
-  if (Array.isArray(value)) return Array.from(value, (item) => stripUndefined(item));
-  return Object.fromEntries(Object.entries(value).flatMap(([key, item]) => (item === undefined ? [] : [[key, stripUndefined(item)]])));
+  return withCycleGuard(value, ancestors, prefix, () =>
+    Array.isArray(value)
+      ? Array.from(value, (item, index) => strippedIn(item, childPath(prefix, index), ancestors))
+      : Object.fromEntries(
+          Object.entries(value).flatMap(([key, item]) => (item === undefined ? [] : [[key, strippedIn(item, childPath(prefix, key), ancestors)]])),
+        ),
+  );
 };
+
+/**
+ * The same value with every `undefined` removed — object keys dropped, array holes
+ * turned into `null` so the surrounding indexes still line up with what the sender
+ * meant. Returns `unknown` because a stripped object is no longer the input type.
+ * Throws on a circular reply, same as `undefinedPaths`.
+ */
+export const stripUndefined = (value: unknown): unknown => strippedIn(value, "", new WeakSet());
 
 /** Does `path` match `pattern`, where `*` stands for exactly one segment?
  *  Segment-wise rather than by regex: no escaping of user-supplied dots, and no
