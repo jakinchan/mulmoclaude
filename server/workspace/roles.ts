@@ -112,7 +112,7 @@ function ignoredEntryProblems(fileNames: string[]): RoleFileProblem[] {
   return [
     {
       message: `ignoring entries that are not ${ROLE_FILE_EXT} files — a custom role must be <id>${ROLE_FILE_EXT}`,
-      data: { dir: WORKSPACE_DIRS.roles, ignored: ignored.join(", ") },
+      data: { dir: WORKSPACE_DIRS.roles, ignored },
     },
   ];
 }

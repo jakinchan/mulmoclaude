@@ -33,7 +33,7 @@ issue のコメントに記録済み。`GET /api/roles/list` は `loadCustomRole
 
 `RoleFileProblem` は `{ message, data }` で持つ。ログ整形は呼び出し側 1 箇所だけになり、純粋関数側は「何が起きたか」だけを組み立てる。
 
-zod の `issues` を生の配列で渡すとテキストシンクで JSON の壁になるので、`path: message` を `; ` で連結した1行に畳む（`summarizeRoleIssues`）。issue が求めた「どのフィールドか」がそのまま読める形。
+zod の `issues` を生の配列で渡すとテキストシンクで JSON の壁になるので、`path: message` を `"; "` で連結した1行に畳む（`summarizeRoleIssues`）。issue が求めた「どのフィールドか」がそのまま読める形。
 
 `.json` 以外のエントリは 1 行にまとめて警告する。dotfile (`.DS_Store` 等) は role を置く意図が無いので対象外 — `collection/server/discovery.ts` の `name.startsWith(".")` と同じ扱い。
 
@@ -45,8 +45,8 @@ zod の `issues` を生の配列で渡すとテキストシンクで JSON の壁
 
 ## ドキュメント / help
 
-- `docs/extension-mechanisms.md` § 3.6 Role — #2652 が入れた「無言で握り潰される」記述を、実際の warn の内容（ファイル名 + 5 種の理由）に差し替える。
-- `packages/core/assets/helps/error-recovery.md` — エージェントが実行時に読む復旧手順に「手で置いた role が一覧に出ない」節を追加。5 つの warn メッセージを列挙し、**どれなのかを推測せず利用者にその行を訊く**よう指示する。既存の `[collections-registry] registry config entry rejected` 節と同じ形。
+- `docs/extension-mechanisms.md` § 3.6 Role — #2652 が入れた「無言で握り潰される」記述を、実際の warn の内容（ファイル名 + 理由）に差し替える。
+- `packages/core/assets/helps/error-recovery.md` — エージェントが実行時に読む復旧手順に「手で置いた role が一覧に出ない」節を追加。6 つの warn メッセージ（`readRoleText` 2 + `parseRoleFile` 3 + `ignoredEntryProblems` 1）を列挙し、**どれなのかを推測せず利用者にその行を訊く**よう指示する。既存の `[collections-registry] registry config entry rejected` 節と同じ形。
   - `assets/helps/*` は npm に載るので `@mulmoclaude/core` を 1.10.0 → **1.10.1** に上げ、宣言側 13 箇所（8 パッケージ）の range を `^1.10.1` に掃く。npm への publish 自体は `/publish` の仕事なので本 PR には含めない（consumer の次のリリース前に必要）。
 
 ## テスト
@@ -57,4 +57,7 @@ zod の `issues` を生の配列で渡すとテキストシンクで JSON の壁
 - 統合: 一時ワークスペース + `captureStderr`（`test/utils/test_logBackgroundError.ts` と同じ手）で、
   - 壊れたファイルの**名前と理由**が warn に出る
   - 壊れたファイルの隣の妥当な role は**そのまま読める**（握り潰しの意図は保つ）
+  - 読めないエントリ（`*.json` という名前のディレクトリ）— errno はプラットフォーム差があるので理由文だけを assert する
+  - readdir と read が食い違うケース = **dangling symlink**。先に消すと readdir に載らないのでこの分岐に入らない（win32 は symlink 権限のため skip）
+  - `config/roles` が無い / 空のときは**何も出ない**（新規インストールが無音であること）
   - `.md` を置くと「`.json` のみ」の警告が出る / `.DS_Store` では出ない

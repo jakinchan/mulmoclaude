@@ -7,7 +7,7 @@
 import { describe, it, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -135,12 +135,55 @@ describe("loadCustomRoles diagnostics", () => {
     assert.ok(!out.includes("reviewer.json"), `the loadable role must not be reported: ${out}`);
   });
 
+  it("names an entry it could not read at all, and still loads the rest", async () => {
+    await place("reviewer.json", JSON.stringify(VALID_ROLE));
+    await mkdir(path.join(rolesDir, "backup.json")); // a directory readdir lists but read cannot open
+
+    const { result, out } = captureStderr(() => loadCustomRoles());
+
+    assert.deepEqual(
+      result.map((role) => role.id),
+      ["reviewer"],
+    );
+    // The errno differs by platform (EISDIR / EPERM), so assert only on what we say.
+    assert.match(out, /could not be read/);
+    assert.match(out, /backup\.json/);
+  });
+
+  // A dangling symlink is the one deterministic way to make readdir and read
+  // disagree — deleting the file first would just drop it from the listing.
+  it("reports a file that vanished between listing and read", { skip: process.platform === "win32" }, async () => {
+    await symlink(path.join(rolesDir, "gone.json"), path.join(rolesDir, "ghost.json"));
+
+    const { result, out } = captureStderr(() => loadCustomRoles());
+
+    assert.equal(result.length, 0);
+    assert.match(out, /disappeared while loading/);
+    assert.match(out, /ghost\.json/);
+  });
+
   it("says nothing when every file loads", async () => {
     await place("reviewer.json", JSON.stringify(VALID_ROLE));
 
     const { result, out } = captureStderr(() => loadCustomRoles());
 
     assert.equal(result.length, 1);
+    assert.equal(out, "");
+  });
+
+  it("says nothing for an empty roles directory", () => {
+    const { result, out } = captureStderr(() => loadCustomRoles());
+
+    assert.deepEqual(result, []);
+    assert.equal(out, "");
+  });
+
+  it("says nothing when the roles directory does not exist — a fresh install must be quiet", async () => {
+    await rm(rolesDir, { recursive: true, force: true });
+
+    const { result, out } = captureStderr(() => loadCustomRoles());
+
+    assert.deepEqual(result, []);
     assert.equal(out, "");
   });
 

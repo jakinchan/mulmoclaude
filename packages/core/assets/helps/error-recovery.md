@@ -251,11 +251,14 @@ naming the file:
 - `role file is empty, skipping` — zero-length or whitespace only.
 - `role file could not be read, skipping` — permissions, or the path is
   a directory.
+- `role file disappeared while loading, skipping` — the file was renamed
+  or deleted while the list was being read, or it is a broken symlink.
+  Re-running the load is enough if the file is there now.
 - `ignoring entries that are not .json files` — a `.md` / `.jsonc` /
   `.json.txt` file is never read as a role.
 
 Ask the user for that warning line (or the file's contents) rather than
-guessing which of the five it is. Writing the role through
+guessing which of the six it is. Writing the role through
 `manageRoles` instead sidesteps all of them — it serializes the role, so
 the file is always valid.
 
