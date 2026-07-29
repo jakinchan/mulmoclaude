@@ -63,7 +63,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/express": "^5.0.6",
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.1.2",
     "@vitejs/plugin-vue": "^6.0.8",
     "express": "^5.2.1",
     "gui-chat-protocol": "^1.2.0",
