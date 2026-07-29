@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/twilio-sms",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Twilio SMS bridge for MulmoBridge — inbound SMS via webhook, outbound via Twilio REST API",
   "type": "module",
   "main": "./dist/index.js",
