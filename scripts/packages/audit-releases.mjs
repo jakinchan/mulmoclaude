@@ -19,10 +19,23 @@ const COMMAND_TIMEOUT_MS = 60_000;
 // not: they describe how the package is built here, not what a consumer receives.
 const RELEASE_MANIFEST_KEYS = ["version", "dependencies", "peerDependencies", "optionalDependencies", "exports", "files", "main", "module", "types", "typings", "bin", "engines", "sideEffects", "publishConfig"];
 
-// Paths whose content reaches the tarball. README is included by npm whether or not
-// `files` lists it, so an edit there changes the published artifact too.
-const RELEASE_PATH_PARTS = ["/src/", "/assets/", "/bin/"];
-const isReleasePath = (file) => RELEASE_PATH_PARTS.some((part) => file.includes(part)) || path.basename(file).toLowerCase().startsWith("readme");
+// `dist/` is the thing npm ships and is gitignored, so drift has to be judged from what
+// FEEDS it: `src/` (compiled) and `bin/` (copied). Everything else is taken from the
+// package's own `files` declaration rather than assumed — a package that ships `assets/`
+// or anything else says so there. README is included by npm whether or not `files`
+// lists it, so an edit there changes the published artifact too.
+const BUILD_INPUT_DIRS = ["src", "bin"];
+const shippedRoots = (pkg) =>
+  (Array.isArray(pkg.files) ? pkg.files : [])
+    .map((entry) => entry.replace(/^\.\//, "").replace(/\/?\*+.*$/, "").replace(/\/$/, ""))
+    .filter(Boolean);
+
+const isReleasePath = (pkg, file) => {
+  const relative = file.startsWith(`${pkg.dir}/`) ? file.slice(pkg.dir.length + 1) : file;
+  if (path.basename(relative).toLowerCase().startsWith("readme")) return true;
+  const under = (root) => relative === root || relative.startsWith(`${root}/`);
+  return BUILD_INPUT_DIRS.some(under) || shippedRoots(pkg).some(under);
+};
 
 const codeOnly = process.argv.includes("--code-only");
 
@@ -53,6 +66,12 @@ const workspaces = WORKSPACE_ROOTS.filter((root) => existsSync(root))
   .sort((left, right) => left.name.localeCompare(right.name));
 
 const tagList = run("git", ["tag", "--list"]);
+if (!tagList.ok) {
+  // Without the tag list every published package would read as `untagged`, which is a
+  // fabricated finding rather than a missing one (Codex, #2644).
+  console.error(`audit aborted: could not read git tags — ${tagList.error}`);
+  process.exit(1);
+}
 const tags = new Set(tagList.out.split("\n"));
 
 // A manifest diff only matters when a key a consumer sees actually moved.
@@ -76,7 +95,7 @@ const classify = (pkg, latest) => {
   const changed = diff.out.split("\n").filter(Boolean);
   if (changed.length === 0) return { state: "clean", detail: "" };
 
-  const source = changed.filter((file) => file !== `${pkg.dir}/package.json` && isReleasePath(file));
+  const source = changed.filter((file) => file !== `${pkg.dir}/package.json` && isReleasePath(pkg, file));
   if (source.length > 0) return { state: "code drift", detail: `${source.length} shipped file(s): ${source[0]}${source.length > 1 ? " …" : ""}` };
 
   if (changed.includes(`${pkg.dir}/package.json`)) {
@@ -84,7 +103,7 @@ const classify = (pkg, latest) => {
     if (unknown) return { state: "error", detail: "could not read the published package.json from the tag" };
     if (keys.length > 0) return { state: "manifest drift", detail: `published fields changed: ${keys.join(", ")}` };
   }
-  return { state: "clean", detail: `${changed.length} file(s) changed, none of them shipped (tests / config / devDependencies)` };
+  return { state: "clean", detail: `${changed.length} file(s) changed, none of which feed the tarball (per this package\u2019s own \`files\`)` };
 };
 
 const NEEDS_DECISION = new Set(["code drift", "manifest drift", "untagged", "unpublished", "error"]);

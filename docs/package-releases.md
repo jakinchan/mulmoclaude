@@ -126,8 +126,8 @@ git diff "@scope/name@$(npm view @scope/name version)" HEAD -- packages/<dir>
 
 | state | meaning |
 |---|---|
-| `clean` | nothing that reaches the tarball has changed. Tests, tsconfig and devDependency edits land here — deliberately, since none of them alter what a consumer receives |
-| `code drift` | unreleased behaviour under `src/`, `assets/`, `bin/`, or a changed README (npm ships it whether or not `files` lists it) |
+| `clean` | nothing that feeds the tarball has changed, judged against **the package's own `files`** plus `src/` and `bin/` (which produce the shipped `dist/`) and README (npm ships it regardless). Tests and tsconfig land here only because no package here lists them in `files` — a package that starts shipping them is classified accordingly |
+| `code drift` | unreleased behaviour in something the package ships: `src/` or `bin/` (they become `dist/`), any root listed in its `files`, or README |
 | `manifest drift` | a **published** `package.json` field moved — `dependencies`, `exports`, `files`, `bin`, `engines`, … A dependency-range sweep shows up here; it reaches users at this package's next release, so it is a decision, not an emergency |
 | `untagged` | published, but no tag, so drift **cannot be measured** — fix the tag first |
 | `unpublished` | never went to npm — decide whether it is meant to |
@@ -172,11 +172,14 @@ it, and look inside:
 
 ```bash
 cd packages/<dir>
-TARBALL=$(npm pack --silent)                 # writes the real archive
-tar -xzf "$TARBALL" -C "$(mktemp -d /tmp/packcheck.XXXX)" --strip-components=1
-# then, in that directory:
-grep -r "<a string only the new code contains>" dist/
+TARBALL=$(npm pack --silent)                  # the real archive, not a listing
+UNPACKED=$(mktemp -d /tmp/packcheck.XXXXXX)
+tar -xzf "$TARBALL" -C "$UNPACKED" --strip-components=1
+grep -r "<a string only the new code contains>" "$UNPACKED"   # the ARCHIVE, not the checkout
 ```
+
+Grepping `dist/` in the checkout instead would pass for a file that `files` or
+`.npmignore` excludes — the check would confirm the build, not the artifact.
 
 A vite-built package emits one bundled `index.js` plus per-module `.d.ts`, so "my new
 module is missing from the tarball" is usually wrong — the code is in the bundle. Grep
