@@ -8,7 +8,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import path from "path";
-import { htmlFileUrlFor, HTML_FILE_MOUNT } from "../../src/utils/html/htmlFileUrl.js";
+import { htmlFileUrl, HTML_FILE_MOUNT } from "@mulmoclaude/html-plugin";
 import { resolveHtmlFileRequestPath } from "../../server/utils/files/htmlFileRequest.js";
 
 const WORKSPACE = "/tmp/ws-root";
@@ -19,29 +19,29 @@ function requestPathFor(url: string): string {
 }
 
 function roundTrip(filePath: string): string | null {
-  const url = htmlFileUrlFor(filePath);
+  const url = htmlFileUrl(filePath);
   if (url === null) return null;
   return resolveHtmlFileRequestPath(WORKSPACE, requestPathFor(url));
 }
 
-describe("htmlFileUrlFor", () => {
+describe("htmlFileUrl", () => {
   it("scopes workspace-relative and absolute paths differently", () => {
-    assert.equal(htmlFileUrlFor("docs/report.html"), "/htmlfile/ws/docs/report.html");
-    assert.equal(htmlFileUrlFor("/Users/x/p/page.html"), "/htmlfile/abs/Users/x/p/page.html");
+    assert.equal(htmlFileUrl("docs/report.html"), "/htmlfile/ws/docs/report.html");
+    assert.equal(htmlFileUrl("/Users/x/p/page.html"), "/htmlfile/abs/Users/x/p/page.html");
   });
 
   it("encodes segments so spaces and reserved characters survive", () => {
-    assert.equal(htmlFileUrlFor("docs/my report.html"), "/htmlfile/ws/docs/my%20report.html");
-    assert.equal(htmlFileUrlFor("docs/a?b.html"), "/htmlfile/ws/docs/a%3Fb.html");
+    assert.equal(htmlFileUrl("docs/my report.html"), "/htmlfile/ws/docs/my%20report.html");
+    assert.equal(htmlFileUrl("docs/a?b.html"), "/htmlfile/ws/docs/a%3Fb.html");
   });
 
   it("returns null for non-HTML, traversal, empty and NUL-bearing values", () => {
-    assert.equal(htmlFileUrlFor("docs/report.md"), null);
-    assert.equal(htmlFileUrlFor("../secret.html"), null);
-    assert.equal(htmlFileUrlFor("docs/../../secret.html"), null);
-    assert.equal(htmlFileUrlFor(""), null);
-    assert.equal(htmlFileUrlFor(null), null);
-    assert.equal(htmlFileUrlFor("docs/a\0.html"), null);
+    assert.equal(htmlFileUrl("docs/report.md"), null);
+    assert.equal(htmlFileUrl("../secret.html"), null);
+    assert.equal(htmlFileUrl("docs/../../secret.html"), null);
+    assert.equal(htmlFileUrl(""), null);
+    assert.equal(htmlFileUrl(null), null);
+    assert.equal(htmlFileUrl("docs/a\0.html"), null);
   });
 });
 

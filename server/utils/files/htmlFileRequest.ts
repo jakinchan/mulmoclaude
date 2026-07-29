@@ -18,7 +18,7 @@
 // `src` request cannot carry an Authorization header.
 
 import path from "path";
-import { HTML_FILE_SCOPE_ABSOLUTE, HTML_FILE_SCOPE_WORKSPACE } from "../../../src/utils/html/htmlFileUrl.js";
+import { HTML_FILE_SCOPE_ABSOLUTE, HTML_FILE_SCOPE_WORKSPACE } from "@mulmoclaude/html-plugin";
 
 const WINDOWS_DRIVE_ONLY_RE = /^[a-zA-Z]:$/;
 

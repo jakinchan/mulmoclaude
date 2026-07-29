@@ -150,12 +150,19 @@ describe("htmlArtifactPreviewUrl", () => {
   it("derives the served URL from a clean filePath (per-segment encoded)", () => {
     assert.equal(htmlArtifactPreviewUrl("artifacts/html/2026/06/the cell.html"), "/artifacts/html/2026/06/the%20cell.html");
   });
-  it("returns null for non-html, wrong root, and traversal segments", () => {
+  it("returns null for non-html and for traversal inside the artifact root", () => {
     assert.equal(htmlArtifactPreviewUrl("artifacts/html/x.json"), null);
-    assert.equal(htmlArtifactPreviewUrl("artifacts/images/x.html"), null);
     assert.equal(htmlArtifactPreviewUrl("artifacts/html/../secret.html"), null);
     assert.equal(htmlArtifactPreviewUrl("artifacts/html//x.html"), null);
     assert.equal(htmlArtifactPreviewUrl(null), null);
+  });
+
+  // A page outside the artifact root is no longer "not ours" — the `path` form
+  // presents any page on disk, and both hosts serve those from `/htmlfile`.
+  it("falls through to the /htmlfile scheme for a page outside artifacts/html/", () => {
+    assert.equal(htmlArtifactPreviewUrl("docs/report.html"), "/htmlfile/ws/docs/report.html");
+    assert.equal(htmlArtifactPreviewUrl("/Users/x/p/page.html"), "/htmlfile/abs/Users/x/p/page.html");
+    assert.equal(htmlArtifactPreviewUrl("docs/../../secret.html"), null);
   });
 });
 

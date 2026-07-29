@@ -58,20 +58,23 @@ export function toArtifactsRelative(workspaceRelPath: string): string {
 }
 
 /**
- * Default browser URL for an HTML artifact, derived purely from its
- * workspace-relative `filePath` — `artifacts/html/2026/04/p.html` →
- * `/artifacts/html/2026/04/p.html` (per-segment URL-encoded). The View uses
- * this when the host hasn't injected a `previewUrl`, so already-presented
- * results (whose stored data predates that field) still render. A host that
- * serves `artifacts/html/…` at a different URL injects `previewUrl` to override.
- * Returns null for non-HTML / out-of-tree paths.
+ * Default browser URL for a presented page, derived purely from its `filePath`.
+ * An artifact keeps the `/artifacts/html/…` mount both hosts already serve
+ * (`artifacts/html/2026/04/p.html` → `/artifacts/html/2026/04/p.html`,
+ * per-segment URL-encoded); anything else — the `path` form's repo file or
+ * absolute path — falls through to the `/htmlfile` scheme below.
+ *
+ * The View uses this when the host hasn't injected a `previewUrl`, so
+ * already-presented results (whose stored data predates that field) still
+ * render. A host serving these at different URLs injects `previewUrl` to
+ * override. Returns null for non-HTML paths.
  */
 export function htmlArtifactPreviewUrl(filePath: string | null): string | null {
   if (!filePath) return null;
   const lower = filePath.toLowerCase();
   if (!lower.endsWith(".html") && !lower.endsWith(".htm")) return null;
   const prefix = `${ARTIFACTS_ROOT}/${HTML_DIR}/`;
-  if (!filePath.startsWith(prefix)) return null;
+  if (!filePath.startsWith(prefix)) return htmlFileUrl(filePath);
   // Reject traversal / non-canonical segments so the derived URL can never point
   // the iframe outside artifacts/html/ — defence-in-depth even though `filePath`
   // is normally produced by `htmlArtifactPath` / validated by `presentExisting`.
@@ -87,4 +90,53 @@ export function htmlArtifactPreviewUrl(filePath: string | null): string | null {
  *  capability is what decides which of those it will actually open. */
 export function isPresentableHtmlPath(value: string): boolean {
   return classifyFilePath(value, [".html", ".htm"]) !== null;
+}
+
+// ── Serving a page that is NOT an artifact ───────────────────────────────────
+//
+// presentHtml's `path` form accepts any page on disk, so the View's iframe needs
+// a URL for one. Both hosts serve the same `/htmlfile/<scope>/<segments…>`
+// scheme, and it is defined HERE so the URL the View asks for and the file the
+// host resolves cannot drift apart.
+//
+// Path-shaped rather than `?path=`: the iframe loads the page with `src=`, so
+// the browser resolves the page's own relative refs (`<img src="../img/x.png">`)
+// against this URL. A query parameter would put every page at the same URL path
+// and break every relative reference — the same reason `/artifacts/html` is a
+// path mount (plans/done/feat-files-html-preview-relative-paths.md).
+//
+// The scope segment is what lets a workspace-relative and an absolute path share
+// one mount: a leading `/` cannot survive as a URL path segment, and the
+// browser's `..`-normalisation would eat any marker encoded as an empty one.
+
+export const HTML_FILE_MOUNT = "/htmlfile";
+export const HTML_FILE_SCOPE_WORKSPACE = "ws";
+export const HTML_FILE_SCOPE_ABSOLUTE = "abs";
+
+const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/;
+
+function isAbsolutePathValue(value: string): boolean {
+  return value.startsWith("/") || value.startsWith("\\\\") || WINDOWS_DRIVE_RE.test(value);
+}
+
+/**
+ * Browser URL for a page served through the `/htmlfile` mount, or null when the
+ * value is not a usable HTML path.
+ *
+ * UNC paths (`\\server\share\page.html`) would round-trip as if they were rooted
+ * POSIX paths, so they are not supported — the host's file check simply 404s
+ * rather than serving the wrong file.
+ */
+export function htmlFileUrl(filePath: string | null | undefined): string | null {
+  if (!filePath || filePath.includes("\0")) return null;
+  const lower = filePath.toLowerCase();
+  if (!lower.endsWith(".html") && !lower.endsWith(".htm")) return null;
+  const segments = filePath
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter((segment) => segment.length > 0);
+  if (segments.length === 0) return null;
+  if (segments.some((segment) => segment === "." || segment === "..")) return null;
+  const scope = isAbsolutePathValue(filePath) ? HTML_FILE_SCOPE_ABSOLUTE : HTML_FILE_SCOPE_WORKSPACE;
+  return `${HTML_FILE_MOUNT}/${scope}/${segments.map(encodeURIComponent).join("/")}`;
 }

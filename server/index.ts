@@ -143,7 +143,7 @@ import { buildHtmlPreviewCsp } from "../src/utils/html/previewCsp.js";
 import { readCspExtraSync, warnIfCspExtended } from "./utils/files/csp-io.js";
 import { readAndInjectHtmlArtifact, readAndInjectHtmlFile } from "./utils/html/htmlArtifactSplicer.js";
 import { resolveHtmlFileRequestPath } from "./utils/files/htmlFileRequest.js";
-import { HTML_FILE_MOUNT } from "../src/utils/html/htmlFileUrl.js";
+import { HTML_FILE_MOUNT } from "@mulmoclaude/html-plugin";
 import { ONE_SECOND_MS, ONE_MINUTE_MS, ONE_HOUR_MS, STARTUP_FAILURE_FORCE_EXIT_MS, FATAL_LOG_FLUSH_MS } from "./utils/time.js";
 import { isPortFree, findAvailablePort, MAX_PORT_PROBES } from "./utils/port.mjs";
 import { SCHEDULE_TYPES, MISSED_RUN_POLICIES } from "@receptron/task-scheduler";
