@@ -75,7 +75,7 @@ MulmoClaude は **「`~/mulmoclaude/`」を中心とする独立したアプリ*
 ```
 
 ポイント:
-- **`~/mulmoclaude/` の場所はハードコード**で env override なし (`server/workspace/paths.ts:74`)。別の場所に置きたい場合は symlink で対応
+- **`~/mulmoclaude/` の場所は `MULMOCLAUDE_WORKSPACE_PATH` で変更できる** (`server/workspace/paths.ts` — `workspacePath`)。`~/mulmoclaude` は env 未設定時のフォールバック。モジュール読み込み時に一度だけ評価されるので、起動時に指定して再起動する
 - **MulmoClaude は `~/.claude/skills/` を再利用** ([後述](#3-skill-の移行))
 - それ以外の Claude Code 設定は読み込まれない
 
@@ -186,7 +186,7 @@ cp ~/.claude/.mcp.json ~/mulmoclaude/config/mcp.json
 
 ### Step 5: CLAUDE.md の指示を MulmoClaude 流に書き直す (任意)
 
-[§5 CLAUDE.md の扱い](#5-claude-md-の扱い) を参照。
+[§5 CLAUDE.md の扱い](#5-claudemd-の扱い) を参照。
 
 ### Step 6: Role を選ぶ / 必要なら作る
 
@@ -413,13 +413,14 @@ sandbox なしで動かすなら `DISABLE_SANDBOX=1 npx mulmoclaude`。
 
 ### 7.5 「~/mulmoclaude を別の場所に置きたい」
 
-→ env override なし (`server/workspace/paths.ts:74`)。
-**symlink** で対応:
+→ `MULMOCLAUDE_WORKSPACE_PATH` で指定する (`server/workspace/paths.ts` — `workspacePath`)。`~/mulmoclaude` は env 未設定時のフォールバック:
 
 ```bash
 mv ~/mulmoclaude /Volumes/External/mulmoclaude
-ln -s /Volumes/External/mulmoclaude ~/mulmoclaude
+MULMOCLAUDE_WORKSPACE_PATH=/Volumes/External/mulmoclaude npx mulmoclaude
 ```
+
+モジュール読み込み時に一度だけ評価されるので、**起動前**に設定する。動作中のサーバーを切り替える API / UI / CLI フラグは無い。指定先が存在しなければ起動時に作られる (`git init` も含む)。
 
 ### 7.6 「Claude Code の sub-agent (Agent tool) は使える?」
 
@@ -446,4 +447,4 @@ ln -s /Volumes/External/mulmoclaude ~/mulmoclaude
 - [ ] 必要なドキュメントが §4 のいずれかの戦略で AI から見えている
 - [ ] 普段使う role を 1 つ決めた / カスタム role が必要なら作った
 - [ ] Docker sandbox が動いている (`docker info` 成功)
-- [ ] reference dirs マウントが反映されている (chat で「ホームディレクトリの `~/projects/foo/README.md` を見せて」で確認)
+- [ ] reference dirs マウントが反映されている (chat で「参照ディレクトリ **My Project** の `README.md` を見せて」のように **ラベルで** 確認。ホストの絶対パスで頼むと Docker mode では読めない → [§4.3](#43-戦略-c-reference-dirs-として外部からマウントする-read-only))
