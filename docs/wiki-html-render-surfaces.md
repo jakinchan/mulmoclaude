@@ -168,16 +168,20 @@ mulmoclaude は **ネイティブ実行**(developer machine)と **Docker サン�
 
 ### モード差
 
-| 項目 | ネイティブ | Docker サンドボックス |
+「Docker サンドボックス」列は **コンテナ内のエージェントから見えるパス**。Express サーバー自身は
+どちらのモードでもホスト側プロセスなので、配信時に読むのは常にホストのパス
+(→ [discussion-image-path-routing.md](discussion-image-path-routing.md))。
+
+| 項目 | ネイティブ | Docker サンドボックス(エージェントから見た値) |
 |---|---|---|
-| Workspace の場所 | `~/mulmoclaude/` | コンテナ内 `/workspace/`(host の `~/mulmoclaude/` を bind mount) |
-| `/artifacts/images/` の実体 | `~/mulmoclaude/artifacts/images/` | `/workspace/artifacts/images/` |
-| `/artifacts/html/` の実体 | `~/mulmoclaude/artifacts/html/` | `/workspace/artifacts/html/` |
-| `WORKSPACE_PATHS` 定数 | OS native パス | コンテナ内パス |
+| Workspace の場所 | `~/mulmoclaude/` | コンテナ内 `/home/node/mulmoclaude/`(host の `~/mulmoclaude/` を bind mount。`server/agent/config.ts` — `CONTAINER_WORKSPACE_PATH`) |
+| `/artifacts/images/` の実体 | `~/mulmoclaude/artifacts/images/` | `/home/node/mulmoclaude/artifacts/images/` |
+| `/artifacts/html/` の実体 | `~/mulmoclaude/artifacts/html/` | `/home/node/mulmoclaude/artifacts/html/` |
+| エージェントに渡す workspace パス | OS native パス | `CONTAINER_WORKSPACE_PATH`(`server/agent/index.ts` が切り替える) |
 | 書き込み(画像保存・HTML 保存) | アプリプロセスが直接 write | コンテナ内のアプリが write、host にも反映 |
 | 副作用 | ホスト全体に届きうる | bind mount された範囲のみ |
 
-`/artifacts/images/` と `/artifacts/html/` の URL 経路 → 配信元のロジックは同一実装で、モード判定は `WORKSPACE_PATHS` の値だけで吸収されています。`<img src="/artifacts/images/foo.png">` を書く LLM 出力もアプリ側のレンダラも両モードで違いを意識しなくていい設計。
+`/artifacts/images/` と `/artifacts/html/` の URL 経路 → 配信元のロジックは両モードで同一実装。配信するのは常にホスト側の Express なので、`<img src="/artifacts/images/foo.png">` を書く LLM 出力もアプリ側のレンダラも両モードで違いを意識しなくていい設計。パスの差が出るのは、コンテナ内でファイルを直接読み書きするエージェント側だけ。
 
 ### リファレンス・ディレクトリ(`@ref/<label>/...`)
 
@@ -187,7 +191,7 @@ mulmoclaude は **ネイティブ実行**(developer machine)と **Docker サン�
 |---|---|
 | URL 形式 | `@ref/<label>/<remainder>` |
 | 配信ルート | `/api/files/raw?path=@ref/<label>/<remainder>`(static mount は使わない) |
-| Docker での扱い | ホストの絶対パスを read-only で bind mount(コンテナ内 `/workspace/refs/<label>` 等)。書き込みは弾かれる |
+| Docker での扱い | ホストの絶対パスを read-only で bind mount(コンテナ内 `/mnt/readonly/<basename>-<hash8>`。`server/workspace/reference-dirs.ts` — `containerPath`)。書き込みは弾かれる |
 | センシティブ・パス遮断 | `.git` / `.ssh` / `.env` / `.aws` などサーバー側で `isSensitivePath` 検査 |
 | 画像表示 | `/api/files/raw?path=@ref/...` 経由で `<img>` が表示可。**`/artifacts/images/` mount からは届かない**(別ファイルシステム・別 prefix) |
 
