@@ -15,6 +15,8 @@ import { hostDoc } from "@mulmoclaude/core/remote-host";
 import type { Channel } from "@mulmoclaude/core/remote-host";
 import { presenceStaleAfterMs } from "@mulmoclaude/core/remote-host/server";
 
+import { ONE_SECOND_MS } from "../utils/time.js";
+
 // The runner's own threshold, taken from the runner rather than recomputed: a
 // laptop waking up gets three beats to write again before anyone calls it dead.
 // Being wrong here costs a reconnect cycle, so it leans towards patience.
@@ -23,7 +25,7 @@ export const PRESENCE_STALE_MS = presenceStaleAfterMs();
 // A read that never settles would leave the probe un-rearmed — a sensor dying
 // quietly, which is the very failure this module exists to catch. Firestore takes
 // no abort signal, so the deadline has to be a race.
-const PROBE_TIMEOUT_MS = 30_000;
+const PROBE_TIMEOUT_MS = 30 * ONE_SECOND_MS;
 
 /** `null` = cannot be judged, which is NOT a failure: the document may simply not
  *  exist yet (a runner that has never announced), and treating "no answer" as
@@ -57,7 +59,7 @@ export const presenceIsFresh = (data: Record<string, unknown> | undefined, now: 
 export const withTimeout = async <T>(work: Promise<T>, timeoutMs: number): Promise<T> => {
   const timer: { handle: ReturnType<typeof setTimeout> | null } = { handle: null };
   const deadline = new Promise<never>((_, reject) => {
-    timer.handle = setTimeout(() => reject(new Error(`presence read did not answer within ${Math.round(timeoutMs / 1_000)}s`)), timeoutMs);
+    timer.handle = setTimeout(() => reject(new Error(`presence read did not answer within ${Math.round(timeoutMs / ONE_SECOND_MS)}s`)), timeoutMs);
   });
   try {
     return await Promise.race([work, deadline]);

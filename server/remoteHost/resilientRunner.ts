@@ -19,18 +19,19 @@
 // relaunch forever and never ask the client to re-authenticate.
 import type { HostRunnerOptions, RemoteHostLogger } from "@mulmoclaude/core/remote-host/server";
 
+import { ONE_MINUTE_MS, ONE_SECOND_MS } from "../utils/time.js";
 import type { Liveness } from "./presenceProbe.js";
 
-const RECONNECT_BASE_MS = 1_000;
-const RECONNECT_MAX_MS = 60_000;
+const RECONNECT_BASE_MS = ONE_SECOND_MS;
+const RECONNECT_MAX_MS = ONE_MINUTE_MS;
 // When to ask, after a launch, whether the new runner actually works.
-const SETTLE_MS = 60_000;
+const SETTLE_MS = ONE_MINUTE_MS;
 // Past this, retrying in place cannot help: an expired credential needs the
 // browser's parked blob, which only the client can replay.
-const GIVE_UP_MS = 5 * 60_000;
+const GIVE_UP_MS = 5 * ONE_MINUTE_MS;
 // How often to ask whether the phone can still see us. Slower than the one-minute
 // heartbeat, because the question is "are the beats landing", not "did this one".
-const PROBE_INTERVAL_MS = 90_000;
+const PROBE_INTERVAL_MS = 90 * ONE_SECOND_MS;
 
 export const reconnectDelayMs = (attempt: number): number => Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
 
@@ -172,7 +173,7 @@ async function settle(ctx: RunnerContext): Promise<void> {
 const giveUp = (ctx: RunnerContext): void => {
   ctx.stopped = true;
   clearProbe(ctx);
-  ctx.deps.log.warn(`host runner stayed down for ${Math.round(GIVE_UP_MS / 1_000)}s, giving up (${ctx.lastError ?? "no error reported"})`);
+  ctx.deps.log.warn(`host runner stayed down for ${Math.round(GIVE_UP_MS / ONE_SECOND_MS)}s, giving up (${ctx.lastError ?? "no error reported"})`);
   ctx.state = "offline";
   ctx.deps.options.onClosed?.();
 };
@@ -180,7 +181,7 @@ const giveUp = (ctx: RunnerContext): void => {
 function scheduleRelaunch(ctx: RunnerContext): void {
   const delayMs = reconnectDelayMs(ctx.attempt);
   ctx.attempt += 1;
-  ctx.deps.log.warn(`host runner closed (${ctx.lastError ?? "no error reported"}); re-subscribing in ${Math.round(delayMs / 1_000)}s`);
+  ctx.deps.log.warn(`host runner closed (${ctx.lastError ?? "no error reported"}); re-subscribing in ${Math.round(delayMs / ONE_SECOND_MS)}s`);
   ctx.state = "reconnecting";
   ctx.cancelTimer = ctx.schedule(() => launch(ctx), delayMs);
 }
