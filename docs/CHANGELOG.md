@@ -44,6 +44,20 @@ Re-run `create-shortcut` after upgrading: the shortcut carries its own copy of t
 
 Not reachable from a phone: the server binds to `127.0.0.1` and the RemoteHost channel dispatches its own handlers, so remote-stop would be a one-way door with no way to start it again.
 
+#### `yarn dev` no longer reloads the page while the agent is working (#2632)
+
+Running from source, the chat page fully reloaded several times per agent turn — every ten seconds in the worst bursts — closing the Settings modal and losing whatever transient state was on screen. It was reported once before (#1940) and could not be reproduced, because it needs a setup detail nobody had written down: **the workspace has to live inside the checkout**. `MULMOCLAUDE_WORKSPACE_PATH` defaults to `~/mulmoclaude`, so cloning the repo there makes the runtime workspace *be* Vite's watch root.
+
+Two unrelated things were reaching that watcher.
+
+Every chat append, scheduler tick and artifact write landed in the watch root, where Tailwind v4's automatic source detection — which scans the whole root minus `.gitignore` — saw a scanned file change and broadcast a bare full-reload. This one leaves no `page reload <file>` line in the dev-server log, which is why the first investigation ruled out file watching and went looking elsewhere.
+
+The second is Windows-only, and is why the original report could not be reproduced on macOS at all. Each sandboxed agent spawn bind-mounts every workspace package read-only into the container, and Docker Desktop for Windows bumps the mounted files' mtimes on each mount. `packages/*/dist` sits in the client module graph — yarn's symlinks resolve `@mulmobridge/protocol` and friends there — with no HMR accept boundary, so a bump with **byte-identical content** is enough to reload the page. Nothing was being rebuilt; the mounts alone did it.
+
+`yarn dev` now prunes both from its watcher. The Windows half stops watching `packages/*/dist`, so a real rebuild of a workspace package needs a `yarn dev` restart to show up there — set `MULMOCLAUDE_DEV_WATCH_PACKAGES=1` to trade that back for the reloads. macOS and Linux never mount those packages and keep their rebuild HMR untouched.
+
+The runtime workspace directories are now gitignored too, which keeps personal chat logs and artifacts uncommittable when the workspace is the checkout, and out of Tailwind's gitignore-honouring scan. Inert for a checkout whose workspace lives elsewhere.
+
 ---
 
 ## [1.7.2] - 2026-07-27
