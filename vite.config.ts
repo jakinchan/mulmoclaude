@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createDevWatchIgnore } from './scripts/lib/devWatchIgnore'
-import { resolveServerPort, serverOrigins } from './scripts/lib/devServerPort'
+import { DEFAULT_SERVER_PORT, describeRejection, resolveServerPort, serverOrigins } from './scripts/lib/devServerPort'
 import { parseEnvFile } from './server/utils/launch-env.mjs'
 
 // Token file path mirrors `WORKSPACE_PATHS.sessionToken` in
@@ -46,7 +46,7 @@ const SERVER_PORT = resolveServerPort({
   // uses. Reading the file by hand here would let the two disagree about inline
   // comments, an `export ` prefix or quoting, which is this bug one level down.
   envFileValues: parseEnvFile(path.join(process.cwd(), '.env')).parsed,
-  onInvalid: (source, raw) => console.warn(`[vite] ignoring ${source}="${raw}" — not a port; proxying to the default instead`),
+  onInvalid: ({ source, raw, reason }) => console.warn(`[vite] ignoring ${source}="${raw}" — ${describeRejection(reason)}; proxying to :${DEFAULT_SERVER_PORT} instead`),
 })
 const { http: SERVER_ORIGIN, ws: SERVER_WS_ORIGIN } = serverOrigins(SERVER_PORT)
 const TOKEN_PLACEHOLDER = '__MULMOCLAUDE_AUTH_TOKEN__'

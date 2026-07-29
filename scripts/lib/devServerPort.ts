@@ -6,31 +6,45 @@
 // on 3001 the second browser silently rendered the FIRST instance's data — the
 // proxy connects, it just connects to the wrong server.
 //
-// This lives in `scripts/lib/` rather than importing `server/system/env.ts`
-// because `vite.config.ts` runs outside the server tsconfig (the same constraint
-// that makes it duplicate the session-token path), and here it can be unit-tested
-// without booting Vite.
+// Every rule this needs is BORROWED, never re-implemented, because a second
+// opinion about `PORT` is the same bug one level down:
+//   - the numeric coercion and range come from `server/utils/envCoerce.ts`, the
+//     module `server/system/env.ts` itself uses (so `0x1f`, `1e3`, `+3100`,
+//     `3100.0` resolve here exactly as the backend resolves them);
+//   - the `.env` VALUES are supplied by the caller, parsed with the launcher's
+//     `parseEnvFile` — i.e. `dotenv.parse`, what the server's loader uses.
 //
-// The `.env` VALUES are supplied by the caller, parsed with the launcher's
-// `parseEnvFile` — the same `dotenv.parse` the server's own loader uses. Parsing
-// the file here by hand would reintroduce the bug one level down: dotenv strips
-// inline comments, honours an `export ` prefix and understands quoting, so
-// `PORT=3100 # dev` would give the server 3100 and the proxy the default.
+// This file only orders those sources and rejects the one value the backend
+// accepts but a proxy cannot follow.
+import { asInt, DEFAULT_PORT, PORT_RANGE } from "../../server/utils/envCoerce.js";
 
-/** The backend's own default. Mirrors `env.port`'s fallback in `server/system/env.ts`;
- *  the two files cannot share a module, so a change there belongs here as well. */
-export const DEFAULT_SERVER_PORT = 3001;
+export const DEFAULT_SERVER_PORT = DEFAULT_PORT;
 
-const MAX_PORT = 65_535;
+// Outside the backend's own range, so "the backend would ignore this" is
+// distinguishable from "the backend would use this".
+const NOT_A_PORT = -1;
 
-/** A port number, or `null` for anything that is not one. Rejecting junk matters:
- *  an unvalidated value would become `http://localhost:NaN`, which fails per request
- *  at runtime instead of at startup where it can be explained. */
-export const parseServerPort = (raw: string | undefined | null): number | null => {
-  const trimmed = raw?.trim();
-  if (!trimmed || !/^\d+$/.test(trimmed)) return null;
-  const port = Number(trimmed);
-  return Number.isInteger(port) && port > 0 && port <= MAX_PORT ? port : null;
+/** Why a value could not be used, for a message that names the cause. */
+export type PortRejection = "ignored-by-server" | "ephemeral";
+
+export interface ParsedPort {
+  port: number | null;
+  reason?: PortRejection;
+}
+
+/**
+ * The port the backend would bind for `raw`, or `null` with the reason it cannot
+ * be a proxy target.
+ *
+ * `0` is the interesting case: the backend accepts it (`PORT_RANGE.min` is 0) and
+ * asks the OS for an ephemeral port. Nothing evaluated at Vite-config time can
+ * know which one, so this is a named refusal rather than a silent fallback.
+ */
+export const parseServerPort = (raw: string | undefined | null): ParsedPort => {
+  const coerced = asInt(raw ?? undefined, NOT_A_PORT, PORT_RANGE);
+  if (coerced === NOT_A_PORT) return { port: null, reason: "ignored-by-server" };
+  if (coerced === 0) return { port: null, reason: "ephemeral" };
+  return { port: coerced };
 };
 
 export interface ServerPortSources {
@@ -38,7 +52,7 @@ export interface ServerPortSources {
   /** `.env` as the launcher's `parseEnvFile` parsed it — NOT raw file text. */
   envFileValues?: Record<string, string | undefined> | null;
   /** Reported when a value was present but unusable, so a typo is not silently ignored. */
-  onInvalid?: (source: string, raw: string) => void;
+  onInvalid?: (detail: { source: string; raw: string; reason: PortRejection }) => void;
 }
 
 /**
@@ -47,17 +61,23 @@ export interface ServerPortSources {
  * `process.env` and an exported shell variable wins over the file.
  */
 export const resolveServerPort = (sources: ServerPortSources = {}): number => {
-  const candidates: { source: string; raw: string | undefined }[] = [
+  const candidates = [
     { source: "PORT", raw: sources.processEnv?.PORT },
     { source: ".env PORT", raw: sources.envFileValues?.PORT },
   ];
   for (const { source, raw } of candidates) {
-    const parsed = parseServerPort(raw);
-    if (parsed !== null) return parsed;
-    if (raw?.trim()) sources.onInvalid?.(source, raw);
+    const { port, reason } = parseServerPort(raw);
+    if (port !== null) return port;
+    if (raw?.trim() && reason) sources.onInvalid?.({ source, raw, reason });
   }
   return DEFAULT_SERVER_PORT;
 };
+
+/** Human-readable cause, so the dev console says what to do about it. */
+export const describeRejection = (reason: PortRejection): string =>
+  reason === "ephemeral"
+    ? "0 asks the OS for an ephemeral port, which the dev proxy cannot know — the client would talk to the wrong server"
+    : "not a port the server would accept";
 
 /** The proxy targets, built from one port so the five entries cannot drift apart. */
 export const serverOrigins = (port: number): { http: string; ws: string } => ({

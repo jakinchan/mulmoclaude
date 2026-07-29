@@ -2,35 +2,64 @@
 //
 // The backend honours `PORT` while Vite's proxy targeted a literal `localhost:3001`,
 // so `PORT=3100 yarn dev` moved only the server — and with a first instance still on
-// 3001, the second browser silently rendered the FIRST instance's data. These pin the
-// resolution order (shell over `.env` over default) and the rejection of values that
-// would otherwise become `http://localhost:NaN`.
+// 3001, the second browser silently rendered the FIRST instance's data.
+//
+// The rule under test is therefore an EQUIVALENCE, not a validator: for any value,
+// the proxy must land on the port the backend binds. So the table below asserts
+// against `env.port`'s own coercion (`asInt` + `PORT_RANGE`) rather than against a
+// second opinion written here — a stricter parser was the finding Codex raised on
+// iter-1, and this is what makes a future divergence fail loudly.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULT_SERVER_PORT, parseServerPort, resolveServerPort, serverOrigins } from "../../scripts/lib/devServerPort.js";
-// The launcher's parser is the server's parser; the resolver is fed its output, so
-// the pipeline below is exercised with the real thing rather than a stand-in.
+import { DEFAULT_SERVER_PORT, describeRejection, parseServerPort, resolveServerPort, serverOrigins } from "../../scripts/lib/devServerPort.js";
+// The backend's own coercion and range, and the launcher's `.env` parser — the two
+// authorities this module borrows from instead of reimplementing.
+import { asInt, PORT_RANGE } from "../../server/utils/envCoerce.js";
 import { parseEnvFile } from "../../server/utils/launch-env.mjs";
 
-describe("parseServerPort", () => {
-  it("accepts a plain port number, with or without surrounding whitespace", () => {
-    assert.equal(parseServerPort("3100"), 3100);
-    assert.equal(parseServerPort("  3100  "), 3100);
-  });
+const serverWouldBind = (raw: string | undefined) => asInt(raw, DEFAULT_SERVER_PORT, PORT_RANGE);
 
-  it("accepts the boundary ports", () => {
-    assert.equal(parseServerPort("1"), 1);
-    assert.equal(parseServerPort("65535"), 65_535);
-  });
-
-  // Any of these would have become `http://localhost:NaN` — a target that fails per
-  // request, far from the typo that caused it.
-  for (const raw of ["0", "65536", "abc", "", "   ", "-1", "3100.5", "3100abc", "0x1f", undefined, null]) {
-    it(`rejects ${JSON.stringify(raw)}`, () => {
-      assert.equal(parseServerPort(raw), null);
+describe("parseServerPort agrees with the port the backend would bind", () => {
+  // Every form `Number()` accepts, which is what the backend uses. A parser built on
+  // `/^\d+$/` rejects the last four and silently proxies to the default instead.
+  for (const raw of ["3100", " 3100 ", "+3100", "3100.0", "0x1f", "1e3", "65535", "1"]) {
+    it(`resolves ${JSON.stringify(raw)} to the same port as the server`, () => {
+      const { port } = parseServerPort(raw);
+      assert.equal(port, serverWouldBind(raw), `proxy and backend must agree on ${raw}`);
     });
   }
+
+  // Values the backend itself ignores: it falls back to 3001, and so must the proxy.
+  for (const raw of ["", "abc", "3100.5", "-1", "65536", "3100abc", undefined, null]) {
+    it(`treats ${JSON.stringify(raw)} as unusable, exactly as the server does`, () => {
+      const { port, reason } = parseServerPort(raw);
+      assert.equal(port, null);
+      assert.equal(reason, "ignored-by-server");
+      assert.equal(serverWouldBind(raw ?? undefined), DEFAULT_SERVER_PORT);
+    });
+  }
+
+  // `Number("   ")` is 0, so a whitespace-only PORT makes the BACKEND take an
+  // ephemeral port. Surprising, and worth pinning: the proxy must refuse it for the
+  // ephemeral reason, not report it as junk the server ignored.
+  it("treats a whitespace-only PORT the way the server does — as 0, i.e. ephemeral", () => {
+    const { port, reason } = parseServerPort("   ");
+    assert.equal(port, null);
+    assert.equal(reason, "ephemeral");
+    assert.equal(serverWouldBind("   "), 0);
+  });
+
+  // The one place the two CANNOT agree, so it is refused by name rather than
+  // silently mapped to 3001: the backend accepts 0 and lets the OS pick, and no
+  // value computed at Vite-config time can know which port that turned out to be.
+  it("refuses PORT=0 as ephemeral rather than pretending it is the default", () => {
+    const { port, reason } = parseServerPort("0");
+    assert.equal(port, null);
+    assert.equal(reason, "ephemeral");
+    assert.equal(serverWouldBind("0"), 0, "the backend does accept 0 — that is why this is a named refusal");
+    assert.match(describeRejection("ephemeral"), /ephemeral/);
+  });
 });
 
 // `.env` is parsed by the launcher's `parseEnvFile` (dotenv), not by this module.
@@ -117,9 +146,20 @@ describe("resolveServerPort", () => {
     const port = resolveServerPort({
       processEnv: { PORT: "nonsense" },
       envFileValues: { PORT: "3200" },
-      onInvalid: (source, raw) => reported.push(`${source}=${raw}`),
+      onInvalid: ({ source, raw, reason }) => reported.push(`${source}=${raw}:${reason}`),
     });
-    assert.deepEqual(reported, ["PORT=nonsense"]);
+    assert.deepEqual(reported, ["PORT=nonsense:ignored-by-server"]);
+    assert.equal(port, 3200);
+  });
+
+  it("reports PORT=0 as ephemeral and moves on", () => {
+    const reported: string[] = [];
+    const port = resolveServerPort({
+      processEnv: { PORT: "0" },
+      envFileValues: { PORT: "3200" },
+      onInvalid: ({ source, raw, reason }) => reported.push(`${source}=${raw}:${reason}`),
+    });
+    assert.deepEqual(reported, ["PORT=0:ephemeral"]);
     assert.equal(port, 3200);
   });
 
@@ -128,15 +168,15 @@ describe("resolveServerPort", () => {
     const port = resolveServerPort({
       processEnv: {},
       envFileValues: { PORT: "70000" },
-      onInvalid: (source, raw) => reported.push(`${source}=${raw}`),
+      onInvalid: ({ source, raw, reason }) => reported.push(`${source}=${raw}:${reason}`),
     });
-    assert.deepEqual(reported, [".env PORT=70000"]);
+    assert.deepEqual(reported, [".env PORT=70000:ignored-by-server"]);
     assert.equal(port, DEFAULT_SERVER_PORT);
   });
 
   it("does not report when PORT is simply absent", () => {
     const reported: string[] = [];
-    resolveServerPort({ processEnv: {}, onInvalid: (source, raw) => reported.push(`${source}=${raw}`) });
+    resolveServerPort({ processEnv: {}, onInvalid: ({ source }) => reported.push(source) });
     assert.deepEqual(reported, []);
   });
 });
