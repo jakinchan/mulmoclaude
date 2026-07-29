@@ -12,7 +12,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULT_SERVER_PORT, describeRejection, parseServerPort, resolveServerPort, serverOrigins } from "../../scripts/lib/devServerPort.js";
+import {
+  assertProxyablePort,
+  DEFAULT_SERVER_PORT,
+  describeRejection,
+  parseServerPort,
+  resolveServerPort,
+  serverOrigins,
+} from "../../scripts/lib/devServerPort.js";
 // The backend's own coercion and range, and the launcher's `.env` parser — the two
 // authorities this module borrows from instead of reimplementing.
 import { asInt, PORT_RANGE } from "../../server/utils/envCoerce.js";
@@ -69,7 +76,7 @@ describe("parseServerPort agrees with the port the backend would bind", () => {
 // is this very bug one level down (observed during review, not flagged by a bot).
 const portFromEnvText = (text: string): number => {
   const { parsed } = parseEnvFile("(memory)", { readFileSync: () => text });
-  return resolveServerPort({ processEnv: {}, envFileValues: parsed });
+  return resolveServerPort({ processEnv: {}, envFileValues: parsed }).port;
 };
 
 describe(".env values, parsed the way the server parses them", () => {
@@ -113,71 +120,86 @@ describe(".env values, parsed the way the server parses them", () => {
 
   it("treats an unreadable file as no file", () => {
     const { parsed } = parseEnvFile("/definitely/not/here/.env");
-    assert.equal(resolveServerPort({ processEnv: {}, envFileValues: parsed }), DEFAULT_SERVER_PORT);
+    assert.equal(resolveServerPort({ processEnv: {}, envFileValues: parsed }).port, DEFAULT_SERVER_PORT);
   });
 });
 
 describe("resolveServerPort", () => {
+  const portOf = (sources: Parameters<typeof resolveServerPort>[0]) => resolveServerPort(sources).port;
+
   it("defaults to the backend's own default when nothing is set", () => {
-    assert.equal(resolveServerPort(), DEFAULT_SERVER_PORT);
-    assert.equal(resolveServerPort({ processEnv: {}, envFileValues: {} }), DEFAULT_SERVER_PORT);
+    assert.equal(resolveServerPort().port, DEFAULT_SERVER_PORT);
+    assert.deepEqual(resolveServerPort({ processEnv: {}, envFileValues: {} }), { port: DEFAULT_SERVER_PORT, problems: [] });
   });
 
   it("takes PORT from the environment", () => {
-    assert.equal(resolveServerPort({ processEnv: { PORT: "3100" } }), 3100);
+    assert.equal(portOf({ processEnv: { PORT: "3100" } }), 3100);
   });
 
   it("falls back to .env when the shell has none — the split this bug was made of", () => {
-    assert.equal(resolveServerPort({ processEnv: {}, envFileValues: { PORT: "3100" } }), 3100);
+    assert.equal(portOf({ processEnv: {}, envFileValues: { PORT: "3100" } }), 3100);
   });
 
   // The server's loader lets an exported shell variable win over the file; the proxy
   // has to resolve the same way or the two halves point at different servers.
   it("lets the shell win over .env", () => {
-    assert.equal(resolveServerPort({ processEnv: { PORT: "3100" }, envFileValues: { PORT: "3200" } }), 3100);
+    assert.equal(portOf({ processEnv: { PORT: "3100" }, envFileValues: { PORT: "3200" } }), 3100);
   });
 
-  it("treats an empty PORT as unset", () => {
-    assert.equal(resolveServerPort({ processEnv: { PORT: "" }, envFileValues: { PORT: "3200" } }), 3200);
+  it("treats an empty PORT as unset, and says nothing about it", () => {
+    const resolution = resolveServerPort({ processEnv: { PORT: "" }, envFileValues: { PORT: "3200" } });
+    assert.equal(resolution.port, 3200);
+    assert.deepEqual(resolution.problems, []);
   });
 
   it("reports an unusable PORT instead of swallowing it, and keeps looking", () => {
-    const reported: string[] = [];
-    const port = resolveServerPort({
-      processEnv: { PORT: "nonsense" },
-      envFileValues: { PORT: "3200" },
-      onInvalid: ({ source, raw, reason }) => reported.push(`${source}=${raw}:${reason}`),
-    });
-    assert.deepEqual(reported, ["PORT=nonsense:ignored-by-server"]);
-    assert.equal(port, 3200);
+    const resolution = resolveServerPort({ processEnv: { PORT: "nonsense" }, envFileValues: { PORT: "3200" } });
+    assert.deepEqual(resolution.problems, [{ source: "PORT", raw: "nonsense", reason: "ignored-by-server" }]);
+    assert.equal(resolution.port, 3200);
   });
 
-  it("reports PORT=0 as ephemeral and moves on", () => {
-    const reported: string[] = [];
-    const port = resolveServerPort({
-      processEnv: { PORT: "0" },
-      envFileValues: { PORT: "3200" },
-      onInvalid: ({ source, raw, reason }) => reported.push(`${source}=${raw}:${reason}`),
-    });
-    assert.deepEqual(reported, ["PORT=0:ephemeral"]);
-    assert.equal(port, 3200);
+  // Was silent before: `raw.trim()` gated the report, so a whitespace-only value —
+  // which the backend coerces to 0 — was refused with nothing said (Codex / CodeRabbit, #2653).
+  it("reports a whitespace-only PORT rather than refusing it in silence", () => {
+    const resolution = resolveServerPort({ processEnv: { PORT: "   " } });
+    assert.deepEqual(resolution.problems, [{ source: "PORT", raw: "   ", reason: "ephemeral" }]);
   });
 
   it("reports an unusable .env value too, then falls back to the default", () => {
-    const reported: string[] = [];
-    const port = resolveServerPort({
-      processEnv: {},
-      envFileValues: { PORT: "70000" },
-      onInvalid: ({ source, raw, reason }) => reported.push(`${source}=${raw}:${reason}`),
-    });
-    assert.deepEqual(reported, [".env PORT=70000:ignored-by-server"]);
-    assert.equal(port, DEFAULT_SERVER_PORT);
+    const resolution = resolveServerPort({ processEnv: {}, envFileValues: { PORT: "70000" } });
+    assert.deepEqual(resolution.problems, [{ source: ".env PORT", raw: "70000", reason: "ignored-by-server" }]);
+    assert.equal(resolution.port, DEFAULT_SERVER_PORT);
+  });
+});
+
+// A warning was not enough for `PORT=0`: the proxy fell through to another source
+// (or `:3001`), the page loaded, and the client talked to whatever else was
+// listening there — the silent mis-wiring this module exists to prevent. The dev
+// server has to refuse to start (Codex, #2653).
+describe("assertProxyablePort", () => {
+  it("passes when every source was usable", () => {
+    assert.doesNotThrow(() => assertProxyablePort(resolveServerPort({ processEnv: { PORT: "3100" } })));
+    assert.doesNotThrow(() => assertProxyablePort(resolveServerPort({ processEnv: {} })));
   });
 
-  it("does not report when PORT is simply absent", () => {
-    const reported: string[] = [];
-    resolveServerPort({ processEnv: {}, onInvalid: ({ source }) => reported.push(source) });
-    assert.deepEqual(reported, []);
+  it("passes when the only problem is a value the server itself ignores", () => {
+    assert.doesNotThrow(() => assertProxyablePort(resolveServerPort({ processEnv: { PORT: "nonsense" } })));
+  });
+
+  it("throws for PORT=0, naming the port and what to do", () => {
+    assert.throws(() => assertProxyablePort(resolveServerPort({ processEnv: { PORT: "0" } })), /OS-assigned port.*PORT=3100/s);
+  });
+
+  it("throws for a whitespace-only PORT, which coerces to 0", () => {
+    assert.throws(() => assertProxyablePort(resolveServerPort({ processEnv: { PORT: "   " } })), /OS-assigned port/);
+  });
+
+  // A later valid source does NOT rescue it: the BACKEND uses the shell value and
+  // takes an ephemeral port, so proxying to the `.env` port is still the wrong server.
+  it("throws even when a later source would have given a usable port", () => {
+    const resolution = resolveServerPort({ processEnv: { PORT: "0" }, envFileValues: { PORT: "3200" } });
+    assert.equal(resolution.port, 3200);
+    assert.throws(() => assertProxyablePort(resolution), /OS-assigned port/);
   });
 });
 
