@@ -8,6 +8,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-29
+
+**The Mac said it was online while the phone saw it offline — and an icon you can start it from.**
+
+
 ### Highlights
 
 #### The host stopped claiming to be online while the phone saw it offline (#2633, PR #2637)
@@ -86,6 +91,8 @@ The second is Windows-only, and is why the original report could not be reproduc
 `yarn dev` now prunes both from its watcher. The Windows half stops watching `packages/*/dist`, so a real rebuild of a workspace package needs a `yarn dev` restart to show up there — set `MULMOCLAUDE_DEV_WATCH_PACKAGES=1` to trade that back for the reloads. macOS and Linux never mount those packages and keep their rebuild HMR untouched.
 
 The runtime workspace directories are now gitignored too, which keeps personal chat logs and artifacts uncommittable when the workspace is the checkout, and out of Tailwind's gitignore-honouring scan. Inert for a checkout whose workspace lives elsewhere.
+
+Ships `@mulmoclaude/core@1.10.0`, `@mulmoclaude/markdown-utils@1.3.2`, `@mulmobridge/twilio-sms@1.0.2`, `@mulmoclaude/collection-plugin@1.2.1`, `@mulmoclaude/html-plugin@1.2.0`, `@mulmoclaude/markdown-plugin@1.3.0`, `@mulmoclaude/google-plugin@1.2.0`, `@mulmoclaude/accounting-plugin@1.1.0`, `@mulmoclaude/chart-plugin@1.0.3`, `@mulmoclaude/mulmoscript-plugin@1.1.2`, `@mulmoclaude/form-plugin@1.0.2`, `@mulmoclaude/spotify-plugin@1.0.2`, `@mulmoclaude/x-plugin@1.0.1`, `@mulmoclaude/common@1.1.1`, `@mulmobridge/protocol@1.0.1`, `@mulmobridge/client@1.0.1`, `@mulmobridge/chat-service@1.0.1`, `@mulmobridge/web-push@1.0.1`, `@receptron/task-scheduler@1.0.1`.
 
 ---
 
