@@ -125,6 +125,7 @@ Full layout + workspace tree + process map: [`docs/developer.md`](docs/developer
 | **Release the app** (`vX.Y.Z`) | `/release-app` skill |
 | **Publish `mulmoclaude` to npm** | `/publish-mulmoclaude` skill |
 | **Publish a shared `@mulmoclaude/*` or `@mulmobridge/*` npm package** | `/publish` skill — tag `@scope/name@X.Y.Z` (no `v`), GH release with `--latest=false` |
+| **Work out WHAT to publish** — who depends on what, whether a dependent needs republishing, why app code only ships via the launcher | [`docs/package-releases.md`](docs/package-releases.md). Start with `yarn audit:releases --code-only`. |
 | **Add / write an e2e test** (mock or live) | [`docs/developer.md#e2e-testing-playwright`](docs/developer.md#e2e-testing-playwright) for mock, [`docs/e2e-live-testing.md`](docs/e2e-live-testing.md) for live (must-read before adding a `e2e-live/tests/*.spec.ts`) |
 | **Manual-test scenarios that can't be automated** | [`docs/manual-testing.md`](docs/manual-testing.md) |
 | **Work on remote host** (drive MulmoClaude from a phone over the Firestore command channel) | [`docs/remote-host.md`](docs/remote-host.md) (auth model, command loop, handler table, mobile custom-view postMessage bridge) |
@@ -139,6 +140,20 @@ Rationale: the launcher-sync gate enforces `launcherRange.lowerBound == workspac
 When to bump `packages/mulmoclaude/package.json`'s `version`:
 - Inside the `/publish-mulmoclaude` flow, right before the actual `npm publish`. That commit becomes the identity of the release.
 - Never as part of a `chore(release)` that publishes only shared packages.
+
+### Before any release, ask what is actually drifting
+
+`yarn audit:releases --code-only` compares every publishable workspace against its
+release tag. A `version` equal to npm's latest does NOT mean the source matches what
+shipped — only the tag says that, which is why the tool reports a missing tag as its own
+finding rather than as "clean". This is not hypothetical: the polynomial-ReDoS fix in
+`@mulmoclaude/markdown-utils` (CodeQL #402) sat unpublished with nothing pointing at it,
+and `core` depends on that package at RUNTIME rather than bundling it — so every npm
+consumer kept resolving the unfixed copy.
+
+Full graph, the "does a dependent need republishing too?" rules, and the launcher's
+special role (app code under `server/` / `src/` ships ONLY through a `mulmoclaude`
+publish) → [`docs/package-releases.md`](docs/package-releases.md).
 
 ### Internal dep ranges — always track the latest published version
 

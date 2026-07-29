@@ -1,0 +1,174 @@
+# Package dependencies and what has to be published
+
+This repo publishes ~54 packages to npm from one tree. The question this document
+answers is the one that keeps being answered wrong: **I changed something — what do I
+have to publish, and does the user actually get it?**
+
+Three incidents are why it exists.
+
+- `@mulmoclaude/markdown-utils@1.3.1` shipped a regex with polynomial backtracking. The
+  fix (CodeQL #402) landed in the repo and stayed there for days, because nothing said
+  "this package now differs from what npm serves". Every npm consumer kept running the
+  unfixed copy — `core` depends on it at **runtime** rather than bundling it.
+- `@mulmoclaude/core@1.8.0` was published without a git tag, so "which commit is this
+  version?" had no answer. Reconstructing it needed the published tarball's file list.
+- `mulmoclaude@1.4.0` shipped `0.x` caret ranges. A caret does **not** float across
+  minors below 1.0, so six days of publishes reached nobody.
+
+---
+
+## The graph
+
+Dependencies flow one way. Nothing below depends on anything above it.
+
+```text
+  mulmoclaude  (the launcher — the only package end users install)
+       │  depends on 18 internal packages, AND ships the app itself:
+       │  files: bin/ client/ server/ src/  ← built app code, via prepack
+       ▼
+  ┌─────────────────────────────┬──────────────────────────────┐
+  │  @mulmoclaude/*-plugin      │  @mulmobridge/<service>       │
+  │  accounting, chart,         │  slack, discord, line,        │
+  │  collection, google, html,  │  telegram, whatsapp, … (23)   │
+  │  markdown, mulmoscript      │                               │
+  └──────────────┬──────────────┴───────────────┬───────────────┘
+                 ▼                              ▼
+        @mulmoclaude/core  (8 dependents)   @mulmobridge/client  (27)
+                 │                              │
+                 ▼                              ▼
+        @mulmoclaude/markdown-utils (3)   @mulmobridge/protocol  (28)
+                 │                        @mulmobridge/webhook-runtime (6)
+                 ▼                              │
+              @mulmoclaude/common  (32 dependents — the widest blast radius)
+```
+
+`@receptron/task-scheduler` (2 dependents) and `@mulmobridge/web-push` (1) sit beside
+the leaves. `@mulmobridge/chat-service` and `@mulmobridge/mock-server` depend only on
+`protocol`.
+
+Regenerate this whenever it looks stale:
+
+```bash
+node -e '
+const fs=require("fs"),path=require("path");const INT=/^(@mulmoclaude\/|@mulmobridge\/|@receptron\/|mulmoclaude$)/;
+const dirs=["packages","packages/bridges","packages/plugins","packages/services"].flatMap(r=>fs.existsSync(r)?fs.readdirSync(r).map(d=>path.join(r,d)):[]);
+const rev={};for(const d of dirs){const p=path.join(d,"package.json");if(!fs.existsSync(p))continue;const j=JSON.parse(fs.readFileSync(p));
+for(const s of ["dependencies","devDependencies","peerDependencies"])for(const k of Object.keys(j[s]||{}))if(INT.test(k))(rev[k]??=new Set()).add(j.name);}
+Object.entries(rev).sort((a,b)=>b[1].size-a[1].size).forEach(([k,v])=>console.log(v.size.toString().padStart(3),k));'
+```
+
+---
+
+## What has to be published
+
+### The rule
+
+**Publish the package you changed. Its dependents usually do NOT need republishing.**
+
+Every internal range is a caret on a `1.x` version, and a caret floats across minors and
+patches at or above 1.0. A consumer declaring `^1.3.1` installs `1.3.2` the moment it
+exists — no republish of the consumer required. That is why the `markdown-utils` fix
+reached everyone the instant it was published, without touching `core`.
+
+Two things break that rule:
+
+- **`0.x` versions.** `^0.23.0` means `>=0.23.0 <0.24.0`. A consumer pinned there is
+  frozen out of everything after it, which is exactly what `mulmoclaude@1.4.0` did. Keep
+  published packages at `1.x` or higher.
+- **Bundling.** A dependent that inlines the dependency at build time carries a *copy*,
+  so the fix does not reach its users until the dependent is rebuilt and republished.
+  Check before assuming:
+
+  ```bash
+  npm view <dependent> dependencies          # still a real dependency → floats, fine
+  curl -sL "$(npm view <dependent> dist.tarball)" | tar -tz | grep <the-module>
+  ```
+
+  `@mulmoclaude/core` keeps `common` and `markdown-utils` as runtime dependencies (they
+  are not in its tarball), so fixes there flow through without a core release.
+
+### Publish a dependent as well when
+
+- it needs a **new export** from the dependency to compile — its own build embeds the
+  result;
+- the range must move across a **major**;
+- an already-installed user must get the fix without re-resolving. A caret only helps at
+  install time; a lockfile pins what it pins.
+
+### The launcher is the exception that catches people
+
+`mulmoclaude` does not merely depend on the other packages. Its `files` include
+`bin/ client/ server/ src/`, filled by `prepack` (`bin/prepare-dist.js`) from this
+repo's own `server/` and `src/`. So:
+
+> **Any change to app code — `server/`, `src/` — reaches npm users only through a
+> `mulmoclaude` publish.** No amount of package publishing delivers it.
+
+Use `/publish-mulmoclaude` for that, never the generic flow, and never bump the
+launcher's `version` in a `chore(release)` commit that publishes something else.
+
+---
+
+## Before publishing anything: what is actually drifting?
+
+A version equal to npm's latest does **not** mean the source matches what shipped. Only
+the tag tells you that.
+
+```bash
+yarn audit:releases              # every publishable workspace: local / npm / state / detail
+yarn audit:releases --code-only  # just the ones needing a decision
+
+# or, for one package by hand
+git diff "@scope/name@$(npm view @scope/name version)" HEAD -- packages/<dir>
+```
+
+`state` is the useful column:
+
+| state | meaning |
+|---|---|
+| `clean` | source matches the published tag — nothing to do |
+| `manifest only` | `package.json` changed (dependency bumps) — no release needed |
+| `code drift` | unreleased behaviour under `src/` — decide deliberately |
+| `untagged` | published, but no tag, so drift **cannot be measured** — fix the tag first |
+| `unpublished` | never went to npm — decide whether it is meant to |
+
+Drift in `package.json` alone is usually a devDependency bump and needs no release.
+Drift under `src/` is unreleased behaviour — decide deliberately.
+
+If the diff is empty because **the tag is missing**, that is its own finding: fix it
+before relying on the answer. Do not tag the version-bump commit by reflex — it is
+often on a feature branch, so it predates other merges the publish actually contained.
+Identify the commit from the published tarball instead:
+
+```bash
+curl -sL "$(npm view @scope/name@X.Y.Z dist.tarball)" | tar -tz   # which modules are in?
+npm view @scope/name time --json                                  # when was it cut?
+```
+
+then tag the main-line commit whose tree matches, and say why in the commit or issue.
+`@mulmoclaude/core@1.8.0` was tagged this way: the tarball contained
+`firestoreSafeResult` but not `presenceBeat`, which placed it exactly at the merge of
+PR #2639 rather than at the branch-local bump.
+
+---
+
+## Release mechanics
+
+`/publish` owns the steps. What it enforces, and why each matters:
+
+| Step | Why |
+|---|---|
+| version bump + **every declared range swept** to the new version | ranges are the record of intent; a stale one hides which line a consumer was built against |
+| commit + tag **before** `npm publish` | publish is irreversible; the tarball must correspond to a tagged commit |
+| tag `@scope/name@X.Y.Z`, never `vX.Y.Z` | `v` prefixes belong to app releases (`/release-app`) |
+| GitHub release with `--latest=false` | a package release must not displace the app's latest |
+| `docs/CHANGELOG.md` entry | the only place a reader finds out a package moved and why |
+
+Verify the tarball before publishing, not after. A vite-built package emits one bundled
+`index.js` plus per-module `.d.ts`, so "my new file is missing from the tarball" is
+usually wrong — grep the bundle for a string only the new code contains:
+
+```bash
+cd packages/<dir> && npm pack --dry-run
+grep -o "<a string from the new code>" dist/**/*.js
+```
