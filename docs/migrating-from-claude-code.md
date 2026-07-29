@@ -312,8 +312,9 @@ cp -r ~/projects/my-project/docs/*.md ~/mulmoclaude/data/wiki/pages/
 - 非 Docker mode ではプロンプト指示ベースの read-only (緩い)
 - AI は内容を読めるが書き込めない
 - 機密ディレクトリ (`.ssh`, `.aws`, `/etc` 等) は自動でブロック
+- **Docker mode ではコンテナ内のパスが変わる** — `/mnt/readonly/<basename>-<hash8>` にマウントされ、ホストの絶対パスはコンテナ内に存在しない (`server/workspace/reference-dirs.ts` — `containerPath`)。システムプロンプトにはラベルとマウント先の対応表が入るので、**チャットやカスタム role の `prompt` では絶対パスではなくラベルで指す**こと。ホストパスを直書きすると Docker mode では何も読めず、しかもエラーが出ない
 
-**最大エントリ数**: 20 (`server/workspace/reference-dirs.ts:30`)
+**最大エントリ数**: 20 (`server/workspace/reference-dirs.ts` — `MAX_ENTRIES`)
 
 ### 4.4 どれを選ぶか
 

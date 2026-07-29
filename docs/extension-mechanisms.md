@@ -317,18 +317,20 @@ const skills = await discoverSkills({ workspaceRoot: workspacePath });
 
 **例 (built-in)**: `general`, `office`, `guide`, `artist`, `tutor`, `storyteller`, `settings`, `accounting`, `cookingCoach`, `debug`
 
-**追加 (user-defined)**: MulmoClaude の Settings → Roles から `manageRoles` 経由、または `<workspace>/config/roles/<id>.md` を直接置く
+**追加 (user-defined)**: MulmoClaude の Settings → Roles から `manageRoles` 経由、または `<workspace>/config/roles/<id>.json` を直接置く
+
+ローダ (`server/workspace/roles.ts` — `loadCustomRoles`) が読むのは **`.json` のみ**。`.md` など他の拡張子は読み込み対象にすら入らない。加えて JSON 構文エラーとスキーマ検証失敗は現状無言で握り潰されるため、置いた role が一覧に出ない場合はまず拡張子と JSON の妥当性を疑うこと (#2649)。
 
 **ソース実装**:
 
-- Schema: `src/config/roles.ts:25-32` — `RoleSchema`
-- Built-in: `src/config/roles.ts:36` — `export const ROLES: Role[]`
+- Schema: `src/config/roles.ts` — `RoleSchema`
+- Built-in: `src/config/roles.ts` — `export const ROLES: Role[]` (`BUILTIN_ROLES` として再エクスポート)
 - Persona prompt 注入: `server/agent/prompt.ts:683` — `buildSystemPrompt`
 - Plugin gate: `server/agent/activeTools.ts:78` — `role.availablePlugins`
 
 ```ts
-// src/config/roles.ts:25
-const RoleSchema = z.object({
+// src/config/roles.ts
+export const RoleSchema = z.object({
   id: z.string(),
   name: z.string(),
   icon: z.string(),
