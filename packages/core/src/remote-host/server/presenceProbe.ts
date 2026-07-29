@@ -1,21 +1,22 @@
 // Can the phone still see this host? Asked from the phone's own vantage point,
 // rather than inferred from this side (#2633).
 //
-// The runner tracks whether its own presence writes are being acknowledged, which
-// is the same question one step earlier. This reads the document back FROM THE
-// SERVER and judges it by age — the exact test the remote applies. Both answers
-// are useful: a read that throws means the connection is genuinely gone, and a
-// read that returns a stale document means the beats are not landing.
+// `createPresenceBeat` tracks whether this host's own presence writes are being
+// acknowledged, which is the same question one step earlier. This reads the
+// document back FROM THE SERVER and judges it by age — the exact test the remote
+// applies. Both answers are useful: a read that throws means the connection is
+// genuinely gone, and a read that returns a stale document means the beats are
+// not landing.
 //
-// Ported from MulmoTerminal (server/backends/remoteHost/presenceProbe.ts), where
-// it has run since receptron/mulmoterminal#1045.
+// Lives beside the runner it feeds (#2643) so the probe interval, the heartbeat,
+// and `presenceStaleAfterMs` can only be changed against each other.
 import { getDocFromServer } from "firebase/firestore";
 import type { Firestore } from "firebase/firestore";
-import { hostDoc } from "@mulmoclaude/core/remote-host";
-import type { Channel } from "@mulmoclaude/core/remote-host";
-import { presenceStaleAfterMs } from "@mulmoclaude/core/remote-host/server";
 
-import { ONE_SECOND_MS } from "../utils/time.js";
+import { hostDoc, type Channel } from "../index.js";
+import { presenceStaleAfterMs } from "./hostRunner.js";
+
+const ONE_SECOND_MS = 1_000;
 
 // The runner's own threshold, taken from the runner rather than recomputed: a
 // laptop waking up gets three beats to write again before anyone calls it dead.

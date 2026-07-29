@@ -11,7 +11,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { PRESENCE_STALE_MS, presenceIsFresh, withTimeout } from "../../server/remoteHost/presenceProbe.js";
+import { PRESENCE_STALE_MS, presenceIsFresh, withTimeout } from "../../src/remote-host/server/presenceProbe.js";
 
 const NOW = 1_700_000_000_000;
 
