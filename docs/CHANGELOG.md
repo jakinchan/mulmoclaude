@@ -10,6 +10,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Highlights
 
+#### The host stopped claiming to be online while the phone saw it offline (#2633, PR #2637)
+
+Two facts that must agree were computed on separate paths. A phone decides whether a host is reachable from the freshness of its presence document; the host decided whether it was connected from Firestore **listener** errors alone. So presence writes could fail forever while `onSnapshot` stayed quiet: the host reported itself healthy, retried nothing, and opening a browser tab did not help, because the tab only reconnects once the server admits it is disconnected.
+
+The liveness sensor is now the AGE of the last acknowledged presence write, not a count of failures. Firestore does not reject a write it cannot deliver — it queues it and leaves the promise pending ("if the client is offline, the returned `Promise` will not resolve for a potentially-long time", per the SDK's own typings), so a failure counter reads zero throughout the outage it exists to catch. Three unacknowledged heartbeats and the runner announces offline instead of claiming to be up, which is what finally lets the client's existing 15-second poll re-authenticate from its parked session.
+
+The listener's give-up rule moved from a retry COUNT to a TIME window. Five retries came to roughly 31 seconds of wall clock — shorter than any laptop sleep or network move, after which the host never re-subscribed. It is now five minutes measured from the FIRST failure, so a backoff ladder that keeps failing cannot extend its own deadline, and `unauthenticated` is treated as transient because the SDK refreshes tokens on retry. Presence write failures now reach `onEvent` instead of being swallowed, and the lifecycle's default logger stopped dropping the message that carries the Firestore error code.
+
+On the MulmoClaude side, a recovery ring outside core's (ported from MulmoTerminal) relaunches the whole runner after core gives up and probes the presence document from the SERVER every 90 seconds — the phone's own vantage point, never the cache, which would happily return our own undelivered write. Only when relaunching stops helping for five minutes does the closure reach the lifecycle.
+
+#### One `undefined` in a handler reply no longer costs the whole reply (#2634, PRs #2638 / #2642)
+
+Firestore rejects `undefined` at any depth, and the remote-host runner wrote a handler's return value straight into the command document. One stray value anywhere in a reply made `updateDoc` throw, so `status: "done"` never landed and the phone waited out its timeout — the symptom being "nothing arrives", not "one field is missing". The runner now checks before writing: it reports the offending paths (`result.sessions.11.work`, which Firestore's own error never names) and strips them, because throwing reproduces exactly the outcome the guard exists to prevent. Paths where `undefined` is legitimate are declared per method via `expectedUndefined` and stripped silently, so the report stays worth reading. Only plain objects and arrays are rewritten — a `Date` or `Timestamp` rebuilt from its entries would become `{}` — and a circular reply is reported as `circular reference at left.right.left` rather than recursing until the stack gives out.
+
+### Packages published during this cycle
+
+- **`@mulmoclaude/core@1.9.0`** (#2633/PR #2637, #2634/PR #2642) — released 2026-07-29. The presence/listener work above, plus the circular-reference bound on the `undefined` guard. New exports for hosts judging presence freshness from outside the runner: `presenceStaleAfterMs(options)`, `PRESENCE_STALE_BEATS`, `DEFAULT_HEARTBEAT_MS`, `LISTEN_RETRY_WINDOW_MS`. All 13 declared `@mulmoclaude/core` ranges swept `^1.7.0`/`^1.8.0` → `^1.9.0`.
+- **`@mulmoclaude/core@1.8.0`** (#2634/PR #2638, plus the `presentDocument`/`presentHtml` path work) — released 2026-07-29. Carried the `undefined` guard itself. Its `@mulmoclaude/core@1.8.0` tag was missing and has been created retroactively on the commit the tarball was cut from (`8f6101fc`), verified against the published tarball's contents.
+
+
 #### `presentDocument` and `presentHtml` open any file on disk, and edits write back to it
 
 `presentDocument` only ever created: it took `markdown` inline, saved a fresh file under `artifacts/documents/<YYYY>/<MM>/`, and showed that. Re-displaying an existing document meant reading it and writing a second copy.
