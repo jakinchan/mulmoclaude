@@ -54,3 +54,10 @@ export function sanitizeMarkdownHtml(html: string): string {
   // string. The double cast is the documented way to narrow through the union.
   return DOMPurify.sanitize(html, SANITIZE_CONFIG) as unknown as string;
 }
+
+/** Test seam — undoes the global DOMPurify hook so an isolated test can verify
+ *  the no-hook baseline. Production code never calls this. */
+export function _resetSanitizeForTests(): void {
+  DOMPurify.removeAllHooks();
+  hookInstalled = false;
+}

@@ -8,11 +8,14 @@
 
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdirSync } from "fs";
+import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 
 type ByPathModule = typeof import("../../../server/utils/files/by-path.js");
+
+type FileOpsUnderTest = ReturnType<ByPathModule["makeByPathFileOps"]>;
 
 const MARKDOWN = [".md"] as const;
 
@@ -21,6 +24,7 @@ let workspaceDir: string;
 let originalHome: string | undefined;
 let originalUserProfile: string | undefined;
 let resolveByPath: ByPathModule["resolveByPath"];
+let fileOps: FileOpsUnderTest;
 
 before(async () => {
   tmpRoot = await mkdtemp(path.join(tmpdir(), "mulmo-by-path-"));
@@ -31,7 +35,11 @@ before(async () => {
 
   const { workspacePath } = await import("../../../server/workspace/workspace.js");
   workspaceDir = workspacePath;
-  ({ resolveByPath } = await import("../../../server/utils/files/by-path.js"));
+  const { resolveByPath: resolve, makeByPathFileOps } = await import("../../../server/utils/files/by-path.js");
+  resolveByPath = resolve;
+  fileOps = makeByPathFileOps(MARKDOWN);
+  await writeFile(path.join(workspaceDir, "notes.md"), "# notes\n", "utf-8");
+  mkdirSync(path.join(workspaceDir, "docs-dir.md"), { recursive: true });
 });
 
 after(async () => {
@@ -76,5 +84,27 @@ describe("resolveByPath", () => {
   // the shape check and the resolution disagree about where the file is.
   it("refuses a Windows root-relative path on a POSIX host", { skip: process.platform === "win32" }, () => {
     assert.equal(resolveByPath("\\dir\\notes.md", MARKDOWN), null);
+  });
+});
+
+// The capability is handed to a plugin, so what it CANNOT do matters as much as
+// what it can: it exists to read and re-save the one document a tool call
+// named.
+describe("makeByPathFileOps — refused operations", () => {
+  it("rejects readDir and unlink as unsupported", async () => {
+    await assert.rejects(() => fileOps.readDir("docs"), /does not support readDir/);
+    await assert.rejects(() => fileOps.unlink("notes.md"), /does not support unlink/);
+  });
+
+  it("refuses to write a path that does not already hold a file", async () => {
+    await assert.rejects(() => fileOps.write("never-written.md", "x"), /no file exists/);
+  });
+
+  it("reads an existing document", async () => {
+    assert.equal(await fileOps.read("notes.md"), "# notes\n");
+  });
+
+  it("refuses to read a directory named like a document", async () => {
+    await assert.rejects(() => fileOps.read("docs-dir.md"), /no file exists/);
   });
 });

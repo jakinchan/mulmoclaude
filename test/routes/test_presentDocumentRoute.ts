@@ -244,7 +244,9 @@ describe("PUT /api/markdown/update — write-back", () => {
     const { state, res } = mockRes();
     await updateHandler(req({ relativePath: "docs/never-written.md", markdown: "# nope\n" }), res);
 
-    assert.notEqual(state.status, 200);
+    // A stale view or a wrong path is a client error, not a server fault —
+    // same status presentHtml's update route returns for the same race.
+    assert.equal(state.status, 400);
     await assert.rejects(readFile(target, "utf-8"), "a write to a vanished path must not scatter a new file");
   });
 

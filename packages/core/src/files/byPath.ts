@@ -28,8 +28,10 @@
 //   - `write` overwrites only. Neither tool creates a file at a caller-supplied
 //     path, so a write to a path that does not exist means the view is stale or
 //     the path was wrong — refusing keeps a typo from scattering files.
+//   - `readDir` and `unlink` are refused outright: this capability exists to
+//     read and re-save ONE named document, not to browse or delete.
 
-import { readFile, realpath, readdir, stat as fsStat, unlink as fsUnlink } from "node:fs/promises";
+import { readFile, realpath, stat as fsStat } from "node:fs/promises";
 import path from "node:path";
 import { classifyFilePath } from "../artifacts/paths.js";
 import { writeFileAtomic } from "./atomic.js";
@@ -62,12 +64,7 @@ export function resolveByPath(root: string, value: string, extensions: readonly 
 /** True when the path names an existing regular file. */
 export async function existsAsFile(root: string, value: string, extensions: readonly string[]): Promise<boolean> {
   const absPath = resolveByPath(root, value, extensions);
-  if (absPath === null) return false;
-  try {
-    return (await fsStat(await realpath(absPath))).isFile();
-  } catch {
-    return false;
-  }
+  return absPath === null ? false : (await regularFileTarget(absPath)) !== null;
 }
 
 export interface ByPathOptions {
@@ -83,60 +80,53 @@ function resolveOrThrow({ rootFor, extensions }: ByPathOptions, value: string): 
   return absPath;
 }
 
-function isEnoent(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "ENOENT";
+/** The canonical REGULAR FILE a path names, or null when it is missing, is a
+ *  directory, or is anything else (a FIFO would block a read forever).
+ *  Resolved through `realpath` so a symlink is judged — and later written — by
+ *  what it points at: `writeFileAtomic` renames a temp file into place, which
+ *  through a link would replace the link itself and leave the real document
+ *  untouched. */
+async function regularFileTarget(absPath: string): Promise<string | null> {
+  try {
+    const target = await realpath(absPath);
+    return (await fsStat(target)).isFile() ? target : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The file to read or overwrite. Throws rather than creating: neither tool
+ *  ever writes to a path that does not already hold a document. */
+async function existingFileFor(options: ByPathOptions, rel: string): Promise<string> {
+  const target = await regularFileTarget(resolveOrThrow(options, rel));
+  if (target === null) throw new Error(`no file exists at ${rel}`);
+  return target;
+}
+
+/** Browsing and deleting are NOT part of this capability: it exists so a view
+ *  can read and re-save the ONE document the tool call named, not to enumerate
+ *  a directory it was never pointed at or remove a file. */
+function unsupported(operation: string): () => Promise<never> {
+  return () => Promise.reject(new Error(`byPath FileOps does not support ${operation}`));
 }
 
 /** FileOps over caller-supplied paths — what a host injects as `files.byPath`
  *  for plugins whose `path` argument may leave their artifact directory. Every
  *  method takes the same value the tool call carried, not a scope-relative one. */
 export function createByPathFileOps(options: ByPathOptions): ByPathFileOps {
-  const exists = (value: string) => existsAsFile(options.rootFor(), value, options.extensions);
   return {
-    async read(rel) {
-      return readFile(resolveOrThrow(options, rel), "utf-8");
-    },
-    async readBytes(rel) {
-      const buf = await readFile(resolveOrThrow(options, rel));
+    read: async (rel) => readFile(await existingFileFor(options, rel), "utf-8"),
+    readBytes: async (rel) => {
+      const buf = await readFile(await existingFileFor(options, rel));
       return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
     },
-    async write(rel, content) {
-      const absPath = resolveOrThrow(options, rel);
-      // Write to what a symlink POINTS AT, not through it. `writeFileAtomic`
-      // renames a temp file into place, which would replace the link itself
-      // with a regular file and leave the real document untouched — the user
-      // would see their edit "save" and the file they were editing not change.
-      // The realpath + isFile pair is also the existence check.
-      let target: string;
-      try {
-        target = await realpath(absPath);
-        if (!(await fsStat(target)).isFile()) throw new Error("not a regular file");
-      } catch {
-        throw new Error(`no file exists at ${rel}`);
-      }
-      await writeFileAtomic(target, content);
-    },
-    async readDir(rel) {
-      try {
-        return await readdir(resolveOrThrow(options, rel));
-      } catch (err) {
-        if (isEnoent(err)) return [];
-        throw err;
-      }
-    },
-    async stat(rel) {
+    write: async (rel, content) => writeFileAtomic(await existingFileFor(options, rel), content),
+    readDir: unsupported("readDir"),
+    stat: async (rel) => {
       const { mtimeMs, size } = await fsStat(resolveOrThrow(options, rel));
       return { mtimeMs, size };
     },
-    async exists(rel) {
-      return exists(rel);
-    },
-    async unlink(rel) {
-      try {
-        await fsUnlink(resolveOrThrow(options, rel));
-      } catch (err) {
-        if (!isEnoent(err)) throw err;
-      }
-    },
+    exists: (rel) => existsAsFile(options.rootFor(), rel, options.extensions),
+    unlink: unsupported("unlink"),
   };
 }

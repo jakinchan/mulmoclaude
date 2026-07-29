@@ -200,9 +200,17 @@ bindRoute(
       badRequest(res, "invalid markdown relativePath");
       return;
     }
+    // Overwrite only — a path that no longer exists means the View is stale or
+    // the path was wrong, which is a client error, not a server fault. Checked
+    // here so it surfaces as 400 (matching presentHtml's update route) instead
+    // of falling into the catch below as a 500. `overwriteDocument` re-checks:
+    // between this line and the write, the file can still vanish.
+    if (!(await documentExists(relativePath))) {
+      log.warn("plugins", "updateMarkdown: no document at path", { pathPreview: previewSnippet(relativePath) });
+      badRequest(res, `no document exists at ${relativePath}`);
+      return;
+    }
     try {
-      // Overwrite only — `overwriteDocument` refuses a path that does not
-      // already exist, so a stale View can't create a file anywhere on disk.
       await overwriteDocument(relativePath, markdown);
       log.info("plugins", "updateMarkdown: ok", { pathPreview: previewSnippet(relativePath), bytes: markdown.length });
       void publishFileChange(relativePath);
