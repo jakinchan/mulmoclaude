@@ -52,7 +52,7 @@
     "@eslint/js": "^10.0.1",
     "@mulmoclaude/core": "^1.10.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.1.2",
     "@typescript-eslint/eslint-plugin": "^8.65.0",
     "@typescript-eslint/parser": "^8.65.0",
     "@vitejs/plugin-vue": "^6.0.8",
