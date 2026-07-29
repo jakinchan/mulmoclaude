@@ -87,10 +87,32 @@ Two things break that rule:
   `@mulmoclaude/core` keeps `common` and `markdown-utils` as runtime dependencies (they
   are not in its tarball), so fixes there flow through without a core release.
 
+### Publish order — bottom-up, launcher last
+
+When a release spans several packages, publish each dependency **before** anything that
+imports it:
+
+```text
+@mulmoclaude/common → @mulmoclaude/markdown-utils → @mulmoclaude/core → @mulmoclaude/*-plugin ─┐
+@mulmobridge/protocol → @mulmobridge/client → @mulmobridge/<service> ──────────────────────────┤
+@mulmobridge/webhook-runtime → the 6 webhook bridges ──────────────────────────────────────────┤
+                                                                                               ▼
+                                                                              mulmoclaude (launcher)
+```
+
+Backwards, you publish a package whose code calls an export npm does not serve yet. It
+compiles here — the workspace resolves to the source — and fails for everyone else.
+
+Each step is the same loop: bump → sweep that package's declared ranges → validate →
+commit + tag → publish → release notes. Only then start the next package.
+
 ### Publish a dependent as well when
 
-- it needs a **new export** from the dependency to compile — its own build embeds the
-  result;
+- it **imports something the published dependency does not have**. This is the case that
+  bites: #2643 moved the runner's outer ring into core, and `server/remoteHost/` began
+  importing `startResilientHostRunner` — absent from `@mulmoclaude/core@1.9.0`. Core had
+  to ship as `1.10.0`, with the ranges swept, before the launcher could go at all. Here
+  the range sweep is load-bearing rather than tidy;
 - the range must move across a **major**;
 - an already-installed user must get the fix without re-resolving. A caret only helps at
   install time; a lockfile pins what it pins.

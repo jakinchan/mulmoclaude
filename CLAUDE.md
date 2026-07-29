@@ -141,6 +141,32 @@ When to bump `packages/mulmoclaude/package.json`'s `version`:
 - Inside the `/publish-mulmoclaude` flow, right before the actual `npm publish`. That commit becomes the identity of the release.
 - Never as part of a `chore(release)` that publishes only shared packages.
 
+### Publish order — always bottom-up, launcher last
+
+Publish a dependency BEFORE anything that imports it. Getting this backwards ships a
+package whose code calls an export that does not exist on npm yet.
+
+```text
+@mulmoclaude/common → @mulmoclaude/markdown-utils → @mulmoclaude/core → @mulmoclaude/*-plugin ─┐
+@mulmobridge/protocol → @mulmobridge/client → @mulmobridge/<service> ──────────────────────────┤
+@mulmobridge/webhook-runtime → the 6 webhook bridges ──────────────────────────────────────────┤
+                                                                                               ▼
+                                                                              mulmoclaude (launcher)
+```
+
+**The launcher is always last**, and it is not optional when app code moved: its `files`
+include `server/` and `src/`, so a change under those directories reaches npm users ONLY
+through `/publish-mulmoclaude` — no amount of package publishing delivers it.
+
+A dependent usually does NOT need republishing (a `1.x` caret floats across minors, so
+`^1.9.0` picks up `1.10.0` on its own). It DOES when it imports something the published
+dependency lacks. That case is load-bearing, not tidiness: in #2643, `server/remoteHost/`
+started importing `startResilientHostRunner`, which `@mulmoclaude/core@1.9.0` does not
+have — so core 1.10.0 had to ship, with every declared range swept, before the launcher
+could be published at all.
+
+Full graph, per-state drift detection and the tag rules → [`docs/package-releases.md`](docs/package-releases.md).
+
 ### Before any release, ask what is actually drifting
 
 `yarn audit:releases --code-only` compares every publishable workspace against its
