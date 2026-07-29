@@ -102,13 +102,21 @@ export function hasUnsafePathSegment(value: string): boolean {
 /** How a caller-supplied file path must be resolved. `null` = not a usable path. */
 export type FilePathKind = "absolute" | "relative";
 
-// `/x`, `C:\x` / `C:/x`, and `\\server\share` (UNC). Windows spellings are
-// recognised on every platform: the value is produced by an LLM or a remote
-// host, not by the local `path` module.
+// `/x`, `C:\x` / `C:/x`, `\\server\share` (UNC), and the Windows root-relative
+// `\dir\x` — which node's `path.resolve` on Windows sends to the drive root, so
+// treating it as relative would mean the classification and the resolution
+// disagreed about where the file is. Windows spellings are recognised on every
+// platform: the value is produced by an LLM or a remote host, not by the local
+// `path` module.
 const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/;
 
-function isAbsolutePathValue(value: string): boolean {
-  return value.startsWith("/") || value.startsWith("\\\\") || WINDOWS_DRIVE_RE.test(value);
+/** True when `value` names a location that does not depend on a base directory.
+ *  Exported so a URL builder and a path resolver cannot disagree about which
+ *  values are rooted. */
+export function isAbsoluteFilePathValue(value: string): boolean {
+  // One leading backslash covers both the UNC `\\server\share` and the Windows
+  // root-relative `\dir\x`.
+  return value.startsWith("/") || value.startsWith("\\") || WINDOWS_DRIVE_RE.test(value);
 }
 
 /**
@@ -129,7 +137,7 @@ export function classifyFilePath(value: string, extensions: readonly string[]): 
   if (!value || value.includes("\0")) return null;
   const lower = value.toLowerCase();
   if (!extensions.some((ext) => lower.endsWith(ext))) return null;
-  const absolute = isAbsolutePathValue(value);
+  const absolute = isAbsoluteFilePathValue(value);
   // Split on both separators: `..` must be refused however the value spells it.
   const segments = value.split(/[/\\]/);
   // A leading `/` (or drive / UNC prefix) makes the first segment empty by

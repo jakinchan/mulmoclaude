@@ -43,7 +43,7 @@ import configRoutes from "./api/routes/config.js";
 import configRefreshRoutes from "./api/routes/config-refresh.js";
 import hookLogRoutes from "./api/routes/hookLog.js";
 import skillsRoutes from "./api/routes/skills.js";
-import collectionsRoutes from "./api/routes/collections.js";
+import collectionsRoutes, { makeViewActionRateLimiter } from "./api/routes/collections.js";
 import collectionsRegistryRoutes from "./api/routes/collectionsRegistry.js";
 import { startCollectionWatchers } from "./workspace/collections/watcher.js";
 import runtimePluginRoutes from "./api/routes/runtime-plugin.js";
@@ -142,7 +142,7 @@ import { SESSION_ORIGINS } from "../src/types/session.js";
 import { buildHtmlPreviewCsp } from "../src/utils/html/previewCsp.js";
 import { readCspExtraSync, warnIfCspExtended } from "./utils/files/csp-io.js";
 import { readAndInjectHtmlArtifact, readAndInjectHtmlFile } from "./utils/html/htmlArtifactSplicer.js";
-import { resolveHtmlFileRequestPath } from "./utils/files/htmlFileRequest.js";
+import { resolveHtmlFileRequestPath } from "@mulmoclaude/core/files";
 import { HTML_FILE_MOUNT } from "@mulmoclaude/html-plugin";
 import { ONE_SECOND_MS, ONE_MINUTE_MS, ONE_HOUR_MS, STARTUP_FAILURE_FORCE_EXIT_MS, FATAL_LOG_FLUSH_MS } from "./utils/time.js";
 import { isPortFree, findAvailablePort, MAX_PORT_PROBES } from "./utils/port.mjs";
@@ -498,7 +498,13 @@ app.use(
 // (bearer auth does not apply outside `/api`, and an iframe `src` cannot carry
 // an Authorization header anyway).
 const getWorkspaceDirReal = makeCachedRealpath(workspacePath);
-app.use(HTML_FILE_MOUNT, async (req, res, next) => {
+// A page legitimately pulls a burst of subresources (images, media) through this
+// same mount while it renders, so the bucket is roomy — it exists to bound a
+// runaway loop hammering the filesystem, not to police normal use. Same limiter
+// the collection view routes use.
+const HTML_FILE_RATE_LIMIT_PER_MINUTE = 600;
+const htmlFileRateLimit = makeViewActionRateLimiter(HTML_FILE_RATE_LIMIT_PER_MINUTE, ONE_MINUTE_MS);
+app.use(HTML_FILE_MOUNT, htmlFileRateLimit, async (req, res, next) => {
   if (!HTML_PREVIEW_EXT_RE.test(req.path)) {
     res.status(404).end();
     return;

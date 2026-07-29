@@ -10,6 +10,7 @@ import {
   buildArtifactRelPath,
   classifyFilePath,
   hasUnsafePathSegment,
+  isAbsoluteFilePathValue,
   slugifyArtifact,
   toWorkspaceArtifactPath,
 } from "@mulmoclaude/core/artifacts";
@@ -113,12 +114,6 @@ export const HTML_FILE_MOUNT = "/htmlfile";
 export const HTML_FILE_SCOPE_WORKSPACE = "ws";
 export const HTML_FILE_SCOPE_ABSOLUTE = "abs";
 
-const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/;
-
-function isAbsolutePathValue(value: string): boolean {
-  return value.startsWith("/") || value.startsWith("\\\\") || WINDOWS_DRIVE_RE.test(value);
-}
-
 /**
  * Browser URL for a page served through the `/htmlfile` mount, or null when the
  * value is not a usable HTML path.
@@ -137,6 +132,6 @@ export function htmlFileUrl(filePath: string | null | undefined): string | null 
     .filter((segment) => segment.length > 0);
   if (segments.length === 0) return null;
   if (segments.some((segment) => segment === "." || segment === "..")) return null;
-  const scope = isAbsolutePathValue(filePath) ? HTML_FILE_SCOPE_ABSOLUTE : HTML_FILE_SCOPE_WORKSPACE;
+  const scope = isAbsoluteFilePathValue(filePath) ? HTML_FILE_SCOPE_ABSOLUTE : HTML_FILE_SCOPE_WORKSPACE;
   return `${HTML_FILE_MOUNT}/${scope}/${segments.map(encodeURIComponent).join("/")}`;
 }

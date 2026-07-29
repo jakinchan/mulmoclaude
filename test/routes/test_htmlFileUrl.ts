@@ -9,7 +9,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import path from "path";
 import { htmlFileUrl, HTML_FILE_MOUNT } from "@mulmoclaude/html-plugin";
-import { resolveHtmlFileRequestPath } from "../../server/utils/files/htmlFileRequest.js";
+import { resolveHtmlFileRequestPath } from "@mulmoclaude/core/files";
 
 const WORKSPACE = "/tmp/ws-root";
 
@@ -28,6 +28,14 @@ describe("htmlFileUrl", () => {
   it("scopes workspace-relative and absolute paths differently", () => {
     assert.equal(htmlFileUrl("docs/report.html"), "/htmlfile/ws/docs/report.html");
     assert.equal(htmlFileUrl("/Users/x/p/page.html"), "/htmlfile/abs/Users/x/p/page.html");
+  });
+
+  // Windows spellings, recognised on every platform because the value may come
+  // from a remote host. A single leading backslash is root-relative, not a
+  // workspace path — `path.resolve` on Windows sends it to the drive root.
+  it("scopes Windows drive and root-relative paths as absolute", () => {
+    assert.equal(htmlFileUrl("C:\\proj\\page.html"), "/htmlfile/abs/C%3A/proj/page.html");
+    assert.equal(htmlFileUrl("\\dir\\page.html"), "/htmlfile/abs/dir/page.html");
   });
 
   it("encodes segments so spaces and reserved characters survive", () => {
@@ -73,6 +81,25 @@ describe("resolveHtmlFileRequestPath", () => {
 
   it("refuses a malformed percent escape rather than throwing", () => {
     assert.equal(resolveHtmlFileRequestPath(WORKSPACE, "/ws/%ZZ.html"), null);
+  });
+
+  // Segmentation happens BEFORE decoding, so an encoded separator would
+  // otherwise smuggle path boundaries past the `..` / dotfile checks and only
+  // split apart inside `path.resolve`.
+  it("refuses encoded separators that would smuggle extra segments", () => {
+    assert.equal(resolveHtmlFileRequestPath(WORKSPACE, "/ws/a%2F..%2F..%2Ftmp%2Fx.html"), null);
+    assert.equal(resolveHtmlFileRequestPath(WORKSPACE, "/ws/a%5C..%5Cx.html"), null);
+    assert.equal(resolveHtmlFileRequestPath(WORKSPACE, "/abs/etc%2F..%2F..%2Fx.html"), null);
+    assert.equal(resolveHtmlFileRequestPath(WORKSPACE, "/ws/%2E%2E/x.html"), null);
+    assert.equal(resolveHtmlFileRequestPath(WORKSPACE, "/ws/sub%2F.hidden.html"), null);
+  });
+
+  // `classifyFilePath` recognises `C:\proj\x.html` on every platform (the value
+  // may come from a remote host), but only this platform's `path` can say where
+  // it lands. On POSIX it would resolve under the process cwd — a different
+  // file than anyone named — so the resolver refuses rather than guessing.
+  it("refuses a Windows-drive path on a POSIX host", { skip: process.platform === "win32" }, () => {
+    assert.equal(resolveHtmlFileRequestPath(WORKSPACE, "/abs/C%3A/proj/page.html"), null);
   });
 
   it("refuses a scope with no path after it", () => {
