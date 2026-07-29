@@ -147,3 +147,8 @@ export const commandsCollection = (firestore: Firestore, channel: Channel): Coll
 // { online, updatedAt } here; the remote reads it to know if the host is up.
 export const hostDoc = (firestore: Firestore, channel: Channel): DocumentReference<DocumentData> =>
   doc(firestore, "users", channel.uid, "hosts", channel.hostId);
+
+// Channel health as the resilient runner reports it. Browser-safe alongside the
+// wire types because the control that renders it runs in the client.
+export { RUNNER_HEALTH_STATES, isRunnerHealth, isRunnerHealthState } from "./health.js";
+export type { RunnerHealth, RunnerHealthState } from "./health.js";
