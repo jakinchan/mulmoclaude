@@ -494,4 +494,28 @@ describe("startResilientHostRunner — health reporting", () => {
     const { clock, runner } = setup();
     assert.doesNotThrow(() => keepFailing(clock, runner, 11));
   });
+
+  // The escalation this whole module exists to reach is the `onClosed` that
+  // `giveUp` fires right after announcing "offline". A throwing indicator must not
+  // be able to stand between the two, or a dead credential is never re-authenticated
+  // because a toolbar had a bug.
+  it("still escalates when the health observer throws", () => {
+    const closures = { count: 0 };
+    const { clock, runner, logs } = setup({
+      onHealth: () => {
+        throw new Error("observer blew up");
+      },
+      options: {
+        onClosed: () => {
+          closures.count += 1;
+        },
+      },
+    });
+    keepFailing(clock, runner, 11);
+    assert.equal(closures.count, 1);
+    assert.ok(
+      logs.warn.some((msg) => msg.includes("health observer threw: observer blew up")),
+      logs.warn.join(" | "),
+    );
+  });
 });

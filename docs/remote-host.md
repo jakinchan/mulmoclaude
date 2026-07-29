@@ -100,8 +100,7 @@ Each host supplies only its own specifics under `server/remoteHost/`:
 | File | Responsibility |
 |---|---|
 | `index.ts` | Binds this host's `hostId="mulmoclaude"`, handler table, firestore-bound runner, and logger to core's `createRemoteHost`; exposes the default singleton the route uses. |
-| `firebase.ts` | `createRemoteHostFirebase(firebaseConfig)` → this host's `{ firestore, auth, storage }` (Firestore must be in Native mode). |
-| `auth.ts` | `createRemoteHostAuth(auth)` → `signInHost` / `signOutHost` / `currentUid` bound to this host's Firebase auth. |
+| `session.ts` | This host's Firebase handles + the signed-in session: `createRemoteHostFirebase(firebaseConfig)` → `{ firestore, auth, storage }` (Firestore must be in Native mode), `createRemoteHostAuth(auth)` → `signIn` / `signOut` / `currentUid`, plus `currentFirestore()` / `exportSession()`. |
 | `commandChannel.ts` | Re-exports the core protocol + pins `HOST_ID = "mulmoclaude"`. |
 | `handlers/index.ts` | The method table — the single place the runner learns which methods it serves. |
 

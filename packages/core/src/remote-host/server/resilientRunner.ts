@@ -78,9 +78,18 @@ const scheduleWithTimeout = (task: () => void, delayMs: number): CancelTimer => 
   return () => clearTimeout(timer);
 };
 
+// The observer belongs to the host, and reporting a state must not be able to
+// prevent reaching it. A throwing `onHealth` inside `giveUp` would swallow the
+// `onClosed` that follows it — losing the one escalation that gets a dead
+// credential re-authenticated, over a bug in a toolbar indicator. Same reasoning
+// as `presenceBeat`'s `notify`, and the log is where there is left to say it.
 const setState = (ctx: RunnerContext, next: RunnerHealthState): void => {
   ctx.state = next;
-  ctx.deps.onHealth?.({ state: next, lastError: ctx.lastError, changedAt: ctx.now() });
+  try {
+    ctx.deps.onHealth?.({ state: next, lastError: ctx.lastError, changedAt: ctx.now() });
+  } catch (error) {
+    ctx.deps.log.warn(`host runner health observer threw: ${errorText(error)}`);
+  }
 };
 
 const clearTimer = (ctx: RunnerContext): void => {
