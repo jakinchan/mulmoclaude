@@ -1826,15 +1826,6 @@
   resolved "https://registry.yarnpkg.com/@inquirer/type/-/type-4.0.7.tgz#9c6f0d857fe6ad549a3a932343b64e76acb34b10"
   integrity sha512-t28inv14nMQ1PhKpsJPY+kEs/c00qzeCOS2gTNRyTjG5d6qsVA2fItxW4hkvGZ5lvanGLdtCzVIx5dwdRpN1+g==
 
-"@intlify/core-base@11.4.7":
-  version "11.4.7"
-  resolved "https://registry.yarnpkg.com/@intlify/core-base/-/core-base-11.4.7.tgz#2392ba421ae32275c2d8ce1d6f21833029dbfd10"
-  integrity sha512-MSB/sBKwEWJTILvQIhg2rnIcwPpLayo3wGwvVA+dJTNeUBD9GoqQgAaSOLdI9iOPDHCm9YoVnLqpfzza98MpkQ==
-  dependencies:
-    "@intlify/devtools-types" "11.4.7"
-    "@intlify/message-compiler" "11.4.7"
-    "@intlify/shared" "11.4.7"
-
 "@intlify/core-base@11.4.8", "@intlify/core-base@^11.0.0":
   version "11.4.8"
   resolved "https://registry.yarnpkg.com/@intlify/core-base/-/core-base-11.4.8.tgz#1cbb60e2cad25a88a7db8896f6d5652c9792c16e"
@@ -1843,14 +1834,6 @@
     "@intlify/devtools-types" "11.4.8"
     "@intlify/message-compiler" "11.4.8"
     "@intlify/shared" "11.4.8"
-
-"@intlify/devtools-types@11.4.7":
-  version "11.4.7"
-  resolved "https://registry.yarnpkg.com/@intlify/devtools-types/-/devtools-types-11.4.7.tgz#2ebb66cb801476f1bcd18dec432af4d1a0e0aa3f"
-  integrity sha512-GSz+J+hqH+AEpAHIYya6fSufS30OaMnG39HiZX7DmGKi3+aaLvassCfsXENEc4Wr4m68q2YP0QdMdB3D9UeAXg==
-  dependencies:
-    "@intlify/core-base" "11.4.7"
-    "@intlify/shared" "11.4.7"
 
 "@intlify/devtools-types@11.4.8":
   version "11.4.8"
@@ -1881,14 +1864,6 @@
     semver "^7.5.4"
     synckit "^0.11.0"
 
-"@intlify/message-compiler@11.4.7":
-  version "11.4.7"
-  resolved "https://registry.yarnpkg.com/@intlify/message-compiler/-/message-compiler-11.4.7.tgz#9a6236c3aa063331a09381ea08c9c0aaea879534"
-  integrity sha512-bHxmh7n94N4N1evADeb7XTkc3jTw6Ki5biMFZVSX6Jmk+iehy8/maeH2XUsBI27rtKIK+Hzc6QnVAKggUwylKw==
-  dependencies:
-    "@intlify/shared" "11.4.7"
-    source-map-js "^1.0.2"
-
 "@intlify/message-compiler@11.4.8", "@intlify/message-compiler@^11.0.0":
   version "11.4.8"
   resolved "https://registry.yarnpkg.com/@intlify/message-compiler/-/message-compiler-11.4.8.tgz#4f8ef43a1076899102335d456f8309d3c1666510"
@@ -1896,11 +1871,6 @@
   dependencies:
     "@intlify/shared" "11.4.8"
     source-map-js "^1.0.2"
-
-"@intlify/shared@11.4.7":
-  version "11.4.7"
-  resolved "https://registry.yarnpkg.com/@intlify/shared/-/shared-11.4.7.tgz#795a8101cab827845e5c3f0694fd9d9dc95351c8"
-  integrity sha512-OtjPZan3No2OZZFnMUiCVsXC6+j+XRwEywaFDk0AoayAbLuPesyDloXhJZLl9JUl5vHZeQUkYSbEA8VX+CWMjg==
 
 "@intlify/shared@11.4.8":
   version "11.4.8"
@@ -4428,14 +4398,6 @@ chownr@^3.0.0:
   resolved "https://registry.yarnpkg.com/chownr/-/chownr-3.0.0.tgz#9855e64ecd240a9cc4267ce8a4aa5d24a1da15e4"
   integrity sha512-+IxzY9BZOQd/XuYPRmrvEVjF/nqj5kgT4kEq7VofrDoM1MxoRjEWkrCC3EtLi59TVawxTAn+orJwFQcrqEN1+g==
 
-chromium-bidi@16.0.1:
-  version "16.0.1"
-  resolved "https://registry.yarnpkg.com/chromium-bidi/-/chromium-bidi-16.0.1.tgz#0c6b0e55065468fc777d62032b63b73f614b1d88"
-  integrity sha512-J63PGu/9PpeCwLIcKYyzWP6yaVL5pxuBc0shlYCYM8BaAkmlwiQboXO1iNbOgSDbVklEyYFfNEcHD8oOAWacUA==
-  dependencies:
-    mitt "^3.0.1"
-    zod "^3.24.1"
-
 chromium-bidi@17.0.2:
   version "17.0.2"
   resolved "https://registry.yarnpkg.com/chromium-bidi/-/chromium-bidi-17.0.2.tgz#921a586deecd0c2d8b9242c4c1b73c3aa39ff77c"
@@ -5194,11 +5156,6 @@ detect-libc@^2.0.3, detect-libc@^2.1.2:
   version "2.1.2"
   resolved "https://registry.yarnpkg.com/detect-libc/-/detect-libc-2.1.2.tgz#689c5dcdc1900ef5583a4cb9f6d7b473742074ad"
   integrity sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==
-
-devtools-protocol@0.0.1638949:
-  version "0.0.1638949"
-  resolved "https://registry.yarnpkg.com/devtools-protocol/-/devtools-protocol-0.0.1638949.tgz#206eb6ecc1c35d2dbc833256c37655a110fbdba1"
-  integrity sha512-mXwg4Fqnv0WR4iuAT/gYUmctNkjILwXFHyZ+m7Ty1dfr0ezZt2U3gnrrJTfRobJTHoXf+IbuFvFITzLrLFjwJA==
 
 devtools-protocol@0.0.1653615:
   version "0.0.1653615"
@@ -8828,18 +8785,6 @@ punycode@^2.1.0, punycode@^2.3.1:
   resolved "https://registry.yarnpkg.com/punycode/-/punycode-2.3.1.tgz#027422e2faec0b25e1549c3e1bd8309b9133b6e5"
   integrity sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==
 
-puppeteer-core@25.3.0:
-  version "25.3.0"
-  resolved "https://registry.yarnpkg.com/puppeteer-core/-/puppeteer-core-25.3.0.tgz#f32555f3ac64af2cc44f8d632ddf2fa5f2fad95f"
-  integrity sha512-fm+wpUr2oigH1PXZvwgATrM2tYWHMDG8ASzTEe9uukCye4X5Ldx1K5BTHPFKITrIWvQQAQ256d1NpbEveBcKjA==
-  dependencies:
-    "@puppeteer/browsers" "3.0.6"
-    chromium-bidi "16.0.1"
-    devtools-protocol "0.0.1638949"
-    typed-query-selector "^2.12.2"
-    webdriver-bidi-protocol "0.4.2"
-    ws "^8.21.0"
-
 puppeteer-core@25.4.0:
   version "25.4.0"
   resolved "https://registry.yarnpkg.com/puppeteer-core/-/puppeteer-core-25.4.0.tgz#2fcba53a9ab94d55f196e1e42dbe794bbadf8759"
@@ -10675,7 +10620,7 @@ ws@^7.5.10:
   resolved "https://registry.yarnpkg.com/ws/-/ws-7.5.11.tgz#9460daf1812bb81a423c5b9eac746941a86310fa"
   integrity sha512-zS54Oen9bITtp7kp2XM3AydrCIq1D+HwJOuH+c+e4LfpL/lotP5osijd+UoMnxwAam1GN8R4KtLAyIrIcBNpiA==
 
-ws@^8.17.0, ws@^8.18.0, ws@^8.21.0, ws@^8.21.1, ws@~8.21.0:
+ws@^8.17.0, ws@^8.18.0, ws@^8.21.1, ws@~8.21.0:
   version "8.21.1"
   resolved "https://registry.yarnpkg.com/ws/-/ws-8.21.1.tgz#045650cd4b1207809e7547146223c3814a9af586"
   integrity sha512-+0NTnW77fFN/DjQi6k/Sq/Yvk4Sgajw7urW8V+asjXnRgDs9gyGkdb7EzgfhA4goXsRIZKE28fzIXBHEzhuiWw==
