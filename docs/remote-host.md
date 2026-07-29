@@ -92,8 +92,8 @@ browser-safe boundary — mirroring `@mulmoclaude/core/remote-view`:
 
 | Import | Surface | Provides |
 |---|---|---|
-| `@mulmoclaude/core/remote-host` | **browser-safe** | Protocol wire types (`Command`, `CommandStatus`, `Channel`, `CommandHandlers`) + Firestore path helpers `commandsCollection(firestore, channel)` / `hostDoc(firestore, channel)` + the capability advertisement (`HostPresence`, `REMOTE_HOST_PROTOCOL_VERSION`, `buildHostPresence`). Shared by host **and** the mobile client. |
-| `@mulmoclaude/core/remote-host/server` | **server-only** | `startHostRunner(firestore, channel, handlers, opts)` — the command loop; `createRemoteHost(deps)` — the connect/disconnect/status lifecycle factory; `createRemoteHostAuth(auth)` + `createRemoteHostFirebase(config)` — the Firebase init/auth primitives. `firebase` is an optional peer dep of core. |
+| `@mulmoclaude/core/remote-host` | **browser-safe** | Protocol wire types (`Command`, `CommandStatus`, `Channel`, `CommandHandlers`) + Firestore path helpers `commandsCollection(firestore, channel)` / `hostDoc(firestore, channel)` + the capability advertisement (`HostPresence`, `REMOTE_HOST_PROTOCOL_VERSION`, `buildHostPresence`) + channel health (`RunnerHealth`, `RUNNER_HEALTH_STATES`, `isRunnerHealth`) for a host that renders it. Shared by host **and** the mobile client. |
+| `@mulmoclaude/core/remote-host/server` | **server-only** | `startHostRunner(firestore, channel, handlers, opts)` — the command loop; `startResilientHostRunner(deps)` — the outer recovery ring around it; `createPresenceProbe(deps)` — the liveness sensor it reads; `createRemoteHost(deps)` — the connect/disconnect/status lifecycle factory; `createRemoteHostAuth(auth)` + `createRemoteHostFirebase(config)` — the Firebase init/auth primitives. `firebase` is an optional peer dep of core. |
 
 Each host supplies only its own specifics under `server/remoteHost/`:
 
@@ -104,8 +104,6 @@ Each host supplies only its own specifics under `server/remoteHost/`:
 | `auth.ts` | `createRemoteHostAuth(auth)` → `signInHost` / `signOutHost` / `currentUid` bound to this host's Firebase auth. |
 | `commandChannel.ts` | Re-exports the core protocol + pins `HOST_ID = "mulmoclaude"`. |
 | `handlers/index.ts` | The method table — the single place the runner learns which methods it serves. |
-| `resilientRunner.ts` | The outer recovery ring: relaunches a whole runner after core gives up, and escalates by time (see "Staying reachable"). |
-| `presenceProbe.ts` | Reads this host's own presence doc back **from the server** and reports whether it is fresh — the phone's judgment, asked on this side. |
 
 ### The command loop, precisely (core `startHostRunner`)
 
@@ -143,24 +141,41 @@ admits it is disconnected.
   acknowledgement AGE, not a count of failures: Firestore does not reject a write
   it cannot deliver, it queues it and leaves the promise pending, so a failure
   counter reads zero throughout an outage.
-- **Outer ring — host (`resilientRunner.ts`).** When core gives up, this starts a
-  whole new runner (fresh listener, fresh presence write) with its own backoff,
-  and gives up by TIME (`GIVE_UP_MS`, 5 min). Only then does `onClosed` reach the
-  lifecycle → `status()` reports disconnected → the client's 15-second poll
-  re-authenticates from its parked blob, which is the only path that fixes a dead
-  credential. It also runs `presenceProbe` every 90 s: a **server** read of this
-  host's own presence doc (never the cache, which would happily return our own
-  undelivered write). A stale doc, or a read that throws, enters the same recovery
-  a listener death does. `null` — no document, an unresolved `serverTimestamp`, or
-  the runner's own `online: false` goodbye — is deliberately not actionable: a
-  false positive spins a reconnect loop. The read carries its own deadline
-  (`withTimeout`): Firestore takes no abort signal, and a read that never settles
-  would leave the probe un-rearmed — a sensor dying quietly, which is the failure
-  this whole section exists to catch.
+- **Outer ring — core (`resilientRunner.ts`, `startResilientHostRunner`).** When
+  the inner ring gives up, this starts a whole new runner (fresh listener, fresh
+  presence write) with its own backoff, and gives up by TIME (`GIVE_UP_MS`,
+  5 min). Only then does `onClosed` reach the lifecycle → `status()` reports
+  disconnected → the client's 15-second poll re-authenticates from its parked
+  blob, which is the only path that fixes a dead credential. It also runs
+  `presenceProbe` every 90 s: a **server** read of this host's own presence doc
+  (never the cache, which would happily return our own undelivered write). A stale
+  doc, or a read that throws, enters the same recovery a listener death does.
+  `null` — no document, an unresolved `serverTimestamp`, or the runner's own
+  `online: false` goodbye — is deliberately not actionable: a false positive spins
+  a reconnect loop. The read carries its own deadline (`withTimeout`): Firestore
+  takes no abort signal, and a read that never settles would leave the probe
+  un-rearmed — a sensor dying quietly, which is the failure this whole section
+  exists to catch.
 - Surviving the settle window (60 s) counts as recovery **only** if the probe
-  agrees. Core now takes minutes to report a broken channel, so "it hasn't
+  agrees. The inner ring takes minutes to report a broken channel, so "it hasn't
   complained yet" proves nothing — and if that reset the outage clock, a host with
   a dead credential would relaunch forever and never escalate.
+- **Both rings live in core (#2643).** They used to be one ring each: the inner in
+  core, the outer copied into MulmoClaude and MulmoTerminal. That split is unsound,
+  because the outer ring's correctness is a RELATION between constants — `SETTLE_MS`
+  must outlast how long the inner ring takes to report, and `PROBE_INTERVAL_MS`
+  must sit above `presenceStaleAfterMs()`. Raising `LISTEN_RETRY_WINDOW_MS` from
+  ~31 s to 5 min disabled `giveUp` outright in the copy that had not been told: the
+  60 s settle always fired first, reset the outage clock, and the host relaunched
+  forever while reporting itself online — so the client was never asked to
+  re-authenticate. Changing one ring's timing now shows up next to the rule that
+  depends on it.
+- **Health reporting is optional.** `onHealth` gets `{ state, lastError, changedAt }`
+  on each transition (`online` / `reconnecting` / `offline`) for a host with a
+  toolbar control; MulmoClaude passes none. An ongoing outage reports **once** — a
+  fresh `changedAt` per relaunch would reset a "down for N seconds" readout every
+  backoff step. The state names and their guard are browser-safe so the control
+  narrows what the server writes; the wording stays in each host's i18n.
 
 ### Capability advertisement — presence doc, auto-derived
 

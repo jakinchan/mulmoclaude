@@ -1,9 +1,9 @@
-// Unit tests for the recovery ring around core's host runner (#2633).
+// Unit tests for the recovery ring around `startHostRunner` (#2633, #2643).
 //
-// core re-subscribes in place and, when that stops working, calls onClosed and
-// stops. These pin what happens next: a whole new runner, backed off, given up on
-// by TIME rather than by a count — and only then handed to the lifecycle so the
-// client re-authenticates.
+// The inner runner re-subscribes in place and, when that stops working, calls
+// onClosed and stops. These pin what happens next: a whole new runner, backed off,
+// given up on by TIME rather than by a count — and only then handed to the
+// lifecycle so the client re-authenticates.
 //
 // Two rules get their own coverage because they are the ones the failure taught:
 //   - a liveness probe answering "the phone still cannot see us" is the same
@@ -15,8 +15,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import type { HostRunnerOptions } from "@mulmoclaude/core/remote-host/server";
-import { reconnectDelayMs, startResilientRunner, type ResilientRunnerDeps } from "../../server/remoteHost/resilientRunner.js";
+import type { HostRunnerOptions } from "../../src/remote-host/server/hostRunner.js";
+import type { RunnerHealth } from "../../src/remote-host/health.js";
+import { reconnectDelayMs, startResilientHostRunner, type ResilientHostRunnerDeps } from "../../src/remote-host/server/resilientRunner.js";
 
 const SETTLE_MS = 60_000;
 const PROBE_MS = 90_000;
@@ -80,11 +81,11 @@ const fakeRunner = () => {
   };
 };
 
-const setup = (overrides: Partial<ResilientRunnerDeps> = {}) => {
+const setup = (overrides: Partial<ResilientHostRunnerDeps> = {}) => {
   const clock = fakeClock();
   const runner = fakeRunner();
   const logs = { info: [] as string[], warn: [] as string[] };
-  const stop = startResilientRunner({
+  const stop = startResilientHostRunner({
     start: runner.start,
     options: {},
     log: { info: (msg) => logs.info.push(msg), warn: (msg) => logs.warn.push(msg) },
@@ -119,7 +120,7 @@ describe("reconnectDelayMs", () => {
   });
 });
 
-describe("startResilientRunner", () => {
+describe("startResilientHostRunner", () => {
   it("starts the underlying runner immediately", () => {
     const { runner } = setup();
     assert.equal(runner.started.length, 1);
@@ -209,7 +210,7 @@ describe("startResilientRunner", () => {
   it("treats a throwing start as a failed attempt rather than dying", () => {
     const clock = fakeClock();
     const state = { starts: 0, failing: true };
-    const stop = startResilientRunner({
+    const stop = startResilientHostRunner({
       start: () => {
         state.starts += 1;
         if (state.failing) throw new Error("remote-host session is not open");
@@ -293,7 +294,7 @@ describe("startResilientRunner", () => {
   it("survives a teardown that throws", () => {
     const clock = fakeClock();
     const captured: HostRunnerOptions[] = [];
-    startResilientRunner({
+    startResilientHostRunner({
       start: (options) => {
         captured.push(options);
         return () => {
@@ -315,7 +316,7 @@ describe("startResilientRunner", () => {
 // so nothing above ever fires and the host reports itself green for as long as the
 // process lives. The probe is the sensor; these pin that a negative answer reaches
 // the SAME recovery a listener death does, and that a healthy one changes nothing.
-describe("startResilientRunner — presence liveness", () => {
+describe("startResilientHostRunner — presence liveness", () => {
   it("recovers when the host stops being visible, with no listener error at all", async () => {
     const state = { alive: true };
     const { clock, runner, logs } = setup({ checkAlive: () => Promise.resolve(state.alive) });
@@ -433,5 +434,64 @@ describe("startResilientRunner — presence liveness", () => {
       clock.advance(reconnectDelayMs(attempt));
     }
     assert.equal(closures.count, 1);
+  });
+});
+
+// The optional health feed a host renders in its toolbar. It is a REPORT of the
+// state machine above, so what it must not do is as important as what it says: an
+// outage has one `changedAt`, not one per relaunch, or a UI showing "down for N
+// seconds" resets to zero every backoff step of the outage it is reporting.
+describe("startResilientHostRunner — health reporting", () => {
+  const withHealth = (overrides: Partial<ResilientHostRunnerDeps> = {}) => {
+    const health: RunnerHealth[] = [];
+    return { health, ...setup({ onHealth: (next) => health.push(next), ...overrides }) };
+  };
+
+  // A (re)connect is also what clears the notice left by the previous outage, so
+  // the owner is told the starting state rather than assumed to know it.
+  it("announces online at startup", () => {
+    const { health } = withHealth();
+    assert.deepEqual(
+      health.map((entry) => entry.state),
+      ["online"],
+    );
+  });
+
+  it("reports reconnecting once, however many times it relaunches", () => {
+    const { clock, runner, health } = withHealth();
+    keepFailing(clock, runner, 4);
+    assert.deepEqual(
+      health.map((entry) => entry.state),
+      ["online", "reconnecting"],
+    );
+  });
+
+  it("reports offline when it gives up, so the UI can stop claiming self-healing", () => {
+    const { clock, runner, health } = withHealth({ options: { onClosed: () => undefined } });
+    keepFailing(clock, runner, 11);
+    assert.equal(health.at(-1)?.state, "offline");
+  });
+
+  it("carries the channel error, and drops it again on recovery", async () => {
+    const { clock, runner, health } = withHealth();
+    runner.started[0]?.onEvent?.({ phase: "error", method: "listen", message: "unavailable" });
+    runner.die();
+    assert.equal(health.at(-1)?.lastError, "listen: unavailable");
+
+    await advanceAsync(clock, 1_000 + SETTLE_MS);
+    assert.deepEqual(health.at(-1), { state: "online", lastError: null, changedAt: clock.now() });
+  });
+
+  it("stamps each change with the clock it was given", () => {
+    const { clock, runner, health } = withHealth();
+    clock.advance(5_000);
+    runner.die();
+    assert.equal(health.at(-1)?.changedAt, clock.now());
+  });
+
+  // A host with no health UI passes no callback; nothing here may depend on one.
+  it("runs the whole recovery with no callback at all", () => {
+    const { clock, runner } = setup();
+    assert.doesNotThrow(() => keepFailing(clock, runner, 11));
   });
 });

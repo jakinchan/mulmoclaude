@@ -9,6 +9,12 @@
 export { startHostRunner, DEFAULT_HEARTBEAT_MS, LISTEN_RETRY_WINDOW_MS, presenceStaleAfterMs } from "./hostRunner.js";
 export type { HostEvent, HostRunnerOptions } from "./hostRunner.js";
 export { PRESENCE_STALE_BEATS } from "./presenceBeat.js";
+// The ring outside `startHostRunner`: relaunch the whole runner, and a liveness
+// probe so a channel that fails silently is still noticed (#2643).
+export { startResilientHostRunner, reconnectDelayMs } from "./resilientRunner.js";
+export type { ResilientHostRunnerDeps, CancelTimer } from "./resilientRunner.js";
+export { createPresenceProbe, presenceIsFresh, withTimeout, PRESENCE_STALE_MS } from "./presenceProbe.js";
+export type { Liveness, PresenceProbeDeps } from "./presenceProbe.js";
 export { stripUndefined, undefinedPaths, unexpectedPaths } from "./firestoreSafeResult.js";
 export { createRemoteHost } from "./lifecycle.js";
 export type { RemoteHostStatus, RemoteHostLogger, RemoteHostDeps, RemoteHostLifecycle } from "./lifecycle.js";

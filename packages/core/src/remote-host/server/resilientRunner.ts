@@ -1,26 +1,28 @@
-// Keeps the Firestore command channel alive across outages (#2633).
+// Keeps the Firestore command channel alive across outages — the ring OUTSIDE
+// `startHostRunner` (#2633, moved into core by #2643).
 //
-// core's runner recovers in place: it re-subscribes its listener with backoff, and
-// it now notices when its own presence writes stop being acknowledged. When even
-// that runs out it calls `onClosed` and stops. This is the ring outside that one —
-// it starts a WHOLE new runner (fresh listener, fresh presence write), and when
-// even relaunching stops helping it passes the closure through so the client can
-// escalate to a full re-auth from its parked blob, the only path that fixes an
-// actually-dead credential.
+// The inner ring recovers in place: it re-subscribes its listener with backoff and
+// notices when its own presence writes stop being acknowledged. When even that runs
+// out it calls `onClosed` and stops. This ring starts a WHOLE new runner (fresh
+// listener, fresh presence write), and only when relaunching stops helping does it
+// pass the closure through, so the client can escalate to a full re-auth from its
+// parked blob — the only path that fixes an actually-dead credential.
 //
 // The give-up rule is TIME, not a count of relaunches, so a long outage does not
 // burn through a budget while nothing can possibly succeed.
 //
-// Ported from MulmoTerminal (server/backends/remoteHost/resilientRunner.ts) with
-// one deliberate change: surviving the settle window no longer counts as recovery
-// on its own. core takes minutes to report a broken channel now, so "it has not
-// complained for a minute" proves nothing; when a liveness probe is wired, its
-// answer is what clears the outage — otherwise a host with a dead credential would
-// relaunch forever and never ask the client to re-authenticate.
-import type { HostRunnerOptions, RemoteHostLogger } from "@mulmoclaude/core/remote-host/server";
-
-import { ONE_MINUTE_MS, ONE_SECOND_MS } from "../utils/time.js";
+// It lives here rather than in each host because its correctness is a relation
+// between constants: SETTLE_MS must outlast `LISTEN_RETRY_WINDOW_MS`'s reporting
+// delay, and PROBE_INTERVAL_MS must sit above `presenceStaleAfterMs()`. While the
+// two hosts each kept a copy, raising LISTEN_RETRY_WINDOW_MS from ~31s to 5 minutes
+// silently disabled `giveUp` in the copy that had not been told (#2643).
+import type { RunnerHealth, RunnerHealthState } from "../health.js";
+import type { HostRunnerOptions } from "./hostRunner.js";
+import type { RemoteHostLogger } from "./lifecycle.js";
 import type { Liveness } from "./presenceProbe.js";
+
+const ONE_SECOND_MS = 1_000;
+const ONE_MINUTE_MS = 60 * ONE_SECOND_MS;
 
 const RECONNECT_BASE_MS = ONE_SECOND_MS;
 const RECONNECT_MAX_MS = ONE_MINUTE_MS;
@@ -38,23 +40,25 @@ export const reconnectDelayMs = (attempt: number): number => Math.min(RECONNECT_
 /** Cancels a scheduled task. Handing back a closure rather than a timer handle keeps
  *  the seam free of platform timer types, so a test clock is an ordinary function. */
 export type CancelTimer = () => void;
-type RunnerState = "online" | "reconnecting" | "offline";
 
-export interface ResilientRunnerDeps {
-  /** Starts core's host runner, returning its stop function. Throws if the session is gone. */
+export interface ResilientHostRunnerDeps {
+  /** Starts the host runner, returning its stop function. Throws if the session is gone. */
   start: (options: HostRunnerOptions) => () => void;
   /** The options the lifecycle handed us; `onClosed` is passed on only once we give up. */
   options: HostRunnerOptions;
-  /** Positive liveness check (presenceProbe.ts). Without one, recovery falls back to
-   *  trusting silence — which is what let a dead channel report itself green. */
+  /** Positive liveness check (`createPresenceProbe`). Without one, recovery falls back
+   *  to trusting silence — which is what let a dead channel report itself green. */
   checkAlive?: () => Promise<Liveness>;
+  /** State changes, for a host that renders channel health. Optional: a host with no
+   *  such UI should not have to pass an empty function. */
+  onHealth?: (health: RunnerHealth) => void;
   log: Pick<RemoteHostLogger, "info" | "warn">;
   schedule?: (task: () => void, delayMs: number) => CancelTimer;
   now?: () => number;
 }
 
 interface RunnerContext {
-  deps: ResilientRunnerDeps;
+  deps: ResilientHostRunnerDeps;
   schedule: (task: () => void, delayMs: number) => CancelTimer;
   now: () => number;
   stopUnderlying: (() => void) | null;
@@ -62,7 +66,7 @@ interface RunnerContext {
   attempt: number;
   downSinceMs: number | null;
   lastError: string | null;
-  state: RunnerState;
+  state: RunnerHealthState;
   stopped: boolean;
   cancelProbe: CancelTimer | null;
 }
@@ -72,6 +76,11 @@ const errorText = (error: unknown): string => (error instanceof Error ? error.me
 const scheduleWithTimeout = (task: () => void, delayMs: number): CancelTimer => {
   const timer = setTimeout(task, delayMs);
   return () => clearTimeout(timer);
+};
+
+const setState = (ctx: RunnerContext, next: RunnerHealthState): void => {
+  ctx.state = next;
+  ctx.deps.onHealth?.({ state: next, lastError: ctx.lastError, changedAt: ctx.now() });
 };
 
 const clearTimer = (ctx: RunnerContext): void => {
@@ -126,9 +135,9 @@ async function runProbe(ctx: RunnerContext): Promise<void> {
   scheduleProbe(ctx);
 }
 
-// core leaves its (already dead) snapshot registration in place when it goes
-// offline, so release it before starting another one — otherwise every reconnect
-// cycle adds one more.
+// The inner runner leaves its (already dead) snapshot registration in place when it
+// goes offline, so release it before starting another one — otherwise every
+// reconnect cycle adds one more.
 const releaseUnderlying = (ctx: RunnerContext): void => {
   const stop = ctx.stopUnderlying;
   ctx.stopUnderlying = null;
@@ -149,7 +158,7 @@ const markRecovered = (ctx: RunnerContext): void => {
   ctx.lastError = null;
   if (ctx.state === "online") return;
   ctx.deps.log.info("host runner re-subscribed");
-  ctx.state = "online";
+  setState(ctx, "online");
   scheduleProbe(ctx);
 };
 
@@ -174,7 +183,7 @@ const giveUp = (ctx: RunnerContext): void => {
   ctx.stopped = true;
   clearProbe(ctx);
   ctx.deps.log.warn(`host runner stayed down for ${Math.round(GIVE_UP_MS / ONE_SECOND_MS)}s, giving up (${ctx.lastError ?? "no error reported"})`);
-  ctx.state = "offline";
+  setState(ctx, "offline");
   ctx.deps.options.onClosed?.();
 };
 
@@ -182,7 +191,9 @@ function scheduleRelaunch(ctx: RunnerContext): void {
   const delayMs = reconnectDelayMs(ctx.attempt);
   ctx.attempt += 1;
   ctx.deps.log.warn(`host runner closed (${ctx.lastError ?? "no error reported"}); re-subscribing in ${Math.round(delayMs / ONE_SECOND_MS)}s`);
-  ctx.state = "reconnecting";
+  // Re-announcing on every relaunch would restamp `changedAt`, and a UI reading it
+  // as "down since" would reset to zero each cycle of the outage it is reporting.
+  if (ctx.state !== "reconnecting") setState(ctx, "reconnecting");
   ctx.cancelTimer = ctx.schedule(() => launch(ctx), delayMs);
 }
 
@@ -230,7 +241,7 @@ function launch(ctx: RunnerContext): void {
   ctx.cancelTimer = ctx.schedule(() => void settle(ctx), SETTLE_MS);
 }
 
-export function startResilientRunner(deps: ResilientRunnerDeps): () => void {
+export function startResilientHostRunner(deps: ResilientHostRunnerDeps): () => void {
   const ctx: RunnerContext = {
     deps,
     schedule: deps.schedule ?? scheduleWithTimeout,
@@ -244,6 +255,9 @@ export function startResilientRunner(deps: ResilientRunnerDeps): () => void {
     stopped: false,
     cancelProbe: null,
   };
+  // Announce the starting state rather than assuming the owner knows it: a
+  // (re)connect is also what clears the notice left behind by the previous outage.
+  setState(ctx, "online");
   launch(ctx);
   scheduleProbe(ctx);
 
