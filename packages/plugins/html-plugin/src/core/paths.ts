@@ -9,6 +9,7 @@ import {
   ARTIFACTS_ROOT,
   buildArtifactRelPath,
   classifyFilePath,
+  hasDotfileSegment,
   hasUnsafePathSegment,
   isAbsoluteFilePathValue,
   slugifyArtifact,
@@ -88,9 +89,14 @@ export function htmlArtifactPreviewUrl(filePath: string | null): string | null {
 /** The `path` argument's gate: ANY HTML page, not just the ones this tool
  *  wrote — a workspace-relative path (`docs/report.html`) or, where the host
  *  permits it, an absolute one. Lexical only; the host's `files.byPath`
- *  capability is what decides which of those it will actually open. */
+ *  capability is what decides which of those it will actually open.
+ *
+ *  Dotfile segments are refused even though they name perfectly real files:
+ *  the mount that hands the page to the iframe rejects them (the same
+ *  `dotfiles: "deny"` policy the artifact mounts carry), so accepting one here
+ *  would report success for a page that can never render. */
 export function isPresentableHtmlPath(value: string): boolean {
-  return classifyFilePath(value, [".html", ".htm"]) !== null;
+  return classifyFilePath(value, [".html", ".htm"]) !== null && !hasDotfileSegment(value);
 }
 
 // ── Serving a page that is NOT an artifact ───────────────────────────────────
@@ -132,6 +138,8 @@ export function htmlFileUrl(filePath: string | null | undefined): string | null 
     .filter((segment) => segment.length > 0);
   if (segments.length === 0) return null;
   if (segments.some((segment) => segment === "." || segment === "..")) return null;
+  // The mount refuses dotfile segments, so a URL for one would only 404.
+  if (hasDotfileSegment(filePath)) return null;
   const scope = isAbsoluteFilePathValue(filePath) ? HTML_FILE_SCOPE_ABSOLUTE : HTML_FILE_SCOPE_WORKSPACE;
   return `${HTML_FILE_MOUNT}/${scope}/${segments.map(encodeURIComponent).join("/")}`;
 }

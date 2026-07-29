@@ -148,3 +148,12 @@ export function classifyFilePath(value: string, extensions: readonly string[]): 
   if (body.some((segment) => segment === "" || segment === "." || segment === "..")) return null;
   return absolute ? "absolute" : "relative";
 }
+
+/** True when any `/` or `\`-separated segment starts with a dot. The file
+ *  servers that hand these pages to a browser refuse dotfile segments (the
+ *  artifact mounts' `dotfiles: "deny"` policy), so a `path` argument bearing
+ *  one can be accepted by a tool and then never render — the gate and the
+ *  server have to agree on this, hence one definition. */
+export function hasDotfileSegment(value: string): boolean {
+  return value.split(/[/\\]/).some((segment) => segment.startsWith("."));
+}

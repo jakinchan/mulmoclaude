@@ -138,6 +138,15 @@ describe("executeHtml", () => {
     assert.equal(result.data?.filePath, "docs/report.html");
   });
 
+  // Accepting a path the preview mount will not serve would report success for
+  // a page that can never render.
+  it("rejects a dotfile path even though it names a real file", async () => {
+    const { context } = makeFakeArtifacts();
+    const byPath = fakeFileOps(new Map([[".hidden/page.html", "<p>hi</p>"]]));
+    const result = await executeHtml({ files: { ...context.files, byPath } }, { path: ".hidden/page.html" });
+    assert.equal(result.data, undefined);
+  });
+
   it("still rejects traversal when byPath is available", async () => {
     const { context } = makeFakeArtifacts();
     const byPath = fakeFileOps(new Map());

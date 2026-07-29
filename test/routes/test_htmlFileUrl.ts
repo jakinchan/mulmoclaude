@@ -43,6 +43,14 @@ describe("htmlFileUrl", () => {
     assert.equal(htmlFileUrl("docs/a?b.html"), "/htmlfile/ws/docs/a%3Fb.html");
   });
 
+  // The mount refuses dotfile segments, so emitting a URL for one would report
+  // a presented page whose iframe can only 404.
+  it("returns null for dotfile segments, matching what the mount will serve", () => {
+    assert.equal(htmlFileUrl(".hidden/page.html"), null);
+    assert.equal(htmlFileUrl("docs/.draft.html"), null);
+    assert.equal(htmlFileUrl("/Users/x/.config/page.html"), null);
+  });
+
   it("returns null for non-HTML, traversal, empty and NUL-bearing values", () => {
     assert.equal(htmlFileUrl("docs/report.md"), null);
     assert.equal(htmlFileUrl("../secret.html"), null);
