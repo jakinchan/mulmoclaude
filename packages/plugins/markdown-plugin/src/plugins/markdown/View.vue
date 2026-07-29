@@ -120,7 +120,7 @@
                up every interactive checkbox inserted by v-html. We
                cannot bind @click directly on each `<input>` because
                v-html bypasses Vue's template compiler. -->
-          <!-- eslint-disable-next-line vue/no-v-html -- marked.parse output of app-owned markdown content; trusted in-process render -->
+          <!-- eslint-disable-next-line vue/no-v-html -- DOMPurify-sanitised marked output (sanitizeMarkdownHtml). `path` can open any .md on disk, so this content is NOT app-owned. -->
           <div ref="markdownContainerRef" class="markdown-content prose prose-slate max-w-none" @click="onMarkdownClick" v-html="renderedHtml"></div>
         </div>
       </div>
@@ -149,7 +149,7 @@
 import { computed, ref, watch, nextTick } from "vue";
 import { useRuntime } from "gui-chat-protocol/vue";
 import { marked } from "marked";
-import { formatScalarField, useMarkdownDoc, useClipboardCopy, useFileWatch } from "@mulmoclaude/core/plugin-vue";
+import { formatScalarField, sanitizeMarkdownHtml, useMarkdownDoc, useClipboardCopy, useFileWatch } from "@mulmoclaude/core/plugin-vue";
 import type { ToolResult } from "gui-chat-protocol";
 import { documentPathOf, type MarkdownToolData } from "./definition";
 import { rewriteMarkdownImageRefs } from "@mulmoclaude/markdown-utils/image/rewriteMarkdownImageRefs";
@@ -333,15 +333,21 @@ function cancelMarpSplitEdit(): void {
   marpSplitMode.value = false;
 }
 
+/** The document's directory, for resolving its relative `<img>` refs.
+ *  Separators are normalised first: a `path` argument may arrive in Windows
+ *  spelling (`docs\\guide\\notes.md`), and splitting on "/" alone would call
+ *  that a root-level file and resolve its images against the wrong directory.
+ *  Root-level files legitimately return "" — the server's inlineImages() then
+ *  uses the workspace root rather than the legacy `markdowns/` sourceDir. */
+function documentDirOf(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  const idx = normalized.lastIndexOf("/");
+  return idx < 0 ? "" : normalized.slice(0, idx);
+}
+
 const marpBaseDir = computed(() => {
   const raw = documentPathOf(props.selectedResult.data);
-  if (raw === null) return undefined;
-  const idx = raw.lastIndexOf("/");
-  // Root-level files (no "/") resolve their relative `<img>` refs
-  // against the workspace root — return "" so the server's
-  // inlineImages() uses the workspace root instead of falling back
-  // to the legacy `markdowns/` sourceDir (codex review).
-  return idx < 0 ? "" : raw.slice(0, idx);
+  return raw === null ? undefined : documentDirOf(raw);
 });
 
 const marpPdfFilename = computed(() => {
@@ -363,14 +369,18 @@ const renderedHtml = computed(() => {
   // content we have no path, so basePath is empty and only rooted
   // references get rewritten.
   const raw = documentPathOf(props.selectedResult.data);
-  const basePath = raw !== null ? raw.slice(0, raw.lastIndexOf("/") + 1).replace(/\/$/, "") : "";
+  const basePath = raw !== null ? documentDirOf(raw) : "";
   const withImages = rewriteMarkdownImageRefs(mdDoc.value.body, basePath);
   // Strip the `disabled=""` attribute marked puts on GFM task
   // checkboxes and tag them so `onMarkdownClick` can find them
   // (#775). Inline content (no file backing) gets the same
   // treatment so non-file-backed sessions still feel responsive,
   // even though clicks there only update local state.
-  return makeTasksInteractive(marked(withImages) as string);
+  // Sanitised BEFORE the task-list rewrite so the checkbox markup this view
+  // inserts itself isn't what DOMPurify has to judge. The document may be any
+  // `.md` on disk now (presentDocument's `path`), including a file that came
+  // with a cloned repo, so raw HTML in it is untrusted input to this origin.
+  return makeTasksInteractive(sanitizeMarkdownHtml(marked(withImages) as string));
 });
 
 const markdownContainerRef = ref<HTMLElement | null>(null);
