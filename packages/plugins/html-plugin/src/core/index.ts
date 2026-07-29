@@ -4,4 +4,16 @@ export { executeHtml, executeHtmlUpdate, pluginCore, type HtmlExecuteContext, ty
 export { executeHtmlDispatch, type HtmlDispatchContext } from "./dispatch";
 export type { HtmlDispatchArgs, HtmlDispatchResult, LoadHtmlArgs, SaveHtmlArgs, PackHtmlArgs, PackHtmlResult } from "./contract";
 export { isHtmlDispatchArgs, isPackHtmlArgs } from "./contract";
-export { htmlArtifactPath, htmlArtifactPreviewUrl, isHtmlArtifactPath, toArtifactsRelative, slugify, type HtmlPath } from "./paths";
+export {
+  htmlArtifactPath,
+  htmlArtifactPreviewUrl,
+  htmlFileUrl,
+  isHtmlArtifactPath,
+  isPresentableHtmlPath,
+  toArtifactsRelative,
+  slugify,
+  HTML_FILE_MOUNT,
+  HTML_FILE_SCOPE_ABSOLUTE,
+  HTML_FILE_SCOPE_WORKSPACE,
+  type HtmlPath,
+} from "./paths";

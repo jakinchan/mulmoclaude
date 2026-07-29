@@ -15,7 +15,7 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync } from "fs";
-import { mkdtemp, readdir, rm, symlink, writeFile } from "fs/promises";
+import { lstat, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import type { Request, Response } from "express";
@@ -48,7 +48,7 @@ interface ResBody {
   message?: string;
   instructions?: string;
   title?: string;
-  data?: { markdown: string; filenamePrefix?: string };
+  data?: { markdown: string; docPath?: string; filenamePrefix?: string };
   error?: string;
 }
 
@@ -78,6 +78,8 @@ const EXISTING_BODY = "# Existing\n\nAlready on disk.\n";
 const DIR_REL = "artifacts/documents/2026/07/directory-test123.md";
 // A well-named entry inside the workspace that resolves OUTSIDE it.
 const SYMLINK_REL = "artifacts/documents/2026/07/symlink-test123.md";
+// A workspace document that is NOT an artifact this app wrote.
+const OUTSIDE_ARTIFACTS_REL = "docs/design.md";
 
 let tmpRoot: string;
 let workspaceDir: string;
@@ -85,6 +87,9 @@ let documentsDir: string;
 let originalHome: string | undefined;
 let originalUserProfile: string | undefined;
 let createHandler: Handler;
+let updateHandler: Handler;
+// Assigned in `before` — a path outside the workspace entirely.
+let outsideAbsolutePath: string;
 
 before(async () => {
   tmpRoot = await mkdtemp(path.join(tmpdir(), "mulmo-present-document-route-"));
@@ -103,9 +108,15 @@ before(async () => {
   const outsideFile = path.join(tmpRoot, "outside-secret.md");
   await writeFile(outsideFile, "# secret\n", "utf-8");
   await symlink(outsideFile, path.join(workspaceDir, SYMLINK_REL));
+  mkdirSync(path.join(workspaceDir, path.dirname(OUTSIDE_ARTIFACTS_REL)), { recursive: true });
+  await writeFile(path.join(workspaceDir, OUTSIDE_ARTIFACTS_REL), "# design\n", "utf-8");
+  outsideAbsolutePath = path.join(tmpRoot, "elsewhere", "notes.md");
+  mkdirSync(path.dirname(outsideAbsolutePath), { recursive: true });
+  await writeFile(outsideAbsolutePath, "# elsewhere\n", "utf-8");
 
   const pluginsMod: PluginsModule = await import("../../server/api/routes/plugins.js");
   createHandler = extractRouteHandler(pluginsMod, "/api/markdown", "post");
+  updateHandler = extractRouteHandler(pluginsMod, "/api/markdown/update", "put");
 });
 
 after(async () => {
@@ -161,9 +172,26 @@ describe("POST /api/markdown — `path` form", () => {
     assert.equal(state.status, 400);
   });
 
-  it("rejects a path outside artifacts/documents/", async () => {
+  // The widening: a document this app did not write is presented the same way.
+  it("presents a workspace file outside artifacts/documents/", async () => {
     const { state, res } = mockRes();
-    await createHandler(req({ title: "T", path: "wiki/notes.md" }), res);
+    await createHandler(req({ title: "T", path: OUTSIDE_ARTIFACTS_REL }), res);
+
+    assert.equal(state.status, 200);
+    assert.equal(state.body?.data?.docPath, OUTSIDE_ARTIFACTS_REL);
+  });
+
+  it("presents an absolute path outside the workspace", async () => {
+    const { state, res } = mockRes();
+    await createHandler(req({ title: "T", path: outsideAbsolutePath }), res);
+
+    assert.equal(state.status, 200, "absolute paths are the documented behaviour, not an escape to refuse");
+    assert.equal(state.body?.data?.docPath, outsideAbsolutePath);
+  });
+
+  it("rejects a non-markdown path", async () => {
+    const { state, res } = mockRes();
+    await createHandler(req({ title: "T", path: "docs/design.txt" }), res);
 
     assert.equal(state.status, 400);
   });
@@ -183,11 +211,63 @@ describe("POST /api/markdown — `path` form", () => {
     assert.equal(state.status, 400, "a directory would fail the View's read — reject it at present time");
   });
 
-  it("rejects a symlink pointing outside the workspace", async () => {
+  // Containment was dropped deliberately when `path` was widened to any file
+  // on disk: a symlink out of the workspace is no different from naming the
+  // target directly, which is now allowed.
+  it("follows a symlink pointing outside the workspace", async () => {
     const { state, res } = mockRes();
     await createHandler(req({ title: "T", path: SYMLINK_REL }), res);
 
-    assert.equal(state.status, 400, "stat() follows symlinks — containment is checked on the realpath");
+    assert.equal(state.status, 200);
+  });
+});
+
+describe("PUT /api/markdown/update — write-back", () => {
+  it("overwrites a workspace file the view was pointed at", async () => {
+    const { state, res } = mockRes();
+    await updateHandler(req({ relativePath: OUTSIDE_ARTIFACTS_REL, markdown: "# edited\n" }), res);
+
+    assert.equal(state.status, 200);
+    assert.equal(await readFile(path.join(workspaceDir, OUTSIDE_ARTIFACTS_REL), "utf-8"), "# edited\n");
+  });
+
+  it("overwrites a file outside the workspace by absolute path", async () => {
+    const { state, res } = mockRes();
+    await updateHandler(req({ relativePath: outsideAbsolutePath, markdown: "# edited elsewhere\n" }), res);
+
+    assert.equal(state.status, 200);
+    assert.equal(await readFile(outsideAbsolutePath, "utf-8"), "# edited elsewhere\n");
+  });
+
+  it("refuses to CREATE a document at a path that does not exist", async () => {
+    const target = path.join(workspaceDir, "docs", "never-written.md");
+    const { state, res } = mockRes();
+    await updateHandler(req({ relativePath: "docs/never-written.md", markdown: "# nope\n" }), res);
+
+    // A stale view or a wrong path is a client error, not a server fault —
+    // same status presentHtml's update route returns for the same race.
+    assert.equal(state.status, 400);
+    await assert.rejects(readFile(target, "utf-8"), "a write to a vanished path must not scatter a new file");
+  });
+
+  it("refuses a non-markdown path", async () => {
+    const { state, res } = mockRes();
+    await updateHandler(req({ relativePath: "docs/design.txt", markdown: "# nope\n" }), res);
+
+    assert.equal(state.status, 400);
+  });
+
+  // An atomic write renames a temp file into place, so writing THROUGH a
+  // symlink would replace the link with a regular file and leave the document
+  // the user was editing untouched.
+  it("writes through a symlink to its target, leaving the link a link", async () => {
+    const { state, res } = mockRes();
+    await updateHandler(req({ relativePath: SYMLINK_REL, markdown: "# via symlink\n" }), res);
+
+    assert.equal(state.status, 200);
+    const linkPath = path.join(workspaceDir, SYMLINK_REL);
+    assert.equal(await readFile(path.join(tmpRoot, "outside-secret.md"), "utf-8"), "# via symlink\n", "the target receives the edit");
+    assert.ok((await lstat(linkPath)).isSymbolicLink(), "the link itself must survive the write");
   });
 });
 

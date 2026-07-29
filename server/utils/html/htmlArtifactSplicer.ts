@@ -31,9 +31,17 @@ import { injectHeightReporterScript } from "../../../src/utils/html/iframeHeight
 export async function readAndInjectHtmlArtifact(htmlsRoot: string, relPath: string): Promise<string | null> {
   const abs = resolveWithinRoot(htmlsRoot, relPath);
   if (!abs) return null;
+  return readAndInjectHtmlFile(abs);
+}
+
+/** Same splice, for a page the caller has ALREADY resolved to an absolute path.
+ *  The `/htmlfile` mount serves pages outside `artifacts/html/` (presentHtml's
+ *  `path` form), so there is no root to contain them to — its own resolver
+ *  (`htmlFileRequest.ts`) is what vets the request before this point. */
+export async function readAndInjectHtmlFile(absPath: string): Promise<string | null> {
   let raw: string;
   try {
-    raw = await fsReadFile(abs, "utf8");
+    raw = await fsReadFile(absPath, "utf8");
   } catch {
     return null;
   }

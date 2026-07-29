@@ -18,7 +18,7 @@ export type { MarkdownToolData, MarkdownArgs } from "../plugins/markdown/definit
 export type { MarkdownHostApp, MarkdownDispatchArgs, MarkdownDispatchResult, ExportPdfOptions, MarpThemeEntry } from "../plugins/markdown/contract";
 
 export { TOOL_DEFINITION, executeDocument, pluginCore } from "../core/plugin";
-export { isFilePath, TOOL_NAME } from "../plugins/markdown/definition";
+export { isFilePath, isDocumentPath, documentPathOf, TOOL_NAME } from "../plugins/markdown/definition";
 export { setFilesRawUrl } from "@mulmoclaude/markdown-utils/image/resolve";
 
 // MarpView / MarpSplitEditor are also consumed standalone by hosts that

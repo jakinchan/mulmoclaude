@@ -2,6 +2,7 @@ import { Router, Request } from "express";
 import { executeHtml, executeHtmlUpdate } from "@mulmoclaude/html-plugin";
 import type { HtmlArgs, PresentHtmlData } from "@mulmoclaude/html-plugin";
 import { makeArtifactsFileOps } from "../../plugins/runtime.js";
+import { makeByPathFileOps } from "../../utils/files/by-path.js";
 import { errorMessage } from "../../utils/errors.js";
 import { badRequest, serverError, type ApiResponse } from "../../utils/httpError.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
@@ -11,6 +12,11 @@ import { previewSnippet } from "../../utils/logPreview.js";
 import { publishFileChange } from "../../events/file-change.js";
 
 const router = Router();
+
+// `byPath` is what lets presentHtml open a page outside `artifacts/html/`
+// (a workspace file, or an absolute path). Built once: it holds no state.
+const HTML_EXTENSIONS = [".html", ".htm"] as const;
+const htmlFiles = { artifacts: makeArtifactsFileOps(), byPath: makeByPathFileOps(HTML_EXTENSIONS) };
 
 // presentHtml's tool schema, validation, and artifacts persistence now live in
 // the shared @mulmoclaude/html-plugin package (single source of truth, also
@@ -35,7 +41,7 @@ bindRoute(router, API_ROUTES.html.create, async (req: Request<object, unknown, H
     pathPreview: typeof htmlPath === "string" ? previewSnippet(htmlPath) : undefined,
   });
   try {
-    const result = await executeHtml({ files: { artifacts: makeArtifactsFileOps() } }, req.body);
+    const result = await executeHtml({ files: htmlFiles }, req.body);
     if (!result.data) {
       // Validation failure (both `html`+`path`, neither, or a non-existent
       // path): executeHtml returns a message-only ToolResult to stay
@@ -74,7 +80,7 @@ bindRoute(router, API_ROUTES.html.update, async (req: Request<object, unknown, U
     bytes: typeof html === "string" ? html.length : undefined,
   });
   try {
-    const result = await executeHtmlUpdate({ files: { artifacts: makeArtifactsFileOps() } }, { relativePath, html });
+    const result = await executeHtmlUpdate({ files: htmlFiles }, { relativePath, html });
     if (!result.ok) {
       log.warn("html", "update: rejected", { error: result.error, pathPreview: typeof relativePath === "string" ? previewSnippet(relativePath) : undefined });
       badRequest(res, result.error);

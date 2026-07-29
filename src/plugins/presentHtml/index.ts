@@ -33,8 +33,9 @@ const presentHtmlPlugin: ToolPlugin<PresentHtmlData> = {
     const body = result.data;
     // Inject the host-served preview URL so the host-agnostic package View can
     // point its iframe at the file's real URL (relative asset refs resolve
-    // against it). This is host-specific — MulmoClaude serves `artifacts/html/…`
-    // via a static mount — so the host adds it rather than the package.
+    // against it). Only for `artifacts/html/…`, which MulmoClaude serves from a
+    // static mount; a page outside it falls through to the package's own
+    // `/htmlfile` URL, a scheme both hosts serve.
     const data = body.data ? { ...body.data, previewUrl: htmlPreviewUrlFor(body.data.filePath) ?? undefined } : body.data;
     return {
       ...body,

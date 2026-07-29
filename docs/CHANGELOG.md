@@ -10,11 +10,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Highlights
 
-#### `presentDocument` can open a document you already wrote
+#### `presentDocument` and `presentHtml` open any file on disk, and edits write back to it
 
-Until now the tool only ever created: it took `markdown` inline, saved a fresh file under `artifacts/documents/<YYYY>/<MM>/`, and showed that. Re-displaying an existing document meant reading it and writing a second copy.
+`presentDocument` only ever created: it took `markdown` inline, saved a fresh file under `artifacts/documents/<YYYY>/<MM>/`, and showed that. Re-displaying an existing document meant reading it and writing a second copy.
 
-It now accepts a `path` instead — the workspace-relative path of an existing `artifacts/documents/**.md` — and presents that file in place, with nothing written. `markdown` and `path` are mutually exclusive, exactly as `html` and `path` already are on `presentHtml`. Edits the user makes in the document view (Apply, or an inline task-list checkbox) write back to that same file, so the agent and the user are editing one document rather than diverging copies.
+It now accepts a `path` instead, and that path is **any** `.md` — a document the agent saved earlier, a repo's `README.md`, `docs/design.md`, an absolute path elsewhere on disk. The file is presented in place with nothing written, and edits the user makes in the document view (Apply, or an inline task-list checkbox) overwrite that same file. The agent and the user work on one document instead of diverging copies. `markdown` and `path` are mutually exclusive.
+
+`presentHtml`'s `path` gets the same widening: it was limited to `artifacts/html/**`, and now takes any `.html` on disk, editable in place through the view's source editor. Pages outside `artifacts/html/` are served to the preview iframe through a new `/htmlfile/<scope>/<segments…>` mount that carries the same guards as the artifact mount — extension allowlist, dotfile refusal, realpath and regular-file checks, the preview CSP, `nosniff` — minus the containment root, since a page the tool was pointed at may legitimately live anywhere. As before, the mount is reachable only from the loopback listener and only same-origin.
+
+Two consequences worth stating plainly. Opening a file outside the workspace means the view can now overwrite files outside the workspace; writes are overwrite-only (neither tool will create a file at a path you name), but they are real writes to real files, so an incorrect path is a destructive path. And a document presented from outside the workspace renders its relative image references against a directory the workspace file server does not serve, so those images will not appear.
+
+For `presentDocument` the file a result renders now travels in its own `docPath` field. `markdown` used to carry either inline content or an `artifacts/documents/**.md` path, distinguished by prefix — a test that cannot survive arbitrary paths, since `README.md` is also a perfectly good one-line markdown body. Results stored before this change keep working through the old prefix rule.
 
 #### Start MulmoClaude from an icon, without a terminal (#2613, PRs #2615 / #2623)
 

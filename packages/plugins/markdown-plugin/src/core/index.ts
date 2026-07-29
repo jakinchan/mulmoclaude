@@ -1,4 +1,4 @@
-export { TOOL_NAME, isFilePath } from "../plugins/markdown/definition";
+export { TOOL_NAME, isFilePath, isDocumentPath, documentPathOf } from "../plugins/markdown/definition";
 export type { MarkdownToolData, MarkdownArgs } from "../plugins/markdown/definition";
 export { TOOL_DEFINITION } from "../plugins/markdown/definition";
 export { pluginCore, executeDocument } from "./plugin";

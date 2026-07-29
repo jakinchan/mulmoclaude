@@ -1,5 +1,5 @@
 import type { ToolContext, ToolResult, ToolPluginCore } from "gui-chat-protocol";
-import { TOOL_NAME, TOOL_DEFINITION, isFilePath, type MarkdownToolData, type MarkdownArgs } from "../plugins/markdown/definition";
+import { TOOL_NAME, TOOL_DEFINITION, isDocumentPath, type MarkdownToolData, type MarkdownArgs } from "../plugins/markdown/definition";
 import { executeMarkdown, type MarkdownExecuteContext } from "../plugins/markdown/core";
 import type { MarkdownDispatchArgs, MarkdownHostApp } from "../plugins/markdown/contract";
 
@@ -7,27 +7,32 @@ const PRESENT_ACK = "The document has been presented to the user in a rendered m
 
 const nonEmptyString = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
-/** Present a document already on disk under `artifacts/documents/**` without
- *  re-saving. `loadDoc` doubles as the existence check — the host app has no
- *  separate `exists`, and a read is what the View does next anyway. Edits the
- *  user applies in the View dispatch `saveDoc` against this same path, so they
- *  land on the original file. */
+/** Present a document already on disk without re-saving — any `.md`, not only
+ *  the ones this tool wrote. `loadDoc` doubles as the existence check (the host
+ *  app has no separate `exists`, a read is what the View does next anyway) and
+ *  as the host's policy gate: whether a given path is reachable at all is the
+ *  host's judgement, and a refusal surfaces here as "not found". Edits the user
+ *  applies in the View dispatch `saveDoc` against this same path, so they land
+ *  on the original file.
+ *
+ *  `data.markdown` repeats the path for pre-`docPath` readers; `documentPathOf`
+ *  is what current ones consult. */
 async function presentExistingDocument(app: MarkdownHostApp, path: string, title: string): Promise<ToolResult<MarkdownToolData>> {
-  if (!isFilePath(path)) {
+  if (!isDocumentPath(path)) {
     return {
-      message: "path must be an existing .md file under artifacts/documents/",
-      instructions: "Acknowledge the error and retry with a valid artifacts/documents/… path or inline `markdown`.",
+      message: "path must be a .md file path, without `.` / `..` segments",
+      instructions: "Acknowledge the error and retry with a valid path to an existing .md file, or inline `markdown`.",
     };
   }
   try {
     await app.loadDoc(path);
-  } catch {
+  } catch (err) {
     return {
-      message: `No document exists at ${path}`,
-      instructions: "Acknowledge that the file was not found and retry with a path that exists or inline `markdown`.",
+      message: `Cannot open ${path}: ${err instanceof Error ? err.message : String(err)}`,
+      instructions: "Acknowledge that the document could not be opened and retry with a path that exists or inline `markdown`.",
     };
   }
-  return { message: `Presented existing document${title ? `: ${title}` : ""}`, data: { markdown: path }, instructions: PRESENT_ACK };
+  return { message: `Presented existing document${title ? `: ${title}` : ""}`, data: { markdown: path, docPath: path }, instructions: PRESENT_ACK };
 }
 
 /** Persist new markdown under a fresh artifact path, then present it. */
@@ -38,7 +43,7 @@ async function saveAndPresentDocument(app: MarkdownHostApp, args: MarkdownArgs):
   return {
     message: `Document created${title ? `: ${title}` : ""}`,
     // `data` is the host's render-gate signal + the view's source.
-    data: { markdown: path, filenamePrefix },
+    data: { markdown: path, docPath: path, filenamePrefix },
     instructions: PRESENT_ACK,
   };
 }

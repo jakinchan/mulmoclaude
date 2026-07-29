@@ -6,11 +6,19 @@ import { executeHtmlDispatch, type HtmlDispatchContext } from "../src/core/dispa
 import { htmlArtifactPath, htmlArtifactPreviewUrl, isHtmlArtifactPath, toArtifactsRelative, slugify } from "../src/core/paths";
 
 // Minimal in-memory FileOps stand-in. Only the methods the html core touches
-// (`write`, `exists`) are implemented; the rest throw so an accidental new
-// dependency surfaces loudly in tests.
+// (`read`, `write`, `exists`) are implemented; the rest throw so an accidental
+// new dependency surfaces loudly in tests. Backs both `files.artifacts` and the
+// `files.byPath` capability the widened `path` form needs.
+const fakeFileOps = (store: Map<string, string>) => makeStoreOps(store);
+
 function makeFakeArtifacts(seed: Record<string, string> = {}) {
   const store = new Map<string, string>(Object.entries(seed));
-  const artifacts = {
+  const artifacts = makeStoreOps(store);
+  return { store, context: { files: { artifacts } } as unknown as HtmlExecuteContext };
+}
+
+function makeStoreOps(store: Map<string, string>) {
+  return {
     async read(rel: string) {
       const hit = store.get(rel);
       if (hit === undefined) throw new Error(`ENOENT ${rel}`);
@@ -35,7 +43,6 @@ function makeFakeArtifacts(seed: Record<string, string> = {}) {
       throw new Error("not implemented");
     },
   };
-  return { store, context: { files: { artifacts } } as unknown as HtmlExecuteContext };
 }
 
 describe("slugify", () => {
@@ -114,10 +121,37 @@ describe("executeHtml", () => {
     assert.match(result.message, /provide either/);
   });
 
-  it("rejects a path outside artifacts/html/", async () => {
+  // Without a `files.byPath` capability the host has not opted into pages
+  // outside `artifacts/html/`, so `path` keeps its original meaning — an older
+  // host degrades to the previous behaviour rather than mis-resolving.
+  it("rejects a non-artifact path when the host provides no byPath FileOps", async () => {
     const { context } = makeFakeArtifacts({ "../etc/passwd": "x" });
     const result = await executeHtml(context, { path: "artifacts/secrets/x.html" });
-    assert.match(result.message, /artifacts\/html/);
+    assert.match(result.message, /\.html file/);
+    assert.equal(result.data, undefined);
+  });
+
+  it("presents a page outside artifacts/html/ through byPath", async () => {
+    const { context } = makeFakeArtifacts();
+    const byPath = fakeFileOps(new Map([["docs/report.html", "<p>hi</p>"]]));
+    const result = await executeHtml({ files: { ...context.files, byPath } }, { path: "docs/report.html", title: "T" });
+    assert.equal(result.data?.filePath, "docs/report.html");
+  });
+
+  // Accepting a path the preview mount will not serve would report success for
+  // a page that can never render.
+  it("rejects a dotfile path even though it names a real file", async () => {
+    const { context } = makeFakeArtifacts();
+    const byPath = fakeFileOps(new Map([[".hidden/page.html", "<p>hi</p>"]]));
+    const result = await executeHtml({ files: { ...context.files, byPath } }, { path: ".hidden/page.html" });
+    assert.equal(result.data, undefined);
+  });
+
+  it("still rejects traversal when byPath is available", async () => {
+    const { context } = makeFakeArtifacts();
+    const byPath = fakeFileOps(new Map());
+    const result = await executeHtml({ files: { ...context.files, byPath } }, { path: "docs/../../secret.html" });
+    assert.equal(result.data, undefined);
   });
 });
 
@@ -125,12 +159,19 @@ describe("htmlArtifactPreviewUrl", () => {
   it("derives the served URL from a clean filePath (per-segment encoded)", () => {
     assert.equal(htmlArtifactPreviewUrl("artifacts/html/2026/06/the cell.html"), "/artifacts/html/2026/06/the%20cell.html");
   });
-  it("returns null for non-html, wrong root, and traversal segments", () => {
+  it("returns null for non-html and for traversal inside the artifact root", () => {
     assert.equal(htmlArtifactPreviewUrl("artifacts/html/x.json"), null);
-    assert.equal(htmlArtifactPreviewUrl("artifacts/images/x.html"), null);
     assert.equal(htmlArtifactPreviewUrl("artifacts/html/../secret.html"), null);
     assert.equal(htmlArtifactPreviewUrl("artifacts/html//x.html"), null);
     assert.equal(htmlArtifactPreviewUrl(null), null);
+  });
+
+  // A page outside the artifact root is no longer "not ours" — the `path` form
+  // presents any page on disk, and both hosts serve those from `/htmlfile`.
+  it("falls through to the /htmlfile scheme for a page outside artifacts/html/", () => {
+    assert.equal(htmlArtifactPreviewUrl("docs/report.html"), "/htmlfile/ws/docs/report.html");
+    assert.equal(htmlArtifactPreviewUrl("/Users/x/p/page.html"), "/htmlfile/abs/Users/x/p/page.html");
+    assert.equal(htmlArtifactPreviewUrl("docs/../../secret.html"), null);
   });
 });
 
@@ -164,8 +205,8 @@ describe("executeHtmlDispatch", () => {
 
   it("rejects a bad path and a non-string saveHtml body", async () => {
     const { context } = dispatchCtx();
-    await assert.rejects(() => executeHtmlDispatch(context, { kind: "loadHtml", path: "artifacts/evil/p.html" }), /artifacts\/html/);
-    await assert.rejects(() => executeHtmlDispatch(context, { kind: "loadHtml", path: 42 as unknown as string }), /artifacts\/html/);
+    await assert.rejects(() => executeHtmlDispatch(context, { kind: "loadHtml", path: "artifacts/evil/p.html" }), /\.html file/);
+    await assert.rejects(() => executeHtmlDispatch(context, { kind: "loadHtml", path: 42 as unknown as string }), /\.html file/);
     await assert.rejects(
       () => executeHtmlDispatch(context, { kind: "saveHtml", path: "artifacts/html/2026/06/p.html", html: 5 as unknown as string }),
       /html.*string/,

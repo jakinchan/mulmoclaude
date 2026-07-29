@@ -1,13 +1,14 @@
 import type { FileOps } from "gui-chat-protocol";
-import { isHtmlArtifactPath, toArtifactsRelative } from "./paths";
+import { isHtmlArtifactPath, isPresentableHtmlPath, toArtifactsRelative } from "./paths";
 import type { HtmlDispatchArgs } from "./contract";
 
-/** Capabilities the dispatch router needs — only the generic, shared
- *  `files.artifacts` FileOps. The host wrapper additionally publishes a
- *  file-change event after `saveHtml` (host pubsub infra), which is layered on
- *  top of this pure read/write. */
+/** Capabilities the dispatch router needs: the generic, shared
+ *  `files.artifacts` FileOps, plus — for hosts that let presentHtml open pages
+ *  outside `artifacts/html/` — `files.byPath` (see `HtmlExecuteContext`). The
+ *  host wrapper additionally publishes a file-change event after `saveHtml`
+ *  (host pubsub infra), which is layered on top of this pure read/write. */
 export interface HtmlDispatchContext {
-  files: { artifacts: FileOps };
+  files: { artifacts: FileOps; byPath?: FileOps };
 }
 
 /**
@@ -22,20 +23,27 @@ export async function executeHtmlDispatch(context: HtmlDispatchContext, args: Ht
   // `args` is cast from `unknown` in host dispatch wiring, so validate at
   // runtime before touching FileOps — a malformed payload must surface as a
   // clean error, not a TypeError / a write of a non-string body.
-  if (typeof args?.path !== "string" || !isHtmlArtifactPath(args.path)) {
-    throw new Error("path must be an existing .html file under artifacts/html/");
+  if (typeof args?.path !== "string") {
+    throw new Error("path must be an existing .html file");
   }
-  const rel = toArtifactsRelative(args.path);
+  // Same routing as the tool-call path: an artifact goes through
+  // `files.artifacts`, anything else needs the host's `files.byPath`.
+  const artifact = isHtmlArtifactPath(args.path);
+  const files = artifact ? context.files.artifacts : context.files.byPath;
+  if (!files || (!artifact && !isPresentableHtmlPath(args.path))) {
+    throw new Error("path must be an existing .html file");
+  }
+  const rel = artifact ? toArtifactsRelative(args.path) : args.path;
   switch (args.kind) {
     case "loadHtml": {
-      const html = await context.files.artifacts.read(rel);
+      const html = await files.read(rel);
       return { html };
     }
     case "saveHtml": {
       if (typeof args.html !== "string") {
         throw new Error("saveHtml requires `html` as a string");
       }
-      await context.files.artifacts.write(rel, args.html);
+      await files.write(rel, args.html);
       return { path: args.path };
     }
     default: {
