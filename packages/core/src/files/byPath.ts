@@ -102,8 +102,19 @@ export function createByPathFileOps(options: ByPathOptions): ByPathFileOps {
     },
     async write(rel, content) {
       const absPath = resolveOrThrow(options, rel);
-      if (!(await exists(rel))) throw new Error(`no file exists at ${rel}`);
-      await writeFileAtomic(absPath, content);
+      // Write to what a symlink POINTS AT, not through it. `writeFileAtomic`
+      // renames a temp file into place, which would replace the link itself
+      // with a regular file and leave the real document untouched — the user
+      // would see their edit "save" and the file they were editing not change.
+      // The realpath + isFile pair is also the existence check.
+      let target: string;
+      try {
+        target = await realpath(absPath);
+        if (!(await fsStat(target)).isFile()) throw new Error("not a regular file");
+      } catch {
+        throw new Error(`no file exists at ${rel}`);
+      }
+      await writeFileAtomic(target, content);
     },
     async readDir(rel) {
       try {

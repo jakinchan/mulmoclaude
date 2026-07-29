@@ -15,7 +15,7 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync } from "fs";
-import { mkdtemp, readdir, readFile, rm, symlink, writeFile } from "fs/promises";
+import { lstat, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import type { Request, Response } from "express";
@@ -253,6 +253,19 @@ describe("PUT /api/markdown/update — write-back", () => {
     await updateHandler(req({ relativePath: "docs/design.txt", markdown: "# nope\n" }), res);
 
     assert.equal(state.status, 400);
+  });
+
+  // An atomic write renames a temp file into place, so writing THROUGH a
+  // symlink would replace the link with a regular file and leave the document
+  // the user was editing untouched.
+  it("writes through a symlink to its target, leaving the link a link", async () => {
+    const { state, res } = mockRes();
+    await updateHandler(req({ relativePath: SYMLINK_REL, markdown: "# via symlink\n" }), res);
+
+    assert.equal(state.status, 200);
+    const linkPath = path.join(workspaceDir, SYMLINK_REL);
+    assert.equal(await readFile(path.join(tmpRoot, "outside-secret.md"), "utf-8"), "# via symlink\n", "the target receives the edit");
+    assert.ok((await lstat(linkPath)).isSymbolicLink(), "the link itself must survive the write");
   });
 });
 
