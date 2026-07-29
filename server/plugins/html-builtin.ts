@@ -13,6 +13,7 @@ import { publishFileChange } from "../events/file-change.js";
 import { describeKind, registerBuiltinDispatch } from "./builtin-dispatch.js";
 import { packHtmlZip } from "../utils/share/packHtml.js";
 import { isHtmlPath } from "../utils/files/html-store.js";
+import { makeByPathFileOps } from "../utils/files/by-path.js";
 
 /** Scope name — matches `wrapWithScope("html", …)` in
  *  `src/plugins/presentHtml/index.ts`, which is what the View's
@@ -39,7 +40,7 @@ registerBuiltinDispatch(HTML_SCOPE, async (args) => {
     throw new Error(`html plugin: unrecognised dispatch payload (kind=${describeKind(args)})`);
   }
   const dispatchArgs = args;
-  const result = await executeHtmlDispatch({ files: { artifacts: makeArtifactsFileOps() } }, dispatchArgs);
+  const result = await executeHtmlDispatch({ files: { artifacts: makeArtifactsFileOps(), byPath: makeByPathFileOps([".html", ".htm"]) } }, dispatchArgs);
   // saveHtml changed bytes on disk → nudge subscribed View tabs (load is read-only).
   if (dispatchArgs.kind === "saveHtml") {
     void publishFileChange(dispatchArgs.path);

@@ -14,7 +14,8 @@ import { errorMessage } from "../../utils/errors.js";
 import { badRequest, serverError } from "../../utils/httpError.js";
 import { saveImage } from "../../utils/files/image-store.js";
 import { fillMarkdownImagePlaceholders } from "../../utils/files/markdown-image-fill.js";
-import { saveMarkdown, overwriteMarkdown, isMarkdownPath } from "../../utils/files/markdown-store.js";
+import { saveMarkdown } from "../../utils/files/markdown-store.js";
+import { documentExists, overwriteDocument, resolveDocumentPath } from "../../utils/files/document-store.js";
 import { saveSpreadsheet, overwriteSpreadsheet, isSpreadsheetPath } from "../../utils/files/spreadsheet-store.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { bindRoute } from "../../utils/router.js";
@@ -69,45 +70,94 @@ function wrapPluginExecute<TBody = any, TResult = unknown>(
 // presentDocument — fills image placeholders via Gemini if API key is available
 interface PresentDocumentBody {
   title: string;
-  markdown: string;
-  filenamePrefix: string;
+  markdown?: string;
+  filenamePrefix?: string;
+  path?: string;
 }
 
 interface PresentDocumentSuccess {
   message: string;
   instructions: string;
   title: string;
-  data: { markdown: string; filenamePrefix: string };
+  data: { markdown: string; docPath: string; filenamePrefix?: string };
 }
 
 interface PresentDocumentError {
   error: string;
 }
 
+const PRESENT_DOCUMENT_ACK = "Acknowledge that the document has been presented to the user.";
+
+const isNonEmpty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
+
+/** `path` form — present an existing `.md` in place: a document this app
+ *  wrote, a file in the workspace, or an absolute path elsewhere on disk.
+ *  Nothing is written: `data.markdown` / `data.docPath` carry the caller's path
+ *  verbatim, so the View loads THAT file and its Apply / task-checkbox saves
+ *  (PUT /api/markdown/update) overwrite it rather than a fresh copy. */
+async function presentExistingDocument(res: Response<PresentDocumentSuccess | PresentDocumentError>, path: string, title: string): Promise<void> {
+  if (resolveDocumentPath(path) === null) {
+    log.warn("plugins", "presentDocument: invalid path", { pathPreview: previewSnippet(path) });
+    badRequest(res, "path must be a .md file path, without `.` / `..` segments");
+    return;
+  }
+  if (!(await documentExists(path))) {
+    log.warn("plugins", "presentDocument: path not found", { pathPreview: previewSnippet(path) });
+    badRequest(res, `No document exists at ${path}`);
+    return;
+  }
+  log.info("plugins", "presentDocument: presented existing", { pathPreview: previewSnippet(path) });
+  res.json({ message: `Presented existing document at ${path}`, instructions: PRESENT_DOCUMENT_ACK, title, data: { markdown: path, docPath: path } });
+}
+
+/** `markdown` form — fill image placeholders, then save under a fresh
+ *  `artifacts/documents/<YYYY>/<MM>/…` path. */
+async function saveAndPresentDocument(res: Response<PresentDocumentSuccess | PresentDocumentError>, body: PresentDocumentBody): Promise<void> {
+  const { title, markdown, filenamePrefix } = body;
+  if (!isNonEmpty(markdown)) {
+    log.warn("plugins", "presentDocument: missing markdown and path");
+    badRequest(res, "provide either `markdown` or `path`");
+    return;
+  }
+  // A missing prefix is no longer a 400: `path` made `filenamePrefix`
+  // conditional, and JSON Schema can't say "required only with `markdown`", so
+  // a caller reading `required` can legitimately omit it. `saveMarkdown`
+  // slugifies to "document" on empty — the same default the shared plugin core
+  // applies (`filenamePrefix ?? "document"`), so both hosts behave alike.
+  const filledMarkdown = await fillMarkdownImagePlaceholders(markdown);
+  const markdownPath = await saveMarkdown(filledMarkdown, filenamePrefix ?? "");
+  log.info("plugins", "presentDocument: ok", { markdownPath, bytes: filledMarkdown.length });
+  res.json({
+    message: `Saved markdown to ${markdownPath}`,
+    instructions: PRESENT_DOCUMENT_ACK,
+    title,
+    data: { markdown: markdownPath, docPath: markdownPath, filenamePrefix },
+  });
+}
+
 bindRoute(
   router,
   API_ROUTES.markdown.create,
   async (req: Request<object, unknown, PresentDocumentBody>, res: Response<PresentDocumentSuccess | PresentDocumentError>) => {
-    const { title, markdown, filenamePrefix } = req.body;
+    const { title, markdown, filenamePrefix, path: documentPath } = req.body;
     log.info("plugins", "presentDocument: start", {
       titlePreview: typeof title === "string" ? previewSnippet(title) : undefined,
       prefixPreview: typeof filenamePrefix === "string" ? previewSnippet(filenamePrefix) : undefined,
       markdownBytes: typeof markdown === "string" ? markdown.length : undefined,
+      pathPreview: typeof documentPath === "string" ? previewSnippet(documentPath) : undefined,
     });
-    if (typeof filenamePrefix !== "string" || filenamePrefix.trim().length === 0) {
-      log.warn("plugins", "presentDocument: missing filenamePrefix");
-      badRequest(res, "filenamePrefix is required");
+    // `markdown` and `path` are mutually exclusive — same contract as
+    // presentHtml's `html` / `path`. Reject both-set rather than letting
+    // one silently win.
+    if (isNonEmpty(documentPath) && isNonEmpty(markdown)) {
+      badRequest(res, "provide either `markdown` or `path`, not both");
       return;
     }
-    const filledMarkdown = await fillMarkdownImagePlaceholders(markdown);
-    const markdownPath = await saveMarkdown(filledMarkdown, filenamePrefix);
-    log.info("plugins", "presentDocument: ok", { markdownPath, bytes: filledMarkdown.length });
-    res.json({
-      message: `Saved markdown to ${markdownPath}`,
-      instructions: "Acknowledge that the document has been presented to the user.",
-      title,
-      data: { markdown: markdownPath, filenamePrefix },
-    });
+    if (isNonEmpty(documentPath)) {
+      await presentExistingDocument(res, documentPath, title);
+      return;
+    }
+    await saveAndPresentDocument(res, req.body);
   },
 );
 
@@ -143,15 +193,25 @@ bindRoute(
       badRequest(res, "markdown is required");
       return;
     }
-    if (!relativePath || !isMarkdownPath(relativePath)) {
+    if (!relativePath || resolveDocumentPath(relativePath) === null) {
       log.warn("plugins", "updateMarkdown: invalid relativePath", {
         pathPreview: typeof relativePath === "string" ? previewSnippet(relativePath) : undefined,
       });
       badRequest(res, "invalid markdown relativePath");
       return;
     }
+    // Overwrite only — a path that no longer exists means the View is stale or
+    // the path was wrong, which is a client error, not a server fault. Checked
+    // here so it surfaces as 400 (matching presentHtml's update route) instead
+    // of falling into the catch below as a 500. `overwriteDocument` re-checks:
+    // between this line and the write, the file can still vanish.
+    if (!(await documentExists(relativePath))) {
+      log.warn("plugins", "updateMarkdown: no document at path", { pathPreview: previewSnippet(relativePath) });
+      badRequest(res, `no document exists at ${relativePath}`);
+      return;
+    }
     try {
-      await overwriteMarkdown(relativePath, markdown);
+      await overwriteDocument(relativePath, markdown);
       log.info("plugins", "updateMarkdown: ok", { pathPreview: previewSnippet(relativePath), bytes: markdown.length });
       void publishFileChange(relativePath);
       res.json({ path: relativePath });

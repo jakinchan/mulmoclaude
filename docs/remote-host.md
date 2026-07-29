@@ -195,6 +195,19 @@ presence doc** the remote already listens to:
   "Offline queueing").
 - The payload shape (`HostPresence`) is a **browser-safe** export both repos
   compile against, so host and mobile client can't drift on the contract.
+- **`undefined` never costs the whole reply (#2634).** Firestore rejects
+  `undefined` at ANY depth, so one stray value buried in a handler's return made
+  `updateDoc` throw — `status:"done"` never landed and the remote waited out its
+  timeout. The symptom was "nothing arrives", not "one field is missing". Before
+  writing, the runner strips every `undefined` (object keys dropped, array holes
+  → `null` so indexes still line up) and reports the paths it dropped through
+  `onEvent`: `result.sessions.11.work`, which Firestore's own error never tells
+  you. Stripping rather than throwing is the point — a throw reproduces exactly
+  the outcome this prevents. Paths where `undefined` is legitimate are declared
+  per method via `opts.expectedUndefined` (`{ listSessions: ["sessions.*.work"] }`,
+  `*` = one segment): still stripped, silently, so the report stays worth reading.
+  Deliberately NOT `ignoreUndefinedProperties` — that turns the bug into "the
+  value just doesn't arrive", with nothing to grep for.
 - **Claim exactly once.** `claimCommand` runs a `runTransaction` that reads the
   doc and only flips `queued → processing` if it is still `queued`; a second
   host (or a snapshot replay) that races gets `null` and skips it.

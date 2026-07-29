@@ -1,6 +1,6 @@
 {
   "name": "@mulmoclaude/core",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "description": "Shared server-side core for MulmoClaude and MulmoTerminal — the always-shipped-together subsystems consolidated behind subpath exports so the two hosts can't drift. Server-only except the browser-safe ./artifacts, ./whisper/client, ./workspace-setup/slug, ./translation/client, ./remote-view, ./remote-host and ./plugin-vue entries. All host specifics are injected.",
   "repository": {
     "type": "git",
@@ -212,6 +212,7 @@
     "lint": "eslint src test"
   },
   "dependencies": {
+    "dompurify": "^3.4.12",
     "@duckdb/node-api": "^1.5.5-r.1",
     "@mulmoclaude/common": "^1.1.1",
     "@mulmoclaude/markdown-utils": "^1.3.1",
