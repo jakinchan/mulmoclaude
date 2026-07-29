@@ -152,8 +152,20 @@ describe("circular replies", () => {
     assert.throws(() => undefinedPaths({ items }), /circular reference at items\.1/);
   });
 
+  // The same three shapes against stripUndefined: the two walks share a guard but
+  // stay separate functions, so each cycle kind is pinned on both sides.
   it("stripUndefined refuses a cycle too, rather than recursing", () => {
-    assert.throws(() => stripUndefined(selfReferential()), /circular reference/);
+    assert.throws(() => stripUndefined(selfReferential()), /circular reference at self/);
+  });
+
+  it("stripUndefined catches a mutual cycle", () => {
+    assert.throws(() => stripUndefined(mutuallyRecursive()), /circular reference at left\.right\.left/);
+  });
+
+  it("stripUndefined catches a cycle through an array", () => {
+    const items: unknown[] = [1];
+    items.push(items);
+    assert.throws(() => stripUndefined({ items }), /circular reference at items\.1/);
   });
 
   it("reports the root when the reply is its own container", () => {
