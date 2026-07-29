@@ -319,7 +319,7 @@ const skills = await discoverSkills({ workspaceRoot: workspacePath });
 
 **追加 (user-defined)**: MulmoClaude の Settings → Roles から `manageRoles` 経由、または `<workspace>/config/roles/<id>.json` を直接置く
 
-ローダ (`server/workspace/roles.ts` — `loadCustomRoles`) が読むのは **`.json` のみ**。`.md` など他の拡張子は読み込み対象にすら入らない。加えて JSON 構文エラーとスキーマ検証失敗は現状無言で握り潰されるため、置いた role が一覧に出ない場合はまず拡張子と JSON の妥当性を疑うこと (#2649)。
+ローダ (`server/workspace/roles.ts` — `loadCustomRoles`) が読むのは **`.json` のみ**。`.md` など他の拡張子は読み込み対象にすら入らない。読めなかったファイルは（壊れた1件で一覧を落とさないため）スキップされるが、**理由はサーバログに `[roles]` の warn として出る** — ファイル名 + 「空 / JSON 構文エラー / スキーマ検証失敗（どのフィールドか）/ 読み取り失敗」まで出るので、置いた role が一覧に出ないときはログを見れば切り分けられる (#2649)。`.json` 以外を置いた場合も 1 行にまとめて警告される。
 
 **ソース実装**:
 
