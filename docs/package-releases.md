@@ -126,14 +126,15 @@ git diff "@scope/name@$(npm view @scope/name version)" HEAD -- packages/<dir>
 
 | state | meaning |
 |---|---|
-| `clean` | source matches the published tag — nothing to do |
-| `manifest only` | `package.json` changed (dependency bumps) — no release needed |
-| `code drift` | unreleased behaviour under `src/` — decide deliberately |
+| `clean` | nothing that reaches the tarball has changed. Tests, tsconfig and devDependency edits land here — deliberately, since none of them alter what a consumer receives |
+| `code drift` | unreleased behaviour under `src/`, `assets/`, `bin/`, or a changed README (npm ships it whether or not `files` lists it) |
+| `manifest drift` | a **published** `package.json` field moved — `dependencies`, `exports`, `files`, `bin`, `engines`, … A dependency-range sweep shows up here; it reaches users at this package's next release, so it is a decision, not an emergency |
 | `untagged` | published, but no tag, so drift **cannot be measured** — fix the tag first |
 | `unpublished` | never went to npm — decide whether it is meant to |
+| `error` | the check itself failed (registry unreachable, git failure). Reported rather than silently folded into `clean`, and the command exits non-zero |
 
-Drift in `package.json` alone is usually a devDependency bump and needs no release.
-Drift under `src/` is unreleased behaviour — decide deliberately.
+A failed lookup is never converted into an audit state. An audit that answers "nothing
+to do" when it means "I could not tell" is worse than no audit.
 
 If the diff is empty because **the tag is missing**, that is its own finding: fix it
 before relying on the answer. Do not tag the version-bump commit by reflex — it is
@@ -164,11 +165,22 @@ PR #2639 rather than at the branch-local bump.
 | GitHub release with `--latest=false` | a package release must not displace the app's latest |
 | `docs/CHANGELOG.md` entry | the only place a reader finds out a package moved and why |
 
-Verify the tarball before publishing, not after. A vite-built package emits one bundled
-`index.js` plus per-module `.d.ts`, so "my new file is missing from the tarball" is
-usually wrong — grep the bundle for a string only the new code contains:
+Verify the tarball before publishing, not after — and verify **the tarball**, not the
+working tree. `npm pack --dry-run` prints file names only, so grepping `dist/` in the
+checkout passes happily for a file that `files` / `.npmignore` excludes. Pack it, extract
+it, and look inside:
 
 ```bash
-cd packages/<dir> && npm pack --dry-run
-grep -o "<a string from the new code>" dist/**/*.js
+cd packages/<dir>
+TARBALL=$(npm pack --silent)                 # writes the real archive
+tar -xzf "$TARBALL" -C "$(mktemp -d /tmp/packcheck.XXXX)" --strip-components=1
+# then, in that directory:
+grep -r "<a string only the new code contains>" dist/
 ```
+
+A vite-built package emits one bundled `index.js` plus per-module `.d.ts`, so "my new
+module is missing from the tarball" is usually wrong — the code is in the bundle. Grep
+for a distinctive string rather than looking for a filename. `@mulmoclaude/core@1.9.0`
+was checked exactly this way (`"circular reference"`, `"no presence write acknowledged"`,
+`presenceStaleAfterMs`), and the same technique identified which commit the untagged
+`1.8.0` had been cut from.
