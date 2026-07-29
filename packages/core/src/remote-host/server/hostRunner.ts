@@ -35,14 +35,20 @@ import {
   isExpired,
 } from "../index.js";
 import { stripUndefined, undefinedPaths, unexpectedPaths } from "./firestoreSafeResult.js";
+import { PRESENCE_STALE_BEATS, createPresenceBeat, type PresenceBeat } from "./presenceBeat.js";
 
-const DEFAULT_HEARTBEAT_MS = 60_000;
+// Exported so a host that judges presence freshness from the outside (a probe that
+// reads the doc back) measures against the same beat the runner writes on.
+export const DEFAULT_HEARTBEAT_MS = 60_000;
 
-// Firestore listen errors worth re-subscribing for (network / backend blips).
-// Everything else — permission-denied, unauthenticated, and any unrecognized
-// code — is fatal: re-listening can't fix a bad session, and an open-ended retry
-// on an unknown code would loop forever.
-const TRANSIENT_LISTEN_ERROR_CODES = new Set(["aborted", "cancelled", "deadline-exceeded", "internal", "resource-exhausted", "unavailable"]);
+// Firestore listen errors worth re-subscribing for: network / backend blips, plus
+// `unauthenticated` — the SDK refreshes tokens on its own, so an expired one is
+// fixed by trying again, and stopping the host at the first expiry was far too
+// strong (#2633). Everything else — permission-denied and any unrecognized code —
+// is fatal: re-listening can't restore a revoked grant, and an open-ended retry on
+// an unknown code would loop forever. Retrying is bounded by LISTEN_RETRY_WINDOW_MS
+// either way, so even a doomed retry ends in an escalation rather than a spin.
+const TRANSIENT_LISTEN_ERROR_CODES = new Set(["aborted", "cancelled", "deadline-exceeded", "internal", "resource-exhausted", "unauthenticated", "unavailable"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const listenErrorCode = (error: unknown): string => (isRecord(error) && typeof error.code === "string" ? error.code : "");
@@ -52,8 +58,15 @@ export const classifyListenerError = (error: unknown): "transient" | "fatal" =>
 
 const BASE_LISTEN_RETRY_MS = 1_000;
 const MAX_LISTEN_RETRY_MS = 30_000;
-// Bounded transient retries before a listener failure is treated as fatal.
-export const MAX_LISTEN_RETRIES = 5;
+// How long a listener may keep failing before the runner stops retrying in place
+// and escalates to the lifecycle owner (which can re-auth). Bounding this by a
+// RETRY COUNT instead made it ~31s of wall clock — shorter than any laptop sleep
+// or network move, after which the host never re-subscribed (#2633).
+export const LISTEN_RETRY_WINDOW_MS = 5 * 60_000;
+
+// The outage is measured from its first failure, not from the last attempt: a
+// backoff ladder that keeps failing must not extend its own deadline.
+export const shouldGiveUpListening = (downSinceMs: number, now: number, windowMs: number = LISTEN_RETRY_WINDOW_MS): boolean => now - downSinceMs >= windowMs;
 
 // Exponential backoff, capped: attempt 0 → 1s, 1 → 2s, … saturating at 30s.
 export const backoffDelayMs = (attempt: number): number => Math.min(MAX_LISTEN_RETRY_MS, BASE_LISTEN_RETRY_MS * 2 ** attempt);
@@ -205,6 +218,9 @@ interface ListenerRun {
   unsubscribe: () => void;
   retryTimer: ReturnType<typeof setTimeout> | null;
   attempt: number;
+  // Start of the current outage, or null while healthy. `attempt` still drives the
+  // backoff ladder; only the give-up decision reads the clock.
+  downSinceMs: number | null;
 }
 
 // Best-effort oldest-first DISPATCH only — commands run concurrently and may
@@ -231,11 +247,13 @@ function scheduleResubscribe(run: ListenerRun): void {
 
 // A Firestore onSnapshot error terminates THIS listener and never recovers on its
 // own. Transient → re-subscribe with bounded backoff (presence stays online);
-// fatal, or retries exhausted → go offline.
+// fatal, or failing for longer than the retry window → go offline.
 function handleListenError(run: ListenerRun, error: FirestoreError): void {
   run.ctx.options.onEvent?.({ phase: "error", method: "listen", message: error.message });
   if (run.stopped) return;
-  if (classifyListenerError(error) === "fatal" || run.attempt >= MAX_LISTEN_RETRIES) {
+  const now = Date.now();
+  run.downSinceMs ??= now;
+  if (classifyListenerError(error) === "fatal" || shouldGiveUpListening(run.downSinceMs, now)) {
     run.goOffline();
     return;
   }
@@ -248,7 +266,10 @@ function subscribeCommands(run: ListenerRun): void {
   run.unsubscribe = onSnapshot(
     run.queuedCommands,
     (snapshot) => {
-      run.attempt = 0; // a healthy snapshot proves the listener recovered
+      // A healthy snapshot proves the listener recovered: the ladder and the
+      // outage clock both start fresh for whatever comes next.
+      run.attempt = 0;
+      run.downSinceMs = null;
       dispatchAddedCommands(run.ctx, snapshot);
     },
     (error) => handleListenError(run, error),
@@ -259,7 +280,7 @@ function subscribeCommands(run: ListenerRun): void {
 // errors with bounded backoff, go offline on a fatal one. Returns a stop that
 // cancels any pending retry and detaches the listener.
 const listenForCommands = (queuedCommands: Query, ctx: RunnerContext, goOffline: () => void): (() => void) => {
-  const run: ListenerRun = { queuedCommands, ctx, goOffline, stopped: false, unsubscribe: noop, retryTimer: null, attempt: 0 };
+  const run: ListenerRun = { queuedCommands, ctx, goOffline, stopped: false, unsubscribe: noop, retryTimer: null, attempt: 0, downSinceMs: null };
   subscribeCommands(run);
   return () => {
     run.stopped = true;
@@ -268,41 +289,82 @@ const listenForCommands = (queuedCommands: Query, ctx: RunnerContext, goOffline:
   };
 };
 
+// One running host, as far as shutting it down is concerned. `closed` guards the
+// teardown: a presence failure and a fatal listener error can arrive together, and
+// each of them ends the runner.
+interface HostRun {
+  beat: ReturnType<typeof setInterval> | null;
+  stopListening: () => void;
+  closed: boolean;
+}
+
+const heartbeatMs = (options: HostRunnerOptions): number => options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+
+// How old an acknowledged presence write may be before this runner stops claiming
+// to be online. Exported because a host that judges the same freshness from the
+// OUTSIDE (a probe reading the doc back) has to apply the runner's threshold, not
+// a second copy of it — pass that host's own runner options and the two cannot
+// drift when `heartbeatMs` is customised.
+export const presenceStaleAfterMs = (options: HostRunnerOptions = {}): number => heartbeatMs(options) * PRESENCE_STALE_BEATS;
+
+// Advertise online/offline + the capability set (method names + protocol version)
+// on the same doc the remote already listens to for presence, and watch whether
+// those writes are landing — see presenceBeat.ts for why the sensor is the age of
+// the last acknowledgement rather than a count of failures.
+const buildPresenceBeat = (
+  firestore: Firestore,
+  channel: Channel,
+  handlers: CommandHandlers,
+  options: HostRunnerOptions,
+  onStale: () => void,
+): PresenceBeat => {
+  const presence = hostDoc(firestore, channel);
+  const report = (message: string) => options.onEvent?.({ phase: "error", method: "presence", message });
+  return createPresenceBeat({
+    write: (online) => setDoc(presence, { ...buildHostPresence(channel, handlers, online), updatedAt: serverTimestamp() }),
+    onError: (message) => report(`presence write failed: ${message}`),
+    onStale: (silentMs) => {
+      report(`no presence write acknowledged for ${Math.round(silentMs / 1_000)}s — the remote cannot see this host`);
+      onStale();
+    },
+    staleAfterMs: presenceStaleAfterMs(options),
+  });
+};
+
+// Stop beating, say goodbye, detach the listener. Announcing offline is
+// best-effort — if the channel is the thing that broke, this write goes nowhere,
+// which is exactly why the remote judges presence by age rather than by the flag.
+const shutDown = (run: HostRun, presence: PresenceBeat): void => {
+  if (run.closed) return;
+  run.closed = true;
+  if (run.beat) clearInterval(run.beat);
+  run.beat = null;
+  presence.announce(false);
+  run.stopListening();
+};
+
 // startHostRunner subscribes to queued commands for the given channel and runs
 // each one through the supplied handler table. It also announces presence (a
 // heartbeat on users/{uid}/hosts/{hostId}) so the remote can tell it is online.
 // Returns a stop function that goes offline and detaches the listener.
 export const startHostRunner = (firestore: Firestore, channel: Channel, handlers: CommandHandlers, options: HostRunnerOptions = {}): (() => void) => {
-  const presence = hostDoc(firestore, channel);
-  // Advertise online/offline + the capability set (method names + protocol
-  // version) on the same doc the remote already listens to for presence.
-  // Returns void, not the promise: presence is advertised best-effort from
-  // three call sites (announce, the snapshot-error path, the teardown), none of
-  // which can await. Terminating the chain here with `.catch(noop)` keeps every
-  // caller from floating a promise it has no way to handle.
-  const writePresence = (online: boolean): void => {
-    setDoc(presence, { ...buildHostPresence(channel, handlers, online), updatedAt: serverTimestamp() }).catch(noop);
-  };
-  const announce = () => {
-    writePresence(true);
-  };
-  announce();
-  const beat = setInterval(announce, options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS);
+  const run: HostRun = { beat: null, stopListening: noop, closed: false };
+  const presence = buildPresenceBeat(firestore, channel, handlers, options, goOffline);
+
+  // The channel is gone and re-subscribing is not going to bring it back: hand
+  // over to the lifecycle owner, which can re-auth and start a fresh runner.
+  function goOffline(): void {
+    if (run.closed) return;
+    shutDown(run, presence);
+    options.onClosed?.();
+  }
+
+  presence.announce(true);
+  run.beat = setInterval(presence.beat, heartbeatMs(options));
 
   const queuedCommands = query(commandsCollection(firestore, channel), where("status", "==", "queued"));
   const ctx: RunnerContext = { firestore, handlers, options, uid: channel.uid };
+  run.stopListening = listenForCommands(queuedCommands, ctx, goOffline);
 
-  const goOffline = (): void => {
-    clearInterval(beat);
-    writePresence(false);
-    options.onClosed?.();
-  };
-
-  const stopListening = listenForCommands(queuedCommands, ctx, goOffline);
-
-  return () => {
-    clearInterval(beat);
-    writePresence(false);
-    stopListening();
-  };
+  return () => shutDown(run, presence);
 };

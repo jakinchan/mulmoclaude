@@ -27,7 +27,9 @@ export const ROOT_PATH = "(root)";
 // `Object.fromEntries(Object.entries(new Date()))` is `{}`. Silently turning a
 // timestamp into an empty object would be a worse bug than the one being fixed.
 const isPlainObject = (value: object): boolean => {
-  const proto = Object.getPrototypeOf(value);
+  // Typed explicitly: `getPrototypeOf` is declared to return `any`, which would
+  // spread an unchecked value through the comparison below.
+  const proto: unknown = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 };
 

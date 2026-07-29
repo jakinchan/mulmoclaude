@@ -104,24 +104,63 @@ Each host supplies only its own specifics under `server/remoteHost/`:
 | `auth.ts` | `createRemoteHostAuth(auth)` → `signInHost` / `signOutHost` / `currentUid` bound to this host's Firebase auth. |
 | `commandChannel.ts` | Re-exports the core protocol + pins `HOST_ID = "mulmoclaude"`. |
 | `handlers/index.ts` | The method table — the single place the runner learns which methods it serves. |
+| `resilientRunner.ts` | The outer recovery ring: relaunches a whole runner after core gives up, and escalates by time (see "Staying reachable"). |
+| `presenceProbe.ts` | Reads this host's own presence doc back **from the server** and reports whether it is fresh — the phone's judgment, asked on this side. |
 
 ### The command loop, precisely (core `startHostRunner`)
 
 - **Presence + capabilities.** `writePresence(true)` on start, then a heartbeat
   `setInterval` once a minute (`opts.heartbeatMs`, default 60 s). Every write
   carries the capability advertisement (next section), not just the `online` flag.
-- **Listener resilience (#2535).** A Firestore `onSnapshot` error no longer downs
-  the host permanently. `classifyListenerError` splits transient codes
+- **Listener resilience (#2535, #2633).** A Firestore `onSnapshot` error no longer
+  downs the host permanently. `classifyListenerError` splits transient codes
   (`unavailable`, `deadline-exceeded`, `internal`, `cancelled`, `aborted`,
-  `resource-exhausted`) from fatal ones (`permission-denied`, `unauthenticated`,
-  or any unrecognized code). Transient → re-subscribe with bounded exponential
-  backoff — `MAX_LISTEN_RETRIES` (5) attempts at 1 s, 2 s, 4 s, 8 s, 16 s (~31 s
-  total; `backoffDelayMs` itself caps at 30 s for higher attempts) while presence
-  stays online, so a brief blip doesn't flap the host. Fatal, or retries
-  exhausted → `writePresence(false)`, clear the interval, `onClosed()`. A healthy
-  snapshot resets the retry counter; `stop()` cancels any pending retry. Re-subscribe
-  is safe against double execution — `claimCommand`'s queued→processing transaction
-  still gates each command exactly once.
+  `resource-exhausted`, `unauthenticated`) from fatal ones (`permission-denied`,
+  or any unrecognized code). Transient → re-subscribe with exponential backoff
+  (1 s, 2 s, 4 s, … capped at 30 s by `backoffDelayMs`) while presence stays
+  online, so a brief blip doesn't flap the host. Retrying stops when the outage
+  has lasted `LISTEN_RETRY_WINDOW_MS` (5 min) **measured from the first failure**
+  — a retry COUNT put that at ~31 s, which any laptop sleep outlasts (#2633).
+  Fatal, or window elapsed → announce offline, clear the interval, detach the
+  listener, `onClosed()`. A healthy snapshot clears both the ladder and the
+  outage clock; `stop()` cancels any pending retry. Re-subscribe is safe against
+  double execution — `claimCommand`'s queued→processing transaction still gates
+  each command exactly once.
+
+### Staying reachable — two rings, and why one wasn't enough (#2633)
+
+The phone judges "is the Mac reachable" from the **freshness of the presence
+doc**. The host used to judge "am I connected" from **listener errors only**.
+Those are separate paths, so presence writes could fail forever while
+`onSnapshot` stayed quiet: the host reported itself green, retried nothing, and
+an open browser tab didn't help because the tab only reconnects once the server
+admits it is disconnected.
+
+- **Inner ring — core (`presenceBeat.ts`).** Each heartbeat first asks how old the
+  last *acknowledged* presence write is. Older than `PRESENCE_STALE_BEATS` (3)
+  beats ⇒ the remote has nothing fresh to read, so the runner reports it through
+  `onEvent` and goes offline instead of claiming to be up. The sensor is
+  acknowledgement AGE, not a count of failures: Firestore does not reject a write
+  it cannot deliver, it queues it and leaves the promise pending, so a failure
+  counter reads zero throughout an outage.
+- **Outer ring — host (`resilientRunner.ts`).** When core gives up, this starts a
+  whole new runner (fresh listener, fresh presence write) with its own backoff,
+  and gives up by TIME (`GIVE_UP_MS`, 5 min). Only then does `onClosed` reach the
+  lifecycle → `status()` reports disconnected → the client's 15-second poll
+  re-authenticates from its parked blob, which is the only path that fixes a dead
+  credential. It also runs `presenceProbe` every 90 s: a **server** read of this
+  host's own presence doc (never the cache, which would happily return our own
+  undelivered write). A stale doc, or a read that throws, enters the same recovery
+  a listener death does. `null` — no document, an unresolved `serverTimestamp`, or
+  the runner's own `online: false` goodbye — is deliberately not actionable: a
+  false positive spins a reconnect loop. The read carries its own deadline
+  (`withTimeout`): Firestore takes no abort signal, and a read that never settles
+  would leave the probe un-rearmed — a sensor dying quietly, which is the failure
+  this whole section exists to catch.
+- Surviving the settle window (60 s) counts as recovery **only** if the probe
+  agrees. Core now takes minutes to report a broken channel, so "it hasn't
+  complained yet" proves nothing — and if that reset the outage clock, a host with
+  a dead credential would relaunch forever and never escalate.
 
 ### Capability advertisement — presence doc, auto-derived
 
