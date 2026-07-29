@@ -14,7 +14,8 @@
 
 import { executeMarkdown, isMarkdownDispatchArgs } from "@mulmoclaude/markdown-plugin";
 import type { MarkdownHostApp } from "@mulmoclaude/markdown-plugin";
-import { isMarkdownPath, loadMarkdown, overwriteMarkdown, saveMarkdown } from "../utils/files/markdown-store.js";
+import { saveMarkdown } from "../utils/files/markdown-store.js";
+import { loadDocument, overwriteDocument } from "../utils/files/document-store.js";
 import { publishFileChange } from "../events/file-change.js";
 import { listMarpThemes } from "../workspace/marp-themes.js";
 import { renderMarkdownPdf } from "../api/routes/pdf.js";
@@ -28,14 +29,13 @@ const MARKDOWN_SCOPE = "markdown";
 
 const markdownHostApp: MarkdownHostApp = {
   async loadDoc(path) {
-    // The View only ever loads its own `artifacts/documents/*.md` docs;
-    // `isMarkdownPath` is the same gate `overwriteMarkdown` relies on.
-    if (!isMarkdownPath(path)) throw new Error(`invalid markdown path: ${path}`);
-    return { content: await loadMarkdown(path) };
+    // Any `.md` the tool was pointed at, not just this app's own
+    // `artifacts/documents/*.md` — see `document-store.ts` for what that
+    // widening does and does not allow.
+    return { content: await loadDocument(path) };
   },
   async saveDoc(path, markdown) {
-    if (!isMarkdownPath(path)) throw new Error(`invalid markdown path: ${path}`);
-    await overwriteMarkdown(path, markdown);
+    await overwriteDocument(path, markdown);
     // Fire-and-forget: refresh sibling tabs / agents watching this file.
     void publishFileChange(path);
     return { path };

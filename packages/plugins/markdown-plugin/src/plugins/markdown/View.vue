@@ -151,7 +151,7 @@ import { useRuntime } from "gui-chat-protocol/vue";
 import { marked } from "marked";
 import { formatScalarField, useMarkdownDoc, useClipboardCopy, useFileWatch } from "@mulmoclaude/core/plugin-vue";
 import type { ToolResult } from "gui-chat-protocol";
-import { isFilePath, type MarkdownToolData } from "./definition";
+import { documentPathOf, type MarkdownToolData } from "./definition";
 import { rewriteMarkdownImageRefs } from "@mulmoclaude/markdown-utils/image/rewriteMarkdownImageRefs";
 import { findTaskLines, makeTasksInteractive, toggleTaskAt } from "@mulmoclaude/markdown-utils/markdown/taskList";
 import { mermaidExtension } from "@mulmoclaude/markdown-utils/markdown/mermaidExtension";
@@ -199,15 +199,16 @@ const editableMarkdown = ref("");
 async function fetchMarkdownContent(): Promise<void> {
   loadError.value = null;
   const raw = props.selectedResult.data?.markdown;
-  if (!raw) {
+  const filePath = documentPathOf(props.selectedResult.data);
+  if (!raw && !filePath) {
     markdownContent.value = "";
     editableMarkdown.value = "";
     return;
   }
-  if (isFilePath(raw)) {
+  if (filePath) {
     loading.value = true;
     try {
-      const { content } = await dispatch<{ content: string }>({ kind: "loadDoc", path: raw });
+      const { content } = await dispatch<{ content: string }>({ kind: "loadDoc", path: filePath });
       markdownContent.value = content ?? "";
     } catch (err) {
       // Preserve any previously-loaded content instead of wiping it —
@@ -221,7 +222,7 @@ async function fetchMarkdownContent(): Promise<void> {
     loading.value = false;
   } else {
     // Legacy inline content
-    markdownContent.value = raw;
+    markdownContent.value = raw ?? "";
   }
   editableMarkdown.value = markdownContent.value;
 }
@@ -235,10 +236,7 @@ const hasChanges = computed(() => editableMarkdown.value !== markdownContent.val
 // that overwrites the file refreshes this view automatically. The path
 // passed in is the workspace-relative `data.markdown` (only valid when
 // `isFilePath` — inline legacy content has no on-disk twin).
-const watchedPath = computed(() => {
-  const raw = props.selectedResult.data?.markdown;
-  return typeof raw === "string" && isFilePath(raw) ? raw : null;
-});
+const watchedPath = computed(() => documentPathOf(props.selectedResult.data));
 const { version: fileVersion } = useFileWatch(watchedPath);
 
 // Counter of in-flight / very-recent self-saves. Bumped before our
@@ -336,8 +334,8 @@ function cancelMarpSplitEdit(): void {
 }
 
 const marpBaseDir = computed(() => {
-  const raw = props.selectedResult.data?.markdown;
-  if (typeof raw !== "string" || !isFilePath(raw)) return undefined;
+  const raw = documentPathOf(props.selectedResult.data);
+  if (raw === null) return undefined;
   const idx = raw.lastIndexOf("/");
   // Root-level files (no "/") resolve their relative `<img>` refs
   // against the workspace root — return "" so the server's
@@ -364,8 +362,8 @@ const renderedHtml = computed(() => {
   // so the basePath is the directory of the file; for inline legacy
   // content we have no path, so basePath is empty and only rooted
   // references get rewritten.
-  const raw = props.selectedResult.data?.markdown;
-  const basePath = typeof raw === "string" && isFilePath(raw) ? raw.slice(0, raw.lastIndexOf("/")) : "";
+  const raw = documentPathOf(props.selectedResult.data);
+  const basePath = raw !== null ? raw.slice(0, raw.lastIndexOf("/") + 1).replace(/\/$/, "") : "";
   const withImages = rewriteMarkdownImageRefs(mdDoc.value.body, basePath);
   // Strip the `disabled=""` attribute marked puts on GFM task
   // checkboxes and tag them so `onMarkdownClick` can find them
@@ -429,19 +427,20 @@ async function downloadPdf() {
 
 async function applyMarkdown() {
   const raw = props.selectedResult.data?.markdown;
-  if (!raw) return;
+  const filePath = documentPathOf(props.selectedResult.data);
+  if (!raw && !filePath) return;
 
   saveError.value = null;
 
-  // If file-based, save to server. The `raw` value is the
-  // workspace-relative path returned by the server, so we send it
-  // verbatim — the route accepts any depth under `artifacts/documents/`
-  // (e.g. the YYYY/MM partitions added in #764).
-  if (isFilePath(raw)) {
+  // If file-based, save to server. The path is sent verbatim — it is
+  // whatever the tool call named (an `artifacts/documents/YYYY/MM/…` doc
+  // this tool wrote, a repo file, an absolute path), and the host is the
+  // layer that decides what it will write.
+  if (filePath) {
     saving.value = true;
     pendingSelfSaves.value += 1;
     try {
-      await dispatch({ kind: "saveDoc", path: raw, markdown: editableMarkdown.value });
+      await dispatch({ kind: "saveDoc", path: filePath, markdown: editableMarkdown.value });
     } catch (err) {
       // Roll back the self-save expectation — no pubsub event will
       // arrive for a failed save, so the counter would otherwise stay
@@ -464,7 +463,7 @@ async function applyMarkdown() {
     ...props.selectedResult,
     data: {
       ...props.selectedResult.data,
-      markdown: isFilePath(raw) ? raw : editableMarkdown.value,
+      markdown: filePath ?? editableMarkdown.value,
       pdfPath: undefined,
     },
   };
@@ -493,7 +492,7 @@ async function persistTaskMarkdown(relativePath: string, markdown: string): Prom
   // Bail if the user navigated to a different result while this PUT
   // was queued — the snapshot belongs to a document that's no longer
   // on screen, and persisting it would clobber unrelated state.
-  if (props.selectedResult.data?.markdown !== relativePath) return;
+  if (documentPathOf(props.selectedResult.data) !== relativePath) return;
 
   pendingSelfSaves.value += 1;
   let saveOk = true;
@@ -511,7 +510,7 @@ async function persistTaskMarkdown(relativePath: string, markdown: string): Prom
   // and writing `saveError` / triggering a refetch here would touch
   // unrelated state (or refetch the *new* doc, masking edits the
   // user just made there).
-  if (props.selectedResult.data?.markdown !== relativePath) return;
+  if (documentPathOf(props.selectedResult.data) !== relativePath) return;
 
   if (!saveOk) {
     // Failed write — no pubsub event will land for it, so roll the
@@ -585,11 +584,11 @@ function onMarkdownClick(event: MouseEvent): void {
   markdownContent.value = updated;
   editableMarkdown.value = updated;
 
-  const raw = props.selectedResult.data?.markdown;
-  if (typeof raw === "string" && isFilePath(raw)) {
+  const filePath = documentPathOf(props.selectedResult.data);
+  if (filePath !== null) {
     // Serialize PUTs so quick successive clicks don't race each
     // other on the wire — the chain captures `updated` per click.
-    taskPersistChain = taskPersistChain.then(() => persistTaskMarkdown(raw, updated));
+    taskPersistChain = taskPersistChain.then(() => persistTaskMarkdown(filePath, updated));
   } else {
     // Inline content — emit so the parent stores the edit.
     emit("updateResult", {

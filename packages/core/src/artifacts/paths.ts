@@ -85,3 +85,58 @@ export function toWorkspaceArtifactPath(relPath: string): string {
 export function hasUnsafePathSegment(value: string): boolean {
   return value.split("/").some((seg) => seg === "" || seg === "." || seg === "..");
 }
+
+// ── Presentable document paths (presentDocument / presentHtml `path`) ──
+//
+// The two present* tools accept a path to an EXISTING file to display and
+// edit in place. That file is no longer necessarily an artifact the agent
+// wrote: it can be any document in the workspace (MulmoTerminal's workspace
+// IS the git project the user is working in) or, when the host allows it, an
+// absolute path elsewhere on disk.
+//
+// Which of those a value is decides how the host resolves it, so the
+// judgement lives here rather than in each plugin — the plugins may not
+// import one another, and a predicate two of them spell differently is how
+// "the write site accepts what the refresh site rejects" bugs start.
+
+/** How a caller-supplied file path must be resolved. `null` = not a usable path. */
+export type FilePathKind = "absolute" | "relative";
+
+// `/x`, `C:\x` / `C:/x`, and `\\server\share` (UNC). Windows spellings are
+// recognised on every platform: the value is produced by an LLM or a remote
+// host, not by the local `path` module.
+const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/;
+
+function isAbsolutePathValue(value: string): boolean {
+  return value.startsWith("/") || value.startsWith("\\\\") || WINDOWS_DRIVE_RE.test(value);
+}
+
+/**
+ * Classify a caller-supplied path to a file the host may read and overwrite.
+ *
+ * Accepts one of `extensions` (compared case-insensitively) and rejects NUL
+ * bytes and any `.` / `..` / empty segment — a relative path must be canonical
+ * so it can be joined onto a root, and an absolute one must not climb, so
+ * neither form can be re-pointed by traversal after the host has vetted it.
+ * Returns `"absolute"` / `"relative"` so the host knows whether to resolve
+ * against its workspace root, or `null` when the value is unusable.
+ *
+ * This is a LEXICAL check only. Existence, file-vs-directory, symlink
+ * containment and any host policy about which roots are reachable stay with
+ * the host, which is the only layer that can consult the filesystem.
+ */
+export function classifyFilePath(value: string, extensions: readonly string[]): FilePathKind | null {
+  if (!value || value.includes("\0")) return null;
+  const lower = value.toLowerCase();
+  if (!extensions.some((ext) => lower.endsWith(ext))) return null;
+  const absolute = isAbsolutePathValue(value);
+  // Split on both separators: `..` must be refused however the value spells it.
+  const segments = value.split(/[/\\]/);
+  // A leading `/` (or drive / UNC prefix) makes the first segment empty by
+  // construction — skip those, then require every remaining segment to be a
+  // real name.
+  const body = absolute ? segments.slice(segments.findIndex((segment) => segment.length > 0)) : segments;
+  if (body.length === 0) return null;
+  if (body.some((segment) => segment === "" || segment === "." || segment === "..")) return null;
+  return absolute ? "absolute" : "relative";
+}

@@ -107,6 +107,7 @@ import { env, isAblated, isGeminiAvailable } from "./system/env.js";
 import { buildSandboxStatus } from "./api/sandboxStatus.js";
 import { buildDiagnosticsMarkdown } from "./utils/diagnostics/collect.js";
 import { existsSync, readFileSync } from "fs";
+import { realpath as fsRealpath, stat as fsStat } from "fs/promises";
 import { makeCachedRealpath, resolveArtifactRequestPath } from "./utils/files/safe.js";
 import { cpus, loadavg } from "os";
 import { isDockerAvailable, ensureSandboxImage } from "./system/docker.js";
@@ -140,7 +141,9 @@ import { EVENT_TYPES } from "../src/types/events.js";
 import { SESSION_ORIGINS } from "../src/types/session.js";
 import { buildHtmlPreviewCsp } from "../src/utils/html/previewCsp.js";
 import { readCspExtraSync, warnIfCspExtended } from "./utils/files/csp-io.js";
-import { readAndInjectHtmlArtifact } from "./utils/html/htmlArtifactSplicer.js";
+import { readAndInjectHtmlArtifact, readAndInjectHtmlFile } from "./utils/html/htmlArtifactSplicer.js";
+import { resolveHtmlFileRequestPath } from "./utils/files/htmlFileRequest.js";
+import { HTML_FILE_MOUNT } from "../src/utils/html/htmlFileUrl.js";
 import { ONE_SECOND_MS, ONE_MINUTE_MS, ONE_HOUR_MS, STARTUP_FAILURE_FORCE_EXIT_MS, FATAL_LOG_FLUSH_MS } from "./utils/time.js";
 import { isPortFree, findAvailablePort, MAX_PORT_PROBES } from "./utils/port.mjs";
 import { SCHEDULE_TYPES, MISSED_RUN_POLICIES } from "@receptron/task-scheduler";
@@ -480,6 +483,61 @@ app.use(
   },
   express.static(WORKSPACE_PATHS.htmls, { dotfiles: "deny", fallthrough: false }),
 );
+
+// Mount for HTML pages OUTSIDE `artifacts/html/` — presentHtml's `path` form
+// accepts any page on disk, so the View's iframe needs a URL for one. The
+// `/htmlfile/<scope>/<segments…>` scheme and the reasons it is path-shaped
+// rather than `?path=` live in `src/config/htmlFileUrl.ts`; the resolver and
+// what it refuses are in `server/utils/files/htmlFileRequest.ts`.
+//
+// Same guards as `/artifacts/html` — extension allowlist, dotfile refusal,
+// realpath + regular-file check, CSP header on documents, `nosniff` — with ONE
+// deliberate difference: there is no containment root, because a page the tool
+// was pointed at may legitimately live anywhere. The trust boundary is
+// therefore entirely the loopback-only listener plus `requireSameOrigin`
+// (bearer auth does not apply outside `/api`, and an iframe `src` cannot carry
+// an Authorization header anyway).
+const getWorkspaceDirReal = makeCachedRealpath(workspacePath);
+app.use(HTML_FILE_MOUNT, async (req, res, next) => {
+  if (!HTML_PREVIEW_EXT_RE.test(req.path)) {
+    res.status(404).end();
+    return;
+  }
+  const workspaceReal = await getWorkspaceDirReal();
+  const absPath = workspaceReal === null ? null : resolveHtmlFileRequestPath(workspaceReal, req.path);
+  if (absPath === null) {
+    res.status(404).end();
+    return;
+  }
+  // Judge the symlink by what it points at, and refuse anything that is not a
+  // regular file (a directory named `page.html` would otherwise 500 the read).
+  let realFile: string;
+  try {
+    realFile = await fsRealpath(absPath);
+    if (!(await fsStat(realFile)).isFile()) {
+      res.status(404).end();
+      return;
+    }
+  } catch {
+    res.status(404).end();
+    return;
+  }
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  if (!HTML_DOCUMENT_EXT_RE.test(req.path)) {
+    res.sendFile(realFile, (err) => {
+      if (err) next(err);
+    });
+    return;
+  }
+  res.setHeader("Content-Security-Policy", buildHtmlPreviewCsp(browserVisibleOrigin(req), undefined, readCspExtraSync()));
+  const spliced = await readAndInjectHtmlFile(realFile);
+  if (spliced === null) {
+    res.status(404).end();
+    return;
+  }
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(spliced);
+});
 
 // Static mount for SVG artifacts. SVG files are loaded into the View
 // and Preview as `<img src="/artifacts/svg/<name>.svg">`. Browsers

@@ -5,7 +5,14 @@
 // All filesystem access happens through the host's generic `files.artifacts`
 // FileOps (rooted at `<workspace>/artifacts`).
 
-import { ARTIFACTS_ROOT, buildArtifactRelPath, hasUnsafePathSegment, slugifyArtifact, toWorkspaceArtifactPath } from "@mulmoclaude/core/artifacts";
+import {
+  ARTIFACTS_ROOT,
+  buildArtifactRelPath,
+  classifyFilePath,
+  hasUnsafePathSegment,
+  slugifyArtifact,
+  toWorkspaceArtifactPath,
+} from "@mulmoclaude/core/artifacts";
 
 const HTML_DIR = "html";
 const HTML_FALLBACK_SLUG = "page";
@@ -72,4 +79,12 @@ export function htmlArtifactPreviewUrl(filePath: string | null): string | null {
   const rest = filePath.slice(prefix.length);
   if (rest.length === 0) return null;
   return `/${ARTIFACTS_ROOT}/${HTML_DIR}/${rest.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+/** The `path` argument's gate: ANY HTML page, not just the ones this tool
+ *  wrote — a workspace-relative path (`docs/report.html`) or, where the host
+ *  permits it, an absolute one. Lexical only; the host's `files.byPath`
+ *  capability is what decides which of those it will actually open. */
+export function isPresentableHtmlPath(value: string): boolean {
+  return classifyFilePath(value, [".html", ".htm"]) !== null;
 }

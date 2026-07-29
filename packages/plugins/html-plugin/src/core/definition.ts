@@ -9,8 +9,8 @@ export const TOOL_NAME = "presentHtml";
 export const TOOL_DEFINITION: ToolDefinition = {
   type: "function",
   name: TOOL_NAME,
-  description: "Present a complete, self-contained HTML page in the canvas — either new HTML (saved) or an existing saved page (by path).",
-  prompt: `Use ${TOOL_NAME} when the user asks for HTML output, dashboards, custom layouts, or interactive content. Provide EITHER \`html\` OR \`path\`, not both. \`html\` is a full self-contained document (\`<!DOCTYPE html>\`, \`<html>\`, \`<body>\`) with all CSS / JavaScript inlined or loaded via CDN; it is saved to \`artifacts/html/<YYYY>/<MM>/...\`, so when referencing other workspace assets use a relative path with exactly three \`../\` (example: \`<img src="../../../images/2026/04/foo.png">\`). \`path\` is the workspace-relative path of an HTML file you already wrote under \`artifacts/html/...\` — pass it to present that existing page without re-saving a copy (use this for pre-authored pages). For the full path conventions and rationale, read \`config/helps/presenthtml.md\` in the workspace.`,
+  description: "Present a complete, self-contained HTML page in the canvas — either new HTML (saved) or an existing page on disk (by path).",
+  prompt: `Use ${TOOL_NAME} when the user asks for HTML output, dashboards, custom layouts, or interactive content. Provide EITHER \`html\` OR \`path\`, not both. \`html\` is a full self-contained document (\`<!DOCTYPE html>\`, \`<html>\`, \`<body>\`) with all CSS / JavaScript inlined or loaded via CDN; it is saved to \`artifacts/html/<YYYY>/<MM>/...\`, so when referencing other workspace assets use a relative path with exactly three \`../\` (example: \`<img src="../../../images/2026/04/foo.png">\`). \`path\` is the path of an HTML file that already exists — one you wrote under \`artifacts/html/...\`, a page in the workspace (\`docs/report.html\`), or an absolute path. It presents that page without re-saving a copy, and the user's edits in the view overwrite that same file. Do NOT read a page and re-send its markup as \`html\`, which would fork it into a copy. For the full path conventions and rationale, read \`config/helps/presenthtml.md\` in the workspace.`,
   parameters: {
     type: "object",
     properties: {
@@ -22,7 +22,7 @@ export const TOOL_DEFINITION: ToolDefinition = {
       path: {
         type: "string",
         description:
-          "Workspace-relative path to an existing HTML file under `artifacts/html/` to present without re-saving (e.g. `artifacts/html/lessons-x/lesson-001.html`). Provide this OR `html`.",
+          "Path to an existing HTML file to present without re-saving — workspace-relative (`docs/report.html`, `artifacts/html/lessons-x/lesson-001.html`) or absolute. The user's edits in the view overwrite this file. Provide this OR `html`.",
       },
       title: {
         type: "string",

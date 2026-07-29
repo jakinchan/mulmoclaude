@@ -1,6 +1,6 @@
 import type { FileOps, ToolPluginCore, ToolResult } from "gui-chat-protocol";
 import { TOOL_DEFINITION } from "./definition";
-import { htmlArtifactPath, isHtmlArtifactPath, toArtifactsRelative } from "./paths";
+import { htmlArtifactPath, isHtmlArtifactPath, isPresentableHtmlPath, toArtifactsRelative } from "./paths";
 import type { HtmlArgs, PresentHtmlData, UpdateHtmlArgs } from "./types";
 
 /** Host capabilities the html core needs, delivered through the GENERIC
@@ -9,7 +9,16 @@ import type { HtmlArgs, PresentHtmlData, UpdateHtmlArgs } from "./types";
  *  validate logic lives in this package. The host route additionally
  *  publishes a file-change event (host pubsub infra), which is orthogonal. */
 export interface HtmlExecuteContext {
-  files: { artifacts: FileOps };
+  files: {
+    /** Rooted at `<workspace>/artifacts` — where NEW pages are written. */
+    artifacts: FileOps;
+    /** Reads / writes a page the caller named by path: workspace-relative or,
+     *  where the host allows it, absolute. Supplied by hosts that let
+     *  presentHtml open pages outside `artifacts/html/`; without it, `path`
+     *  keeps its original `artifacts/html/**` -only meaning, so an older host
+     *  degrades to the previous behaviour instead of mis-resolving. */
+    byPath?: FileOps;
+  };
 }
 
 const PRESENT_ACK = "Acknowledge that the HTML page has been presented to the user.";
@@ -30,16 +39,29 @@ function presented(message: string, data: PresentHtmlData): ToolResult<PresentHt
   return { message, data, instructions: PRESENT_ACK };
 }
 
-/** Present an HTML page already on disk under `artifacts/html/**` without
- *  re-saving. Validates containment + existence through the generic FileOps. */
+/** The FileOps that owns a given page, plus the path in that FileOps' terms.
+ *  An `artifacts/html/**` page keeps going through `files.artifacts` — that is
+ *  the only capability an older host provides, and it is what writes there —
+ *  while anything else needs the host's `files.byPath`. */
+function locate(context: HtmlExecuteContext, filePath: string): { files: FileOps; rel: string } | null {
+  if (isHtmlArtifactPath(filePath)) return { files: context.files.artifacts, rel: toArtifactsRelative(filePath) };
+  const byPath = context.files.byPath;
+  if (byPath && isPresentableHtmlPath(filePath)) return { files: byPath, rel: filePath };
+  return null;
+}
+
+/** Present an HTML page already on disk without re-saving — an artifact this
+ *  tool wrote, or (where the host provides `files.byPath`) any page on disk.
+ *  Validates the path shape + existence through the generic FileOps. */
 async function presentExisting(context: HtmlExecuteContext, relativePath: string, title: string | undefined): Promise<ToolResult<PresentHtmlData>> {
-  if (!isHtmlArtifactPath(relativePath)) {
+  const target = locate(context, relativePath);
+  if (!target) {
     return toolError(
-      "path must be an existing .html file under artifacts/html/",
-      "Acknowledge the error and retry with a valid artifacts/html/… path or inline `html`.",
+      "path must be an existing .html file, without `.` / `..` segments",
+      "Acknowledge the error and retry with a valid path to an existing .html file, or inline `html`.",
     );
   }
-  const exists = await context.files.artifacts.exists(toArtifactsRelative(relativePath));
+  const exists = await target.files.exists(target.rel);
   if (!exists) {
     return toolError(`No HTML file exists at ${relativePath}`, "Acknowledge that the file was not found and retry with a path that exists or inline `html`.");
   }
@@ -95,10 +117,16 @@ export async function executeHtmlUpdate(context: HtmlExecuteContext, args: Updat
   if (!isRecord(args) || !nonEmptyString(args.html)) {
     return { ok: false, error: "html is required" };
   }
-  if (!nonEmptyString(args.relativePath) || !isHtmlArtifactPath(args.relativePath)) {
+  const target = nonEmptyString(args.relativePath) ? locate(context, args.relativePath) : null;
+  if (!target) {
     return { ok: false, error: "invalid html relativePath" };
   }
-  await context.files.artifacts.write(toArtifactsRelative(args.relativePath), args.html);
+  // Overwrite only: presentHtml's `path` form presents a page that already
+  // exists, so a write to a vanished path is a stale View, not a save.
+  if (!(await target.files.exists(target.rel))) {
+    return { ok: false, error: `no HTML file exists at ${args.relativePath}` };
+  }
+  await target.files.write(target.rel, args.html);
   return { ok: true, filePath: args.relativePath };
 }
 

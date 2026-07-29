@@ -85,6 +85,7 @@ describe("presentDocument core — `path` form", () => {
     const result = await executeDocument(contextFor(app), { title: "Report", path: EXISTING });
 
     assert.equal(result.data?.markdown, EXISTING, "data.markdown carries the caller's path verbatim");
+    assert.equal(result.data?.docPath, EXISTING, "docPath is what current readers consult");
     assert.deepEqual(calls.saveNewDoc, [], "the `path` form must not write a copy");
     assert.deepEqual(calls.loadDoc, [EXISTING], "existence is probed through loadDoc");
   });
@@ -94,24 +95,43 @@ describe("presentDocument core — `path` form", () => {
     const result = await executeDocument(contextFor(app), { title: "T", path: "artifacts/documents/../../secrets.md" });
 
     assert.equal(result.data, undefined);
-    assert.match(result.message, /artifacts\/documents\//);
+    assert.match(result.message, /`\.` \/ `\.\.` segments/);
     assert.deepEqual(calls.loadDoc, [], "a bad path must not reach the host's file layer");
   });
 
-  it("rejects a path outside artifacts/documents/", async () => {
-    const { app } = stubApp();
-    const result = await executeDocument(contextFor(app), { title: "T", path: "wiki/notes.md" });
+  it("rejects a non-markdown path", async () => {
+    const { app, calls } = stubApp();
+    const result = await executeDocument(contextFor(app), { title: "T", path: "docs/design.txt" });
 
     assert.equal(result.data, undefined);
+    assert.deepEqual(calls.loadDoc, []);
   });
 
-  it("reports a missing file rather than presenting it", async () => {
+  // The widening this file exists to pin: a document the tool did NOT write
+  // (a repo file, an absolute path) is presented the same way as one it did.
+  it("presents a document outside artifacts/documents/", async () => {
+    const { app, calls } = stubApp();
+    const result = await executeDocument(contextFor(app), { title: "T", path: "docs/design.md" });
+
+    assert.equal(result.data?.docPath, "docs/design.md");
+    assert.deepEqual(calls.saveNewDoc, [], "no copy is written");
+    assert.deepEqual(calls.loadDoc, ["docs/design.md"]);
+  });
+
+  it("presents an absolute path", async () => {
+    const { app } = stubApp();
+    const result = await executeDocument(contextFor(app), { title: "T", path: "/Users/x/project/README.md" });
+
+    assert.equal(result.data?.docPath, "/Users/x/project/README.md");
+  });
+
+  it("reports a document the host refuses to open rather than presenting it", async () => {
     const missing = "artifacts/documents/2026/07/gone-zzz999.md";
     const { app, calls } = stubApp(new Set([missing]));
     const result = await executeDocument(contextFor(app), { title: "T", path: missing });
 
     assert.equal(result.data, undefined, "a missing file must not render as a presented document");
-    assert.match(result.message, /No document exists/);
+    assert.match(result.message, /Cannot open/);
     assert.deepEqual(calls.loadDoc, [missing]);
   });
 });

@@ -11,6 +11,7 @@ import { wrapWithScope } from "../scope";
 import { apiCall } from "../../utils/api";
 import { makeUuid } from "../../utils/id";
 import { htmlPreviewUrlFor } from "../../composables/useContentDisplay";
+import { htmlFileUrlFor } from "../../utils/html/htmlFileUrl";
 
 // Re-exported from the shared package so anything importing the result-data
 // shape from "./index" keeps working while the type stays single-sourced.
@@ -34,8 +35,10 @@ const presentHtmlPlugin: ToolPlugin<PresentHtmlData> = {
     // Inject the host-served preview URL so the host-agnostic package View can
     // point its iframe at the file's real URL (relative asset refs resolve
     // against it). This is host-specific — MulmoClaude serves `artifacts/html/…`
-    // via a static mount — so the host adds it rather than the package.
-    const data = body.data ? { ...body.data, previewUrl: htmlPreviewUrlFor(body.data.filePath) ?? undefined } : body.data;
+    // via a static mount, and any other page through the `/htmlfile` mount — so
+    // the host adds it rather than the package.
+    const previewUrl = htmlPreviewUrlFor(body.data?.filePath ?? null) ?? htmlFileUrlFor(body.data?.filePath) ?? undefined;
+    const data = body.data ? { ...body.data, previewUrl } : body.data;
     return {
       ...body,
       data,

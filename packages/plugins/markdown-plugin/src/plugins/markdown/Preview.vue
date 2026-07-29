@@ -16,7 +16,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import type { ToolResult } from "gui-chat-protocol";
-import { isFilePath, type MarkdownToolData } from "./definition";
+import { documentPathOf, type MarkdownToolData } from "./definition";
 import { extractFirstH1 } from "@mulmoclaude/markdown-utils/markdown/extractFirstH1";
 import { parseFrontmatter } from "@mulmoclaude/markdown-utils/markdown/frontmatter";
 import { isMarpDocument } from "@mulmoclaude/markdown-utils/markdown/marpDetect";
@@ -33,13 +33,13 @@ const props = defineProps<{
 const fetchedContent = ref("");
 
 async function fetchContent(): Promise<void> {
-  const raw = props.result.data?.markdown;
-  if (!raw || !isFilePath(raw)) {
+  const filePath = documentPathOf(props.result.data);
+  if (filePath === null) {
     fetchedContent.value = "";
     return;
   }
   try {
-    const { content } = await dispatch<{ content: string }>({ kind: "loadDoc", path: raw });
+    const { content } = await dispatch<{ content: string }>({ kind: "loadDoc", path: filePath });
     fetchedContent.value = content ?? "";
   } catch {
     fetchedContent.value = "";
@@ -50,9 +50,8 @@ fetchContent();
 watch(() => props.result.data?.markdown, fetchContent);
 
 const resolvedMarkdown = computed(() => {
-  const raw = props.result.data?.markdown;
-  if (!raw) return "";
-  return isFilePath(raw) ? fetchedContent.value : raw;
+  if (documentPathOf(props.result.data) !== null) return fetchedContent.value;
+  return props.result.data?.markdown ?? "";
 });
 
 function countMarpSlides(body: string): number {
