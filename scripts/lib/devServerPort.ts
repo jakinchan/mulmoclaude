@@ -12,10 +12,16 @@
 //     module `server/system/env.ts` itself uses (so `0x1f`, `1e3`, `+3100`,
 //     `3100.0` resolve here exactly as the backend resolves them);
 //   - the `.env` VALUES are supplied by the caller, parsed with the launcher's
-//     `parseEnvFile` — i.e. `dotenv.parse`, what the server's loader uses.
+//     `parseEnvFile` — i.e. `dotenv.parse`, what the server's loader uses;
+//   - which of the two WINS comes from the launcher's `mergeLaunchEnv`, the same
+//     no-override merge `server/system/envFile.ts` applies. That one matters more
+//     than it looks: the shell shadows `.env` whenever `PORT` is merely PRESENT,
+//     so a shell `PORT=nonsense` sends the backend to the default and must not
+//     let the proxy pick up `.env`'s value instead (Codex, #2653).
 //
-// This file only orders those sources and reports what it cannot follow.
+// This file only reads the winning value and reports what it cannot follow.
 import { asInt, DEFAULT_PORT, PORT_RANGE } from "../../server/utils/envCoerce.js";
+import { mergeLaunchEnv } from "../../server/utils/launch-env.mjs";
 
 export const DEFAULT_SERVER_PORT = DEFAULT_PORT;
 
@@ -55,8 +61,9 @@ export const parseServerPort = (raw: string | undefined | null): ParsedPort => {
 
 export interface ServerPortSources {
   processEnv?: Record<string, string | undefined>;
-  /** `.env` as the launcher's `parseEnvFile` parsed it — NOT raw file text. */
-  envFileValues?: Record<string, string | undefined> | null;
+  /** `.env` as the launcher's `parseEnvFile` parsed it — NOT raw file text.
+   *  Values are strings: `dotenv.parse` never yields `undefined`. */
+  envFileValues?: Record<string, string> | null;
 }
 
 export interface PortResolution {
@@ -66,27 +73,30 @@ export interface PortResolution {
   problems: PortProblem[];
 }
 
-// The server's own definition of "not set" (`asInt` returns the fallback for both).
+// The server's own definition of "set" (`asInt` falls back for `undefined` and `""`).
 // Anything else IS a value it coerces, so anything else is worth reporting —
 // including `"   "`, which coerces to 0 and would otherwise be refused in silence.
-const isUnset = (raw: string | undefined): boolean => raw === undefined || raw === "";
+// A type guard so the reported `raw` is known to be a string.
+const isSet = (raw: string | undefined): raw is string => raw !== undefined && raw !== "";
 
 /**
- * The port the backend will bind: the environment first, then `.env`, then the
- * default — the order `server/system/loadEnv.ts` produces, where `.env` populates
- * `process.env` and an exported shell variable wins over the file.
+ * The port the backend will bind, resolved through the server's own precedence.
+ *
+ * `mergeLaunchEnv` decides the winner rather than a rule written here: `.env`
+ * applies only when the shell has no `PORT` key at all, so `PORT=""` and
+ * `PORT=nonsense` both send the backend to the default WITHOUT consulting the
+ * file. A resolver that "kept looking" after an unusable shell value would target
+ * `.env`'s port while the backend sat on 3001 — the same split, one branch over.
  */
 export const resolveServerPort = (sources: ServerPortSources = {}): PortResolution => {
-  const candidates = [
-    { source: "PORT", raw: sources.processEnv?.PORT },
-    { source: ".env PORT", raw: sources.envFileValues?.PORT },
-  ];
-  const problems: PortProblem[] = [];
-  for (const { source, raw } of candidates) {
-    const { port, reason } = parseServerPort(raw);
-    if (port !== null) return { port, problems };
-    if (!isUnset(raw) && reason) problems.push({ source, raw: raw as string, reason });
-  }
+  const processEnv = sources.processEnv ?? {};
+  const { env, loadedKeys } = mergeLaunchEnv(processEnv, sources.envFileValues ?? {});
+  const raw: string | undefined = env.PORT;
+  const source = loadedKeys.includes("PORT") ? ".env PORT" : "PORT";
+
+  const { port, reason } = parseServerPort(raw);
+  if (port !== null) return { port, problems: [] };
+  const problems: PortProblem[] = isSet(raw) && reason ? [{ source, raw, reason }] : [];
   return { port: DEFAULT_SERVER_PORT, problems };
 };
 

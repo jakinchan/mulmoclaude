@@ -124,7 +124,7 @@ describe(".env values, parsed the way the server parses them", () => {
   });
 });
 
-describe("resolveServerPort", () => {
+describe("resolveServerPort — the server's own precedence", () => {
   const portOf = (sources: Parameters<typeof resolveServerPort>[0]) => resolveServerPort(sources).port;
 
   it("defaults to the backend's own default when nothing is set", () => {
@@ -136,36 +136,45 @@ describe("resolveServerPort", () => {
     assert.equal(portOf({ processEnv: { PORT: "3100" } }), 3100);
   });
 
-  it("falls back to .env when the shell has none — the split this bug was made of", () => {
+  it("uses .env only when the shell has no PORT key — the split this bug was made of", () => {
     assert.equal(portOf({ processEnv: {}, envFileValues: { PORT: "3100" } }), 3100);
   });
 
-  // The server's loader lets an exported shell variable win over the file; the proxy
-  // has to resolve the same way or the two halves point at different servers.
   it("lets the shell win over .env", () => {
     assert.equal(portOf({ processEnv: { PORT: "3100" }, envFileValues: { PORT: "3200" } }), 3100);
   });
 
-  it("treats an empty PORT as unset, and says nothing about it", () => {
-    const resolution = resolveServerPort({ processEnv: { PORT: "" }, envFileValues: { PORT: "3200" } });
-    assert.equal(resolution.port, 3200);
-    assert.deepEqual(resolution.problems, []);
+  // dotenv's no-override rule keys off PRESENCE, not usefulness: `mergeLaunchEnv`
+  // skips `.env` whenever the shell has the key at all. So an unusable shell value
+  // sends the BACKEND to 3001 — and a resolver that "kept looking" would have aimed
+  // the proxy at `.env`'s port instead, which is the same split one branch over
+  // (Codex, #2653).
+  it("does NOT fall through to .env when the shell PORT is present but unusable", () => {
+    const resolution = resolveServerPort({ processEnv: { PORT: "nonsense" }, envFileValues: { PORT: "3200" } });
+    assert.equal(resolution.port, DEFAULT_SERVER_PORT, "the backend lands on the default, so the proxy must too");
+    assert.deepEqual(resolution.problems, [{ source: "PORT", raw: "nonsense", reason: "ignored-by-server" }]);
   });
 
-  it("reports an unusable PORT instead of swallowing it, and keeps looking", () => {
-    const resolution = resolveServerPort({ processEnv: { PORT: "nonsense" }, envFileValues: { PORT: "3200" } });
-    assert.deepEqual(resolution.problems, [{ source: "PORT", raw: "nonsense", reason: "ignored-by-server" }]);
-    assert.equal(resolution.port, 3200);
+  it("does NOT fall through to .env for an EMPTY shell PORT either", () => {
+    const resolution = resolveServerPort({ processEnv: { PORT: "" }, envFileValues: { PORT: "3200" } });
+    assert.equal(resolution.port, DEFAULT_SERVER_PORT);
+    assert.deepEqual(resolution.problems, [], "an empty value is the server's own idea of unset — nothing to report");
+  });
+
+  // `undefined` is absence, not presence: `mergeLaunchEnv` requires the value to be
+  // defined before it shadows, so `.env` applies here.
+  it("treats PORT=undefined as absent, so .env applies", () => {
+    assert.equal(portOf({ processEnv: { PORT: undefined }, envFileValues: { PORT: "3200" } }), 3200);
   });
 
   // Was silent before: `raw.trim()` gated the report, so a whitespace-only value —
-  // which the backend coerces to 0 — was refused with nothing said (Codex / CodeRabbit, #2653).
+  // which the backend coerces to 0 — was refused with nothing said (Codex / CodeRabbit).
   it("reports a whitespace-only PORT rather than refusing it in silence", () => {
     const resolution = resolveServerPort({ processEnv: { PORT: "   " } });
     assert.deepEqual(resolution.problems, [{ source: "PORT", raw: "   ", reason: "ephemeral" }]);
   });
 
-  it("reports an unusable .env value too, then falls back to the default", () => {
+  it("labels the source as .env when that is where the value came from", () => {
     const resolution = resolveServerPort({ processEnv: {}, envFileValues: { PORT: "70000" } });
     assert.deepEqual(resolution.problems, [{ source: ".env PORT", raw: "70000", reason: "ignored-by-server" }]);
     assert.equal(resolution.port, DEFAULT_SERVER_PORT);
@@ -194,12 +203,17 @@ describe("assertProxyablePort", () => {
     assert.throws(() => assertProxyablePort(resolveServerPort({ processEnv: { PORT: "   " } })), /OS-assigned port/);
   });
 
-  // A later valid source does NOT rescue it: the BACKEND uses the shell value and
-  // takes an ephemeral port, so proxying to the `.env` port is still the wrong server.
-  it("throws even when a later source would have given a usable port", () => {
+  // `.env` cannot rescue it — the shell key shadows the file, so the BACKEND is on
+  // an ephemeral port no matter what the file says.
+  it("throws for a shell PORT=0 even when .env carries a usable port", () => {
     const resolution = resolveServerPort({ processEnv: { PORT: "0" }, envFileValues: { PORT: "3200" } });
-    assert.equal(resolution.port, 3200);
+    assert.equal(resolution.port, DEFAULT_SERVER_PORT);
     assert.throws(() => assertProxyablePort(resolution), /OS-assigned port/);
+  });
+
+  it("throws for an ephemeral value that came from .env", () => {
+    const resolution = resolveServerPort({ processEnv: {}, envFileValues: { PORT: "0" } });
+    assert.throws(() => assertProxyablePort(resolution), /\.env PORT="0"/);
   });
 });
 
