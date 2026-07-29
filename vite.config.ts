@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createDevWatchIgnore } from './scripts/lib/devWatchIgnore'
+import { resolveServerPort, serverOrigins } from './scripts/lib/devServerPort'
 
 // Token file path mirrors `WORKSPACE_PATHS.sessionToken` in
 // server/workspace-paths.ts. Duplicated here (rather than imported)
@@ -29,6 +30,28 @@ function resolveWorkspacePath(): string {
   return path.join(os.homedir(), 'mulmoclaude')
 }
 const TOKEN_FILE_PATH = path.join(resolveWorkspacePath(), '.session-token')
+
+// Where the dev proxy sends `/api` and the pubsub socket. Read from the same
+// place the backend reads its own port (#2650): a literal `localhost:3001` meant
+// `PORT=3100 yarn dev` moved only the server, and with a first instance still on
+// 3001 the second browser silently showed the FIRST instance's data.
+//
+// `.env` is consulted for the same reason `resolveWorkspacePath()` consults it —
+// the server's loader populates `process.env` from that file, so a `PORT` set
+// there and nowhere else must not split the two halves apart.
+function readEnvFileText(): string | undefined {
+  try {
+    return fs.readFileSync(path.join(process.cwd(), '.env'), 'utf-8')
+  } catch {
+    return undefined
+  }
+}
+const SERVER_PORT = resolveServerPort({
+  processEnv: process.env,
+  envFileText: readEnvFileText(),
+  onInvalid: (source, raw) => console.warn(`[vite] ignoring ${source}="${raw}" — not a port; proxying to the default instead`),
+})
+const { http: SERVER_ORIGIN, ws: SERVER_WS_ORIGIN } = serverOrigins(SERVER_PORT)
 const TOKEN_PLACEHOLDER = '__MULMOCLAUDE_AUTH_TOKEN__'
 
 // The workspace-is-the-Vite-root comparison below has to survive symlinked
@@ -312,13 +335,13 @@ export default defineConfig({
     cors: false,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: SERVER_ORIGIN,
         changeOrigin: true
       },
       // Static-mount on the backend (server/index.ts: app.use('/artifacts/images', ...)).
       // Without this proxy, dev's Vite catch-all returns the SPA index.html instead.
       '/artifacts/images': {
-        target: 'http://localhost:3001',
+        target: SERVER_ORIGIN,
         changeOrigin: true
       },
       // Static-mount on the backend (server/index.ts: app.use('/artifacts/svg', ...)).
@@ -326,7 +349,7 @@ export default defineConfig({
       // otherwise hit Vite's SPA catch-all and receive index.html (HTTP 200, HTML
       // body), which the browser silently fails to render as an image.
       '/artifacts/svg': {
-        target: 'http://localhost:3001',
+        target: SERVER_ORIGIN,
         changeOrigin: true
       },
       // Static-mount on the backend (server/index.ts: app.use('/artifacts/html', ...)).
@@ -338,17 +361,17 @@ export default defineConfig({
       // `xfwd: true` adds `X-Forwarded-Host` / `X-Forwarded-Proto` so Express
       // can recover the browser-visible origin (`localhost:5173`) when emitting
       // the CSP `img-src` directive. `changeOrigin: true` rewrites `Host` to
-      // the upstream `localhost:3001`, so without xfwd the CSP would advertise
+      // the upstream backend origin, so without xfwd the CSP would advertise
       // the wrong origin and Safari would block every `<img src="../images/...">`
       // request (Chrome happens to be lenient because images route through the
       // same proxy).
       '/artifacts/html': {
-        target: 'http://localhost:3001',
+        target: SERVER_ORIGIN,
         changeOrigin: true,
         xfwd: true
       },
       '/ws': {
-        target: 'ws://localhost:3001',
+        target: SERVER_WS_ORIGIN,
         ws: true
       }
     }

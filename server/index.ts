@@ -867,7 +867,11 @@ async function resolvePort(): Promise<number> {
     log.error("server", `Port ${requested} is in use and no free port found in ${requested}..${requested + MAX_PORT_PROBES - 1}.`);
     process.exit(1);
   }
-  log.info("server", `Port ${requested} busy → using ${fallback} instead`);
+  // Warn, not info: the dev client is NOT following. Vite's proxy resolves its
+  // target from `PORT` (or the default) when its config is evaluated, in another
+  // process and before this walk happens — so a second `yarn dev` started without
+  // `PORT` ends up rendering the FIRST instance's data, with nothing failing (#2650).
+  log.warn("server", `Port ${requested} busy → using ${fallback} instead. The dev client still proxies to ${requested}; set PORT to run a second instance.`);
   return fallback;
 }
 
