@@ -27,6 +27,14 @@ import { env } from "../system/env.js";
 // without spawning a subprocess (production always passes nothing →
 // `env.X` wins, and the helper preserves identical behaviour).
 
+// A blank override means "unset", not "resolve against the empty string": `??`
+// would pass `""` through, and `join("", ".claude.json")` yields the RELATIVE
+// path `.claude.json`, which as the left side of a Docker `-v` mounts whatever
+// sits in the cwd.
+function definedPath(override: string | undefined): string | undefined {
+  return override?.trim() || undefined;
+}
+
 /** Absolute path to the user's Claude Code config directory.
  *
  *  Default: `<home>/.claude` (where `home` defaults to `os.homedir()`).
@@ -34,14 +42,27 @@ import { env } from "../system/env.js";
  *  for tests that thread a fake home through callers like
  *  `buildDockerSpawnArgs`; production passes nothing and gets `homedir()`. */
 export function claudeConfigDir(home?: string, override: string | undefined = env.claudeConfigDir): string {
-  return override ?? join(home ?? homedir(), ".claude");
+  return definedPath(override) ?? join(home ?? homedir(), ".claude");
 }
 
 /** Absolute path to the user's top-level Claude Code JSON config file.
  *
- *  Default: `<home>/.claude.json`. Override with `CLAUDE_CONFIG_JSON`. */
-export function claudeConfigJson(home?: string, override: string | undefined = env.claudeConfigJson): string {
-  return override ?? join(home ?? homedir(), ".claude.json");
+ *  Precedence: `CLAUDE_CONFIG_JSON` > `<CLAUDE_CONFIG_DIR>/.claude.json` > `<home>/.claude.json`.
+ *
+ *  The middle step is load-bearing: Claude Code keeps this file INSIDE
+ *  `CLAUDE_CONFIG_DIR`, so resolving it from `home` while `claudeConfigDir()`
+ *  honours the env var would point the two at different directories. A user who
+ *  moved only `CLAUDE_CONFIG_DIR` then gets a bind mount for a file that does not
+ *  exist, and Docker answers that with an empty directory rather than an error —
+ *  the sandbox comes up with no config and nothing reports a problem (#2654).
+ *  Verified against the CLI, which prints `File modified: <dir>/.claude.json` and
+ *  leaves `~/.claude.json` untouched; the docs cover neither interaction. */
+export function claudeConfigJson(
+  home?: string,
+  override: string | undefined = env.claudeConfigJson,
+  dirOverride: string | undefined = env.claudeConfigDir,
+): string {
+  return definedPath(override) ?? join(definedPath(dirOverride) ?? home ?? homedir(), ".claude.json");
 }
 
 /** Absolute path to the user's Claude Code credentials file
