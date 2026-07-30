@@ -6,6 +6,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createDevWatchIgnore } from './scripts/lib/devWatchIgnore'
+import { assertProxyablePort, describeRejection, resolveServerPort, serverOrigins } from './scripts/lib/devServerPort'
+import { parseEnvFile } from './server/utils/launch-env.mjs'
 
 // Token file path mirrors `WORKSPACE_PATHS.sessionToken` in
 // server/workspace-paths.ts. Duplicated here (rather than imported)
@@ -30,6 +32,41 @@ function resolveWorkspacePath(): string {
 }
 const TOKEN_FILE_PATH = path.join(resolveWorkspacePath(), '.session-token')
 const TOKEN_PLACEHOLDER = '__MULMOCLAUDE_AUTH_TOKEN__'
+
+// Where the dev proxy sends `/api` and the pubsub socket. Read from the same
+// place the backend reads its own port (#2650): a literal `localhost:3001` meant
+// `PORT=3100 yarn dev` moved only the server, and with a first instance still on
+// 3001 the second browser silently showed the FIRST instance's data.
+//
+// `.env` is consulted for the same reason `resolveWorkspacePath()` consults it —
+// the server's loader populates `process.env` from that file, so a `PORT` set
+// there and nowhere else must not split the two halves apart.
+const PORT_RESOLUTION = resolveServerPort({
+  processEnv: process.env,
+  // The launcher's parser — i.e. `dotenv.parse`, the same one the server's loader
+  // uses. Reading the file by hand here would let the two disagree about inline
+  // comments, an `export ` prefix or quoting, which is this bug one level down.
+  envFileValues: parseEnvFile(path.join(process.cwd(), '.env')).parsed
+})
+for (const { source, raw, reason } of PORT_RESOLUTION.problems) {
+  console.warn(`[vite] ignoring ${source}="${raw}" — ${describeRejection(reason)}`)
+}
+const { http: SERVER_ORIGIN, ws: SERVER_WS_ORIGIN } = serverOrigins(PORT_RESOLUTION.port)
+
+// `PORT=0` (or a whitespace-only PORT, which coerces to 0) leaves the backend on an
+// OS-assigned port that no proxy target can name, so the dev server must refuse to
+// start rather than quietly serve a page wired to whatever else is on :3001.
+// `apply: 'serve'` because `PORT` means nothing to `vite build` — failing a build
+// over it would be its own bug.
+function proxyPortGuardPlugin(): Plugin {
+  return {
+    name: 'mulmoclaude-proxy-port-guard',
+    apply: 'serve',
+    configResolved() {
+      assertProxyablePort(PORT_RESOLUTION)
+    }
+  }
+}
 
 // The workspace-is-the-Vite-root comparison below has to survive symlinked
 // homes (macOS resolves `/tmp` and some `$HOME` layouts through `/private`) and
@@ -229,7 +266,7 @@ function runtimeImportmapBuildPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [vue(), tailwindcss(), mulmoclaudeAuthTokenPlugin(), runtimeImportmapBuildPlugin()],
+  plugins: [vue(), tailwindcss(), mulmoclaudeAuthTokenPlugin(), runtimeImportmapBuildPlugin(), proxyPortGuardPlugin()],
   build: {
     outDir: 'dist/client',
     rollupOptions: {
@@ -312,13 +349,13 @@ export default defineConfig({
     cors: false,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: SERVER_ORIGIN,
         changeOrigin: true
       },
       // Static-mount on the backend (server/index.ts: app.use('/artifacts/images', ...)).
       // Without this proxy, dev's Vite catch-all returns the SPA index.html instead.
       '/artifacts/images': {
-        target: 'http://localhost:3001',
+        target: SERVER_ORIGIN,
         changeOrigin: true
       },
       // Static-mount on the backend (server/index.ts: app.use('/artifacts/svg', ...)).
@@ -326,7 +363,7 @@ export default defineConfig({
       // otherwise hit Vite's SPA catch-all and receive index.html (HTTP 200, HTML
       // body), which the browser silently fails to render as an image.
       '/artifacts/svg': {
-        target: 'http://localhost:3001',
+        target: SERVER_ORIGIN,
         changeOrigin: true
       },
       // Static-mount on the backend (server/index.ts: app.use('/artifacts/html', ...)).
@@ -338,17 +375,17 @@ export default defineConfig({
       // `xfwd: true` adds `X-Forwarded-Host` / `X-Forwarded-Proto` so Express
       // can recover the browser-visible origin (`localhost:5173`) when emitting
       // the CSP `img-src` directive. `changeOrigin: true` rewrites `Host` to
-      // the upstream `localhost:3001`, so without xfwd the CSP would advertise
+      // the upstream backend origin, so without xfwd the CSP would advertise
       // the wrong origin and Safari would block every `<img src="../images/...">`
       // request (Chrome happens to be lenient because images route through the
       // same proxy).
       '/artifacts/html': {
-        target: 'http://localhost:3001',
+        target: SERVER_ORIGIN,
         changeOrigin: true,
         xfwd: true
       },
       '/ws': {
-        target: 'ws://localhost:3001',
+        target: SERVER_WS_ORIGIN,
         ws: true
       }
     }

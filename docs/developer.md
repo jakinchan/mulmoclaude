@@ -70,7 +70,7 @@ All env vars are **optional unless flagged "required"**. The server reads them a
 
 | Variable                               | Default                        | Effect                                                                                                                                                                                                                                                                                            |
 | -------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                                 | `3001`                         | Express listen port (`server/system/env.ts` — `env.port`). Left unset, a busy port walks forward so a stale `yarn dev` doesn't crash the launch; set **explicitly** and a busy port exits instead, matching `npx mulmoclaude --port`. Note the Vite dev client does **not** follow this — its proxy targets are literal `localhost:3001` (see [Running two instances](#running-two-instances)). |
+| `PORT`                                 | `3001`                         | Express listen port (`server/system/env.ts` — `env.port`) **and the port `yarn dev`'s Vite proxy targets** (#2650), so setting it moves both halves together and a second instance stays separate. Resolved the same way the server resolves it — shell first, then `.env` (`scripts/lib/devServerPort.ts`). Left unset, a busy port walks forward so a stale `yarn dev` doesn't crash the launch; the proxy cannot follow that walk (it resolved its target before the server bound), so the server warns and tells you to set `PORT`. Set **explicitly** and a busy port exits instead, matching `npx mulmoclaude --port`. See [Running two instances](#running-two-instances). |
 | `MULMOCLAUDE_WORKSPACE_PATH`           | `<homedir>/mulmoclaude`        | Absolute path to the workspace (`server/workspace/paths.ts` — `workspacePath`). **Evaluated once at module load**, so it is a start-time choice: there is no API, UI, or CLI flag that switches workspaces on a running server. A path that does not exist yet is created on boot, `git init` included. Under a test runner with an un-overridden `HOME` the default becomes `<tmpdir>/mulmoclaude-test` instead. Point it elsewhere to run a second, fully isolated instance — see [Running two instances](#running-two-instances). |
 | `MULMOCLAUDE_CLIENT_DIR`               | `<serverDir>/../client`        | Absolute path to the built client Express serves when `NODE_ENV=production` (`server/index.ts`, `server/utils/clientDir.ts`). The default is the layout `packages/mulmoclaude/bin/prepare-dist.js` produces when packaging the tarball; set it when the bundle lives elsewhere — e.g. running from a source clone, where it points at `<repo-root>/dist/client`. Empty string falls back to the default. |
 | `NODE_ENV`                             | unset / `production`           | When `production`, Express serves the built client from `dist/client` and falls back to `index.html` for SPA history-mode routing. Auto-set by tooling — you rarely set this manually.                                                                                                            |
@@ -207,14 +207,24 @@ You never set these by hand; the server constructs them when spawning Claude ins
 Three independent Node processes cooperate at runtime:
 
 1. **Express server** (`server/index.ts`) — listens on `localhost:3001`. Hosts every `/api/*` endpoint, the SSE stream for `POST /api/agent`, the pub-sub bus, and the cron-like [task manager](task-manager.md). Spawns the Claude CLI per agent invocation.
-2. **Vite dev client** — listens on `localhost:5173`, proxies `/api/*` to `:3001`. Production builds skip Vite and let Express serve the static `dist/client`.
+2. **Vite dev client** — listens on `localhost:5173`, proxies `/api/*` to the backend port (`PORT`, default `3001`). Production builds skip Vite and let Express serve the static `dist/client`.
 3. **MCP stdio bridge** (`server/agent/mcp-server.ts`) — spawned by the Claude CLI subprocess via `--mcp-config`. No HTTP listener: speaks JSON-RPC over stdin/stdout, forwards Claude's tool calls back to the Express server (`MCP_HOST:PORT/api/*`).
 
 ### Running two instances
 
-`yarn dev` twice does **not** give you two independent stacks. The server half honours `PORT`, but Vite's proxy targets are literal `localhost:3001` / `ws://localhost:3001` in `vite.config.ts`, with no env override — so the second dev client talks to the *first* server whatever you set, and nothing errors to tell you.
+`PORT` moves both halves — the Express server and the Vite proxy that fronts it (#2650) — so a second stack is two env vars:
 
-To get a genuinely isolated second instance today, bypass Vite and let Express serve a prebuilt client:
+```bash
+MULMOCLAUDE_WORKSPACE_PATH=~/mulmoclaude-scratch PORT=3100 yarn dev
+```
+
+Vite's own port needs no flag: `strictPort` is off, so the second client takes 5174 when 5173 is busy and proxies to `:3100`.
+
+**`yarn dev` twice with no `PORT` is the case that still bites.** The server walks forward when its port is busy (3001 → 3002), but Vite resolved its proxy target before that walk happened, in another process — so the second client talks to the *first* server and nothing errors. The server warns when it walks for exactly this reason; set `PORT` rather than relying on the walk.
+
+The workspace is a separate axis: without `MULMOCLAUDE_WORKSPACE_PATH` both instances share `~/mulmoclaude`, so they would run on different ports over the same chats, artifacts and scheduler state.
+
+Serving a prebuilt client from Express instead of running Vite is still available, and is what `e2e-live/fixtures/isolated-dev-server.ts` uses (plus `HOME`) to give each live test its own stack — which is why live tests exercise the production serving path rather than the Vite one:
 
 ```bash
 yarn build   # once, produces dist/client
@@ -224,8 +234,6 @@ NODE_ENV=production \
 MULMOCLAUDE_CLIENT_DIR="$PWD/dist/client" \
   yarn server
 ```
-
-Workspace, port, and served client are then all independent. `e2e-live/fixtures/isolated-dev-server.ts` uses this same combination (plus `HOME`) to give each live test its own stack — which is also why live tests exercise the production serving path rather than the Vite one.
 
 ---
 
