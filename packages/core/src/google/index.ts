@@ -103,6 +103,7 @@ export {
   classifyWrite,
   anySyncedCollectionSurvives,
   groupByCalendar,
+  mergeIntoExisting,
   orphanedCalendarId,
   releaseOrphanedCalendarToken,
   syncCalendarForCollection,

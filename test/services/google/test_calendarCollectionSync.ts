@@ -11,6 +11,7 @@ import {
   classifyDelete,
   classifyWrite,
   groupByCalendar,
+  mergeIntoExisting,
   orphanedCalendarId,
   toCollectionRecord,
   syncCalendarForCollection,
@@ -122,6 +123,33 @@ describe("toCollectionRecord datetime normalisation (#2310)", () => {
   it("keeps an empty datetime value empty instead of inventing a time", () => {
     const record = toCollectionRecord(event({ start: "" }), { on: "start" }, "gid", recipeFields);
     assert.equal(record.on, "");
+  });
+});
+
+// A record file is written whole, so the pull used to rewrite it from the map
+// alone — silently deleting any column the map does not name. That made a
+// local note next to a mirrored event impossible to keep (#2620).
+describe("mergeIntoExisting (#2620 local columns survive a pull)", () => {
+  const projected = toCollectionRecord(event(), { title: "summary", on: "start" }, "gid", recipeFields);
+
+  it("keeps a column the map does not name", () => {
+    const merged = mergeIntoExisting({ gid: "ev-1", title: "old", notes: "call Alice first" }, projected);
+    assert.equal(merged.notes, "call Alice first");
+  });
+
+  it("still lets Google win on the fields it owns", () => {
+    const merged = mergeIntoExisting({ gid: "ev-1", title: "old", on: "1999-01-01T00:00" }, projected);
+    assert.equal(merged.title, "Standup");
+    assert.equal(merged.on, "2026-07-19T09:00:00");
+  });
+
+  it("writes the projection as-is when the record is new", () => {
+    assert.deepEqual(mergeIntoExisting(null, projected), projected);
+  });
+
+  it("never lets a stale local value shadow the event id", () => {
+    const merged = mergeIntoExisting({ gid: "someone-elses-id" }, projected);
+    assert.equal(merged.gid, "ev-1");
   });
 });
 

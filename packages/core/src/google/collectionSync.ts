@@ -74,6 +74,17 @@ export function toCollectionRecord(
   return { ...Object.fromEntries(mapped), [primaryKey]: event.id };
 }
 
+/** Google's mapped values laid over whatever the record already holds.
+ *
+ *  A record file is written whole (`writeItem`), so projecting alone would drop
+ *  every column the map does not name — a collection cannot then carry a local
+ *  note next to a mirrored event, because the next pull that touches that event
+ *  silently deletes it. The projection still wins on the fields it covers: those
+ *  are Google's to own. */
+export function mergeIntoExisting(existing: CollectionItem | null, projected: CollectionItem): CollectionItem {
+  return { ...(existing ?? {}), ...projected };
+}
+
 /** `skipped` is a benign no-op; `unwritable` can never succeed so it must NOT
  *  hold the token; `error` is retryable and does hold it. */
 type ApplyOutcome =
@@ -116,7 +127,7 @@ async function applyEvent(collection: LoadedCollection, event: CalendarEventSumm
       return classifyDelete(event.id, deleted.kind);
     }
     const record = toCollectionRecord(event, schema.googleCalendar?.map ?? {}, schema.primaryKey, schema.fields);
-    const written = await store.write(event.id, record);
+    const written = await store.write(event.id, mergeIntoExisting(await store.read(event.id), record));
     return classifyWrite(event.id, written.kind);
   } catch (error) {
     // A thrown IO error (EACCES, ENOSPC, …) must not abort the remaining events
