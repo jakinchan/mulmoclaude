@@ -3,6 +3,11 @@
 // simply never appeared and nothing was logged, so the user could not tell a
 // wrong path from a wrong schema. Skipping the file is still correct; being
 // silent about it is not.
+//
+// #2656 is the other half: the file loads fine but doesn't line up — its name
+// disagrees with the `id` inside it (listed, yet delete / update say "not found"),
+// or two files claim one id and the loser is dropped by readdir order. Neither is
+// a reason to skip the file, so these only warn.
 
 import { describe, it, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
@@ -18,7 +23,8 @@ const workspaceRoot = mkdtempSync(path.join(tmpdir(), "mulmoclaude-roles-test-")
 process.env.MULMOCLAUDE_WORKSPACE_PATH = workspaceRoot;
 
 const { WORKSPACE_DIRS } = await import("../../server/workspace/paths.js");
-const { parseRoleFile, loadCustomRoles } = await import("../../server/workspace/roles.js");
+const { parseRoleFile, loadCustomRoles, fileNameMismatchProblems, duplicateIdProblems } = await import("../../server/workspace/roles.js");
+const { roleExists } = await import("../../server/utils/files/roles-io.js");
 
 const rolesDir = path.join(workspaceRoot, WORKSPACE_DIRS.roles);
 
@@ -83,6 +89,75 @@ describe("parseRoleFile", () => {
   it("reports a top-level non-object as a root issue", () => {
     const issues = String(problemOf(parseRoleFile("array.json", "[]"))?.data.issues);
     assert.match(issues, /\(root\)/, issues);
+  });
+
+  it("keeps the file name with the loaded role, so the mismatch check has both", () => {
+    const outcome = parseRoleFile("designer.json", JSON.stringify(VALID_ROLE));
+    assert.equal("fileName" in outcome ? outcome.fileName : undefined, "designer.json");
+  });
+});
+
+const roleWithId = (roleId: string) => ({ ...VALID_ROLE, id: roleId });
+
+describe("fileNameMismatchProblems", () => {
+  it("says nothing when the file name is the id", () => {
+    assert.deepEqual(fileNameMismatchProblems({ fileName: "reviewer.json", role: roleWithId("reviewer") }), []);
+  });
+
+  it("reports both the file name and the id", () => {
+    const [problem, ...rest] = fileNameMismatchProblems({ fileName: "designer.json", role: roleWithId("myrole") });
+    assert.deepEqual(rest, []);
+    assert.deepEqual(problem?.data, { fileName: "designer.json", id: "myrole" });
+  });
+
+  it("names both ways out, since neither name nor id is authoritative", () => {
+    const message = fileNameMismatchProblems({ fileName: "designer.json", role: roleWithId("myrole") })[0]?.message ?? "";
+    assert.match(message, /myrole\.json/, message); // rename the file
+    assert.match(message, /"designer"/, message); // or change the id
+  });
+
+  // `manageRoles` validates ids against `isValidRoleId`, so a file name it rejects is
+  // neither a savable id nor a delete handle — offering it would be wrong advice.
+  it("offers only the rename when the file name is not a usable role id", () => {
+    const message = fileNameMismatchProblems({ fileName: "my role.json", role: roleWithId("myrole") })[0]?.message ?? "";
+    assert.match(message, /myrole\.json/, message);
+    assert.match(message, /not a usable role id/, message);
+    assert.ok(!message.includes('"my role"'), `must not suggest an id manageRoles rejects: ${message}`);
+  });
+});
+
+describe("duplicateIdProblems", () => {
+  it("says nothing when every id is unique", () => {
+    const loaded = [
+      { fileName: "a.json", role: roleWithId("a") },
+      { fileName: "b.json", role: roleWithId("b") },
+    ];
+    assert.deepEqual(duplicateIdProblems(loaded), []);
+  });
+
+  it("reports the first file as the used one and the rest as ignored", () => {
+    const loaded = [
+      { fileName: "first.json", role: roleWithId("dup") },
+      { fileName: "second.json", role: roleWithId("dup") },
+      { fileName: "third.json", role: roleWithId("dup") },
+    ];
+    const [problem, ...rest] = duplicateIdProblems(loaded);
+    assert.deepEqual(rest, []);
+    assert.deepEqual(problem?.data, { id: "dup", used: "first.json", ignored: ["second.json", "third.json"] });
+  });
+
+  it("reports one problem per duplicated id and leaves unique ones out", () => {
+    const loaded = [
+      { fileName: "x1.json", role: roleWithId("x") },
+      { fileName: "only.json", role: roleWithId("only") },
+      { fileName: "y1.json", role: roleWithId("y") },
+      { fileName: "x2.json", role: roleWithId("x") },
+      { fileName: "y2.json", role: roleWithId("y") },
+    ];
+    assert.deepEqual(
+      duplicateIdProblems(loaded).map((problem) => problem.data.id),
+      ["x", "y"],
+    );
   });
 });
 
@@ -169,6 +244,46 @@ describe("loadCustomRoles diagnostics", () => {
 
     assert.equal(result.length, 1);
     assert.equal(out, "");
+  });
+
+  // #2656: the role is listed under the id from its contents, but delete / update look
+  // for `<id>.json` — so it shows up and then reports "not found".
+  it("warns when a file name and its id disagree, and still loads the role", async () => {
+    await place("designer.json", JSON.stringify({ ...VALID_ROLE, id: "myrole" }));
+
+    const { result, out } = captureStderr(() => loadCustomRoles());
+
+    assert.deepEqual(
+      result.map((role) => role.id),
+      ["myrole"],
+    );
+    assert.match(out, /designer\.json/);
+    assert.match(out, /myrole/);
+    assert.match(out, /does not match its file name/);
+  });
+
+  // What the warning and the help doc tell the user to do has to be true: the listed id
+  // is not a handle, the file name still is.
+  it("keeps the mismatched role addressable by its file name, not by its listed id", async () => {
+    await place("designer.json", JSON.stringify({ ...VALID_ROLE, id: "myrole" }));
+
+    assert.equal(roleExists("myrole"), false);
+    assert.equal(roleExists("designer"), true);
+  });
+
+  // Which of the two wins is readdir order, so the duplicate line has to name both;
+  // asserting on the line itself keeps the mismatch warning for copy.json out of it.
+  it("warns when two files declare the same id, naming both", async () => {
+    await place("shared.json", JSON.stringify({ ...VALID_ROLE, id: "shared" }));
+    await place("copy.json", JSON.stringify({ ...VALID_ROLE, id: "shared", name: "Copy" }));
+
+    const { result, out } = captureStderr(() => loadCustomRoles());
+
+    assert.equal(result.length, 2);
+    const line = out.split("\n").find((candidate) => candidate.includes("declares the same id")) ?? "";
+    assert.match(line, /id=shared/, out);
+    assert.match(line, /shared\.json/, out);
+    assert.match(line, /copy\.json/, out);
   });
 
   it("says nothing for an empty roles directory", () => {

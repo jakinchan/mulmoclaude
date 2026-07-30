@@ -2,10 +2,18 @@ import path from "node:path";
 import { BUILTIN_ROLES, RoleSchema, type Role } from "../../src/config/roles.js";
 import { WORKSPACE_DIRS, workspacePath } from "./paths.js";
 import { readdirUnderSync, readTextUnderSync } from "../utils/files/workspace-io.js";
+import { isValidRoleId } from "../utils/files/roleId.js";
 import { log } from "../system/logger/index.js";
 
 const ROLE_FILE_EXT = ".json";
 const LOG_PREFIX = "roles";
+
+// The file name travels with the role because the app addresses roles by it while the
+// list shows the id from inside the file — the two disagreeing is itself a problem (#2656).
+export interface LoadedRole {
+  fileName: string;
+  role: Role;
+}
 
 // Skipping a broken file keeps one bad role from taking the list down; the problem
 // it carries is so the skip isn't also invisible, which is all a hand-placed file
@@ -14,13 +22,16 @@ export interface RoleFileProblem {
   message: string;
   data: Record<string, unknown>;
 }
-type RoleFileOutcome = { role: Role } | { problem: RoleFileProblem };
+type RoleFileOutcome = LoadedRole | { problem: RoleFileProblem };
 
 export function loadCustomRoles(): Role[] {
   const fileNames = readdirUnderSync(workspacePath, WORKSPACE_DIRS.roles);
   const outcomes = fileNames.filter(isRoleFileName).map(readRoleFile);
-  [...outcomes.flatMap(problemsOf), ...ignoredEntryProblems(fileNames)].forEach((problem) => log.warn(LOG_PREFIX, problem.message, problem.data));
-  return outcomes.flatMap((outcome) => ("role" in outcome ? [outcome.role] : []));
+  const loaded = outcomes.flatMap((outcome) => ("role" in outcome ? [outcome] : []));
+  [...outcomes.flatMap(problemsOf), ...loaded.flatMap(fileNameMismatchProblems), ...duplicateIdProblems(loaded), ...ignoredEntryProblems(fileNames)].forEach(
+    (problem) => log.warn(LOG_PREFIX, problem.message, problem.data),
+  );
+  return loaded.map(({ role }) => role);
 }
 
 export function loadAllRoles(): Role[] {
@@ -70,7 +81,43 @@ export function parseRoleFile(fileName: string, raw: string): RoleFileOutcome {
   if (!parsed.success) {
     return { problem: { message: "role file does not match the role schema, skipping", data: { fileName, issues: summarizeRoleIssues(parsed.error.issues) } } };
   }
-  return { role: parsed.data };
+  return { fileName, role: parsed.data };
+}
+
+// The list shows the `id` from inside the file, but roles-io keys delete / update on the
+// file NAME — so on a mismatch the id the user can see is not the one that works. Making
+// one of the two authoritative would drop roles that currently work in existing
+// workspaces, so this only says it (#2656).
+export function fileNameMismatchProblems({ fileName, role }: LoadedRole): RoleFileProblem[] {
+  const baseName = path.basename(fileName, ROLE_FILE_EXT);
+  if (baseName === role.id) return [];
+  return [{ message: mismatchMessage(baseName, role.id), data: { fileName, id: role.id } }];
+}
+
+// Offering the file name as the id is only advice while `isValidRoleId` accepts it —
+// otherwise `manageRoles` refuses to save it AND rejects it as a delete handle, so the
+// role is reachable under neither name and renaming is the only fix.
+function mismatchMessage(baseName: string, roleId: string): string {
+  const rename = `rename the file to "${roleId}${ROLE_FILE_EXT}"`;
+  if (!isValidRoleId(baseName)) {
+    return `role id does not match its file name, and the file name is not a usable role id either, so neither addresses the role — ${rename}`;
+  }
+  return `role id does not match its file name — delete / update take the file name, not the id shown in the list; ${rename} or change the id to "${baseName}"`;
+}
+
+// Both files load and both reach the list; it is `getRole` that takes the first match, in
+// whatever order readdir gave — so which one the id resolves to is not the user's choice.
+export function duplicateIdProblems(loaded: readonly LoadedRole[]): RoleFileProblem[] {
+  return [...groupFileNamesById(loaded).entries()]
+    .filter(([, fileNames]) => fileNames.length > 1)
+    .map(([roleId, [used, ...ignored]]) => ({
+      message: "more than one role file declares the same id — the id resolves to the one loaded first, give each role a distinct id",
+      data: { id: roleId, used, ignored },
+    }));
+}
+
+function groupFileNamesById(loaded: readonly LoadedRole[]): Map<string, string[]> {
+  return loaded.reduce((byId, { fileName, role }) => byId.set(role.id, [...(byId.get(role.id) ?? []), fileName]), new Map<string, string[]>());
 }
 
 function parseJson(raw: string): { value: unknown } | { error: string } {
