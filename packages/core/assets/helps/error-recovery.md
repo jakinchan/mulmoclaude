@@ -225,6 +225,43 @@ shipped registry repo's README. Common rejections:
 - `name` reuses the reserved value `official`.
 - `name` doesn't match `[A-Za-z0-9][A-Za-z0-9_-]{0,31}`.
 
+## A hand-placed custom role never appears in the list
+
+### Symptoms
+
+- The user put a file in `config/roles/` themselves (not via Settings →
+  Roles / `manageRoles`) and the role is absent from the role list.
+- Nothing failed in tool output — `manageRoles` with `action: "list"`
+  simply doesn't include it.
+
+### Cause + fix
+
+The loader reads **`config/roles/<id>.json` only**, and a file it cannot
+use is skipped rather than fatal — so one broken file can't take the
+whole list down. The reason is in the server log as a `[roles]` warning
+naming the file:
+
+- `role file is not valid JSON, skipping` — trailing comma, single
+  quotes, unquoted key.
+- `role file does not match the role schema, skipping` — the `issues`
+  field names each field, e.g. `icon: Invalid input: expected string,
+  received undefined`. All of `id`, `name`, `icon`, `prompt`,
+  `availablePlugins` are required; `availablePlugins` must be an array
+  even for one entry.
+- `role file is empty, skipping` — zero-length or whitespace only.
+- `role file could not be read, skipping` — permissions, or the path is
+  a directory.
+- `role file disappeared while loading, skipping` — the file was renamed
+  or deleted while the list was being read, or it is a broken symlink.
+  Re-running the load is enough if the file is there now.
+- `ignoring entries that are not .json files` — a `.md` / `.jsonc` /
+  `.json.txt` file is never read as a role.
+
+Ask the user for that warning line (or the file's contents) rather than
+guessing which of the six it is. Writing the role through
+`manageRoles` instead sidesteps all of them — it serializes the role, so
+the file is always valid.
+
 ## Marp slide PDF — empty / image / font issues
 
 ### Symptoms
