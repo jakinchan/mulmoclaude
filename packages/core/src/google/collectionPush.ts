@@ -23,6 +23,7 @@ import {
   CANCELLED_EVENT_STATUS,
   HTTP_CONFLICT,
   HTTP_PRECONDITION_FAILED,
+  type CalendarEventInput,
   type CalendarEventSummary,
   type CalendarEventTime,
   type UpdateCalendarEventInput,
@@ -176,6 +177,14 @@ function eventTime(ctx: PushContext, record: CollectionItem, source: "start" | "
   return { ok: true, time };
 }
 
+/** `description` / `location` for a create — omitted when empty, since there is
+ *  nothing to state about an event that carries neither. */
+const optionalText = (ctx: PushContext, record: CollectionItem): Pick<CalendarEventInput, "description" | "location"> => {
+  const description = fieldText(localValue(ctx, record, "description"));
+  const location = fieldText(localValue(ctx, record, "location"));
+  return { ...(description ? { description } : {}), ...(location ? { location } : {}) };
+};
+
 async function createFromRecord(ctx: PushContext, eventId: string, record: CollectionItem): Promise<PushOutcome> {
   if (!isClientSettableEventId(eventId)) {
     return { kind: "skipped", message: `${eventId}: the record id cannot be used as a Google event id (needs 5-1024 characters from 0-9a-v)` };
@@ -191,13 +200,21 @@ async function createFromRecord(ctx: PushContext, eventId: string, record: Colle
     summary: fieldText(localValue(ctx, record, "summary")),
     start: start.time,
     end: end.time,
+    ...optionalText(ctx, record),
     ...(colorId ? { colorId } : {}),
   });
   return { kind: "created", event };
 }
 
-type EventPatch = Pick<UpdateCalendarEventInput, "summary" | "colorId" | "start" | "end">;
+type EventPatch = Pick<UpdateCalendarEventInput, "summary" | "colorId" | "start" | "end" | "description" | "location">;
 type PatchResult = { ok: true; patch: EventPatch } | { ok: false; reason: string };
+
+/** The free-text fields of a patch, each only when the local edit touched it.
+ *  Unlike `colorId`, `""` is a real value here — Google clears the field. */
+const textPatch = (ctx: PushContext, record: CollectionItem, changed: readonly PushableSourceField[]): EventPatch => {
+  const touched = (["summary", "description", "location"] as const).filter((source) => changed.includes(source));
+  return Object.fromEntries(touched.map((source) => [source, fieldText(localValue(ctx, record, source))]));
+};
 
 /** Only the fields the local edit touched — PATCH semantics, so an untouched
  *  attendee list / recurrence rule is left alone. */
@@ -215,7 +232,7 @@ function buildPatch(ctx: PushContext, record: CollectionItem, changed: readonly 
   return {
     ok: true,
     patch: {
-      ...(changed.includes("summary") ? { summary: fieldText(localValue(ctx, record, "summary")) } : {}),
+      ...textPatch(ctx, record, changed),
       ...(changed.includes("colorId") ? { colorId } : {}),
       ...Object.fromEntries(resolved.flatMap((entry) => (entry.result.ok ? [[entry.source, entry.result.time]] : []))),
     },

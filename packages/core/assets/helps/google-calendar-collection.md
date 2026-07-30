@@ -59,8 +59,17 @@ it isn't, sync silently does nothing until they link it in settings.
   field: an empty map syncs records that carry only the event id, so the user
   would see rows with no content.
 
-Mappable event fields: `summary`, `start`, `end`, `htmlLink`, `colorId`,
-`status`.
+Mappable event fields: `summary`, `start`, `end`, `description`, `location`,
+`htmlLink`, `colorId`, `status`.
+
+`description` is the event body, and Google stores limited **HTML** in it. It is
+kept verbatim — mirroring it through a plain-text field and pushing it back would
+strip the user's formatting. Give it a `text` field, and do not "clean it up" on
+the way in.
+
+Mapping a column the user already filled by hand (a `notes` column, say) onto
+`description` means the next push sends that text to Google. That is usually what
+they want, but say so before you write the map.
 
 ## The primary field is the event id
 
@@ -82,8 +91,10 @@ the calendar day view then draws each record as a proportional time block.
 
 ## What sync does
 
-- New or edited events are written, keyed by event id (existing records are
-  replaced in place).
+- New or edited events are written, keyed by event id. Only the mapped columns
+  are overwritten: a column the map does not name (a local note the user keeps
+  next to the event) survives the pull. The flip side is that a field you REMOVE
+  from `map` keeps its last synced value rather than disappearing.
 - Events deleted in Google are **deleted** from the collection.
 - Only what changed since the last run is fetched, so a big calendar stays
   cheap after the first sync.
@@ -116,8 +127,9 @@ What the button does and deliberately does not do:
   the `google` tool's `calendarDeleteEvent`, after confirming with them.
 - **Skips a record edited on both sides** and reports it, rather than picking a
   winner. The user resolves it by editing one side to match.
-- Pushes only `summary`, `start`, `end` and `colorId` — `htmlLink` and `status`
-  are read-only in Google, so a column mapped to either is ignored.
+- Pushes `summary`, `start`, `end`, `description`, `location` and `colorId` —
+  everything the pull can read except `htmlLink` and `status`, which are
+  read-only in Google, so a column mapped to either is ignored.
 
 Reasons a record can be reported as skipped:
 

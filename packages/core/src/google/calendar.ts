@@ -59,6 +59,7 @@ export type CalendarEventSpan = { startDateTime: string; endDateTime: string } |
 export type CalendarEventInput = {
   summary: string;
   description?: string;
+  location?: string;
   /** Calendar to create the event on; defaults to the user's primary. */
   calendarId?: string;
   /** Event colour (Google event palette id "1".."11"); omit to inherit the calendar's colour. */
@@ -81,6 +82,8 @@ export interface UpdateCalendarEventInput {
   end?: CalendarEventTime;
   /** `""` clears the description; omit to leave it untouched. */
   description?: string;
+  /** `""` clears the location; omit to leave it untouched. */
+  location?: string;
   calendarId?: string;
   colorId?: string;
   /** Etag of the version this edit was computed against. Sent as `If-Match`, so
@@ -110,6 +113,12 @@ export interface CalendarEventSummary {
   status: string;
   /** Google event palette id ("1".."11"), or "" when the event inherits the calendar's colour. */
   colorId: string;
+  /** The event body, RAW. Google stores limited HTML here, and normalising it on
+   *  the way in would silently strip the user's formatting on the way back out —
+   *  a mirrored calendar has to survive the round trip, so any prettifying
+   *  belongs to whatever displays it. */
+  description: string;
+  location: string;
 }
 
 export interface CalendarSummary {
@@ -159,6 +168,8 @@ export const toEventSummary = (value: unknown): CalendarEventSummary => {
     htmlLink: stringField(record, "htmlLink"),
     status: stringField(record, "status"),
     colorId: stringField(record, "colorId"),
+    description: stringField(record, "description"),
+    location: stringField(record, "location"),
   };
 };
 
@@ -197,6 +208,7 @@ export async function createCalendarEvent(accessToken: string, input: CalendarEv
   const body = {
     summary: input.summary,
     description: input.description,
+    location: input.location,
     ...resolveEventSpan(input),
     ...(input.colorId ? { colorId: input.colorId } : {}),
     ...(input.eventId ? { id: input.eventId } : {}),
@@ -222,6 +234,7 @@ const eventEnd = (key: "start" | "end", structured: CalendarEventTime | undefine
 export const buildEventPatch = (input: UpdateCalendarEventInput): Record<string, unknown> => ({
   ...(input.summary !== undefined ? { summary: input.summary } : {}),
   ...(input.description !== undefined ? { description: input.description } : {}),
+  ...(input.location !== undefined ? { location: input.location } : {}),
   ...eventEnd("start", input.start, input.startDateTime),
   ...eventEnd("end", input.end, input.endDateTime),
   ...(input.colorId ? { colorId: input.colorId } : {}),

@@ -31,6 +31,8 @@ const event = (overrides: Partial<CalendarEventSummary> = {}): CalendarEventSumm
   htmlLink: "https://calendar.google.com/event?eid=ev-1",
   status: "confirmed",
   colorId: "7",
+  description: "",
+  location: "",
   ...overrides,
 });
 

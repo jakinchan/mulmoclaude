@@ -12,7 +12,7 @@ import { toCollectionRecord } from "./collectionSync.js";
  *  read-only, so a record column mapped to either is ignored here rather than
  *  rejected — the mapping was authored for the pull, and a push has no business
  *  invalidating it. */
-export const PUSHABLE_SOURCE_FIELDS = ["summary", "start", "end", "colorId"] as const;
+export const PUSHABLE_SOURCE_FIELDS = ["summary", "start", "end", "colorId", "description", "location"] as const;
 
 export type PushableSourceField = (typeof PUSHABLE_SOURCE_FIELDS)[number];
 

@@ -594,7 +594,7 @@ export const AgentIngestZ = z.object({
 /** The Google event fields a collection may pull from. `id` is absent on
  *  purpose — it always lands in the primary field, since upsert-by-event-id
  *  is what makes the sync idempotent. */
-export const GOOGLE_CALENDAR_SOURCE_FIELDS = ["summary", "start", "end", "htmlLink", "colorId", "status"] as const;
+export const GOOGLE_CALENDAR_SOURCE_FIELDS = ["summary", "start", "end", "htmlLink", "colorId", "status", "description", "location"] as const;
 
 /** Marks a collection as the destination of the LLM-free Google Calendar
  *  sync (#2095). `map` is collectionField → Google event field, so the user's

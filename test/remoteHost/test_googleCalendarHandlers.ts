@@ -33,6 +33,8 @@ const sampleEvent: CalendarEventSummary = {
   htmlLink: "https://calendar.google.com/event?eid=ev1",
   status: "confirmed",
   colorId: "7",
+  description: "",
+  location: "",
 };
 
 const sampleCalendar: CalendarSummary = {
