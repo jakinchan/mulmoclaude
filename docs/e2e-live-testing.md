@@ -194,7 +194,7 @@ yarn test:e2e:live:calendar
 
 | Variable | Required | What to point it at |
 |---|---|---|
-| `E2E_LIVE_GOOGLE_CALENDAR_ID` | yes | A **throwaway** calendar the linked account owns. The spec creates and deletes events on it. |
+| `E2E_LIVE_GOOGLE_CALENDAR_ID` | yes | A **throwaway** calendar the linked account owns. The spec creates and deletes events on it, and refuses to run against `primary`. |
 | `E2E_LIVE_GOOGLE_READONLY_CALENDAR_ID` | no | A calendar the account can read but not write — a subscribed holiday calendar is the easiest. Unlocks the 403 / read-only tests. |
 | `E2E_LIVE_GOOGLE_UNLISTED_CALENDAR_ID` | no | A calendar shared with write access that is **not** in the account's calendar list. Needs a second account to share one. |
 

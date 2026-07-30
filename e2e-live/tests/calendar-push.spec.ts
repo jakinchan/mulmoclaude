@@ -189,10 +189,10 @@ test.describe("Google Calendar contract behind the push (#2602)", () => {
 
       await updateCalendarEvent(accessToken, { eventId, calendarId, start: movedStart, end: movedEnd });
       const moved = await readEvent(accessToken, calendarId, eventId);
+      // A bare date is also what says the event is STILL all-day: a midnight
+      // timed event would come back as `2027-03-18T00:00:00+09:00`.
       expect(moved.event.start).toBe(MOVED_START);
       expect(moved.event.end).toBe(MOVED_END);
-      // A timed event would come back as `…T00:00:00+09:00`.
-      expect(moved.event.start).not.toContain("T");
     } finally {
       await deleteEventQuietly(accessToken, calendarId, eventId);
     }
@@ -235,16 +235,26 @@ test.describe("Google Calendar contract behind the push (#2602)", () => {
     );
 
     const accessToken = await getGoogleAccessToken();
-    // An offset-bearing span, so a rejection can only be about permissions.
-    const status = await statusOfRejection(() =>
-      createCalendarEvent(accessToken, {
-        calendarId: readOnly,
-        summary: SUMMARY,
-        startDateTime: `${SENT_START}Z`,
-        endDateTime: `${SENT_END}Z`,
-      }),
-    );
-    expect(status).toBe(HTTP_FORBIDDEN);
+    // The id is set up front purely so the teardown has something to delete: if
+    // the variable is misconfigured and points at a WRITABLE calendar, the
+    // create succeeds, the assertion below fails, and an event with no known id
+    // would be stranded there. The delete is a no-op on the expected 403.
+    const eventId = newEventId();
+    try {
+      // An offset-bearing span, so a rejection can only be about permissions.
+      const status = await statusOfRejection(() =>
+        createCalendarEvent(accessToken, {
+          eventId,
+          calendarId: readOnly,
+          summary: SUMMARY,
+          startDateTime: `${SENT_START}Z`,
+          endDateTime: `${SENT_END}Z`,
+        }),
+      );
+      expect(status).toBe(HTTP_FORBIDDEN);
+    } finally {
+      await deleteEventQuietly(accessToken, readOnly, eventId);
+    }
   });
 });
 
@@ -305,6 +315,7 @@ test.describe("Collection → Google push, end to end (#2602)", () => {
       missingCalendarReason(READONLY_CALENDAR_ENV, "a calendar this account can read but not write (a subscribed holiday calendar will do)"),
     );
 
+    const accessToken = await getGoogleAccessToken();
     const eventId = newEventId();
     const workspace = await createCalendarCollectionWorkspace(readOnly);
     try {
@@ -324,6 +335,9 @@ test.describe("Collection → Google push, end to end (#2602)", () => {
       if (outcome.kind !== "read-only") throw new Error(`expected a read-only outcome, got ${JSON.stringify(outcome)}`);
       expect(["reader", "freeBusyReader"]).toContain(outcome.accessRole);
     } finally {
+      // Only reached when the gate did NOT refuse — an unlisted calendar leaves
+      // `accessRole` unknown, so the push falls through and really does write.
+      await deleteEventQuietly(accessToken, readOnly, eventId);
       await workspace.cleanup();
     }
   });

@@ -32,14 +32,26 @@ export const UNLISTED_CALENDAR_ENV = "E2E_LIVE_GOOGLE_UNLISTED_CALENDAR_ID";
 
 export const calendarIdFrom = (envName: string): string => process.env[envName]?.trim() ?? "";
 
+/** The alias every Google call resolves to when no calendar is named — i.e. the
+ *  user's real calendar. Refused as a target below. */
+const PRIMARY_CALENDAR_ID = "primary";
+
 /** Why this run cannot exercise a live calendar, or null when it can.
  *
  *  Returned as a sentence rather than a boolean so the skip reason in the report
  *  tells the next person exactly what to set up — a silently skipped suite reads
  *  the same as a passing one. */
 export async function liveCalendarBlocker(): Promise<string | null> {
-  if (calendarIdFrom(WRITABLE_CALENDAR_ENV) === "") {
+  const writable = calendarIdFrom(WRITABLE_CALENDAR_ENV);
+  if (writable === "") {
     return `${WRITABLE_CALENDAR_ENV} is unset — create a throwaway calendar in Google Calendar and export its id`;
+  }
+  // These specs create AND delete events, so the one input that must never be
+  // wrong is which calendar they land on. `primary` is the value the engine
+  // itself falls back to, which makes it the easy mistake to make — and the
+  // one that writes into the user's real calendar.
+  if (writable === PRIMARY_CALENDAR_ID) {
+    return `${WRITABLE_CALENDAR_ENV} is "${PRIMARY_CALENDAR_ID}" — these specs create and delete events, so point it at a throwaway calendar instead`;
   }
   const tokens = await loadGoogleTokens();
   if (!tokens?.refresh_token) return "no Google account is linked on this host — link one in settings, then re-run";
