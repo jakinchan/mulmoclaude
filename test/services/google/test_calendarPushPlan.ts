@@ -16,6 +16,7 @@ import {
   isClientSettableEventId,
   locallyChangedFields,
   locallyDeletedIds,
+  locallyEditedIds,
   mayAdoptExisting,
   mergeShadow,
   planRecord,
@@ -67,6 +68,36 @@ describe("pushableMap", () => {
 
   it("is empty when a schema maps only read-only fields", () => {
     assert.deepEqual(pushableMap({ link: "htmlLink" }), {});
+  });
+});
+
+// When a push cannot run AT ALL (a calendar whose role degraded to reader, a
+// revoked grant), the pull still runs — reading needs no write access — and
+// would overwrite every unsent local edit while advancing its baseline past it.
+// This is the set the pull has to protect in that case (CodeRabbit review #2666).
+describe("locallyEditedIds (#2620 protection when the push never ran)", () => {
+  const base = shadow();
+  const untouched = { ...syncedRecord("ev1", base), gid: "ev1" };
+  const edited = { ...syncedRecord("ev2", base), gid: "ev2", title: "Renamed locally" };
+  const stored = { ev1: base, ev2: base };
+
+  it("names only the records that differ from their baseline", () => {
+    assert.deepEqual(locallyEditedIds([untouched, edited], stored, MAP, PRIMARY_KEY, fields), ["ev2"]);
+  });
+
+  it("protects nothing when every record matches its baseline", () => {
+    assert.deepEqual(locallyEditedIds([untouched], stored, MAP, PRIMARY_KEY, fields), []);
+  });
+
+  // No baseline means the record never came from a sync, so it is local-only —
+  // there is nothing in Google for the pull to overwrite it with, but including
+  // it is harmless and keeps this in step with `planRecord`.
+  it("includes a locally created record that has no baseline yet", () => {
+    assert.deepEqual(locallyEditedIds([{ gid: "brand-new", title: "New" }], {}, MAP, PRIMARY_KEY, fields), ["brand-new"]);
+  });
+
+  it("protects nothing for an empty collection", () => {
+    assert.deepEqual(locallyEditedIds([], stored, MAP, PRIMARY_KEY, fields), []);
   });
 });
 

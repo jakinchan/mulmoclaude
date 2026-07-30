@@ -75,8 +75,10 @@ export {
 export {
   isDeniedAccessRole,
   isUnpushed,
+  locallyEditedIds,
   pushCalendarForCollection,
   pushCollectionNow,
+  unsentLocalEdits,
   type PushOutcomeKind,
   type CalendarCollectionPushResult,
   type CalendarPushDeps,

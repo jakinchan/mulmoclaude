@@ -366,6 +366,40 @@ function tally(slug: string, attempts: readonly PushAttempt[], localDeletes: num
   };
 }
 
+/** Record ids whose local value no longer matches the baseline — edits that have
+ *  not reached Google.
+ *
+ *  Pure, and deliberately built from `planRecord`, so it answers with exactly the
+ *  records a push WOULD have acted on. A private re-implementation would drift
+ *  from the push and protect the wrong set. */
+export function locallyEditedIds(
+  records: readonly CollectionItem[],
+  shadow: Record<string, ShadowEvent>,
+  map: Record<string, PushableSourceField>,
+  primaryKey: string,
+  fields: Record<string, CollectionFieldSpec>,
+): string[] {
+  const ids = records.map((record) => ({ eventId: fieldText(record[primaryKey]), record }));
+  return ids
+    .filter(({ eventId, record }) => planRecord(eventId, record, shadow[eventId], map, primaryKey, fields).kind !== "unchanged")
+    .map(({ eventId }) => eventId);
+}
+
+/** The same set, read from the workspace.
+ *
+ *  Needed when a push cannot run AT ALL — a calendar whose role degraded to
+ *  reader, a revoked grant, an IO failure. The pull still runs, since reading
+ *  needs no write access, and would overwrite exactly these records while
+ *  advancing their baseline past the edit (CodeRabbit review #2666). Computed
+ *  from the stored baseline alone, so it works precisely when Google is the
+ *  thing that is unreachable. */
+export async function unsentLocalEdits(collection: LoadedCollection, workspaceRoot: string): Promise<string[]> {
+  const { schema } = collection;
+  const shadow = await loadCalendarShadow(schema.googleCalendar?.calendarId, workspaceRoot);
+  const records = await storeFor(collection, { workspaceRoot }).list();
+  return locallyEditedIds(records, shadow, pushableMap(schema.googleCalendar?.map ?? {}), schema.primaryKey, schema.fields);
+}
+
 /** Push one collection WITHOUT taking the calendar lock.
  *
  *  The caller must already hold it. The scheduled push→pull cycle

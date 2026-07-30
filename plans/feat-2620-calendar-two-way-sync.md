@@ -61,7 +61,7 @@ pull のたびに消える。これは今日すでに存在するデータ損失
 `applyEvent` (`collectionSync.ts:106`) が `store.write` の前に `store.read` し、
 既存レコードに射影結果を重ねる:
 
-```
+```ts
 { ...existing, ...projected, [primaryKey]: event.id }
 ```
 
