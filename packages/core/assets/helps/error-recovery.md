@@ -284,9 +284,14 @@ it:
   in the warning. Fix by renaming the file to `<id>.json`, or by
   changing the `id` inside it to the file's own name. The file name is a
   working handle in the meantime, so `delete` with the **file name**
-  removes it. The exception is an inner `id` equal to a built-in role's
-  id: the file then also shadows that built-in, and `delete` on the
-  listed id refuses it as built-in — renaming is the way out.
+  removes it. Two exceptions the warning spells out for you:
+  - `… the file name is not a usable role id either` — role ids must
+    match `[A-Za-z0-9_-]+`, so a name like `my role.json` is rejected as
+    `Invalid role id 'my role'.` Neither name reaches the role and
+    renaming is the only fix.
+  - an inner `id` equal to a built-in role's id: the file also shadows
+    that built-in, and `delete` on the listed id refuses it as built-in
+    — renaming is the way out.
 - `more than one role file declares the same id` — both files load and
   both appear in the list; `used` is the one that id resolves to
   (readdir order, not a choice the user made) and `ignored` lists the

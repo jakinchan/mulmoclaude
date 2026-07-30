@@ -2,6 +2,7 @@ import path from "node:path";
 import { BUILTIN_ROLES, RoleSchema, type Role } from "../../src/config/roles.js";
 import { WORKSPACE_DIRS, workspacePath } from "./paths.js";
 import { readdirUnderSync, readTextUnderSync } from "../utils/files/workspace-io.js";
+import { isValidRoleId } from "../utils/files/roleId.js";
 import { log } from "../system/logger/index.js";
 
 const ROLE_FILE_EXT = ".json";
@@ -90,8 +91,18 @@ export function parseRoleFile(fileName: string, raw: string): RoleFileOutcome {
 export function fileNameMismatchProblems({ fileName, role }: LoadedRole): RoleFileProblem[] {
   const baseName = path.basename(fileName, ROLE_FILE_EXT);
   if (baseName === role.id) return [];
-  const message = `role id does not match its file name — delete / update take the file name, not the id shown in the list; rename the file to "${role.id}${ROLE_FILE_EXT}" or change the id to "${baseName}"`;
-  return [{ message, data: { fileName, id: role.id } }];
+  return [{ message: mismatchMessage(baseName, role.id), data: { fileName, id: role.id } }];
+}
+
+// Offering the file name as the id is only advice while `isValidRoleId` accepts it —
+// otherwise `manageRoles` refuses to save it AND rejects it as a delete handle, so the
+// role is reachable under neither name and renaming is the only fix.
+function mismatchMessage(baseName: string, roleId: string): string {
+  const rename = `rename the file to "${roleId}${ROLE_FILE_EXT}"`;
+  if (!isValidRoleId(baseName)) {
+    return `role id does not match its file name, and the file name is not a usable role id either, so neither addresses the role — ${rename}`;
+  }
+  return `role id does not match its file name — delete / update take the file name, not the id shown in the list; ${rename} or change the id to "${baseName}"`;
 }
 
 // Both files load and both reach the list; it is `getRole` that takes the first match, in

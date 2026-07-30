@@ -115,6 +115,15 @@ describe("fileNameMismatchProblems", () => {
     assert.match(message, /myrole\.json/, message); // rename the file
     assert.match(message, /"designer"/, message); // or change the id
   });
+
+  // `manageRoles` validates ids against `isValidRoleId`, so a file name it rejects is
+  // neither a savable id nor a delete handle — offering it would be wrong advice.
+  it("offers only the rename when the file name is not a usable role id", () => {
+    const message = fileNameMismatchProblems({ fileName: "my role.json", role: roleWithId("myrole") })[0]?.message ?? "";
+    assert.match(message, /myrole\.json/, message);
+    assert.match(message, /not a usable role id/, message);
+    assert.ok(!message.includes('"my role"'), `must not suggest an id manageRoles rejects: ${message}`);
+  });
 });
 
 describe("duplicateIdProblems", () => {
