@@ -1,12 +1,12 @@
 # 実装に追随していないコメント 3 件を直す
 
-Issue: #2651 · 関連: #1570 (token path を env 対応にした PR), #2653 (proxy port 固定を解消する open PR)
+Issue: #2651 · 関連: #1570 (token path を env 対応にした PR), #2653 (proxy port 固定を解消した PR, `d1f126900` でマージ済み)
 
 ## 直すもの
 
 ### 1. `e2e-live/fixtures/isolated-dev-server.ts:21-23` — バイパスの理由が 2 件とも古い
 
-```
+```text
 // is bypassed entirely — Vite's proxy is hardcoded to 3001 and its
 // token file path is hardcoded to `~/mulmoclaude/.session-token`,
 ```
@@ -15,11 +15,13 @@ Issue: #2651 · 関連: #1570 (token path を env 対応にした PR), #2653 (pr
   `MULMOCLAUDE_WORKSPACE_PATH` を process.env と `.env` の両方から読む。
   `e2e-live/tests/fresh-boot.spec.ts:71` が「`.session-token` は temp workspace 側に書かれる」を
   実際に assert している。
-- **proxy 3001 固定**: 現時点では事実だが、**#2653 (open, MERGEABLE, CI 全緑) が解消する**。
-  同 PR は `isolated-dev-server.ts` を触らないので、issue の言うとおり「理由 = proxy port 固定」に
-  絞ると、#2653 マージ時に**この issue と同じ陳腐化が再発する**。
+- **proxy 3001 固定**: **#2653 (`d1f126900`) で既に解消済み** — `vite.config.ts` は
+  `scripts/lib/devServerPort.ts` の `resolveServerPort()` からポートを取る。この plan を書いた
+  時点では #2653 は open だったが、本 PR を開く前にマージされたので、コメントを
+  「理由 = proxy port 固定」に絞る書き方は**もう事実ではない**。
 
-→ 理由を「Vite の現在の実装上の制約」ではなく、**#2653 の前後どちらでも真な事実**で書く:
+→ 理由を「Vite の現在の実装上の制約」ではなく、**#2653 の前後どちらでも真な事実**で書く
+   (陳腐化しない理由を選ぶ):
    テストごとに単一プロセスで完結すること、live test が published package と同じ
    static serving path を通ること。これは #2653 が `docs/developer.md` に書いた説明と同じ立場。
 
