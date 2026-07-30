@@ -13,8 +13,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isRecord } from "../../server/utils/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const localRequire = createRequire(import.meta.url);
@@ -30,11 +31,29 @@ const HOME = "/home/u";
 const CONFIG_DIR = "/relocated/claude-config";
 const EXPLICIT_JSON = "/elsewhere/claude.json";
 
+// The helpers compose with `path.join`, so their output is backslash-separated on
+// Windows — where `yarn test` also runs (`lint_test_windows.yaml`). Expectations
+// go through `join` too, and the `-v` expectations additionally through the same
+// separator rewrite `config.ts`'s `toDockerPath` applies, since Docker only ever
+// accepts forward slashes.
+const dockerPath = (hostPath: string): string => hostPath.replace(/\\/g, "/");
+const homeClaudeDir = join(HOME, ".claude");
+const homeClaudeJson = join(HOME, ".claude.json");
+
 interface ResolvedPaths {
   dir: string;
   json: string;
   dirMount: string | undefined;
   jsonMount: string | undefined;
+}
+
+// The child hands back JSON, i.e. `unknown`. Narrowing it here means a child that
+// crashed halfway and printed a partial object fails as "malformed payload"
+// rather than as a confusing `undefined !== "/home/u/.claude"`.
+function isResolvedPaths(value: unknown): value is ResolvedPaths {
+  if (!isRecord(value)) return false;
+  const optionalStrings = [value.dirMount, value.jsonMount].every((mount) => mount === undefined || typeof mount === "string");
+  return typeof value.dir === "string" && typeof value.json === "string" && optionalStrings;
 }
 
 // `dockerBindMountArgs` is included on purpose: it is the call site that turns
@@ -70,37 +89,40 @@ function resolveInChild(claudeEnv: Record<string, string>): ResolvedPaths {
     env: { ...childEnv, ...claudeEnv },
     encoding: "utf-8",
   });
-  return JSON.parse(stdout);
+  const parsed: unknown = JSON.parse(stdout);
+  assert.ok(isResolvedPaths(parsed), `child returned a malformed payload: ${stdout}`);
+  return parsed;
 }
 
 describe("CLAUDE_CONFIG_DIR / CLAUDE_CONFIG_JSON wiring (#2654)", () => {
   it("keeps both paths under the home dir when neither var is set", () => {
     const paths = resolveInChild({});
-    assert.equal(paths.dir, `${HOME}/.claude`);
-    assert.equal(paths.json, `${HOME}/.claude.json`);
-    assert.equal(paths.dirMount, `${HOME}/.claude:/home/node/.claude`);
-    assert.equal(paths.jsonMount, `${HOME}/.claude.json:/home/node/.claude.json`);
+    assert.equal(paths.dir, homeClaudeDir);
+    assert.equal(paths.json, homeClaudeJson);
+    assert.equal(paths.dirMount, `${dockerPath(homeClaudeDir)}:/home/node/.claude`);
+    assert.equal(paths.jsonMount, `${dockerPath(homeClaudeJson)}:/home/node/.claude.json`);
   });
 
   it("moves .claude.json into CLAUDE_CONFIG_DIR, so both mounts stay in one directory", () => {
     const paths = resolveInChild({ CLAUDE_CONFIG_DIR: CONFIG_DIR });
+    const configJson = join(CONFIG_DIR, ".claude.json");
     assert.equal(paths.dir, CONFIG_DIR);
-    assert.equal(paths.json, `${CONFIG_DIR}/.claude.json`);
-    assert.equal(paths.dirMount, `${CONFIG_DIR}:/home/node/.claude`);
-    assert.equal(paths.jsonMount, `${CONFIG_DIR}/.claude.json:/home/node/.claude.json`);
+    assert.equal(paths.json, configJson);
+    assert.equal(paths.dirMount, `${dockerPath(CONFIG_DIR)}:/home/node/.claude`);
+    assert.equal(paths.jsonMount, `${dockerPath(configJson)}:/home/node/.claude.json`);
   });
 
   it("lets an explicit CLAUDE_CONFIG_JSON win over CLAUDE_CONFIG_DIR", () => {
     const paths = resolveInChild({ CLAUDE_CONFIG_DIR: CONFIG_DIR, CLAUDE_CONFIG_JSON: EXPLICIT_JSON });
     assert.equal(paths.dir, CONFIG_DIR);
     assert.equal(paths.json, EXPLICIT_JSON);
-    assert.equal(paths.jsonMount, `${EXPLICIT_JSON}:/home/node/.claude.json`);
+    assert.equal(paths.jsonMount, `${dockerPath(EXPLICIT_JSON)}:/home/node/.claude.json`);
   });
 
   it("treats a blank CLAUDE_CONFIG_DIR as unset rather than mounting a cwd-relative path", () => {
     const paths = resolveInChild({ CLAUDE_CONFIG_DIR: "   " });
-    assert.equal(paths.dir, `${HOME}/.claude`);
-    assert.equal(paths.json, `${HOME}/.claude.json`);
-    assert.equal(paths.jsonMount, `${HOME}/.claude.json:/home/node/.claude.json`);
+    assert.equal(paths.dir, homeClaudeDir);
+    assert.equal(paths.json, homeClaudeJson);
+    assert.equal(paths.jsonMount, `${dockerPath(homeClaudeJson)}:/home/node/.claude.json`);
   });
 });
