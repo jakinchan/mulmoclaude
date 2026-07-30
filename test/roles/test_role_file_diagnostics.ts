@@ -124,6 +124,22 @@ describe("fileNameMismatchProblems", () => {
     assert.match(message, /not a usable role id/, message);
     assert.ok(!message.includes('"my role"'), `must not suggest an id manageRoles rejects: ${message}`);
   });
+
+  // The mirror of the case above. `RoleSchema.id` is a bare `z.string()`, so the id on
+  // disk can be the malformed half — and then `<id>.json` is the rename that would take
+  // away the one handle that still works.
+  it("offers only the id change when the id is not a usable role id", () => {
+    const message = fileNameMismatchProblems({ fileName: "designer.json", role: roleWithId("my role") })[0]?.message ?? "";
+    assert.match(message, /"designer"/, message);
+    assert.ok(!message.includes("my role.json"), `must not suggest renaming to an unusable file name: ${message}`);
+  });
+
+  it("tells the user to pick a valid id when neither side is usable", () => {
+    const message = fileNameMismatchProblems({ fileName: "my role.json", role: roleWithId("a.b") })[0]?.message ?? "";
+    assert.match(message, /neither is a usable role id/, message);
+    assert.ok(!message.includes("a.b.json"), `must not suggest renaming to an unusable file name: ${message}`);
+    assert.ok(!message.includes('"my role"'), `must not suggest an id manageRoles rejects: ${message}`);
+  });
 });
 
 describe("duplicateIdProblems", () => {

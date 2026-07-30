@@ -280,18 +280,26 @@ containing `"id": "myrole"` is listed as `myrole` but delete / update
 only accept `designer`. Two `[roles]` warnings in the server log name
 it:
 
-- `role id does not match its file name` — `fileName` and `id` are both
-  in the warning. Fix by renaming the file to `<id>.json`, or by
-  changing the `id` inside it to the file's own name. The file name is a
-  working handle in the meantime, so `delete` with the **file name**
-  removes it. Two exceptions the warning spells out for you:
-  - `… the file name is not a usable role id either` — role ids must
-    match `[A-Za-z0-9_-]+`, so a name like `my role.json` is rejected as
-    `Invalid role id 'my role'.` Neither name reaches the role and
-    renaming is the only fix.
-  - an inner `id` equal to a built-in role's id: the file also shadows
-    that built-in, and `delete` on the listed id refuses it as built-in
-    — renaming is the way out.
+- `role id does not match its file name` — `fileName` and `id` are both in
+  the warning. Which repair is safe depends on which side is malformed:
+  role ids must match `[a-zA-Z0-9_-]+`, and nothing enforces that on a
+  hand-placed file. **Follow the variant the warning gives you** rather
+  than picking a repair yourself — the wrong one can leave the role
+  reachable under no name at all:
+  - no extra clause — both names are usable. Rename the file to
+    `<id>.json`, or change the `id` to the file's own name. Until then the
+    **file name** is a working handle: `delete <file name>` removes it.
+  - `… the file name is not a usable role id either` — e.g.
+    `my role.json`, rejected as `Invalid role id 'my role'.` Neither name
+    reaches the role. Renaming is the only fix.
+  - `… the id is not a usable role id` — the reverse, e.g. `"id": "my
+    role"` in `designer.json`. `delete designer` still works, and renaming
+    to `my role.json` would take that away. Change the `id`.
+  - `… neither is a usable role id` — pick one id that matches the pattern
+    and use it for the file name and the `id` together.
+  - an inner `id` equal to a built-in role's id — the file also shadows
+    that built-in, and `delete` on the listed id refuses it as built-in.
+    Renaming is the way out.
 - `more than one role file declares the same id` — both files load and
   both appear in the list; `used` is the one that id resolves to
   (readdir order, not a choice the user made) and `ignored` lists the
