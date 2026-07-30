@@ -94,15 +94,25 @@ export function fileNameMismatchProblems({ fileName, role }: LoadedRole): RoleFi
   return [{ message: mismatchMessage(baseName, role.id), data: { fileName, id: role.id } }];
 }
 
-// Offering the file name as the id is only advice while `isValidRoleId` accepts it —
-// otherwise `manageRoles` refuses to save it AND rejects it as a delete handle, so the
-// role is reachable under neither name and renaming is the only fix.
+// `isValidRoleId` gates BOTH the savable id and the delete handle, so each half of the
+// advice is only offerable while it passes: suggesting `<id>.json` when the id is not a
+// usable role id renames a reachable role into an unreachable one, and offering the file
+// name as the id suggests something `manageRoles` refuses to save. `RoleSchema.id` is a
+// bare `z.string()`, so a hand-placed file reaches here with either side malformed.
 function mismatchMessage(baseName: string, roleId: string): string {
   const rename = `rename the file to "${roleId}${ROLE_FILE_EXT}"`;
-  if (!isValidRoleId(baseName)) {
-    return `role id does not match its file name, and the file name is not a usable role id either, so neither addresses the role — ${rename}`;
+  const changeId = `change the id to "${baseName}"`;
+  const lead = "role id does not match its file name";
+  if (!isValidRoleId(baseName) && !isValidRoleId(roleId)) {
+    return `${lead}, and neither is a usable role id, so neither addresses the role — pick an id manageRoles accepts and use it for both the file name and the id`;
   }
-  return `role id does not match its file name — delete / update take the file name, not the id shown in the list; ${rename} or change the id to "${baseName}"`;
+  if (!isValidRoleId(baseName)) {
+    return `${lead}, and the file name is not a usable role id either, so neither addresses the role — ${rename}`;
+  }
+  if (!isValidRoleId(roleId)) {
+    return `${lead}, and the id is not a usable role id, so the file name is the only handle and renaming to it would lose that — ${changeId}`;
+  }
+  return `${lead} — delete / update take the file name, not the id shown in the list; ${rename} or ${changeId}`;
 }
 
 // Both files load and both reach the list; it is `getRole` that takes the first match, in

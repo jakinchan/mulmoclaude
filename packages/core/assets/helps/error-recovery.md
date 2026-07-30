@@ -284,11 +284,18 @@ it:
   in the warning. Fix by renaming the file to `<id>.json`, or by
   changing the `id` inside it to the file's own name. The file name is a
   working handle in the meantime, so `delete` with the **file name**
-  removes it. Two exceptions the warning spells out for you:
-  - `… the file name is not a usable role id either` — role ids must
-    match `[A-Za-z0-9_-]+`, so a name like `my role.json` is rejected as
-    `Invalid role id 'my role'.` Neither name reaches the role and
-    renaming is the only fix.
+  removes it. Role ids must match `[A-Za-z0-9_-]+`, and nothing enforces
+  that on a hand-placed file, so read the warning rather than assuming
+  both fixes are open — it names whichever ones actually are:
+  - `… the file name is not a usable role id either` — e.g.
+    `my role.json`, rejected as `Invalid role id 'my role'.` Neither name
+    reaches the role; renaming is the only fix.
+  - `… the id is not a usable role id` — the reverse, e.g. `"id": "my
+    role"` in `designer.json`. Here `delete designer` still works, and
+    renaming the file to `my role.json` would take that away, so change
+    the `id` instead.
+  - `… neither is a usable role id` — pick an id matching the pattern and
+    use it for the file name and the `id` together.
   - an inner `id` equal to a built-in role's id: the file also shadows
     that built-in, and `delete` on the listed id refuses it as built-in
     — renaming is the way out.
