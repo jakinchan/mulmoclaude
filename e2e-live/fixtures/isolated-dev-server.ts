@@ -18,12 +18,12 @@
 // `NODE_ENV=production` switches the express server into static-host
 // mode so it serves `index.html` itself (with the `<meta
 // name="mulmoclaude-auth">` token substituted). The Vite dev server
-// is bypassed entirely — Vite's proxy is hardcoded to 3001 and its
-// token file path is hardcoded to `~/mulmoclaude/.session-token`,
-// neither of which respects the per-test overrides this helper sets.
+// is bypassed entirely: each test then owns a single process it fully
+// controls, and live tests exercise the same static serving path the
+// published package uses.
 //
-// `MULMOCLAUDE_CLIENT_DIR` (added in this PR) tells the production
-// path where to read `index.html` from. Without it, the server reads
+// `MULMOCLAUDE_CLIENT_DIR` tells the production path where to read
+// `index.html` from. Without it, the server reads
 // `<__dirname>/../client/`, which only exists in the published
 // package layout (`prepare-dist.js` copies `dist/client/` there).
 // From a source checkout we point at `<repo-root>/dist/client/`.
