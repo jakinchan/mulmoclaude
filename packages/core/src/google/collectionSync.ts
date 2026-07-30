@@ -116,8 +116,35 @@ function reportAutoPush(slug: string, result: CalendarCollectionPushResult): voi
   if (errors.length > 0) log.warn("google", "auto push errors", { slug, errors });
 }
 
+/** What an automatic push protected, per collection slug. */
+export type UnpushedBySlug = ReadonlyMap<string, ReadonlySet<string>>;
+
+const NOTHING_UNPUSHED: ReadonlySet<string> = new Set();
+
+/** What ONE collection's pull must leave alone: only what ITS OWN push failed to
+ *  send.
+ *
+ *  Scoped per collection because a calendar can back several of them, and a
+ *  conflict in one says nothing about the others. Sharing one set across the
+ *  group starved a collection that never even declares `autoPush`: it cannot
+ *  conflict, yet a neighbour's conflict froze its records — and the sync token
+ *  still advanced, so Google never resent them (Codex review #2666). */
+export const unpushedFor = (unpushed: UnpushedBySlug, slug: string): ReadonlySet<string> => unpushed.get(slug) ?? NOTHING_UNPUSHED;
+
+/** What the calendar's BASELINE must leave alone: the union over every
+ *  collection.
+ *
+ *  Deliberately not per collection, unlike the records above. `.push-state.json`
+ *  holds ONE baseline per calendar, shared by every collection on it, so there is
+ *  no per-collection baseline to hold back. Advancing it while any collection
+ *  still has an unresolved conflict is the failure that silently overwrites
+ *  Google on the next push, and holding it back only ever means "keep reporting
+ *  the conflict" — so the union is the safe side of an asymmetry the shared
+ *  storage forces. */
+export const allUnpushed = (unpushed: UnpushedBySlug): ReadonlySet<string> => new Set([...unpushed.values()].flatMap((ids) => [...ids]));
+
 /** Push every `autoPush` collection in this group, and answer with the records
- *  whose local edit did not reach Google.
+ *  whose local edit did not reach Google, keyed by collection.
  *
  *  MUST run inside the calendar lock the caller already holds — hence
  *  `pushCollectionNow` rather than `pushCalendarForCollection`, which would take
@@ -125,8 +152,8 @@ function reportAutoPush(slug: string, result: CalendarCollectionPushResult): voi
  *
  *  A failed push must not stop the pull: the pull is what keeps the collection
  *  fresh, and a revoked write grant is no reason to freeze reading. */
-async function pushAutoCollections(collections: readonly LoadedCollection[], workspaceRoot: string): Promise<Set<string>> {
-  const unpushed = new Set<string>();
+async function pushAutoCollections(collections: readonly LoadedCollection[], workspaceRoot: string): Promise<UnpushedBySlug> {
+  const unpushed = new Map<string, ReadonlySet<string>>();
   for (const collection of collections.filter((entry) => entry.schema.googleCalendar?.autoPush)) {
     try {
       const outcome = await pushCollectionNow(collection, workspaceRoot);
@@ -135,7 +162,7 @@ async function pushAutoCollections(collections: readonly LoadedCollection[], wor
         continue;
       }
       reportAutoPush(collection.slug, outcome.result);
-      outcome.result.unpushedIds.forEach((eventId) => unpushed.add(eventId));
+      unpushed.set(collection.slug, new Set(outcome.result.unpushedIds));
     } catch (error) {
       log.warn("google", "auto push failed — pulling anyway", { slug: collection.slug, error: String(error) });
     }
@@ -192,7 +219,7 @@ async function syncCalendarGroupNow(
 
   const results: CalendarCollectionSyncResult[] = [];
   for (const collection of collections) {
-    results.push(await applyEventsToCollection(collection, result.events, workspaceRoot, unpushed));
+    results.push(await applyEventsToCollection(collection, result.events, workspaceRoot, unpushedFor(unpushed, collection.slug)));
   }
   // Advance the token only after every collection in the group consumed the
   // window AND every record actually landed. Google never resends a window, so
@@ -212,7 +239,7 @@ async function syncCalendarGroupNow(
   // Gated with the token, for the same reason: a baseline recorded for a window
   // the records never received would make the next push read a local edit where
   // there was only a failed write.
-  await saveCalendarShadow(calendarId, shadowUpdates(result.events, unpushed), workspaceRoot);
+  await saveCalendarShadow(calendarId, shadowUpdates(result.events, allUnpushed(unpushed)), workspaceRoot);
   if (result.nextSyncToken) await advanceToken(calendarId, result.nextSyncToken, collections, workspaceRoot);
   return results;
 }

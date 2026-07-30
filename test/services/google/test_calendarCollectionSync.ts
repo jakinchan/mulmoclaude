@@ -7,6 +7,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  allUnpushed,
   anySyncedCollectionSurvives,
   classifyDelete,
   classifyWrite,
@@ -18,6 +19,7 @@ import {
   shadowUpdates,
   toCollectionRecord,
   syncCalendarForCollection,
+  unpushedFor,
   unsyncedGroups,
   withKeyedLock,
 } from "@mulmoclaude/core/google";
@@ -205,6 +207,40 @@ describe("isUnpushed (#2620 which outcomes the pull must not overwrite)", () => 
     assert.equal(isUnpushed("created"), false);
     assert.equal(isUnpushed("updated"), false);
     assert.equal(isUnpushed("unchanged"), false);
+  });
+});
+
+// A calendar can back several collections, and a conflict in one says nothing
+// about the others. Sharing one protected set across the group starved a
+// collection that never even declares `autoPush` — it cannot conflict, yet a
+// neighbour's conflict froze its records, and the token still advanced so Google
+// never resent them (Codex review on #2666).
+describe("unpushedFor / allUnpushed (#2620 protection is scoped per collection)", () => {
+  const unpushed = new Map<string, ReadonlySet<string>>([
+    ["mine", new Set(["a"])],
+    ["theirs", new Set(["b"])],
+  ]);
+
+  it("gives a collection only what ITS OWN push failed to send", () => {
+    assert.deepEqual([...unpushedFor(unpushed, "mine")], ["a"]);
+  });
+
+  it("protects nothing for a collection that never pushed", () => {
+    assert.equal(unpushedFor(unpushed, "read-only-mirror").size, 0);
+  });
+
+  it("does not let one collection's conflict freeze another's records", () => {
+    assert.equal(unpushedFor(unpushed, "mine").has("b"), false);
+  });
+
+  // The other half of the asymmetry: `.push-state.json` holds ONE baseline per
+  // calendar, so the holdback there must cover every collection on it.
+  it("holds the shared baseline back for every collection's conflicts", () => {
+    assert.deepEqual([...allUnpushed(unpushed)].sort(), ["a", "b"]);
+  });
+
+  it("holds nothing back when every push landed", () => {
+    assert.equal(allUnpushed(new Map()).size, 0);
   });
 });
 
