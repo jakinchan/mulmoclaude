@@ -92,7 +92,22 @@ A-6 で「Google が 403 を返すこと」だけ押さえ、分岐自体は未�
 ## 実装メモ
 
 - 新規 fixture `e2e-live/fixtures/live-google.ts` に env 読み取り / skip 判定 /
-  一時 workspace 構築 / イベント後始末を置く。spec 側は筋書きだけにする。
+  一時 workspace 構築を置く。spec 側は筋書きだけにする。イベントの後始末
+  (`deleteEventQuietly`) は唯一の利用者である spec 側の local function に置く
+  （`test.info()` を使う＝ runner 依存なので、下記の理由で fixture には置けない）。
+- **fixture は `@playwright/test` に依存させない。** seed する workspace は
+  collection engine との contract（`discoverCollections` が受理する schema、
+  push が読む `googleCalendar` block、`storeFor().list()` が返すレコード）だが、
+  Google grant が無いと live spec は 8 件すべて skip されるので、この contract は
+  放っておくと誰にも見張られない。runner 非依存にしておけば
+  `test/e2e-live/test_calendarCollectionWorkspace.ts` から通常の `yarn test` で
+  当てられる（既存の `test/e2e-live/` の作法どおり）。
+- **`E2E_LIVE_GOOGLE_CALENDAR_ID` が `primary` なら拒否する。** イベントを作って
+  消す spec なので、宛先の誤りだけは避けたい。`primary` はエンジン自身の既定値でも
+  あり、最も踏みやすく最も破壊的な誤りにあたる。token を読む前に落とす。
+- **`test:e2e:live:calendar` だけ `ensure:playwright-browsers` を呼ばない。**
+  `page` / `context` / `browser` のどの fixture も使わないため。
+  `PLAYWRIGHT_BROWSERS_PATH` を空ディレクトリに向けて実測で確認する。
 - `configureGoogleHost` は呼ばない（未設定でも silent logger で動く設計）。
   `configureCollectionHost` は必須（`discoverCollections` が host の paths を読む）。
 - 実行スクリプトは `test:e2e:live:calendar`。`E2E_LIVE_REPORT_SUBDIR=calendar` で
