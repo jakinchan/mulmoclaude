@@ -198,7 +198,14 @@ yarn test:e2e:live:calendar
 | `E2E_LIVE_GOOGLE_READONLY_CALENDAR_ID` | no | A calendar the account can read but not write — a subscribed holiday calendar is the easiest. Unlocks the 403 / read-only tests. |
 | `E2E_LIVE_GOOGLE_UNLISTED_CALENDAR_ID` | no | A calendar shared with write access that is **not** in the account's calendar list. Needs a second account to share one. |
 
-Two things to know before extending it:
+Three things to know before extending it:
+
+- **Its script skips `ensure:playwright-browsers`**, unlike every other
+  `test:e2e:live:*`. No test here requests `page` / `context` /
+  `browser`, and Playwright launches a browser only when one of those
+  fixtures is used — verified by running the spec with
+  `PLAYWRIGHT_BROWSERS_PATH` pointed at an empty directory. Add the
+  install step back the moment a test in this file needs a browser.
 
 - **The spec cannot create its own calendar.** The app's grant is
   `calendar.events`, not the full `calendar` scope, so calendars are
