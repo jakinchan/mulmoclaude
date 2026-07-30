@@ -7,6 +7,13 @@ import { log } from "../system/logger/index.js";
 const ROLE_FILE_EXT = ".json";
 const LOG_PREFIX = "roles";
 
+// The file name travels with the role because the app addresses roles by it while the
+// list shows the id from inside the file — the two disagreeing is itself a problem (#2656).
+export interface LoadedRole {
+  fileName: string;
+  role: Role;
+}
+
 // Skipping a broken file keeps one bad role from taking the list down; the problem
 // it carries is so the skip isn't also invisible, which is all a hand-placed file
 // used to get. `saveRole` writes via JSON.stringify — only humans land here (#2649).
@@ -14,13 +21,16 @@ export interface RoleFileProblem {
   message: string;
   data: Record<string, unknown>;
 }
-type RoleFileOutcome = { role: Role } | { problem: RoleFileProblem };
+type RoleFileOutcome = LoadedRole | { problem: RoleFileProblem };
 
 export function loadCustomRoles(): Role[] {
   const fileNames = readdirUnderSync(workspacePath, WORKSPACE_DIRS.roles);
   const outcomes = fileNames.filter(isRoleFileName).map(readRoleFile);
-  [...outcomes.flatMap(problemsOf), ...ignoredEntryProblems(fileNames)].forEach((problem) => log.warn(LOG_PREFIX, problem.message, problem.data));
-  return outcomes.flatMap((outcome) => ("role" in outcome ? [outcome.role] : []));
+  const loaded = outcomes.flatMap((outcome) => ("role" in outcome ? [outcome] : []));
+  [...outcomes.flatMap(problemsOf), ...loaded.flatMap(fileNameMismatchProblems), ...duplicateIdProblems(loaded), ...ignoredEntryProblems(fileNames)].forEach(
+    (problem) => log.warn(LOG_PREFIX, problem.message, problem.data),
+  );
+  return loaded.map(({ role }) => role);
 }
 
 export function loadAllRoles(): Role[] {
@@ -70,7 +80,33 @@ export function parseRoleFile(fileName: string, raw: string): RoleFileOutcome {
   if (!parsed.success) {
     return { problem: { message: "role file does not match the role schema, skipping", data: { fileName, issues: summarizeRoleIssues(parsed.error.issues) } } };
   }
-  return { role: parsed.data };
+  return { fileName, role: parsed.data };
+}
+
+// The list shows the `id` from inside the file, but roles-io keys delete / update on the
+// file NAME — so a mismatch leaves the role visible and untouchable from the app. Making
+// one of the two authoritative would drop roles that currently work in existing
+// workspaces, so this only says it (#2656).
+export function fileNameMismatchProblems({ fileName, role }: LoadedRole): RoleFileProblem[] {
+  const baseName = path.basename(fileName, ROLE_FILE_EXT);
+  if (baseName === role.id) return [];
+  const message = `role id does not match its file name, so the listed role cannot be updated or deleted from the app — rename the file to "${role.id}${ROLE_FILE_EXT}" or change the id to "${baseName}"`;
+  return [{ message, data: { fileName, id: role.id } }];
+}
+
+// `getRole` takes the first match and the order is whatever readdir gave, so which of two
+// files declaring one id wins is not something the user chose.
+export function duplicateIdProblems(loaded: readonly LoadedRole[]): RoleFileProblem[] {
+  return [...groupFileNamesById(loaded).entries()]
+    .filter(([, fileNames]) => fileNames.length > 1)
+    .map(([roleId, [used, ...ignored]]) => ({
+      message: "more than one role file declares the same id — only the one loaded first is used, give each role a distinct id",
+      data: { id: roleId, used, ignored },
+    }));
+}
+
+function groupFileNamesById(loaded: readonly LoadedRole[]): Map<string, string[]> {
+  return loaded.reduce((byId, { fileName, role }) => byId.set(role.id, [...(byId.get(role.id) ?? []), fileName]), new Map<string, string[]>());
 }
 
 function parseJson(raw: string): { value: unknown } | { error: string } {

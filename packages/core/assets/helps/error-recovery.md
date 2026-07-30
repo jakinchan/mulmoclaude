@@ -262,6 +262,38 @@ guessing which of the six it is. Writing the role through
 `manageRoles` instead sidesteps all of them — it serializes the role, so
 the file is always valid.
 
+## A custom role is in the list but delete / update says it doesn't exist
+
+### Symptoms
+
+- `manageRoles` with `action: "list"` includes the role, but `delete` or
+  `update` on that same id returns `Role '<id>' not found.`
+- Or: `Cannot delete built-in roles.` for a role the user created.
+- Or: the user edited a role and the change had no effect, because a
+  second file with the same id is the one being read.
+
+### Cause + fix
+
+The list shows the `id` from **inside** the file, while delete / update
+address the role by its **file name** — so `config/roles/designer.json`
+containing `"id": "myrole"` is listed as `myrole` and reachable as
+neither. Two `[roles]` warnings in the server log name it:
+
+- `role id does not match its file name` — `fileName` and `id` are both
+  in the warning. Fix by renaming the file to `<id>.json`, or by
+  changing the `id` inside it to the file's own name. If the inner `id`
+  happens to equal a built-in role's id, the file also shadows that
+  built-in and `delete` refuses it as built-in — renaming is the way out.
+- `more than one role file declares the same id` — `used` is the file
+  that wins (readdir order, not a choice the user made) and `ignored`
+  lists the rest. Give each role a distinct id, or remove the extra
+  file.
+
+Ask the user for the warning line rather than guessing which of the two
+it is. Both only happen to hand-placed or hand-renamed files:
+`manageRoles` writes `config/roles/<role.id>.json`, so file name and
+`id` always agree.
+
 ## Marp slide PDF — empty / image / font issues
 
 ### Symptoms

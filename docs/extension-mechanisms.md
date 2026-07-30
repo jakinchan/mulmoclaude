@@ -321,6 +321,8 @@ const skills = await discoverSkills({ workspaceRoot: workspacePath });
 
 ローダ (`server/workspace/roles.ts` — `loadCustomRoles`) が読むのは **`.json` のみ**。`.md` など他の拡張子は読み込み対象にすら入らない。読めなかったファイルは（壊れた1件で一覧を落とさないため）スキップされるが、**理由はサーバログに `[roles]` の warn として出る** — ファイル名 + 「空 / JSON 構文エラー / スキーマ検証失敗（どのフィールドか）/ 読み取り失敗」まで出るので、置いた role が一覧に出ないときはログを見れば切り分けられる (#2649)。`.json` 以外を置いた場合も 1 行にまとめて警告される。
 
+**ファイル名は `<id>.json` にする**。一覧に出る id は**ファイルの中身**の `id` だが、`manageRoles` の update / delete は**ファイル名**で role を探す (`server/utils/files/roles-io.ts`)。手で置いた / 手でリネームしたファイルで両者が食い違うと **一覧には出るのに `Role '<id>' not found.` になる**。同じ `id` を持つファイルが 2 つあると、`readdir` 順で先に見つかった方だけが使われる。どちらも role を落とす理由にはならないので**警告だけ出す**（食い違い: ファイル名と `id` の両方 / 重複: 採用した側と無視した側のファイル名）(#2656)。`manageRoles` 経由で作れば `saveRole(role.id, role)` なので常に一致する。
+
 **ソース実装**:
 
 - Schema: `src/config/roles.ts` — `RoleSchema`
