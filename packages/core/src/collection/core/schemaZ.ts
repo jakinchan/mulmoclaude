@@ -608,6 +608,12 @@ export const GoogleCalendarSyncZ = z.object({
   map: z.record(z.string().trim().min(1), z.enum(GOOGLE_CALENDAR_SOURCE_FIELDS)).refine((map) => Object.keys(map).length > 0, {
     message: "map at least one field — a `googleCalendar` sync with an empty map writes records that carry only the event id",
   }),
+  /** Run the push on the sync schedule too, immediately before each pull, so
+   *  local edits reach Google without anyone pressing a button (#2620).
+   *
+   *  Opt-in and absent by default: a push writes to a calendar other people may
+   *  read, so turning it on is the user's decision, not a default. */
+  autoPush: z.boolean().optional(),
 });
 
 /** `ingest` is a discriminated union on `kind`: the three declarative

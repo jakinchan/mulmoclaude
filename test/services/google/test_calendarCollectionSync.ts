@@ -11,8 +11,11 @@ import {
   classifyDelete,
   classifyWrite,
   groupByCalendar,
+  isUnpushed,
   mergeIntoExisting,
   orphanedCalendarId,
+  pullableEvents,
+  shadowUpdates,
   toCollectionRecord,
   syncCalendarForCollection,
   unsyncedGroups,
@@ -152,6 +155,77 @@ describe("mergeIntoExisting (#2620 local columns survive a pull)", () => {
   it("never lets a stale local value shadow the event id", () => {
     const merged = mergeIntoExisting({ gid: "someone-elses-id" }, projected);
     assert.equal(merged.gid, "ev-1");
+  });
+});
+
+// The push → pull cycle's other half. When the push refuses a record (edited on
+// both sides), holding its BASELINE back is what keeps the conflict detectable:
+// advance it to Google's new value and the next push sees a plain one-sided
+// local edit and silently overwrites Google (#2620).
+describe("pullableEvents (#2620 a refused push protects its record)", () => {
+  const window = [event({ id: "a" }), event({ id: "b" }), event({ id: "c" })];
+
+  it("passes the whole window through when the push sent everything", () => {
+    assert.deepEqual(
+      pullableEvents(window, new Set()).map((entry) => entry.id),
+      ["a", "b", "c"],
+    );
+  });
+
+  it("drops the events whose records the push could not send", () => {
+    assert.deepEqual(
+      pullableEvents(window, new Set(["b"])).map((entry) => entry.id),
+      ["a", "c"],
+    );
+  });
+
+  it("ignores an unpushed id that is not in this window", () => {
+    assert.equal(pullableEvents(window, new Set(["zz"])).length, 3);
+  });
+});
+
+// The push classifies each record; only two of those states mean "the local edit
+// exists nowhere but here". `skipped` is deliberately NOT one of them — its
+// documented recovery for an id already taken in Google is to let the pull
+// write, so protecting it would stall that collection forever (#2620).
+describe("isUnpushed (#2620 which outcomes the pull must not overwrite)", () => {
+  it("protects a both-sides conflict", () => {
+    assert.equal(isUnpushed("conflict"), true);
+  });
+
+  it("protects an unexpected failure", () => {
+    assert.equal(isUnpushed("error"), true);
+  });
+
+  it("does NOT protect a skipped record — several of its reasons are recovered by pulling", () => {
+    assert.equal(isUnpushed("skipped"), false);
+  });
+
+  it("does not protect a record that pushed cleanly", () => {
+    assert.equal(isUnpushed("created"), false);
+    assert.equal(isUnpushed("updated"), false);
+    assert.equal(isUnpushed("unchanged"), false);
+  });
+});
+
+describe("shadowUpdates (#2620 a refused push holds its baseline back)", () => {
+  it("records what Google now says for every event by default", () => {
+    const updates = shadowUpdates([event({ id: "a" }), event({ id: "b" })]);
+    assert.deepEqual(Object.keys(updates).sort(), ["a", "b"]);
+  });
+
+  it("leaves out an event whose record the push could not send", () => {
+    const updates = shadowUpdates([event({ id: "a" }), event({ id: "b" })], new Set(["b"]));
+    assert.deepEqual(Object.keys(updates), ["a"]);
+    assert.equal(Object.hasOwn(updates, "b"), false, "a held-back baseline must be absent, not null — null DELETES it");
+  });
+
+  it("still clears the baseline of a cancelled event", () => {
+    assert.equal(shadowUpdates([event({ id: "a", status: "cancelled" })]).a, null);
+  });
+
+  it("does not clear the baseline of a cancelled event the push could not send", () => {
+    assert.deepEqual(shadowUpdates([event({ id: "a", status: "cancelled" })], new Set(["a"])), {});
   });
 });
 

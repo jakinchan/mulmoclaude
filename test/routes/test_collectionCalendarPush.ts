@@ -18,6 +18,7 @@ const result = (overrides: Partial<CalendarCollectionPushResult> = {}): Calendar
   localDeletes: 0,
   skipped: [],
   errors: [],
+  unpushedIds: [],
   ...overrides,
 });
 

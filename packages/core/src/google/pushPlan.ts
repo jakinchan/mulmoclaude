@@ -6,7 +6,7 @@
 import type { CollectionFieldSpec, CollectionItem } from "../collection/core/schema.js";
 import type { CalendarEventSummary } from "./calendar.js";
 import type { ShadowEvent } from "./calendarPushState.js";
-import { toCollectionRecord } from "./collectionSync.js";
+import { toCollectionRecord } from "./collectionProjection.js";
 
 /** The event fields Google lets a caller write. `htmlLink` and `status` are
  *  read-only, so a record column mapped to either is ignored here rather than

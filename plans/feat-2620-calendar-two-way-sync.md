@@ -111,14 +111,29 @@ pull のたびに消える。これは今日すでに存在するデータ損失
 
 ### 必須の実装詳細
 
-1. **ロックの再入を避ける。** `pushCalendarForCollection` は自分で `withCalendarLock` を取り
-   (`collectionPush.ts:376`)、`withKeyedLock` (`collectionSync.ts:143`) は再入不可なので
-   素直に呼ぶと固まる。`pushNow` をロック外の関数として切り出し、
-   手動ボタン（ロックを取る）と sync タスク（既にロックの中）の両方から使う。
+1. **ロックの再入を避ける。** `pushCalendarForCollection` は自分で `withCalendarLock` を取り、
+   `withKeyedLock` は再入不可なので素直に呼ぶと固まる。`pushNow` を `pushCollectionNow` として
+   export し、手動ボタン（ロックを取る）と sync タスク（既にロックの中）の両方から使う。
+
+   **実装中に判明**: pull が push を呼ぶと `collectionSync` ⇄ `collectionPush` が循環する
+   （`collectionPush` → `collectionSync` の依存は `withCalendarLock` と、`pushPlan` 経由の
+   `toCollectionRecord` の2本）。ESM の関数宣言なら実行時には動くが、依存方向の規約に反するので
+   両方を leaf へ切り出した:
+   - `calendarLock.ts` — `withKeyedLock` / `withCalendarLock`
+   - `collectionProjection.ts` — `toCollectionRecord` / `mergeIntoExisting` / 射影の内部関数
+
+   結果、依存は `collectionSync`（オーケストレータ）→ `collectionPush`（1ステップ）→ leaf の
+   一方向になった。
 
 2. **push が「送れなかった」と判定したレコードを pull が触らない。**
-   `PushOutcome` の `conflict` / `skipped` / `error` の3種が対象。現在 `tally` は
-   conflict の件数しか残さないので、`pushNow` が保護対象の record id 集合を返すようにする。
+   `pushNow` が保護対象の record id 集合 (`unpushedIds`) を返す。
+
+   **実装中に見直した点**: 当初 `conflict` / `skipped` / `error` の3種を対象にする想定だったが、
+   **`skipped` を含めてはいけない**。`skipped` の理由のいくつか（「同じ id のイベントが既に
+   Google にあり内容が違う」）は、**pull がレコードとベースラインを書くことで解消する**のが
+   既存の設計 (`createOrAdopt` のメッセージが "press Sync to adopt it" と案内している)。
+   保護するとその復旧経路が塞がり、そのレコードが永久に取り残される。
+   よって保護は **`conflict` と `error` の2種のみ**（`isUnpushed`）。
 
 3. **保護したレコードは shadow（ベースライン）の更新も飛ばす。** ← 最重要
    飛ばさないと `shadowUpdates()` がベースラインを Google の新値に進め、レコードだけが

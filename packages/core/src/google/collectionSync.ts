@@ -16,11 +16,11 @@ import { getWorkspaceRoot } from "../collection/server/host.js";
 import type { LoadedCollection } from "../collection/server/discoveredCollection.js";
 import type { DeleteItemResult, WriteItemResult } from "../collection/server/io.js";
 import { storeFor } from "../collection/server/store.js";
-import type { CollectionFieldSpec, CollectionItem } from "../collection/core/schema.js";
-import type { GOOGLE_CALENDAR_SOURCE_FIELDS } from "../collection/core/schemaZ.js";
 import { getGoogleAccessToken } from "./auth.js";
 import { canonicalCalendarId, syncCalendarEvents, CANCELLED_EVENT_STATUS, type CalendarEventSummary } from "./calendar.js";
-import { toCollectionDateTime } from "./collectionDateTime.js";
+import { withCalendarLock } from "./calendarLock.js";
+import { mergeIntoExisting, toCollectionRecord } from "./collectionProjection.js";
+import { pushCollectionNow, type CalendarCollectionPushResult } from "./collectionPush.js";
 import { clearCalendarSyncToken, loadCalendarSyncToken, saveCalendarSyncToken } from "./calendarSyncStore.js";
 import { clearCalendarShadow, saveCalendarShadow, toShadowEvent, type ShadowEvent } from "./calendarPushState.js";
 import { loadGoogleTokens } from "./tokenStore.js";
@@ -38,51 +38,6 @@ export interface CalendarCollectionSyncResult {
   unwritable: string[];
   /** Retryable failures. Any of these hold the sync token back. */
   errors: string[];
-}
-
-/** The event fields a schema may map from — narrowed to real keys of
- *  `CalendarEventSummary` so the projection below needs no cast. */
-type GoogleCalendarSourceField = (typeof GOOGLE_CALENDAR_SOURCE_FIELDS)[number];
-
-const DATETIME_FIELD_TYPE = "datetime";
-
-/** Own-property lookup, mirroring what the record lint reads: a spec reachable
- *  only through the prototype chain is not a DECLARED field, so it must not
- *  decide how a value is stored. */
-function declaredSpec(fields: Record<string, CollectionFieldSpec>, field: string): CollectionFieldSpec | undefined {
-  return Object.hasOwn(fields, field) ? fields[field] : undefined;
-}
-
-/** Google's raw value is normalised only into a field the schema declares as
- *  `datetime` — that is the type whose stored shape the record lint, the
- *  calendar grid and the day view all parse (#2310). A user who maps `start`
- *  onto a `string` field asked for Google's value verbatim and keeps it. */
-function projectValue(fields: Record<string, CollectionFieldSpec>, field: string, value: string): unknown {
-  return declaredSpec(fields, field)?.type === DATETIME_FIELD_TYPE ? toCollectionDateTime(value) : value;
-}
-
-/** Project one Google event onto the collection's own field names. The
- *  primary field always takes the event id — upsert-by-id is what keeps the
- *  sync idempotent, so it is deliberately not remappable. */
-export function toCollectionRecord(
-  event: CalendarEventSummary,
-  map: Record<string, GoogleCalendarSourceField>,
-  primaryKey: string,
-  fields: Record<string, CollectionFieldSpec>,
-): CollectionItem {
-  const mapped = Object.entries(map).map(([field, source]) => [field, projectValue(fields, field, event[source])]);
-  return { ...Object.fromEntries(mapped), [primaryKey]: event.id };
-}
-
-/** Google's mapped values laid over whatever the record already holds.
- *
- *  A record file is written whole (`writeItem`), so projecting alone would drop
- *  every column the map does not name — a collection cannot then carry a local
- *  note next to a mirrored event, because the next pull that touches that event
- *  silently deletes it. The projection still wins on the fields it covers: those
- *  are Google's to own. */
-export function mergeIntoExisting(existing: CollectionItem | null, projected: CollectionItem): CollectionItem {
-  return { ...(existing ?? {}), ...projected };
 }
 
 /** `skipped` is a benign no-op; `unwritable` can never succeed so it must NOT
@@ -137,6 +92,57 @@ async function applyEvent(collection: LoadedCollection, event: CalendarEventSumm
   }
 }
 
+/** The events of a window a pull may act on.
+ *
+ *  A record the push just refused to send is edited on BOTH sides. Writing
+ *  Google's value over it destroys the local edit the push declined to resolve,
+ *  so the local one stands. Single-sourced because the record write and the
+ *  baseline write must agree exactly on which events they skip — disagreeing is
+ *  what would silently overwrite Google on the next push (#2620). */
+export function pullableEvents(events: readonly CalendarEventSummary[], unpushed: ReadonlySet<string>): CalendarEventSummary[] {
+  return events.filter((event) => !unpushed.has(event.id));
+}
+
+/** Report what an automatic push did, since nobody is watching a scheduled run.
+ *  A conflict or an error means that record now diverges from Google until
+ *  someone resolves it, which must not be silent. */
+function reportAutoPush(slug: string, result: CalendarCollectionPushResult): void {
+  const { created, updated, conflicts, skipped, errors, unpushedIds } = result;
+  if (created + updated > 0) log.info("google", "auto-pushed local calendar edits", { slug, created, updated });
+  if (unpushedIds.length > 0) {
+    log.warn("google", "records the auto push could not send — the pull will leave them alone", { slug, conflicts, unpushedIds });
+  }
+  if (skipped.length > 0) log.warn("google", "records the auto push skipped", { slug, skipped });
+  if (errors.length > 0) log.warn("google", "auto push errors", { slug, errors });
+}
+
+/** Push every `autoPush` collection in this group, and answer with the records
+ *  whose local edit did not reach Google.
+ *
+ *  MUST run inside the calendar lock the caller already holds — hence
+ *  `pushCollectionNow` rather than `pushCalendarForCollection`, which would take
+ *  the same non-reentrant lock and wait on itself forever.
+ *
+ *  A failed push must not stop the pull: the pull is what keeps the collection
+ *  fresh, and a revoked write grant is no reason to freeze reading. */
+async function pushAutoCollections(collections: readonly LoadedCollection[], workspaceRoot: string): Promise<Set<string>> {
+  const unpushed = new Set<string>();
+  for (const collection of collections.filter((entry) => entry.schema.googleCalendar?.autoPush)) {
+    try {
+      const outcome = await pushCollectionNow(collection, workspaceRoot);
+      if (outcome.kind !== "pushed") {
+        log.warn("google", "auto push did not run", { slug: collection.slug, reason: outcome.kind });
+        continue;
+      }
+      reportAutoPush(collection.slug, outcome.result);
+      outcome.result.unpushedIds.forEach((eventId) => unpushed.add(eventId));
+    } catch (error) {
+      log.warn("google", "auto push failed — pulling anyway", { slug: collection.slug, error: String(error) });
+    }
+  }
+  return unpushed;
+}
+
 async function restartFullSync(accessToken: string, calendarId: string | undefined, workspaceRoot: string) {
   await clearCalendarSyncToken(calendarId, workspaceRoot);
   // The push baseline describes the records the consumed token accounted for, so
@@ -144,32 +150,6 @@ async function restartFullSync(accessToken: string, calendarId: string | undefin
   await clearCalendarShadow(calendarId, workspaceRoot);
   return await syncCalendarEvents(accessToken, { calendarId });
 }
-
-/** Serialise `run` against whatever is already running for `key`.
- *
- *  `locks` is passed in so the queuing rule is testable without module state;
- *  the key is dropped once nothing is queued behind it, so the map cannot grow
- *  an entry per calendar forever. A failed predecessor still releases the
- *  queue — `then(run, run)`. */
-export async function withKeyedLock<T>(locks: Map<string, Promise<unknown>>, key: string, run: () => Promise<T>): Promise<T> {
-  const previous = locks.get(key) ?? Promise.resolve();
-  const result = previous.then(run, run);
-  const tail = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  locks.set(key, tail);
-  try {
-    return await result;
-  } finally {
-    if (locks.get(key) === tail) locks.delete(key);
-  }
-}
-
-/** In-flight sync per canonical calendar id. Module state on purpose: the
- *  scheduler, the create trigger and the Refresh button are three doors into
- *  the same calendar (CodeRabbit review #2566). */
-const calendarLocks = new Map<string, Promise<unknown>>();
 
 /** Sync ONE calendar and fan its events out to every collection bound to it.
  *
@@ -186,15 +166,6 @@ const calendarLocks = new Map<string, Promise<unknown>>();
  *  writes are upserts by event id — but it is a wasted full walk. Queued, the
  *  second pass resumes from the token the first just stored and fetches only
  *  what is genuinely new. */
-/** Serialise anything that touches ONE calendar's sync state.
- *
- *  Shared with the push path (#2598), not only the pull doors: a push that
- *  overtakes an in-flight pull would record a baseline for events the pull is
- *  still writing, so the next push would diff against a future it never saw. */
-export async function withCalendarLock<T>(calendarId: string | undefined, run: () => Promise<T>): Promise<T> {
-  return await withKeyedLock(calendarLocks, canonicalCalendarId(calendarId), run);
-}
-
 export async function syncCalendarGroup(
   calendarId: string | undefined,
   collections: readonly LoadedCollection[],
@@ -208,6 +179,12 @@ async function syncCalendarGroupNow(
   collections: readonly LoadedCollection[],
   workspaceRoot: string,
 ): Promise<CalendarCollectionSyncResult[]> {
+  // Push BEFORE the window is fetched, so a local edit is already in Google when
+  // the pull reads it: the record then comes back holding Google's own canonical
+  // value, and the baseline agrees with both. Pulling first would overwrite the
+  // very edit that was waiting to go up (#2620).
+  const unpushed = await pushAutoCollections(collections, workspaceRoot);
+
   const accessToken = await getGoogleAccessToken();
   const storedToken = await loadCalendarSyncToken(calendarId, workspaceRoot);
   const first = await syncCalendarEvents(accessToken, { calendarId, syncToken: storedToken ?? undefined });
@@ -215,7 +192,7 @@ async function syncCalendarGroupNow(
 
   const results: CalendarCollectionSyncResult[] = [];
   for (const collection of collections) {
-    results.push(await applyEventsToCollection(collection, result.events, workspaceRoot));
+    results.push(await applyEventsToCollection(collection, result.events, workspaceRoot, unpushed));
   }
   // Advance the token only after every collection in the group consumed the
   // window AND every record actually landed. Google never resends a window, so
@@ -235,15 +212,23 @@ async function syncCalendarGroupNow(
   // Gated with the token, for the same reason: a baseline recorded for a window
   // the records never received would make the next push read a local edit where
   // there was only a failed write.
-  await saveCalendarShadow(calendarId, shadowUpdates(result.events), workspaceRoot);
+  await saveCalendarShadow(calendarId, shadowUpdates(result.events, unpushed), workspaceRoot);
   if (result.nextSyncToken) await advanceToken(calendarId, result.nextSyncToken, collections, workspaceRoot);
   return results;
 }
 
 /** The baseline this window establishes: what Google now says per event, and
- *  `null` for a cancelled one so a recreate cannot resume from a dead baseline. */
-export function shadowUpdates(events: readonly CalendarEventSummary[]): Record<string, ShadowEvent | null> {
-  return Object.fromEntries(events.map((event) => [event.id, event.status === CANCELLED_EVENT_STATUS ? null : toShadowEvent(event)]));
+ *  `null` for a cancelled one so a recreate cannot resume from a dead baseline.
+ *
+ *  An event whose record the push could not send is left OUT, and that omission
+ *  is load-bearing. Advancing its baseline to Google's new value while the record
+ *  keeps the local one would make the next push read a plain one-sided edit —
+ *  no conflict to detect any more — and quietly overwrite Google. Held back, the
+ *  baseline stays older than both sides, so the conflict keeps being reported
+ *  until someone resolves it (#2620). */
+export function shadowUpdates(events: readonly CalendarEventSummary[], unpushed: ReadonlySet<string> = new Set()): Record<string, ShadowEvent | null> {
+  const carried = pullableEvents(events, unpushed);
+  return Object.fromEntries(carried.map((event) => [event.id, event.status === CANCELLED_EVENT_STATUS ? null : toShadowEvent(event)]));
 }
 
 /** Save the window's token unless every collection that consumed it was deleted
@@ -293,9 +278,10 @@ async function applyEventsToCollection(
   collection: LoadedCollection,
   events: readonly CalendarEventSummary[],
   workspaceRoot: string,
+  unpushed: ReadonlySet<string>,
 ): Promise<CalendarCollectionSyncResult> {
   const outcomes: ApplyOutcome[] = [];
-  for (const event of events) {
+  for (const event of pullableEvents(events, unpushed)) {
     outcomes.push(await applyEvent(collection, event, workspaceRoot));
   }
   return {

@@ -29,7 +29,7 @@ import {
   type UpdateCalendarEventInput,
 } from "./calendar.js";
 import { loadCalendarShadow, saveCalendarShadow, toShadowEvent, type ShadowEvent } from "./calendarPushState.js";
-import { withCalendarLock } from "./collectionSync.js";
+import { withCalendarLock } from "./calendarLock.js";
 import { toGoogleEventTime } from "./pushDateTime.js";
 import {
   bySourceField,
@@ -80,6 +80,15 @@ export interface CalendarCollectionPushResult {
   /** Records that cannot be pushed as they stand, each with the reason. */
   skipped: string[];
   errors: string[];
+  /** Records whose local edit did NOT reach Google and would be destroyed by
+   *  the pull that follows an automatic push (#2620).
+   *
+   *  Only the two states where overwriting loses work with nowhere to recover
+   *  it from: a both-sides conflict, and an unexpected failure. A `skipped`
+   *  record is deliberately absent — several of its reasons (an id already
+   *  taken in Google, an unmappable span) are recovered BY letting the pull
+   *  write, so protecting them would stall the collection instead. */
+  unpushedIds: string[];
 }
 
 export type CalendarPushOutcome =
@@ -157,6 +166,8 @@ type PushOutcome =
   | { kind: "unchanged"; event?: CalendarEventSummary }
   | { kind: "skipped"; message: string }
   | { kind: "error"; message: string };
+
+export type PushOutcomeKind = PushOutcome["kind"];
 
 const localValue = (ctx: PushContext, record: CollectionItem, source: PushableSourceField): unknown => {
   const field = ctx.bySource[source];
@@ -326,7 +337,22 @@ function pushedShadow(outcomes: readonly PushOutcome[]): Record<string, ShadowEv
   return Object.fromEntries(written.map((event) => [event.id, toShadowEvent(event)]));
 }
 
-function tally(slug: string, outcomes: readonly PushOutcome[], localDeletes: number): CalendarCollectionPushResult {
+/** One record's push, kept with the id so the pull can be told which records to
+ *  leave alone. */
+interface PushAttempt {
+  eventId: string;
+  outcome: PushOutcome;
+}
+
+/** See `unpushedIds` on the result for why `skipped` is not in this set. */
+const UNPUSHED_KINDS: readonly PushOutcome["kind"][] = ["conflict", "error"];
+
+/** Whether this outcome leaves a local edit that only exists locally, so the
+ *  pull must not overwrite the record and the baseline must not advance. */
+export const isUnpushed = (kind: PushOutcomeKind): boolean => UNPUSHED_KINDS.includes(kind);
+
+function tally(slug: string, attempts: readonly PushAttempt[], localDeletes: number): CalendarCollectionPushResult {
+  const outcomes = attempts.map((attempt) => attempt.outcome);
   const count = (kind: PushOutcome["kind"]): number => outcomes.filter((outcome) => outcome.kind === kind).length;
   return {
     slug,
@@ -336,10 +362,17 @@ function tally(slug: string, outcomes: readonly PushOutcome[], localDeletes: num
     localDeletes,
     skipped: outcomes.flatMap((outcome) => (outcome.kind === "skipped" ? [outcome.message] : [])),
     errors: outcomes.flatMap((outcome) => (outcome.kind === "error" ? [outcome.message] : [])),
+    unpushedIds: attempts.filter((attempt) => isUnpushed(attempt.outcome.kind)).map((attempt) => attempt.eventId),
   };
 }
 
-async function pushNow(collection: LoadedCollection, workspaceRoot: string, deps: CalendarPushDeps): Promise<CalendarPushOutcome> {
+/** Push one collection WITHOUT taking the calendar lock.
+ *
+ *  The caller must already hold it. The scheduled push→pull cycle
+ *  (`collectionSync.ts`) runs inside the lock it took for the pull, and the lock
+ *  is not reentrant — going through `pushCalendarForCollection` there would make
+ *  the sync wait on itself forever. */
+export async function pushCollectionNow(collection: LoadedCollection, workspaceRoot: string, deps: CalendarPushDeps = liveDeps): Promise<CalendarPushOutcome> {
   const { schema, slug } = collection;
   const calendarId = schema.googleCalendar?.calendarId;
   const accessToken = await deps.accessToken();
@@ -360,10 +393,11 @@ async function pushNow(collection: LoadedCollection, workspaceRoot: string, deps
     shadow,
   };
 
-  const outcomes: PushOutcome[] = [];
+  const attempts: PushAttempt[] = [];
   for (const record of records) {
-    const outcome = await pushRecord(ctx, fieldText(record[schema.primaryKey]), record);
-    outcomes.push(outcome);
+    const eventId = fieldText(record[schema.primaryKey]);
+    const outcome = await pushRecord(ctx, eventId, record);
+    attempts.push({ eventId, outcome });
     // Persisted per record, not once at the end: an interruption after a
     // successful write would otherwise leave that event with no baseline, and
     // the next push would retry it as a create and hit Google's duplicate-id
@@ -374,7 +408,7 @@ async function pushNow(collection: LoadedCollection, workspaceRoot: string, deps
     shadow,
     records.map((record) => fieldText(record[schema.primaryKey])),
   );
-  const result = tally(slug, outcomes, deletes.length);
+  const result = tally(slug, attempts, deletes.length);
   if (result.errors.length > 0) log.warn("google", "calendar push finished with errors", { slug, errors: result.errors.length });
   return { kind: "pushed", result };
 }
@@ -390,7 +424,7 @@ export async function pushCalendarForCollection(slug: string, workspaceRoot: str
     const collection = await deps.findCollection(slug, workspaceRoot);
     if (collection === null) return { kind: "not-a-calendar" };
     if (!(await deps.isLinked())) return { kind: "not-linked" };
-    return await withCalendarLock(collection.schema.googleCalendar?.calendarId, () => pushNow(collection, workspaceRoot, deps));
+    return await withCalendarLock(collection.schema.googleCalendar?.calendarId, () => pushCollectionNow(collection, workspaceRoot, deps));
   } catch (error) {
     // A throw here is a setup failure (revoked grant, Calendar API unreachable,
     // unreadable workspace), not a per-record one. Reported in the same typed
