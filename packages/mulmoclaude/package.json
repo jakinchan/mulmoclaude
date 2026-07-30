@@ -64,7 +64,7 @@
     "mammoth": "^1.12.0",
     "marked": "^18.0.7",
     "mulmocast": "^2.9.1",
-    "node-html-parser": "^9",
+    "node-html-parser": "^9.0.1",
     "puppeteer": "^25.4.0",
     "sharp": "^0.35.3",
     "socket.io": "^4.8.3",
