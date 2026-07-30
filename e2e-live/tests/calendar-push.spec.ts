@@ -2,9 +2,11 @@ import { expect, test } from "@playwright/test";
 
 import {
   createCalendarEvent,
+  deleteCalendarEvent,
   getCalendar,
   getCalendarEvent,
   getGoogleAccessToken,
+  isGoogleApiError,
   listCalendars,
   pushCalendarForCollection,
   toGoogleEventTime,
@@ -19,7 +21,6 @@ import {
 import {
   calendarIdFrom,
   createCalendarCollectionWorkspace,
-  deleteEventQuietly,
   liveCalendarBlocker,
   missingCalendarReason,
   newEventId,
@@ -69,6 +70,23 @@ const MOVED_END = "2027-03-19";
 
 const SUMMARY = "e2e-live push probe";
 const EDITED_SUMMARY = "e2e-live push probe (edited)";
+
+const HTTP_NOT_FOUND = 404;
+const HTTP_GONE = 410;
+/** An event that is already gone: teardown's success case, not a failure. */
+const ALREADY_GONE_STATUSES: readonly number[] = [HTTP_NOT_FOUND, HTTP_GONE];
+
+/** Best-effort teardown. A cleanup failure is recorded as an annotation instead
+ *  of thrown: raising here would replace the real assertion failure with a
+ *  delete error, and the leftover event still needs to be visible somewhere. */
+async function deleteEventQuietly(accessToken: string, calendarId: string, eventId: string): Promise<void> {
+  try {
+    await deleteCalendarEvent(accessToken, { calendarId, eventId });
+  } catch (error) {
+    if (isGoogleApiError(error) && ALREADY_GONE_STATUSES.includes(error.status)) return;
+    test.info().annotations.push({ type: "cleanup-failed", description: `${calendarId}/${eventId}: ${String(error)}` });
+  }
+}
 
 /** Narrow `toGoogleEventTime`'s nullable result at the call site — a null here
  *  means the push would have refused the record, which is a test-setup bug. */

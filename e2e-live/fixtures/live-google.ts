@@ -9,16 +9,20 @@
 // `calendar.events`, not the full `calendar` scope, so a throwaway calendar has
 // to be made by a human in Google's UI and handed over by id through the env
 // vars below. EVENTS are created and removed per test.
+//
+// Deliberately free of `@playwright/test`: the seeded workspace is a contract
+// with `@mulmoclaude/core/collection/server`, and without a Google grant the
+// live spec never runs — so that contract would rot unwatched. Staying
+// runner-agnostic lets `test/e2e-live/test_calendarCollectionWorkspace.ts` pin
+// it under plain `yarn test`.
 
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { test } from "@playwright/test";
-
 import { configureCollectionHost } from "@mulmoclaude/core/collection/server";
-import { deleteCalendarEvent, isGoogleApiError, loadGoogleTokens } from "@mulmoclaude/core/google";
+import { isGoogleApiError, loadGoogleTokens } from "@mulmoclaude/core/google";
 
 /** A calendar the linked account may write to. These specs own its events, so
  *  point it at a throwaway calendar — never a real one. */
@@ -68,23 +72,6 @@ const CLIENT_EVENT_ID_LENGTH = 8;
 
 export const newEventId = (): string => randomUUID().slice(0, CLIENT_EVENT_ID_LENGTH);
 
-const HTTP_NOT_FOUND = 404;
-const HTTP_GONE = 410;
-/** An event that is already gone: teardown's success case, not a failure. */
-const ALREADY_GONE_STATUSES: readonly number[] = [HTTP_NOT_FOUND, HTTP_GONE];
-
-/** Best-effort teardown. A cleanup failure is recorded as an annotation instead
- *  of thrown: raising here would replace the real assertion failure with a
- *  delete error, and the leftover event still needs to be visible somewhere. */
-export async function deleteEventQuietly(accessToken: string, calendarId: string, eventId: string): Promise<void> {
-  try {
-    await deleteCalendarEvent(accessToken, { calendarId, eventId });
-  } catch (error) {
-    if (isGoogleApiError(error) && ALREADY_GONE_STATUSES.includes(error.status)) return;
-    test.info().annotations.push({ type: "cleanup-failed", description: `${calendarId}/${eventId}: ${String(error)}` });
-  }
-}
-
 /** The `GoogleApiError` status a call answers with, or null when it resolved.
  *
  *  #2602 is mostly a question about STATUS CODES (409 vs 400, 412 vs 409), and
@@ -110,10 +97,11 @@ const DATA_ROOT_SEGMENTS = ["data", "collections"];
 const ITEMS_DIR = "items";
 const SLUG_NONCE_LENGTH = 6;
 
-// The schema declares its dataPath workspace-relative with forward slashes (the
-// on-disk form every other schema uses); `path.normalize` handles the Windows
-// separator on the way in.
-const dataPathFor = (slug: string): string => [...DATA_ROOT_SEGMENTS, slug, ITEMS_DIR].join("/");
+// The schema's `dataPath` is a SERIALIZED value, so it stays POSIX-separated on
+// every host (the on-disk form every other schema uses); `path.normalize`
+// handles the Windows separator when the engine reads it back. `dataDirFor`
+// below is a real filesystem path and so uses the native join.
+const dataPathFor = (slug: string): string => path.posix.join(...DATA_ROOT_SEGMENTS, slug, ITEMS_DIR);
 const dataDirFor = (root: string, slug: string): string => path.join(root, ...DATA_ROOT_SEGMENTS, slug, ITEMS_DIR);
 
 const schemaFor = (slug: string, calendarId: string): Record<string, unknown> => ({
