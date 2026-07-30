@@ -40,9 +40,10 @@ interface SpyKit {
   spyQueue: <R>(name: string, results: [R, ...R[]]) => (...args: unknown[]) => Promise<R>;
 }
 
-const createStub = (buildOverrides: (kit: SpyKit) => Partial<GoogleApi> = () => ({})) => {
+/** Spies that append to one shared call log, so a test can read the whole
+ *  conversation with the engine in order. */
+const createRecorder = () => {
   const calls: Call[] = [];
-  const logged: Call[] = [];
   const spy =
     <R>(name: string, result: R) =>
     async (...args: unknown[]): Promise<R> => {
@@ -53,43 +54,52 @@ const createStub = (buildOverrides: (kit: SpyKit) => Partial<GoogleApi> = () => 
     const remaining = [...results];
     return async (...args: unknown[]): Promise<R> => {
       calls.push([name, ...args]);
-      return remaining.length > 1 ? (remaining.shift() ?? results[0]) : remaining[0];
+      const [next] = remaining;
+      if (remaining.length > 1) remaining.shift();
+      return next;
     };
   };
-  const api: GoogleApi = {
-    getGoogleAccessToken: spy("getGoogleAccessToken", ACCESS_TOKEN),
-    loadGoogleTokens: spy("loadGoogleTokens", { refresh_token: "stored-refresh" }),
-    clientSecretPresence: spy<ClientSecretPresence>("clientSecretPresence", "found"),
-    listCalendars: spy("listCalendars", []),
-    getCalendarColors: spy("getCalendarColors", { event: {}, calendar: {} }),
-    listCalendarEvents: spy("listCalendarEvents", [EVENT]),
-    syncCalendarEvents: spy("syncCalendarEvents", SYNC_RESULT),
-    loadCalendarSyncToken: spy("loadCalendarSyncToken", null),
-    saveCalendarSyncToken: spy("saveCalendarSyncToken", undefined),
-    clearCalendarSyncToken: spy("clearCalendarSyncToken", undefined),
-    createCalendarEvent: spy("createCalendarEvent", EVENT),
-    updateCalendarEvent: spy("updateCalendarEvent", EVENT),
-    deleteCalendarEvent: spy("deleteCalendarEvent", undefined),
-    listTaskLists: spy("listTaskLists", [TASK_LIST]),
-    listTasks: spy("listTasks", [TASK]),
-    createTask: spy("createTask", TASK),
-    updateTask: spy("updateTask", TASK),
-    completeTask: spy("completeTask", TASK),
-    uncompleteTask: spy("uncompleteTask", TASK),
-    deleteTask: spy("deleteTask", undefined),
-    listDriveFiles: spy("listDriveFiles", [DRIVE_FILE]),
-    createDriveFile: spy("createDriveFile", DRIVE_FILE),
-    readDriveFile: spy("readDriveFile", { file: DRIVE_FILE, content: "hello" }),
-    ...buildOverrides({ spy, spyQueue }),
-  };
-  const context: GoogleDispatchContext = {
-    api,
-    log: {
-      info: (msg: string, data?: object) => {
-        logged.push([msg, data]);
-      },
+  return { calls, spy, spyQueue };
+};
+
+/** A linked account whose every call succeeds. Tests override only the one
+ *  answer they are about. */
+const linkedAccountApi = ({ spy }: SpyKit): GoogleApi => ({
+  getGoogleAccessToken: spy("getGoogleAccessToken", ACCESS_TOKEN),
+  loadGoogleTokens: spy("loadGoogleTokens", { refresh_token: "stored-refresh" }),
+  clientSecretPresence: spy<ClientSecretPresence>("clientSecretPresence", "found"),
+  listCalendars: spy("listCalendars", []),
+  getCalendarColors: spy("getCalendarColors", { event: {}, calendar: {} }),
+  listCalendarEvents: spy("listCalendarEvents", [EVENT]),
+  syncCalendarEvents: spy("syncCalendarEvents", SYNC_RESULT),
+  loadCalendarSyncToken: spy("loadCalendarSyncToken", null),
+  saveCalendarSyncToken: spy("saveCalendarSyncToken", undefined),
+  clearCalendarSyncToken: spy("clearCalendarSyncToken", undefined),
+  createCalendarEvent: spy("createCalendarEvent", EVENT),
+  updateCalendarEvent: spy("updateCalendarEvent", EVENT),
+  deleteCalendarEvent: spy("deleteCalendarEvent", undefined),
+  listTaskLists: spy("listTaskLists", [TASK_LIST]),
+  listTasks: spy("listTasks", [TASK]),
+  createTask: spy("createTask", TASK),
+  updateTask: spy("updateTask", TASK),
+  completeTask: spy("completeTask", TASK),
+  uncompleteTask: spy("uncompleteTask", TASK),
+  deleteTask: spy("deleteTask", undefined),
+  listDriveFiles: spy("listDriveFiles", [DRIVE_FILE]),
+  createDriveFile: spy("createDriveFile", DRIVE_FILE),
+  readDriveFile: spy("readDriveFile", { file: DRIVE_FILE, content: "hello" }),
+});
+
+const createStub = (buildOverrides: (kit: SpyKit) => Partial<GoogleApi> = () => ({})) => {
+  const { calls, spy, spyQueue } = createRecorder();
+  const logged: Call[] = [];
+  const api: GoogleApi = { ...linkedAccountApi({ spy, spyQueue }), ...buildOverrides({ spy, spyQueue }) };
+  const log = {
+    info: (msg: string, data?: object) => {
+      logged.push([msg, data]);
     },
   };
+  const context: GoogleDispatchContext = { api, log };
   return { context, calls, logged };
 };
 
@@ -254,6 +264,16 @@ describe("google dispatch results", () => {
     });
   });
 
+  it("passes an explicit maxResults through instead of the default", async () => {
+    // The table above only covers the omitted case, which a handler that
+    // ignored the argument entirely would also satisfy.
+    const { calls } = await dispatch({ kind: "calendarListEvents", maxResults: 3 });
+    assert.deepEqual(
+      calls.find((call) => call[0] === "listCalendarEvents"),
+      ["listCalendarEvents", ACCESS_TOKEN, { calendarId: undefined, timeMin: undefined, maxResults: 3 }],
+    );
+  });
+
   it("returns the file and its content for driveRead", async () => {
     const { result } = await dispatch({ kind: "driveRead", fileId: "file-1" });
     assert.deepEqual(result, { ok: true, file: DRIVE_FILE, content: "hello" });
@@ -325,6 +345,12 @@ describe("calendarSync", () => {
       calls.map((call) => call[0]),
       ["getGoogleAccessToken", "loadCalendarSyncToken", "syncCalendarEvents", "clearCalendarSyncToken", "syncCalendarEvents", "saveCalendarSyncToken"],
     );
+    // The retry must carry no token at all. Asserting only the call order
+    // would still pass if it re-sent the expired one — which is the whole
+    // failure this branch exists to avoid.
+    const [firstSync, retrySync] = calls.filter((call) => call[0] === "syncCalendarEvents");
+    assert.deepEqual(firstSync, ["syncCalendarEvents", ACCESS_TOKEN, { calendarId: undefined, syncToken: "expired-token" }]);
+    assert.deepEqual(retrySync, ["syncCalendarEvents", ACCESS_TOKEN, { calendarId: undefined }]);
     // The retry is a full sync, so it is not incremental even though a token
     // was stored — and the caller is told the token expired.
     assert.deepEqual(result, { ok: true, incremental: false, changed: 1, cancelled: 0, events: [EVENT], truncated: false, expiredToken: true });
