@@ -522,7 +522,9 @@ A stale CLI here surfaces as `handlePermission not found` (versions before 2.1.2
 | `./src`          | `/app/src`                | ro               |
 | `<workspace>`    | `/home/node/mulmoclaude`  | rw               |
 | `~/.claude`      | `/home/node/.claude`      | rw (credentials) |
-| `~/.claude.json` | `/home/node/.claude.json` | ro               |
+| `~/.claude.json` | `/home/node/.claude.json` | rw               |
+
+The last two rows' host paths come from `server/utils/claudeConfigPath.ts`, so `CLAUDE_CONFIG_DIR` moves BOTH — `.claude.json` lives inside that directory, not beside it (#2654). The container side never moves: `CLAUDE_CONFIG_*` is not forwarded with `-e`, so the CLI inside finds both at its own defaults.
 
 **Path translation**: `resolveMcpConfigPaths()` writes the per-session MCP config to `<workspace>/.mulmoclaude/mcp-<id>.json` on the host and passes the container path to `--mcp-config`.
 
