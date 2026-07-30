@@ -90,17 +90,17 @@ export function parseRoleFile(fileName: string, raw: string): RoleFileOutcome {
 export function fileNameMismatchProblems({ fileName, role }: LoadedRole): RoleFileProblem[] {
   const baseName = path.basename(fileName, ROLE_FILE_EXT);
   if (baseName === role.id) return [];
-  const message = `role id does not match its file name, so the listed role cannot be updated or deleted from the app — rename the file to "${role.id}${ROLE_FILE_EXT}" or change the id to "${baseName}"`;
+  const message = `role id does not match its file name — delete / update take the file name, not the id shown in the list; rename the file to "${role.id}${ROLE_FILE_EXT}" or change the id to "${baseName}"`;
   return [{ message, data: { fileName, id: role.id } }];
 }
 
-// `getRole` takes the first match and the order is whatever readdir gave, so which of two
-// files declaring one id wins is not something the user chose.
+// Both files load and both reach the list; it is `getRole` that takes the first match, in
+// whatever order readdir gave — so which one the id resolves to is not the user's choice.
 export function duplicateIdProblems(loaded: readonly LoadedRole[]): RoleFileProblem[] {
   return [...groupFileNamesById(loaded).entries()]
     .filter(([, fileNames]) => fileNames.length > 1)
     .map(([roleId, [used, ...ignored]]) => ({
-      message: "more than one role file declares the same id — only the one loaded first is used, give each role a distinct id",
+      message: "more than one role file declares the same id — the id resolves to the one loaded first, give each role a distinct id",
       data: { id: roleId, used, ignored },
     }));
 }

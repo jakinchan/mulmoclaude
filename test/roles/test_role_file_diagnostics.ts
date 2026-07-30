@@ -24,6 +24,7 @@ process.env.MULMOCLAUDE_WORKSPACE_PATH = workspaceRoot;
 
 const { WORKSPACE_DIRS } = await import("../../server/workspace/paths.js");
 const { parseRoleFile, loadCustomRoles, fileNameMismatchProblems, duplicateIdProblems } = await import("../../server/workspace/roles.js");
+const { roleExists } = await import("../../server/utils/files/roles-io.js");
 
 const rolesDir = path.join(workspaceRoot, WORKSPACE_DIRS.roles);
 
@@ -250,6 +251,15 @@ describe("loadCustomRoles diagnostics", () => {
     assert.match(out, /designer\.json/);
     assert.match(out, /myrole/);
     assert.match(out, /does not match its file name/);
+  });
+
+  // What the warning and the help doc tell the user to do has to be true: the listed id
+  // is not a handle, the file name still is.
+  it("keeps the mismatched role addressable by its file name, not by its listed id", async () => {
+    await place("designer.json", JSON.stringify({ ...VALID_ROLE, id: "myrole" }));
+
+    assert.equal(roleExists("myrole"), false);
+    assert.equal(roleExists("designer"), true);
   });
 
   // Which of the two wins is readdir order, so the duplicate line has to name both;
