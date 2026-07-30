@@ -82,9 +82,13 @@ MulmoTerminal 側が `?.trim() ||` で同じ扱いをしており、issue が正
   - どちらも未設定 → `<home>/.claude.json` (既定の挙動が変わっていないこと)
   - 空白だけの override → 未設定として扱われ、相対パスにならないこと
   - `claudeConfigDir()` / `claudeCredentialsPath()` / `claudeSkillsDir()` の空白扱い
-- `test/agent/test_agent_config.ts` に追加: `CLAUDE_CONFIG_DIR` 相当を渡したとき
+- `test/utils/test_claudeConfigEnv.ts` を新規追加: `CLAUDE_CONFIG_DIR` を実際に立てたとき
   Docker の `-v` の両方 (`.claude` と `.claude.json`) が**同じディレクトリ配下**を指すこと。
-  helper 単体のテストでは「2 つのマウントが食い違わない」という本 issue の核心を assert できない。
+  helper 単体のテストでは「2 つのマウントが食い違わない」という本 issue の核心を assert できない
+  (`server/system/env.ts` が module load 時に `process.env` を snapshot するため、env-set 経路は
+  新しいインタプリタからしか届かない)。`test/agent/test_agent_config.ts` の既存の
+  「mounts the .claude credentials from the home dir」は helper の戻り値が `-v` に verbatim で
+  載ることを見ているだけなので、こちらは据え置き。
 - 修正を revert するとこの新テストが red になることを確認する (green の証明力を担保)。
 - `docs/developer.md` の env 表 (`CLAUDE_CONFIG_DIR` / `CLAUDE_CONFIG_JSON` の行) を実挙動に合わせる。
 - `yarn format` / `yarn lint` / `yarn typecheck` / `yarn build` / `yarn test`

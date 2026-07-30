@@ -14,20 +14,23 @@ import { claudeConfigDir, claudeConfigJson, claudeCredentialsPath, claudeSkillsD
 // value lands verbatim in the `-v` arg, which holds regardless of
 // whether the value came from env or the homedir fallback.
 //
-// The env vars reaching those defaults at all is `test_claudeConfigEnv.ts`,
-// which needs child processes for it.
+// What this file CANNOT reach is the env snapshot itself, so nothing here
+// proves the two helpers agree once `CLAUDE_CONFIG_DIR` is genuinely set —
+// that needs a fresh interpreter and lives in `test_claudeConfigEnv.ts`.
 
 const FAKE_HOME = "/fake/home/user";
 const ENV_DIR = "/sandboxed/claude-config";
 const ENV_JSON = "/sandboxed/claude.json";
-// Every case passes both overrides explicitly, so a developer running the
-// suite with a relocated Claude install can't turn a default-behaviour
-// assertion red.
-const NO_OVERRIDE = undefined;
+// A BLANK string, not `undefined`: a default parameter fires on an explicitly
+// passed `undefined` too, so `claudeConfigJson(FAKE_HOME, undefined, undefined)`
+// still reads the env snapshot and a developer with a relocated Claude install
+// would see `<their dir>/.claude.json` here. `definedPath()` maps blank to
+// unset, which reaches the same branch without consulting env at all.
+const NO_OVERRIDE = "";
 const BLANK_OVERRIDES = ["", "   "];
 
 describe("claudeConfigDir", () => {
-  it("defaults to <home>/.claude when override is undefined", () => {
+  it("defaults to <home>/.claude when no override is set", () => {
     assert.equal(claudeConfigDir(FAKE_HOME, NO_OVERRIDE), join(FAKE_HOME, ".claude"));
   });
 
@@ -83,30 +86,36 @@ describe("claudeConfigJson", () => {
   });
 });
 
+// Both of these derive from `claudeConfigDir`, so `definedPath()` normalization
+// has to reach them too — the blank cases below are what says so.
 describe("claudeCredentialsPath", () => {
   it("derives <claudeConfigDir>/.credentials.json from the default dir", () => {
-    assert.equal(claudeCredentialsPath(FAKE_HOME), join(FAKE_HOME, ".claude", ".credentials.json"));
+    assert.equal(claudeCredentialsPath(FAKE_HOME, NO_OVERRIDE), join(FAKE_HOME, ".claude", ".credentials.json"));
   });
 
   it("derives <override>/.credentials.json when an override dir is provided", () => {
     assert.equal(claudeCredentialsPath(FAKE_HOME, ENV_DIR), join(ENV_DIR, ".credentials.json"));
   });
 
-  it("falls back to the home dir for a blank override dir", () => {
-    assert.equal(claudeCredentialsPath(FAKE_HOME, ""), join(FAKE_HOME, ".claude", ".credentials.json"));
+  BLANK_OVERRIDES.forEach((blank) => {
+    it(`falls back to the home dir for a blank override dir (${JSON.stringify(blank)})`, () => {
+      assert.equal(claudeCredentialsPath(FAKE_HOME, blank), join(FAKE_HOME, ".claude", ".credentials.json"));
+    });
   });
 });
 
 describe("claudeSkillsDir", () => {
   it("derives <claudeConfigDir>/skills from the default dir", () => {
-    assert.equal(claudeSkillsDir(FAKE_HOME), join(FAKE_HOME, ".claude", "skills"));
+    assert.equal(claudeSkillsDir(FAKE_HOME, NO_OVERRIDE), join(FAKE_HOME, ".claude", "skills"));
   });
 
   it("derives <override>/skills when an override dir is provided", () => {
     assert.equal(claudeSkillsDir(FAKE_HOME, ENV_DIR), join(ENV_DIR, "skills"));
   });
 
-  it("falls back to the home dir for a blank override dir", () => {
-    assert.equal(claudeSkillsDir(FAKE_HOME, ""), join(FAKE_HOME, ".claude", "skills"));
+  BLANK_OVERRIDES.forEach((blank) => {
+    it(`falls back to the home dir for a blank override dir (${JSON.stringify(blank)})`, () => {
+      assert.equal(claudeSkillsDir(FAKE_HOME, blank), join(FAKE_HOME, ".claude", "skills"));
+    });
   });
 });

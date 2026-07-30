@@ -59,8 +59,8 @@ function isResolvedPaths(value: unknown): value is ResolvedPaths {
 // `dockerBindMountArgs` is included on purpose: it is the call site that turns
 // the two helpers into mounts, and it passes only `homeDir` — so a future edit
 // that hands one helper an override and not the other shows up here.
-function resolveInChild(claudeEnv: Record<string, string>): ResolvedPaths {
-  const script = `
+function probeScript(): string {
+  return `
     const { claudeConfigDir, claudeConfigJson } = await import(${JSON.stringify(CONFIG_PATH_URL)});
     const { dockerBindMountArgs } = await import(${JSON.stringify(AGENT_CONFIG_URL)});
     const mounts = dockerBindMountArgs({
@@ -78,15 +78,23 @@ function resolveInChild(claudeEnv: Record<string, string>): ResolvedPaths {
       jsonMount: mounts.find((arg) => arg.endsWith(":/home/node/.claude.json")),
     }));
   `;
-  // Both vars are removed before the case's own values go in, so a developer who
-  // has genuinely relocated their Claude install cannot leak into the
-  // "neither is set" case.
-  const childEnv = { ...process.env };
-  delete childEnv.CLAUDE_CONFIG_DIR;
-  delete childEnv.CLAUDE_CONFIG_JSON;
-  const stdout = execFileSync(process.execPath, ["--import", TSX_LOADER_URL, "--input-type=module", "-e", script], {
+}
+
+// Both vars are removed before the case's own values go in, so a developer who
+// has genuinely relocated their Claude install cannot leak into the
+// "neither is set" case.
+function childEnvWith(claudeEnv: Record<string, string>): Record<string, string | undefined> {
+  const inherited = { ...process.env };
+  delete inherited.CLAUDE_CONFIG_DIR;
+  delete inherited.CLAUDE_CONFIG_JSON;
+  return { ...inherited, ...claudeEnv };
+}
+
+function resolveInChild(claudeEnv: Record<string, string>): ResolvedPaths {
+  const args = ["--import", TSX_LOADER_URL, "--input-type=module", "-e", probeScript()];
+  const stdout = execFileSync(process.execPath, args, {
     cwd: repoRoot,
-    env: { ...childEnv, ...claudeEnv },
+    env: childEnvWith(claudeEnv),
     encoding: "utf-8",
   });
   const parsed: unknown = JSON.parse(stdout);
