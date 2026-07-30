@@ -46,6 +46,13 @@ Output knobs:
   running per-category skills (see `test:e2e:live:wiki` etc. in
   `package.json`).
 
+**Exception — live third-party API specs.** `calendar-push.spec.ts`
+drives no browser and no LLM: it calls
+`@mulmoclaude/core/google` directly and asserts on what **Google**
+answers. It needs a linked Google account plus a throwaway calendar
+id in the env, and skips itself with a setup sentence when either
+is missing (see "Specs that need a live Google account" below).
+
 ## Two backends behind the agent
 
 The chat flow goes through an `LLMBackend` (see
@@ -171,6 +178,45 @@ Bypassing the handler defeats the canary value of the test.
 For unit tests that want to drive a different response without
 patching the prompt, use the exported `setFakeResponse(gen)` /
 `resetFakeResponse()` API (pair in `beforeEach` / `afterEach`).
+
+## Specs that need a live Google account
+
+`calendar-push.spec.ts` (#2602) verifies the Collection → Google
+Calendar push against a real calendar. It is a third category
+alongside "real LLM" and "fake-echo": no agent is involved, so
+`MULMOCLAUDE_FAKE_AGENT` and `E2E_LIVE_NO_LLM` are irrelevant to
+it — what it needs is an OAuth grant.
+
+```bash
+export E2E_LIVE_GOOGLE_CALENDAR_ID='…@group.calendar.google.com'
+yarn test:e2e:live:calendar
+```
+
+| Variable | Required | What to point it at |
+|---|---|---|
+| `E2E_LIVE_GOOGLE_CALENDAR_ID` | yes | A **throwaway** calendar the linked account owns. The spec creates and deletes events on it, and refuses to run against `primary`. |
+| `E2E_LIVE_GOOGLE_READONLY_CALENDAR_ID` | no | A calendar the account can read but not write — a subscribed holiday calendar is the easiest. Unlocks the 403 / read-only tests. |
+| `E2E_LIVE_GOOGLE_UNLISTED_CALENDAR_ID` | no | A calendar shared with write access that is **not** in the account's calendar list. Needs a second account to share one. |
+
+Three things to know before extending it:
+
+- **Its script skips `ensure:playwright-browsers`**, unlike every other
+  `test:e2e:live:*`. No test here requests `page` / `context` /
+  `browser`, and Playwright launches a browser only when one of those
+  fixtures is used — verified by running the spec with
+  `PLAYWRIGHT_BROWSERS_PATH` pointed at an empty directory. Add the
+  install step back the moment a test in this file needs a browser.
+
+- **The spec cannot create its own calendar.** The app's grant is
+  `calendar.events`, not the full `calendar` scope, so calendars are
+  a human setup step. Only events are created and torn down.
+- **A missing optional variable skips exactly one test**, with a
+  sentence naming what to set up. Never widen a skip to the whole
+  describe — a silently skipped suite reads the same as a passing
+  one, which is the failure mode #2602 was filed about.
+
+It is deliberately **not** in the `e2e_live_no_llm` matrix: CI holds
+no Google grant, so every run would skip.
 
 ## CI matrix
 

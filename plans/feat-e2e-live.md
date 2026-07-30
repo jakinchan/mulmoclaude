@@ -216,6 +216,14 @@ e2e-live/
 | L-FRESH-SANDBOX-BUILD | fresh-user | 新規ユーザー: sandbox image 不在から auto-build 経由で起動 | 未実装 |
 | L-FRESH-PRESET-SKILL | fresh-user | 新規ユーザー: preset skill が catalog → `.claude/skills/` に bridge mirror | 未実装 |
 | L-HAPPY-TOUR | happy-tour | 主要 View / route を一通り踏んで 「壊れていない」 を確認する正常系 sweep | ✅ 実装済 (happy-tour.spec.ts) |
+| L-GCAL-01〜08 | google | Collection → Google Calendar push を実カレンダーで検証 (#2602) | ✅ 実装済 (calendar-push.spec.ts) |
+
+> `L-GCAL-*` は LLM もブラウザも使わない第三のカテゴリ。 実 Google の OAuth grant と
+> 使い捨てカレンダー id (`E2E_LIVE_GOOGLE_CALENDAR_ID`) が要り、 無ければ skip する。
+> `MULMOCLAUDE_FAKE_AGENT` / `E2E_LIVE_NO_LLM` とは無関係なので no-LLM matrix にも入れない。
+> 設計は [`plans/test-2602-calendar-push-live.md`](test-2602-calendar-push-live.md)、
+> 運用は [`docs/e2e-live-testing.md`](../docs/e2e-live-testing.md) の
+> 「Specs that need a live Google account」。
 
 ## 未実装シナリオ詳細
 
