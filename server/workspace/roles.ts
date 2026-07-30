@@ -85,7 +85,7 @@ export function parseRoleFile(fileName: string, raw: string): RoleFileOutcome {
 }
 
 // The list shows the `id` from inside the file, but roles-io keys delete / update on the
-// file NAME — so a mismatch leaves the role visible and untouchable from the app. Making
+// file NAME — so on a mismatch the id the user can see is not the one that works. Making
 // one of the two authoritative would drop roles that currently work in existing
 // workspaces, so this only says it (#2656).
 export function fileNameMismatchProblems({ fileName, role }: LoadedRole): RoleFileProblem[] {
