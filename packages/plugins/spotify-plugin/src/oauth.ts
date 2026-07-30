@@ -25,6 +25,21 @@
 
 import type { PendingAuthorization } from "./types";
 
+/** Scope set requested at OAuth time. Two extra scopes were added
+ *  in PR 3 for Player Controls: `user-read-playback-state` (read
+ *  active device + playback state) and `user-modify-playback-state`
+ *  (play/pause/next/seek/volume/transfer). Existing users from
+ *  PR 1/2 will hit `403 Insufficient client scope` on the new
+ *  player kinds and need to reconnect. */
+export const SPOTIFY_SCOPES: readonly string[] = [
+  "playlist-read-private",
+  "user-library-read",
+  "user-modify-playback-state",
+  "user-read-currently-playing",
+  "user-read-playback-state",
+  "user-read-recently-played",
+] as const;
+
 /** Maximum age before a pending authorization is considered stale.
  *  Spotify's authorize page typically redirects back within a
  *  minute; 10 minutes covers slow users without leaking entries
