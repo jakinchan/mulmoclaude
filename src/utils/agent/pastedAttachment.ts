@@ -17,7 +17,18 @@ import type { PastedFile } from "../../types/pastedFile";
 import { apiPost } from "../api";
 import { API_ROUTES } from "../../config/apiRoutes";
 
-export type ResolveResult = { ok: true; value: string } | { ok: false; error: string };
+/** A stored attachment plus the name its file had on the user's machine.
+ *  The on-disk name under `path` stays the collision-proof hex id; `filename`
+ *  is what the chat history and the LLM marker show instead (#2308). For a
+ *  server-converted upload (PPTX → PDF) the two disagree on extension by
+ *  design — `path` is the bytes that were delivered, `filename` is what the
+ *  user actually handed over. */
+export interface ResolvedAttachment {
+  path: string;
+  filename: string;
+}
+
+export type ResolveResult = { ok: true; value: ResolvedAttachment } | { ok: false; error: string };
 
 interface UploadAttachmentResponse {
   path: string;
@@ -31,5 +42,5 @@ export async function resolvePastedAttachment(file: PastedFile): Promise<Resolve
     filename: file.name,
   });
   if (!upload.ok) return { ok: false, error: upload.error };
-  return { ok: true, value: upload.data.path };
+  return { ok: true, value: { path: upload.data.path, filename: file.name } };
 }
