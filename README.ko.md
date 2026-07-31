@@ -20,9 +20,9 @@
 
 > **[How AI-Native Applications Should Be Built](MANIFEST.md)** — MulmoClaude의 아키텍처, UX, 그리고 프로토콜에 대한 주장.
 
-### 📣 업데이트 소식 / アップデート情報
+### 📣 업데이트 소식
 
-새 릴리스와 새 기능은 X에서 **일본어**로 안내합니다 — 新バージョンや新機能のお知らせは X で。
+새 릴리스와 새 기능은 X에서 **일본어**로 안내합니다.
 
 - [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci) — 릴리스 및 새 기능 안내
 - [나카지마 사토시 (@snakajima)](https://x.com/snakajima) — MulmoClaude 오너
