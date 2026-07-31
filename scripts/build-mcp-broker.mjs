@@ -42,13 +42,20 @@ async function main() {
     format: "esm",
     target: "node22",
     external: NATIVE_EXTERNALS,
-    // Bundle OUR source only; leave node_modules to be resolved at runtime.
-    // Inlining dependencies too gives a 12 MB file — a +40% increase on the
-    // published launcher (29.7 MB), to buy ~150 ms locally. At 505 KB this
-    // costs the npm package 1.7% instead. Whether the ~134 node_modules files
-    // it still resolves are cheap enough over a Windows bind mount is measured
-    // by the #2233 harness, not assumed.
-    packages: "external",
+    // Dependencies are INLINED, not left external. Tried external
+    // (`packages: "external"`) to keep the bundle at 505 KB instead of 12 MB —
+    // it dies in the container with `Cannot find package
+    // '@mulmoclaude/markdown-utils'`. The workspace packages are NTFS
+    // junctions that dangle inside the Linux container (#1946 / #1982 / #2052);
+    // the tsx path survives that via the ESM loader hook plus the
+    // `/app/pkg_modules` NODE_PATH fallback, but a bundle resolving bare
+    // specifiers from `server/build/` does not. Inlining sidesteps the whole
+    // resolver problem — that, not just speed, is why this bundles deps.
+    //
+    // Minified because that trade is then about size alone: 12 MB -> 6 MB on a
+    // 29.7 MB published launcher. Generated code nobody reads, and stack traces
+    // still carry function names.
+    minify: true,
     banner: { js: CJS_REQUIRE_SHIM },
     // Same rationale as build-hooks.mjs: an inline map's base64 churns on every
     // rebuild. The bundle is not committed, but a stable output still keeps
