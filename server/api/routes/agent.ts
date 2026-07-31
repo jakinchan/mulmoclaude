@@ -22,7 +22,7 @@ import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
 import { abortableSleep, BROKER_RECONNECT_WAIT_MS, detectRecovery, type RecoveryKind, type RetryBudgets } from "../../agent/retryPolicy.js";
 import { splitSkillAndReply, updatePendingSkillOnToolCall, updatePendingSkillOnToolCallResult, type PendingSkill } from "../../agent/skillEvents.js";
-import { decorateMessageForCli } from "../../agent/messageDecorate.js";
+import { decorateMessageForCli, type AttachedFile } from "../../agent/messageDecorate.js";
 import { getOrCreateSession, beginRun, endRun, cancelRun, pushSessionEvent, pushToolResult, getActiveSessionIds } from "../../events/session-store/index.js";
 import { workspacePath } from "../../workspace/workspace.js";
 import { discoverSkills } from "../../workspace/skills/discovery.js";
@@ -328,7 +328,7 @@ async function dispatchAgentRun(
   const decoratedMessage = decorateMessageForCli({
     message,
     workspaceDir: workspacePath,
-    attachedFilePaths: extras.attachedFilePaths,
+    attachedFiles: extras.attachedFiles,
     resumed: Boolean(claudeSessionId),
   });
 
@@ -362,16 +362,18 @@ async function dispatchAgentRun(
 
 interface RequestExtras {
   attachments: Attachment[] | undefined;
-  /** Workspace-relative paths of every file the user attached or
-   *  selected for this turn, in declaration order. Surfaced to the
-   *  LLM via one `[Attached file: <path>]` line per entry, prepended
-   *  to the user message so path-passing tools (e.g. `editImages`)
-   *  and the LLM itself can reference each file by path.
+  /** Every file the user attached or selected for this turn, in
+   *  declaration order. Surfaced to the LLM via one
+   *  `[Attached file: <path>]` line per entry, prepended to the user
+   *  message so path-passing tools (e.g. `editImages`) and the LLM
+   *  itself can reference each file by path. Entries that carry the
+   *  name the file had on the user's machine also announce it, so the
+   *  model can save a result back under that name (#2308).
    *  `persistInlineBytesAsPaths` ensures every well-formed attachment
    *  carries a path before this runs, so this is empty only when the
    *  request had no attachments at all (or every entry was malformed
    *  and dropped). */
-  attachedFilePaths: string[];
+  attachedFiles: AttachedFile[];
 }
 
 /** Pluck workspace-relative paths out of `attachments[]`. Used for
@@ -472,7 +474,11 @@ async function persistInlineBytesAsPaths(attachments: Attachment[] | undefined):
     }
     if (typeof att.data === "string" && att.data.length > 0 && typeof att.mimeType === "string" && att.mimeType.length > 0) {
       const saved = await saveAttachment(att.data, att.mimeType);
-      result.push({ path: saved.relativePath, mimeType: saved.mimeType });
+      // Carry `filename` across the rewrite. Bridges that know the
+      // sender's filename already send it (Telegram documents pass
+      // `doc.file_name`), and dropping it here is what kept the name
+      // from ever reaching the model (#2308).
+      result.push({ path: saved.relativePath, mimeType: saved.mimeType, ...(att.filename ? { filename: att.filename } : {}) });
       continue;
     }
     log.warn("agent", "attachment has neither path nor inline bytes — dropping");
@@ -506,10 +512,10 @@ async function persistInlineBytesAsPaths(attachments: Attachment[] | undefined):
  *  before this runs. */
 export async function prepareRequestExtras(attachments: Attachment[] | undefined): Promise<RequestExtras> {
   if (!Array.isArray(attachments) || attachments.length === 0) {
-    return { attachments: undefined, attachedFilePaths: [] };
+    return { attachments: undefined, attachedFiles: [] };
   }
   const result: Attachment[] = [];
-  const attachedFilePaths: string[] = [];
+  const attachedFiles: AttachedFile[] = [];
   for (const att of attachments) {
     if (typeof att.path !== "string" || att.path.length === 0) {
       log.warn("agent", "attachment has no path after normalisation — dropping");
@@ -521,11 +527,11 @@ export async function prepareRequestExtras(attachments: Attachment[] | undefined
     // actually loaded — otherwise the LLM gets told a bogus path
     // exists (Codex review on PR #1084 follow-up to #1052).
     result.push(resolved);
-    attachedFilePaths.push(att.path);
+    attachedFiles.push({ path: att.path, ...(att.filename ? { filename: att.filename } : {}) });
   }
   return {
     attachments: result.length > 0 ? result : undefined,
-    attachedFilePaths,
+    attachedFiles,
   };
 }
 

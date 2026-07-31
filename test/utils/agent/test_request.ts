@@ -28,7 +28,7 @@ describe("buildAgentRequestBody — happy path", () => {
       message: "hello",
       role,
       chatSessionId: "sess-1",
-      attachmentPaths: ["artifacts/images/2026/04/abc.png"],
+      attachments: [{ path: "artifacts/images/2026/04/abc.png" }],
     });
     // `userTimezone` depends on the host's Intl runtime, so only
     // assert shape on the fields we control directly and check the
@@ -51,9 +51,31 @@ describe("buildAgentRequestBody — happy path", () => {
       message: "compare",
       role: makeRole(),
       chatSessionId: "s",
-      attachmentPaths: ["data/attachments/2026/04/foo.png", "artifacts/images/2026/04/bar.png"],
+      attachments: [{ path: "data/attachments/2026/04/foo.png" }, { path: "artifacts/images/2026/04/bar.png" }],
     });
     assert.deepEqual(body.attachments, [{ path: "data/attachments/2026/04/foo.png" }, { path: "artifacts/images/2026/04/bar.png" }]);
+  });
+
+  // #2308 — the stored name is a hex id, so this field is the only
+  // carrier of what the user calls the file.
+  it("forwards the original filename when one is known", () => {
+    const body = buildAgentRequestBody({
+      message: "summarise",
+      role: makeRole(),
+      chatSessionId: "s",
+      attachments: [{ path: "data/attachments/2026/07/b458a5d0.csv", filename: "商品カタログ_v2.csv" }],
+    });
+    assert.deepEqual(body.attachments, [{ path: "data/attachments/2026/07/b458a5d0.csv", filename: "商品カタログ_v2.csv" }]);
+  });
+
+  it("omits the filename key rather than sending a blank one", () => {
+    const body = buildAgentRequestBody({
+      message: "hi",
+      role: makeRole(),
+      chatSessionId: "s",
+      attachments: [{ path: "data/attachments/2026/07/a.png", filename: "" }],
+    });
+    assert.deepEqual(body.attachments, [{ path: "data/attachments/2026/07/a.png" }]);
   });
 
   it("leaves attachments undefined when no paths are provided", () => {
@@ -65,24 +87,29 @@ describe("buildAgentRequestBody — happy path", () => {
     assert.equal(body.attachments, undefined);
   });
 
-  it("treats an empty paths array as no attachments", () => {
+  it("treats an empty attachments array as no attachments", () => {
     const body = buildAgentRequestBody({
       message: "hi",
       role: makeRole(),
       chatSessionId: "s",
-      attachmentPaths: [],
+      attachments: [],
     });
     assert.equal(body.attachments, undefined);
   });
 
-  it("filters out empty / non-string entries before building the array", () => {
+  it("filters out empty / non-string paths before building the array", () => {
     const body = buildAgentRequestBody({
       message: "hi",
       role: makeRole(),
       chatSessionId: "s",
       // Cast through unknown so the test exercises the runtime
       // filter even though the type annotation forbids non-strings.
-      attachmentPaths: ["artifacts/images/2026/04/x.png", "", undefined as unknown as string],
+      attachments: [
+        { path: "artifacts/images/2026/04/x.png" },
+        { path: "" },
+        { path: undefined as unknown as string },
+        undefined as unknown as { path: string },
+      ],
     });
     assert.deepEqual(body.attachments, [{ path: "artifacts/images/2026/04/x.png" }]);
   });

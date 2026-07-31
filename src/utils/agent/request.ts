@@ -17,18 +17,24 @@ export interface ClientAttachment {
   /** Workspace-relative path that exists under one of the allowed
    *  roots (`artifacts/images/...` or `data/attachments/...`). */
   path: string;
+  /** Name the file had on the user's machine. The stored file keeps
+   *  its collision-proof hex name, so this is the only carrier of what
+   *  the user actually called it — the server announces it to the model
+   *  alongside the path (#2308). Absent for a file the user selected
+   *  rather than uploaded. */
+  filename?: string;
 }
 
 export interface AgentRequestBodyParams {
   message: string;
   role: Role;
   chatSessionId: string;
-  /** Workspace-relative paths the user has attached or selected for
-   *  this turn, in declaration order. The first entry is also surfaced
-   *  to the LLM as an `[Attached file: <path>]` marker on the user
-   *  message so path-passing tools (e.g. `editImages`) can quote it
-   *  back. Empty / undefined when no file is attached. */
-  attachmentPaths?: string[];
+  /** Files the user has attached or selected for this turn, in
+   *  declaration order. Each is surfaced to the LLM as an
+   *  `[Attached file: <path>]` marker on the user message so
+   *  path-passing tools (e.g. `editImages`) can quote it back.
+   *  Empty / undefined when no file is attached. */
+  attachments?: readonly ClientAttachment[];
 }
 
 export interface AgentRequestBody {
@@ -56,13 +62,14 @@ function resolveBrowserTimezone(): string | undefined {
   }
 }
 
-function buildAttachments(paths: string[] | undefined): ClientAttachment[] | undefined {
-  if (!paths || paths.length === 0) return undefined;
+function buildAttachments(attachments: readonly ClientAttachment[] | undefined): ClientAttachment[] | undefined {
+  if (!attachments || attachments.length === 0) return undefined;
   const entries: ClientAttachment[] = [];
-  for (const candidate of paths) {
-    if (typeof candidate === "string" && candidate.length > 0) {
-      entries.push({ path: candidate });
-    }
+  for (const candidate of attachments) {
+    if (!candidate) continue;
+    const { path, filename } = candidate;
+    if (typeof path !== "string" || path.length === 0) continue;
+    entries.push({ path, ...(isNonEmptyString(filename) ? { filename } : {}) });
   }
   return entries.length > 0 ? entries : undefined;
 }
@@ -72,7 +79,7 @@ export function buildAgentRequestBody(params: AgentRequestBodyParams): AgentRequ
     message: params.message,
     roleId: params.role.id,
     chatSessionId: params.chatSessionId,
-    attachments: buildAttachments(params.attachmentPaths),
+    attachments: buildAttachments(params.attachments),
     userTimezone: resolveBrowserTimezone(),
   };
 }

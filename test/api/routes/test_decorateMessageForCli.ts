@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
 import { join, dirname } from "path";
 import { tmpdir } from "os";
-import { decorateMessageForCli } from "../../../server/agent/messageDecorate.ts";
+import { decorateMessageForCli, type AttachedFile } from "../../../server/agent/messageDecorate.ts";
 import { WORKSPACE_FILES } from "../../../server/workspace/paths.js";
 
 let workspace: string;
@@ -30,11 +30,11 @@ function writeJournalIndex(): void {
   writeFileSync(abs, "# Workspace Journal\n\n- refactoring\n");
 }
 
-function decorate(message: string, opts?: { attachedFilePaths?: string[]; resumed?: boolean }): string {
+function decorate(message: string, opts?: { attachedFiles?: AttachedFile[]; resumed?: boolean }): string {
   return decorateMessageForCli({
     message,
     workspaceDir: workspace,
-    attachedFilePaths: opts?.attachedFilePaths ?? [],
+    attachedFiles: opts?.attachedFiles ?? [],
     resumed: opts?.resumed ?? false,
   });
 }
@@ -56,14 +56,14 @@ describe("decorateMessageForCli (#2134)", () => {
 
   it("appends the file marker after a command body so the slash stays first", () => {
     writeJournalIndex();
-    const result = decorate("/todo-malaysia id=42 done", { attachedFilePaths: ["data/attachments/2026/07/a.png"] });
+    const result = decorate("/todo-malaysia id=42 done", { attachedFiles: [{ path: "data/attachments/2026/07/a.png" }] });
     assert.ok(result.startsWith("/todo-malaysia id=42 done"), "slash command must remain at position 0");
     assert.ok(result.endsWith("[Attached file: data/attachments/2026/07/a.png]"), "marker should be appended after the body");
     assert.ok(!result.includes("<journal-context>"));
   });
 
   it("prepends the file marker for a non-command turn (unchanged)", () => {
-    const result = decorate("combine these", { attachedFilePaths: ["artifacts/images/2026/07/x.png"] });
+    const result = decorate("combine these", { attachedFiles: [{ path: "artifacts/images/2026/07/x.png" }] });
     assert.ok(result.startsWith("[Attached file: artifacts/images/2026/07/x.png]"));
     assert.ok(result.endsWith("combine these"));
   });
