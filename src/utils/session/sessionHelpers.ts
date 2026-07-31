@@ -5,6 +5,7 @@
 import { v4 as uuidv4 } from "uuid";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import type { ActiveSession, SkillScope } from "../../types/session";
+import type { PersistedAttachment } from "../../types/attachment";
 import { makeSkillResult, makeTextResult, SKILL_TOOL_NAME } from "../tools/result";
 import { shouldSelectAssistantText } from "../agent/toolCalls";
 
@@ -29,10 +30,10 @@ export function pushErrorMessage(session: ActiveSession, message: string): void 
 }
 
 /** Append the user's message so it renders immediately. `attachments`
- *  carries the workspace-relative paths the user attached for this
- *  turn (paste/drop/file-picker) so the chat bubble can render an
- *  icon / thumbnail chip alongside the text. */
-export function beginUserTurn(session: ActiveSession, message: string, attachments?: readonly string[]): void {
+ *  carries the files the user attached for this turn (paste/drop/
+ *  file-picker) so the chat bubble can render an icon / thumbnail chip
+ *  alongside the text, labelled with the original filename when known. */
+export function beginUserTurn(session: ActiveSession, message: string, attachments?: readonly PersistedAttachment[]): void {
   session.updatedAt = new Date().toISOString();
   pushResult(session, makeTextResult(message, "user", attachments));
   session.runStartIndex = session.toolResults.length;
@@ -65,7 +66,7 @@ function isDuplicateUserText(session: ActiveSession, message: string): boolean {
  *  result when appropriate. `attachments` is forwarded for cross-tab
  *  user-text broadcasts so observing tabs render chips identically
  *  to the originating tab. */
-export function applyTextEvent(session: ActiveSession, message: string, source: "user" | "assistant", attachments?: readonly string[]): void {
+export function applyTextEvent(session: ActiveSession, message: string, source: "user" | "assistant", attachments?: readonly PersistedAttachment[]): void {
   if (source === "user") {
     if (!isDuplicateUserText(session, message)) {
       pushResult(session, makeTextResult(message, "user", attachments));

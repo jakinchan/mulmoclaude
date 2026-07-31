@@ -1,8 +1,8 @@
 <template>
-  <img v-if="isImage" :src="rawUrl" :alt="basename" :title="basename" :class="imgClass" data-testid="sent-attachment-chip" :data-variant="variant" />
-  <div v-else :title="basename" :class="fileChipClass" data-testid="sent-attachment-chip" :data-variant="variant">
+  <img v-if="isImage" :src="rawUrl" :alt="displayName" :title="titleText" :class="imgClass" data-testid="sent-attachment-chip" :data-variant="variant" />
+  <div v-else :title="titleText" :class="fileChipClass" data-testid="sent-attachment-chip" :data-variant="variant">
     <span class="material-icons" :class="[iconColor, fileIconSize]">{{ icon }}</span>
-    <span class="truncate">{{ basename }}</span>
+    <span class="truncate">{{ displayName }}</span>
   </div>
 </template>
 
@@ -19,6 +19,10 @@ const props = withDefaults(
   defineProps<{
     /** Workspace-relative path (e.g. `data/attachments/2026/04/<id>.png`). */
     path: string;
+    /** Name the file had on the user's machine, when the upload carried
+     *  one (#2308). The chip shows this instead of the stored hex
+     *  basename; the path is still what every fetch uses. */
+    filename?: string;
     variant?: Variant;
   }>(),
   { variant: "thumb" },
@@ -35,6 +39,12 @@ const basename = computed(() => {
   const slash = props.path.lastIndexOf("/");
   return slash >= 0 ? props.path.slice(slash + 1) : props.path;
 });
+
+const displayName = computed(() => props.filename || basename.value);
+
+// Hover shows both when they differ, so the stored id stays reachable
+// for anyone who needs to find the file on disk.
+const titleText = computed(() => (props.filename ? `${props.filename} (${basename.value})` : basename.value));
 
 const isImage = computed(() => IMAGE_EXTS.has(ext.value));
 

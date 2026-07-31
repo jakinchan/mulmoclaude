@@ -22,7 +22,7 @@ import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
 import { abortableSleep, BROKER_RECONNECT_WAIT_MS, detectRecovery, type RecoveryKind, type RetryBudgets } from "../../agent/retryPolicy.js";
 import { splitSkillAndReply, updatePendingSkillOnToolCall, updatePendingSkillOnToolCallResult, type PendingSkill } from "../../agent/skillEvents.js";
-import { decorateMessageForCli, type AttachedFile } from "../../agent/messageDecorate.js";
+import { decorateMessageForCli, sanitiseOriginalFilename, type AttachedFile } from "../../agent/messageDecorate.js";
 import { getOrCreateSession, beginRun, endRun, cancelRun, pushSessionEvent, pushToolResult, getActiveSessionIds } from "../../events/session-store/index.js";
 import { workspacePath } from "../../workspace/workspace.js";
 import { discoverSkills } from "../../workspace/skills/discovery.js";
@@ -237,11 +237,11 @@ export async function startChat(params: StartChatParams): Promise<StartChatResul
   // filesystem I/O failure is logged and converted to a 400 here;
   // beginRun is rolled back so subsequent turns aren't rejected with
   // 409 forever.
-  let attachedPaths: string[];
+  let attachedFiles: AttachedFile[];
   let extras: RequestExtras;
   try {
     const persistedAttachments = await persistInlineBytesAsPaths(normalisedAttachments);
-    attachedPaths = collectAttachedPaths(persistedAttachments);
+    attachedFiles = collectAttachedFiles(persistedAttachments);
     extras = await prepareRequestExtras(persistedAttachments);
   } catch (err) {
     log.warn("agent", "attachment processing failed — rolling back run", { chatSessionId, error: errorMessage(err) });
@@ -250,7 +250,7 @@ export async function startChat(params: StartChatParams): Promise<StartChatResul
     return { kind: "error", error: "Invalid attachments payload", status: 400 };
   }
 
-  const validOrigin = await persistUserTurn(params, { isFirstTurn, attachedPaths });
+  const validOrigin = await persistUserTurn(params, { isFirstTurn, attachedFiles });
   await dispatchAgentRun(params, { extras, resultsFilePath, abortController, validOrigin });
 
   return { kind: "started", chatSessionId };
@@ -262,9 +262,9 @@ export async function startChat(params: StartChatParams): Promise<StartChatResul
 // append the user message to the jsonl, and broadcast it to other
 // tabs viewing this session. Returns the validated origin so the
 // dispatch phase can reuse it.
-async function persistUserTurn(params: StartChatParams, ctx: { isFirstTurn: boolean; attachedPaths: string[] }): Promise<SessionOrigin | undefined> {
+async function persistUserTurn(params: StartChatParams, ctx: { isFirstTurn: boolean; attachedFiles: AttachedFile[] }): Promise<SessionOrigin | undefined> {
   const { message, roleId, chatSessionId } = params;
-  const { isFirstTurn, attachedPaths } = ctx;
+  const { isFirstTurn, attachedFiles } = ctx;
 
   // Now persist the user message so callers (and other tabs) see the
   // turn. Metadata first — it powers the sidebar title cache; the
@@ -284,11 +284,12 @@ async function persistUserTurn(params: StartChatParams, ctx: { isFirstTurn: bool
   // a long conversation.
   await incrementUserQueryCount(chatSessionId);
 
-  // Append user message for this turn
-  await appendSessionLine(
-    chatSessionId,
-    JSON.stringify({ source: "user", type: EVENT_TYPES.text, message, ...(attachedPaths.length > 0 ? { attachments: attachedPaths } : {}) }),
-  );
+  // Append user message for this turn. `attachments` holds objects since
+  // #2308; a session written before that holds bare path strings, which is
+  // why every reader goes through `normalizeAttachments` rather than
+  // indexing the array.
+  const attachmentsField = attachedFiles.length > 0 ? { attachments: attachedFiles } : {};
+  await appendSessionLine(chatSessionId, JSON.stringify({ source: "user", type: EVENT_TYPES.text, message, ...attachmentsField }));
 
   // Broadcast the user message so other tabs viewing this session
   // see the input in real time. Runs AFTER beginRun so a 409 never
@@ -297,7 +298,7 @@ async function persistUserTurn(params: StartChatParams, ctx: { isFirstTurn: bool
     type: EVENT_TYPES.text,
     source: "user",
     message,
-    ...(attachedPaths.length > 0 ? { attachments: attachedPaths } : {}),
+    ...attachmentsField,
   });
 
   return validOrigin;
@@ -376,9 +377,12 @@ interface RequestExtras {
   attachedFiles: AttachedFile[];
 }
 
-/** Pluck workspace-relative paths out of `attachments[]`. Used for
+/** Pluck the attached files out of `attachments[]`. Used for
  *  persistence + broadcast of the user message: the Vue UI renders
- *  these as attachment chips next to the chat bubble.
+ *  these as attachment chips next to the chat bubble, labelled with
+ *  `filename` when the upload carried one — the stored basename is a
+ *  hex id, so without it the history shows `b458a5d0.csv` for a file
+ *  the user knows as `商品カタログ_v2.csv` (#2308).
  *  `persistInlineBytesAsPaths` runs first, so by the time we get
  *  here every well-formed entry already carries a `path` and chips
  *  round-trip for bridge attachments too — not just Vue uploads.
@@ -395,15 +399,19 @@ interface RequestExtras {
  *  where `attachments` is a truthy non-array. Without it `for...of`
  *  would throw and bypass the rollback path that calls `endRun`,
  *  leaving the session locked as running (#1052 review). */
-export function collectAttachedPaths(attachments: Attachment[] | undefined): string[] {
+export function collectAttachedFiles(attachments: Attachment[] | undefined): AttachedFile[] {
   if (!Array.isArray(attachments) || attachments.length === 0) return [];
-  const paths: string[] = [];
+  const files: AttachedFile[] = [];
   for (const att of attachments) {
     if (typeof att.path !== "string" || att.path.length === 0) continue;
     if (!isAttachmentPath(att.path) && !isImagePath(att.path)) continue;
-    paths.push(att.path);
+    // Same gate as the LLM marker, deliberately: a name we refuse to tell
+    // the model must not be what the chip claims the file is called, or
+    // the user and the agent end up discussing different filenames.
+    const filename = sanitiseOriginalFilename(att.filename);
+    files.push({ path: att.path, ...(filename ? { filename } : {}) });
   }
-  return paths;
+  return files;
 }
 
 /** Bridge-only compat: external bridge clients may still ship a
