@@ -42,6 +42,13 @@ async function main() {
     format: "esm",
     target: "node22",
     external: NATIVE_EXTERNALS,
+    // Bundle OUR source only; leave node_modules to be resolved at runtime.
+    // Inlining dependencies too gives a 12 MB file — a +40% increase on the
+    // published launcher (29.7 MB), to buy ~150 ms locally. At 505 KB this
+    // costs the npm package 1.7% instead. Whether the ~134 node_modules files
+    // it still resolves are cheap enough over a Windows bind mount is measured
+    // by the #2233 harness, not assumed.
+    packages: "external",
     banner: { js: CJS_REQUIRE_SHIM },
     // Same rationale as build-hooks.mjs: an inline map's base64 churns on every
     // rebuild. The bundle is not committed, but a stable output still keeps
