@@ -1,7 +1,7 @@
 <template>
   <div v-if="open" class="fixed inset-0 z-50 bg-black/40 flex items-start justify-center pt-16" data-testid="settings-modal-backdrop" @click="close">
     <div
-      class="bg-white rounded-lg shadow-xl w-[min(88vw,90rem)] max-w-[95vw] max-h-[85vh] flex flex-col"
+      class="bg-white rounded-lg shadow-xl w-[clamp(64rem,88vw,90rem)] max-w-[95vw] max-h-[85vh] flex flex-col"
       :class="{ 'h-[85vh]': isFullTab }"
       role="dialog"
       aria-modal="true"
