@@ -163,6 +163,13 @@ Server-side `definePlugin` factory edits still require a launcher restart (Node 
 - Architecture, scripts, and the publish flow live in `docs/developer.md` of the repo.
 - Publish flow for this package: see `bin/prepare-dist.js` header comment plus `.claude/skills/publish-mulmoclaude/SKILL.md`.
 
+## Updates / アップデート情報
+
+New releases and features are announced **in Japanese** on X — 新バージョンや新機能のお知らせは X で。
+
+- [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci) — release and feature announcements / リリース・新機能のお知らせ
+- [Satoshi Nakajima (@snakajima)](https://x.com/snakajima) — MulmoClaude's owner / MulmoClaude のオーナー
+
 ## Related projects
 
 This launcher is published by [Receptron](https://github.com/receptron), who also build MulmoTerminal below.
