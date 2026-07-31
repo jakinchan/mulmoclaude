@@ -300,12 +300,17 @@ async function applyWindowToGroup(
  *  NOT hold the token — but it is logged loudly, since it will silently never
  *  appear in the collection. */
 function windowFullyLanded(calendarId: string | undefined, results: readonly CalendarCollectionSyncResult[]): boolean {
-  const unwritable = results.flatMap((entry) => entry.unwritable);
-  if (unwritable.length > 0) log.warn("google", "skipping calendar events that can never be stored", { calendarId, unwritable });
-  const failed = results.flatMap((entry) => entry.errors);
-  if (failed.length === 0) return true;
-  log.warn("google", "holding back calendar sync token after failed writes", { calendarId, failed: failed.length });
-  return false;
+  // Logged per collection, not flattened across the group: a calendar can back
+  // several, and "one of them is stuck" is unactionable without the slug — the
+  // more so now that `autoPush` runs this unattended (CodeRabbit review #2666).
+  results
+    .filter((entry) => entry.unwritable.length > 0)
+    .forEach((entry) =>
+      log.warn("google", "skipping calendar events that can never be stored", { calendarId, slug: entry.slug, unwritable: entry.unwritable }),
+    );
+  const failed = results.filter((entry) => entry.errors.length > 0);
+  failed.forEach((entry) => log.warn("google", "holding back calendar sync token after failed writes", { calendarId, slug: entry.slug, errors: entry.errors }));
+  return failed.length === 0;
 }
 
 /** The baseline this window establishes: what Google now says per event, and
