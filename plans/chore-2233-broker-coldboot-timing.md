@@ -76,6 +76,51 @@ Issue: #2233（#2201 のフォローアップ①）· 後続: #2235（起動時�
 3. **実物** — ブランチを push して `workflow_dispatch` で実行し、job summary に実測値が出ることを見る
    （完了条件そのもの）
 
+## 実測結果（#2235 への引き継ぎ）
+
+`workflow_dispatch` を 3 回。単位は ms、`initialize` に応答するまで。
+
+| run | cold | warm |
+|---|---|---|
+| [30597793909](https://github.com/receptron/mulmoclaude/actions/runs/30597793909) | 21,224 | 20,828 |
+| [30598789585](https://github.com/receptron/mulmoclaude/actions/runs/30598789585) | 22,816 | 23,913 |
+| [30600291086](https://github.com/receptron/mulmoclaude/actions/runs/30600291086) | 20,232 | 21,065 |
+
+### 1. 約 20〜24 秒。CLI 既定の接続待ち（約 5 秒）の 4〜5 倍
+
+#2201 の推定「約15秒」より**さらに遅い**。#2234 が `MCP_CONNECT_TIMEOUT_MS` を 1 分に
+上げたのは正しく、それでも間欠再発が続いていることと整合する。
+
+### 2. cold と warm に有意差なし
+
+差は run 1 で warm が 396ms 速く、run 2/3 では warm が 833〜1,097ms **遅い**。
+run 間のばらつき（約 3 秒）の方が cold/warm 差より大きく、**ページキャッシュは効いていない**。
+
+これが #2235 にとって最重要。#2201 は間欠性を「FS キャッシュ等による揺らぎ」で説明していたが、
+20 秒はキャッシュミスではなく**毎回必ず払う仕事**（tsx が import グラフを変換する作業そのもの）。
+「温まれば速くなる」類の対策には意味がなく、**ビルド済み JS（方式1）か import グラフを減らす
+（方式2）のどちらかが必須**という結論になる。
+
+### 3. `initialize` と `tools/list` の差は 10〜20 ms
+
+handshake 自体はタダ。コストは 100% 起動側で、ツール定義の生成を削っても効かない。
+
+### 4. プリセットプラグインのロードが計測窓の内側
+
+ログに `INFO [plugins/preset] loaded requested=5 succeeded=5` が `initialize` 応答前に出る。
+方式2（遅延 import）の具体的な標的。
+
+### 副次的に見つかったもの（本 issue の範囲外）
+
+ブローカーがコンテナ内で handshake ごとに 2 回吐いている:
+
+```
+[logger] file sink error: Error: ENOENT: no such file or directory, mkdir 'server/system/logs'
+    at async ensureDir (/app/server/system/logger/rotation.ts:14:3)
+```
+
+相対パスでログディレクトリを作ろうとして失敗している。害はなさそうだが起動経路のノイズ。
+
 ## やらないこと
 
 - 閾値でのゲート
