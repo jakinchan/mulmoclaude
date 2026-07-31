@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Fixed
+
+#### Calendar sync no longer runs twice when two hosts are wired to one workspace (#2678)
+
+`googleCalendarSyncTaskDef()` is a factory several hosts register — MulmoClaude and a standalone MulmoTerminal/MulmoBooks — but calendar sync had nothing stopping them from running at the same moment, while feeds have had a `lastFetchedAt` soft-dedup all along. The Google link is machine-wide (`~/.config/mulmo` carries no app name), the calendar lock is in-process, and interval schedules fire on wall-clock boundaries, so both hosts tick in the same minute. Since `autoPush` (1.9.0) such a run also writes to Google and rewrites the push baseline, where two overlapping runs can lose one another's update.
+
+A calendar now records when a sync of it **started**, in the workspace next to its sync token, and a scheduled run skips any calendar someone synced within the interval. Stamped at the start rather than on completion, because a marker written at the end would leave the whole run — minutes, for a first full walk — open for the second host to start alongside it; dropped again if the run fails, so a host that could not reach Google does not hold the calendar for an hour. Manual Refresh and the first sync of a newly authored collection still run unconditionally.
+
+Not covered: a manual push on one host landing inside a scheduled run on another. That needs a cross-process lock and is tracked in #2679.
+
 ## [1.9.0] - 2026-07-31
 
 **Two-way Google Calendar sync, and a pull that stopped deleting columns it was never asked about.**
