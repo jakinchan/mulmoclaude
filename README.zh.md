@@ -20,9 +20,9 @@
 
 > **[How AI-Native Applications Should Be Built](MANIFEST.md)** —— MulmoClaude 背后的架构、UX 与协议论述。
 
-### 📣 更新资讯 / アップデート情報
+## 📣 更新资讯
 
-新版本与新功能会在 X 上以**日语**发布 —— 新バージョンや新機能のお知らせは X で。
+新版本与新功能会在 X 上以**日语**发布。
 
 - [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci) —— 发布与新功能通知
 - [中岛聪 (@snakajima)](https://x.com/snakajima) —— MulmoClaude 的所有者

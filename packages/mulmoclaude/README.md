@@ -163,12 +163,12 @@ Server-side `definePlugin` factory edits still require a launcher restart (Node 
 - Architecture, scripts, and the publish flow live in `docs/developer.md` of the repo.
 - Publish flow for this package: see `bin/prepare-dist.js` header comment plus `.claude/skills/publish-mulmoclaude/SKILL.md`.
 
-## Updates / アップデート情報
+## Updates
 
-New releases and features are announced **in Japanese** on X — 新バージョンや新機能のお知らせは X で。
+New releases and features are announced on X, **in Japanese**.
 
-- [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci) — release and feature announcements / リリース・新機能のお知らせ
-- [Satoshi Nakajima (@snakajima)](https://x.com/snakajima) — MulmoClaude's owner / MulmoClaude のオーナー
+- [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci) — release and feature announcements
+- [Satoshi Nakajima (@snakajima)](https://x.com/snakajima) — MulmoClaude's owner
 
 ## Related projects
 
