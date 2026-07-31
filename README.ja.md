@@ -20,6 +20,13 @@
 
 > **[How AI-Native Applications Should Be Built](MANIFEST.md)** — MulmoClaude の背後にあるアーキテクチャ、UX、プロトコルに関する論考。
 
+### 📣 アップデート情報
+
+新バージョンや新機能のお知らせは X で発信しています。
+
+- [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci) — リリース・新機能のお知らせ
+- [中島聡 (@snakajima)](https://x.com/snakajima) — MulmoClaude のオーナー
+
 ## クイックスタート
 
 ```bash
