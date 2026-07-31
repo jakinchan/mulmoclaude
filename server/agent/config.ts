@@ -293,6 +293,51 @@ function resolvePackageRoot(): string {
 // the agent's registry (#1770).
 const LOCAL_MCP_SERVER_PATH = join(dirname(fileURLToPath(import.meta.url)), "mcp-server.ts");
 
+// Bundled broker (`yarn build:mcp-broker`), preferred over the tsx path when
+// present. Anchored the same way as LOCAL_MCP_SERVER_PATH — `server/build/` is
+// a sibling of `server/agent/`, so this resolves in dev and in the packaged
+// install alike, and `server/` is bind-mounted whole into the container.
+//
+// Why it matters: `tsx` transcodes the broker's 292-file runtime graph on every
+// spawn, which is 20-24 s over a Windows bind mount (#2233) against a ~5 s CLI
+// connect wait — the `handlePermission not found` race (#2201). One bundled
+// file answers `initialize` in well under a second.
+const BUNDLED_MCP_SERVER_PATH = join(dirname(dirname(fileURLToPath(import.meta.url))), "build", "mcp-server.mjs");
+const CONTAINER_BUNDLED_MCP_SERVER_PATH = "/app/server/build/mcp-server.mjs";
+const CONTAINER_MCP_SERVER_PATH = "/app/server/agent/mcp-server.ts";
+
+export interface BrokerSpawn {
+  command: string;
+  scriptPath: string;
+}
+
+/** Which broker to spawn, as a pure function of the two things that decide it.
+ *  `hasBundle` is passed in rather than probed so both branches are testable
+ *  without touching the filesystem — the bundle's presence depends on whether
+ *  `yarn build` has run, which a test must not have to arrange. */
+export function brokerSpawn(useDocker: boolean, hasBundle: boolean): BrokerSpawn {
+  if (hasBundle) {
+    return {
+      command: useDocker ? "node" : process.execPath,
+      scriptPath: useDocker ? CONTAINER_BUNDLED_MCP_SERVER_PATH : BUNDLED_MCP_SERVER_PATH,
+    };
+  }
+  return {
+    command: useDocker ? "tsx" : join(resolveProjectRoot(), "node_modules/.bin/tsx"),
+    scriptPath: useDocker ? CONTAINER_MCP_SERVER_PATH : LOCAL_MCP_SERVER_PATH,
+  };
+}
+
+/** The bundle is a build artifact and deliberately not committed, so a fresh
+ *  checkout / `yarn dev` before any build still has to work — hence a fallback
+ *  rather than a hard requirement.
+ *
+ *  The probe runs on the HOST even for the container command: `server/` is
+ *  bind-mounted wholesale, so what exists here exists at `/app/server` there. */
+function resolveBrokerCommand(useDocker: boolean): BrokerSpawn {
+  return brokerSpawn(useDocker, existsSync(BUNDLED_MCP_SERVER_PATH));
+}
+
 /** The `mcpServers.mulmoclaude` entry Claude Code spawns over stdio.
  *  Exported so `test/agent/test_mcp_docker_smoke.ts` drives the container
  *  with the SHIPPED command/args/env instead of a hand-copied duplicate —
@@ -328,9 +373,7 @@ export interface McpStdioServerSpec {
 
 export function buildMulmoclaudeServer(params: { chatSessionId: string; port: number; activePlugins: string[]; useDocker: boolean }): McpStdioServerSpec {
   const { chatSessionId, port, activePlugins, useDocker } = params;
-  const projectRoot = resolveProjectRoot();
-  const command = useDocker ? "tsx" : join(projectRoot, "node_modules/.bin/tsx");
-  const mcpServerPath = useDocker ? "/app/server/agent/mcp-server.ts" : LOCAL_MCP_SERVER_PATH;
+  const { command, scriptPath: mcpServerPath } = resolveBrokerCommand(useDocker);
 
   const dockerEnv: Record<string, string> = useDocker
     ? {

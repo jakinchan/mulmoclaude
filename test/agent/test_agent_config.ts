@@ -7,6 +7,7 @@ import { __resetForTests as resetTokenState, generateAndWriteToken } from "../..
 import {
   buildCliArgs,
   buildDockerSpawnArgs,
+  brokerSpawn,
   buildMulmoclaudeServer,
   dockerUserCapArgs,
   dockerBindMountArgs,
@@ -98,9 +99,14 @@ describe("buildMcpConfig", () => {
     // that calls `register()` is what actually wires the resolve
     // hook into Node's loader chain (Codex review).
     assert.equal(args[importIdx + 1], "file:///app/server/agent/mcp-esm-bootstrap.mjs");
-    // The mcp-server script must still be the LAST arg so tsx treats it
-    // as the entry point rather than a flag operand.
-    assert.equal(args[args.length - 1], "/app/server/agent/mcp-server.ts");
+    // The broker script must still be the LAST arg so the runtime treats it as
+    // the entry point rather than a flag operand. Which of the two brokers it
+    // is depends on whether `yarn build:mcp-broker` has run — `brokerSpawn`
+    // pins that branch without needing the artifact.
+    assert.ok(
+      ["/app/server/build/mcp-server.mjs", "/app/server/agent/mcp-server.ts"].includes(String(args[args.length - 1])),
+      `unexpected broker script: ${args[args.length - 1]}`,
+    );
   });
 
   it("native (non-docker) server does NOT include --import (loader hook is a Docker-only fix)", async () => {
@@ -1126,9 +1132,38 @@ describe("MCP child wiring (regression guard for #2052)", () => {
 
   it("registers the ESM resolver bootstrap via --import on the Docker child", () => {
     const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker: true });
-    assert.equal(spec.command, "tsx");
     assert.deepEqual(spec.args.slice(0, 2), ["--import", "file:///app/server/agent/mcp-esm-bootstrap.mjs"]);
-    assert.equal(spec.args.at(-1), "/app/server/agent/mcp-server.ts");
+    // Which script it ends with depends on whether `yarn build:mcp-broker` has
+    // run, so assert only that it spawns one of the two known brokers — the
+    // branch itself is pinned on `brokerSpawn` below, which needs no artifact.
+    assert.ok(
+      ["/app/server/build/mcp-server.mjs", "/app/server/agent/mcp-server.ts"].includes(String(spec.args.at(-1))),
+      `unexpected broker script: ${spec.args.at(-1)}`,
+    );
+  });
+
+  // The bundled broker exists because tsx transcoding the broker's 292-file
+  // graph costs 20-24 s over a Windows bind mount (#2233) against the CLI's
+  // ~5 s connect wait — the #2201 race. The fallback exists because the bundle
+  // is a build artifact: a fresh checkout must still spawn a working broker.
+  it("spawns the bundled broker in the container when it has been built", () => {
+    assert.deepEqual(brokerSpawn(true, true), { command: "node", scriptPath: "/app/server/build/mcp-server.mjs" });
+  });
+
+  it("falls back to tsx in the container when the bundle was never built", () => {
+    assert.deepEqual(brokerSpawn(true, false), { command: "tsx", scriptPath: "/app/server/agent/mcp-server.ts" });
+  });
+
+  it("runs the native bundled broker on this node, not a PATH lookup", () => {
+    const spawn = brokerSpawn(false, true);
+    assert.equal(spawn.command, process.execPath);
+    assert.match(spawn.scriptPath, /server[/\\]build[/\\]mcp-server\.mjs$/);
+  });
+
+  it("falls back to the repo-local tsx binary natively", () => {
+    const spawn = brokerSpawn(false, false);
+    assert.match(spawn.command, /node_modules[/\\]\.bin[/\\]tsx$/);
+    assert.match(spawn.scriptPath, /server[/\\]agent[/\\]mcp-server\.ts$/);
   });
 
   it("leaves the native child alone: no NODE_PATH, no --import", () => {
