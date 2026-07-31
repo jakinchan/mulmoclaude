@@ -5,10 +5,18 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { calendarSyncStatePath, clearCalendarSyncToken, loadCalendarSyncToken, saveCalendarSyncToken } from "@mulmoclaude/core/google";
+import {
+  calendarSyncStatePath,
+  clearCalendarLastSyncedAt,
+  clearCalendarSyncToken,
+  loadCalendarLastSyncedAt,
+  loadCalendarSyncToken,
+  saveCalendarLastSyncedAt,
+  saveCalendarSyncToken,
+} from "@mulmoclaude/core/google";
 
 let workspace: string;
 
@@ -84,5 +92,88 @@ describe("calendar sync-token store (#2095)", () => {
     await Promise.all([saveCalendarSyncToken("added", "tok-added", workspace), clearCalendarSyncToken("keep", workspace)]);
     assert.equal(await loadCalendarSyncToken("keep", workspace), null);
     assert.equal(await loadCalendarSyncToken("added", workspace), "tok-added");
+  });
+});
+
+// The marker several hosts read to see that a calendar is already being synced
+// (#2678). It shares the state file with the tokens, so what these pin is mostly
+// that the two maps stay independent — the token answers "how far have we read",
+// the marker "when did anyone last start".
+describe("calendar sync marker (#2678)", () => {
+  const stamp = "2026-08-01T09:00:03.412Z";
+
+  it("returns null before any host has synced", async () => {
+    assert.equal(await loadCalendarLastSyncedAt(undefined, workspace), null);
+  });
+
+  it("round-trips a marker", async () => {
+    await saveCalendarLastSyncedAt(undefined, stamp, workspace);
+    assert.equal(await loadCalendarLastSyncedAt(undefined, workspace), stamp);
+  });
+
+  it("keeps a separate marker per calendar", async () => {
+    await saveCalendarLastSyncedAt("work@group.calendar.google.com", stamp, workspace);
+    assert.equal(await loadCalendarLastSyncedAt("home@group.calendar.google.com", workspace), null);
+  });
+
+  it("treats an absent calendarId as the primary calendar, like the token does", async () => {
+    await saveCalendarLastSyncedAt(undefined, stamp, workspace);
+    assert.equal(await loadCalendarLastSyncedAt("primary", workspace), stamp);
+  });
+
+  it("clears only the targeted calendar's marker (the failed-run release)", async () => {
+    await saveCalendarLastSyncedAt("a", stamp, workspace);
+    await saveCalendarLastSyncedAt("b", stamp, workspace);
+    await clearCalendarLastSyncedAt("a", workspace);
+    assert.equal(await loadCalendarLastSyncedAt("a", workspace), null);
+    assert.equal(await loadCalendarLastSyncedAt("b", workspace), stamp);
+  });
+
+  // Both maps live in one file, so a save of either one reads-modifies-writes
+  // the whole thing — the trap that would silently drop the other map.
+  it("does not drop the token when the marker is written, or the reverse", async () => {
+    await saveCalendarSyncToken("a", "tok-a", workspace);
+    await saveCalendarLastSyncedAt("a", stamp, workspace);
+    assert.equal(await loadCalendarSyncToken("a", workspace), "tok-a");
+    assert.equal(await loadCalendarLastSyncedAt("a", workspace), stamp);
+  });
+
+  it("keeps the marker when the token is cleared for a full re-walk (410)", async () => {
+    await saveCalendarLastSyncedAt("a", stamp, workspace);
+    await saveCalendarSyncToken("a", "tok-a", workspace);
+    await clearCalendarSyncToken("a", workspace);
+    assert.equal(await loadCalendarLastSyncedAt("a", workspace), stamp);
+  });
+
+  it("does not lose a marker when several calendars are stamped concurrently", async () => {
+    await Promise.all([
+      saveCalendarLastSyncedAt("a", stamp, workspace),
+      saveCalendarLastSyncedAt("b", stamp, workspace),
+      saveCalendarSyncToken("c", "tok-c", workspace),
+    ]);
+    assert.equal(await loadCalendarLastSyncedAt("a", workspace), stamp);
+    assert.equal(await loadCalendarLastSyncedAt("b", workspace), stamp);
+    assert.equal(await loadCalendarSyncToken("c", workspace), "tok-c");
+  });
+
+  // A workspace synced before this existed holds a file with `tokens` only.
+  it("reads a state file written before the marker existed", async () => {
+    const statePath = calendarSyncStatePath(workspace);
+    mkdirSync(dirname(statePath), { recursive: true });
+    writeFileSync(statePath, JSON.stringify({ tokens: { primary: "tok-old" } }));
+    assert.equal(await loadCalendarSyncToken(undefined, workspace), "tok-old");
+    assert.equal(await loadCalendarLastSyncedAt(undefined, workspace), null);
+    await saveCalendarLastSyncedAt(undefined, stamp, workspace);
+    assert.equal(await loadCalendarSyncToken(undefined, workspace), "tok-old");
+  });
+
+  // Hand-edited or half-migrated files must degrade to "nothing stored", not
+  // throw: a stuck sync is worse than a duplicate run.
+  it("reads a malformed state file as empty rather than throwing", async () => {
+    const statePath = calendarSyncStatePath(workspace);
+    mkdirSync(dirname(statePath), { recursive: true });
+    writeFileSync(statePath, JSON.stringify({ tokens: "not-a-map", lastSyncedAt: { primary: 42 } }));
+    assert.equal(await loadCalendarSyncToken(undefined, workspace), null);
+    assert.equal(await loadCalendarLastSyncedAt(undefined, workspace), null);
   });
 });

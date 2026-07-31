@@ -62,7 +62,16 @@ export {
   type SyncEventsInput,
   type UpdateCalendarEventInput,
 } from "./calendar.js";
-export { calendarSyncStatePath, clearCalendarSyncToken, loadCalendarSyncToken, saveCalendarSyncToken } from "./calendarSyncStore.js";
+export {
+  calendarSyncStatePath,
+  clearCalendarLastSyncedAt,
+  clearCalendarSyncToken,
+  loadCalendarLastSyncedAt,
+  loadCalendarSyncToken,
+  saveCalendarLastSyncedAt,
+  saveCalendarSyncToken,
+} from "./calendarSyncStore.js";
+export { calendarSyncDueWindowMs, isCalendarSyncDue } from "./calendarSyncDue.js";
 export {
   calendarPushStatePath,
   clearCalendarShadow,
@@ -111,6 +120,7 @@ export {
   anySyncedCollectionSurvives,
   groupByCalendar,
   allUnpushed,
+  dueCalendarGroups,
   orphanedCalendarId,
   pullableEvents,
   releaseOrphanedCalendarToken,

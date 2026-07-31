@@ -21,7 +21,15 @@ import { canonicalCalendarId, syncCalendarEvents, CANCELLED_EVENT_STATUS, type C
 import { withCalendarLock } from "./calendarLock.js";
 import { mergeIntoExisting, toCollectionRecord } from "./collectionProjection.js";
 import { pushCollectionNow, unsentLocalEdits, type CalendarCollectionPushResult } from "./collectionPush.js";
-import { clearCalendarSyncToken, loadCalendarSyncToken, saveCalendarSyncToken } from "./calendarSyncStore.js";
+import {
+  clearCalendarLastSyncedAt,
+  clearCalendarSyncToken,
+  loadCalendarLastSyncedAt,
+  loadCalendarSyncToken,
+  saveCalendarLastSyncedAt,
+  saveCalendarSyncToken,
+} from "./calendarSyncStore.js";
+import { calendarSyncDueWindowMs, isCalendarSyncDue } from "./calendarSyncDue.js";
 import { clearCalendarShadow, saveCalendarShadow, toShadowEvent, type ShadowEvent } from "./calendarPushState.js";
 import { loadGoogleTokens } from "./tokenStore.js";
 import { log } from "./host.js";
@@ -234,13 +242,60 @@ async function restartFullSync(accessToken: string, calendarId: string | undefin
  *  load the SAME stored token and walk the same window. That is idempotent —
  *  writes are upserts by event id — but it is a wasted full walk. Queued, the
  *  second pass resumes from the token the first just stored and fetches only
- *  what is genuinely new. */
+ *  what is genuinely new. That queue is module state, so it orders the doors
+ *  into THIS process only; `claimThenSync` is what other hosts can see. */
 export async function syncCalendarGroup(
   calendarId: string | undefined,
   collections: readonly LoadedCollection[],
   workspaceRoot: string,
 ): Promise<CalendarCollectionSyncResult[]> {
-  return await withCalendarLock(calendarId, () => syncCalendarGroupNow(calendarId, collections, workspaceRoot));
+  return await withCalendarLock(calendarId, () => claimThenSync(calendarId, collections, workspaceRoot));
+}
+
+/** Stamp the workspace-shared marker BEFORE the calendar is touched, and drop it
+ *  again if the run did not land.
+ *
+ *  Stamping first is the whole point: hosts tick in the same minute (interval
+ *  schedules align to wall-clock boundaries), so a marker written on completion
+ *  would leave the entire run — minutes, for a first full walk — open for a
+ *  second host to start alongside this one and lose the push baseline it writes.
+ *
+ *  Dropped on failure so a host that claimed and then could not reach Google does
+ *  not hold the calendar for a whole window: the next tick, on either host,
+ *  retries exactly as it does today. */
+async function claimThenSync(
+  calendarId: string | undefined,
+  collections: readonly LoadedCollection[],
+  workspaceRoot: string,
+): Promise<CalendarCollectionSyncResult[]> {
+  await claimCalendarSync(calendarId, workspaceRoot);
+  try {
+    const results = await syncCalendarGroupNow(calendarId, collections, workspaceRoot);
+    if (results.some((result) => result.errors.length > 0)) await releaseCalendarSyncClaim(calendarId, workspaceRoot);
+    return results;
+  } catch (error) {
+    await releaseCalendarSyncClaim(calendarId, workspaceRoot);
+    throw error;
+  }
+}
+
+/** Never throws: the marker guards against duplicate work, it is not a
+ *  precondition for syncing correctly. A workspace that cannot store it simply
+ *  syncs the way it did before #2678. */
+async function claimCalendarSync(calendarId: string | undefined, workspaceRoot: string): Promise<void> {
+  try {
+    await saveCalendarLastSyncedAt(calendarId, new Date().toISOString(), workspaceRoot);
+  } catch (error) {
+    log.warn("google", "could not stamp the calendar sync marker — another host may sync this calendar in parallel", { calendarId, error: String(error) });
+  }
+}
+
+async function releaseCalendarSyncClaim(calendarId: string | undefined, workspaceRoot: string): Promise<void> {
+  try {
+    await clearCalendarLastSyncedAt(calendarId, workspaceRoot);
+  } catch (error) {
+    log.warn("google", "could not release the calendar sync marker after a failed run", { calendarId, error: String(error) });
+  }
 }
 
 async function syncCalendarGroupNow(
@@ -453,6 +508,7 @@ export async function releaseOrphanedCalendarToken(deleted: CalendarDeclaring, w
     if (orphaned === null) return null;
     await clearCalendarSyncToken(orphaned, workspaceRoot);
     await clearCalendarShadow(orphaned, workspaceRoot);
+    await clearCalendarLastSyncedAt(orphaned, workspaceRoot);
     log.info("google", "cleared the sync token of a calendar no collection reads any more", { calendarId: orphaned });
     return orphaned;
   } catch (error) {
@@ -472,11 +528,16 @@ async function declaringGroups(workspaceRoot: string): Promise<Map<string, Loade
  *  Authoring the collection before linking the account is an expected state,
  *  not a failure. Checking once here keeps it a quiet skip instead of an
  *  access-token throw per calendar, every hour, until the user links (#2188).
- *  A user-triggered sync answers differently — it says so out loud. */
+ *  A user-triggered sync answers differently — it says so out loud.
+ *
+ *  Deliberately not phrased as a per-host state: the link lives in
+ *  `~/.config/mulmo`, which carries no app name, so every host on the machine
+ *  shares one answer. Reading it as "linked on this host only" is what made the
+ *  calendar look implicitly exclusive when it never was (#2678). */
 async function backgroundSyncAllowed(groups: Map<string, LoadedCollection[]>): Promise<boolean> {
   if (groups.size === 0) return false;
   if (await isGoogleLinked()) return true;
-  log.info("google", "skipping calendar sync — no Google account linked on this host", { calendars: groups.size });
+  log.info("google", "skipping calendar sync — no Google account linked", { calendars: groups.size });
   return false;
 }
 
@@ -495,10 +556,39 @@ async function runCalendarGroups(groups: Map<string, LoadedCollection[]>, worksp
   return results;
 }
 
-/** Sync every collection that declares `googleCalendar`. */
-export async function syncDueCalendarCollections(workspaceRoot: string): Promise<CalendarCollectionSyncResult[]> {
+/** The groups no host has started syncing inside the due window.
+ *
+ *  Mirrors `unsyncedGroups`, `loadLastSyncedAt` injected for the same reason:
+ *  the rule is exercisable without a workspace on disk. */
+export async function dueCalendarGroups<T>(
+  groups: Map<string, T>,
+  loadLastSyncedAt: (calendarId: string) => Promise<string | null>,
+  windowMs: number,
+  now: number = Date.now(),
+): Promise<Map<string, T>> {
+  const checked = await Promise.all([...groups].map(async (entry) => (isCalendarSyncDue(await loadLastSyncedAt(entry[0]), windowMs, now) ? entry : null)));
+  return new Map(checked.filter((entry): entry is [string, T] => entry !== null));
+}
+
+/** A skipped calendar must be visible, or "my calendar stopped syncing" has no
+ *  trail leading to the host that actually synced it. */
+function reportSkippedCalendars(all: Map<string, unknown>, due: Map<string, unknown>): void {
+  const skipped = [...all.keys()].filter((calendarId) => !due.has(calendarId));
+  if (skipped.length > 0) log.info("google", "skipping calendars this workspace synced recently", { calendars: skipped });
+}
+
+/** Sync every collection whose calendar is due — no host in this workspace has
+ *  synced it within `intervalMs` (#2678). Without that gate this walked every
+ *  declaring group on every tick, so a second host registering the same task
+ *  simply doubled the runs, concurrently. */
+export async function syncDueCalendarCollections(
+  workspaceRoot: string,
+  intervalMs: number = DEFAULT_SYNC_INTERVAL_MS,
+): Promise<CalendarCollectionSyncResult[]> {
   const groups = await declaringGroups(workspaceRoot);
-  return (await backgroundSyncAllowed(groups)) ? await runCalendarGroups(groups, workspaceRoot) : [];
+  const due = await dueCalendarGroups(groups, (calendarId) => loadCalendarLastSyncedAt(calendarId, workspaceRoot), calendarSyncDueWindowMs(intervalMs));
+  reportSkippedCalendars(groups, due);
+  return (await backgroundSyncAllowed(due)) ? await runCalendarGroups(due, workspaceRoot) : [];
 }
 
 /** The groups whose calendar has never synced. A missing token IS the "created
@@ -562,15 +652,28 @@ export async function syncCalendarForCollection(
   return { kind: "synced", results: await deps.runGroups(new Map(owning), workspaceRoot) };
 }
 
+/** The interval this task is scheduled on right now. A non-interval schedule
+ *  cannot be reached — the factory below builds an interval one — but the type
+ *  allows it, so it falls back rather than asserting. */
+function scheduledIntervalMs(task: SystemTaskDef): number {
+  return task.schedule.type === SCHEDULE_TYPES.interval ? task.schedule.intervalMs : DEFAULT_SYNC_INTERVAL_MS;
+}
+
 /** Scheduler registration, shaped like `feedRefreshTaskDef` so hosts wire it
- *  with a single line. */
+ *  with a single line.
+ *
+ *  `run` reads the interval back off the definition instead of closing over the
+ *  option: a host rewrites `schedule` from its own overrides file AFTER this
+ *  returns, and the due window has to follow it. Frozen at the default, a
+ *  shortened interval would tick often and skip nearly every tick. */
 export function googleCalendarSyncTaskDef(opts?: { workspaceRoot?: string; intervalMs?: number }): SystemTaskDef {
-  return {
+  const def: SystemTaskDef = {
     id: GOOGLE_CALENDAR_SYNC_TASK_ID,
     name: "Google Calendar sync",
     description: "Pulls changed Google Calendar events into any collection declaring `googleCalendar`, without invoking the LLM.",
     schedule: { type: SCHEDULE_TYPES.interval, intervalMs: opts?.intervalMs ?? DEFAULT_SYNC_INTERVAL_MS },
     missedRunPolicy: MISSED_RUN_POLICIES.runOnce,
-    run: () => syncDueCalendarCollections(opts?.workspaceRoot ?? getWorkspaceRoot()).then(() => {}),
+    run: () => syncDueCalendarCollections(opts?.workspaceRoot ?? getWorkspaceRoot(), scheduledIntervalMs(def)).then(() => {}),
   };
+  return def;
 }
