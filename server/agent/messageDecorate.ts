@@ -5,7 +5,41 @@
 
 import { prependJournalPointer } from "./prompt.js";
 
-const UNSAFE_MARKER_CHARS_RE = /[\r\n\]]/;
+// Characters that let a path or filename escape its marker line. `]` closes
+// the marker early; everything else is a line break in some form.
+//
+// CR/LF is not the whole set, and the gap is exploitable: the forged line's
+// closing `]` comes from the LEGITIMATE marker's own suffix, so a single
+// U+2028 in a filename yields a complete second `[Attached file: ...]` line
+// without the name containing a bracket at all. Hence the sweep of C0, DEL +
+// C1 (which carries NEL U+0085), and the Unicode line / paragraph
+// separators. None of them belong in a workspace path or a filename either
+// way. (Codex review on #2670.)
+//
+// Expressed as a code-point test rather than a character class because a
+// regex spelling the controls out trips `no-control-regex`, and silencing
+// that rule to keep the terser form is not a trade this codebase makes.
+const MARKER_TERMINATOR_CODE = 0x5d; // `]`
+const LAST_C0_CONTROL_CODE = 0x1f;
+const FIRST_C1_CONTROL_CODE = 0x7f; // DEL, then the C1 block
+const LAST_C1_CONTROL_CODE = 0x9f;
+const LINE_SEPARATOR_CODE = 0x2028;
+const PARAGRAPH_SEPARATOR_CODE = 0x2029;
+
+function isUnsafeMarkerCodePoint(code: number): boolean {
+  if (code === MARKER_TERMINATOR_CODE) return true;
+  if (code <= LAST_C0_CONTROL_CODE) return true;
+  if (code >= FIRST_C1_CONTROL_CODE && code <= LAST_C1_CONTROL_CODE) return true;
+  return code === LINE_SEPARATOR_CODE || code === PARAGRAPH_SEPARATOR_CODE;
+}
+
+function hasUnsafeMarkerChar(value: string): boolean {
+  for (const char of value) {
+    const code = char.codePointAt(0);
+    if (code !== undefined && isUnsafeMarkerCodePoint(code)) return true;
+  }
+  return false;
+}
 
 // Longer than any filesystem allows for a single name component, so a name
 // past this is malformed or hostile rather than legitimate — not worth the
@@ -37,7 +71,7 @@ export function sanitiseOriginalFilename(filename: string | undefined): string |
   // after would salvage the tail of a hostile name — `x].\n[…/etc/passwd`
   // reduces to `passwd`, which defuses the injection but then reports a
   // name the user never chose.
-  if (UNSAFE_MARKER_CHARS_RE.test(filename)) return undefined;
+  if (hasUnsafeMarkerChar(filename)) return undefined;
   const lastSeparator = Math.max(filename.lastIndexOf("/"), filename.lastIndexOf("\\"));
   const base = filename.slice(lastSeparator + 1).trim();
   if (base.length === 0 || base === "." || base === "..") return undefined;
@@ -58,7 +92,7 @@ function markerLine(file: AttachedFile): string {
  *  `position` defaults to `"prepend"`; a command turn passes `"append"` so the
  *  leading `/` stays at position 0 (see `decorateMessageForCli`). */
 export function withAttachedFileMarker(message: string, attachedFiles: AttachedFile[], position: MarkerPosition = "prepend"): string {
-  const safeFiles = attachedFiles.filter((file) => !UNSAFE_MARKER_CHARS_RE.test(file.path));
+  const safeFiles = attachedFiles.filter((file) => !hasUnsafeMarkerChar(file.path));
   if (safeFiles.length === 0) return message;
   const markerLines = safeFiles.map(markerLine).join("\n");
   return position === "append" ? `${message}\n\n${markerLines}` : `${markerLines}\n\n${message}`;
