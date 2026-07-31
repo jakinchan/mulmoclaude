@@ -7,13 +7,19 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  allUnpushed,
   anySyncedCollectionSurvives,
   classifyDelete,
   classifyWrite,
   groupByCalendar,
+  isUnpushed,
+  mergeIntoExisting,
   orphanedCalendarId,
+  pullableEvents,
+  shadowUpdates,
   toCollectionRecord,
   syncCalendarForCollection,
+  unpushedFor,
   unsyncedGroups,
   withKeyedLock,
 } from "@mulmoclaude/core/google";
@@ -30,6 +36,8 @@ const event = (overrides: Partial<CalendarEventSummary> = {}): CalendarEventSumm
   htmlLink: "https://calendar.google.com/event?eid=ev-1",
   status: "confirmed",
   colorId: "7",
+  description: "",
+  location: "",
   ...overrides,
 });
 
@@ -122,6 +130,162 @@ describe("toCollectionRecord datetime normalisation (#2310)", () => {
   it("keeps an empty datetime value empty instead of inventing a time", () => {
     const record = toCollectionRecord(event({ start: "" }), { on: "start" }, "gid", recipeFields);
     assert.equal(record.on, "");
+  });
+});
+
+// A record file is written whole, so the pull used to rewrite it from the map
+// alone — silently deleting any column the map does not name. That made a
+// local note next to a mirrored event impossible to keep (#2620).
+describe("mergeIntoExisting (#2620 local columns survive a pull)", () => {
+  const projected = toCollectionRecord(event(), { title: "summary", on: "start" }, "gid", recipeFields);
+
+  it("keeps a column the map does not name", () => {
+    const merged = mergeIntoExisting({ gid: "ev-1", title: "old", notes: "call Alice first" }, projected);
+    assert.equal(merged.notes, "call Alice first");
+  });
+
+  it("still lets Google win on the fields it owns", () => {
+    const merged = mergeIntoExisting({ gid: "ev-1", title: "old", on: "1999-01-01T00:00" }, projected);
+    assert.equal(merged.title, "Standup");
+    assert.equal(merged.on, "2026-07-19T09:00:00");
+  });
+
+  it("writes the projection as-is when the record is new", () => {
+    assert.deepEqual(mergeIntoExisting(null, projected), projected);
+  });
+
+  it("never lets a stale local value shadow the event id", () => {
+    const merged = mergeIntoExisting({ gid: "someone-elses-id" }, projected);
+    assert.equal(merged.gid, "ev-1");
+  });
+});
+
+// The push → pull cycle's other half. When the push refuses a record (edited on
+// both sides), holding its BASELINE back is what keeps the conflict detectable:
+// advance it to Google's new value and the next push sees a plain one-sided
+// local edit and silently overwrites Google (#2620).
+describe("pullableEvents (#2620 a refused push protects its record)", () => {
+  const window = [event({ id: "a" }), event({ id: "b" }), event({ id: "c" })];
+
+  it("passes the whole window through when the push sent everything", () => {
+    assert.deepEqual(
+      pullableEvents(window, new Set()).map((entry) => entry.id),
+      ["a", "b", "c"],
+    );
+  });
+
+  it("drops the events whose records the push could not send", () => {
+    assert.deepEqual(
+      pullableEvents(window, new Set(["b"])).map((entry) => entry.id),
+      ["a", "c"],
+    );
+  });
+
+  it("ignores an unpushed id that is not in this window", () => {
+    assert.equal(pullableEvents(window, new Set(["zz"])).length, 3);
+  });
+});
+
+// The push classifies each record; only two of those states mean "the local edit
+// exists nowhere but here". `skipped` is deliberately NOT one of them — its
+// documented recovery for an id already taken in Google is to let the pull
+// write, so protecting it would stall that collection forever (#2620).
+describe("isUnpushed (#2620 which outcomes the pull must not overwrite)", () => {
+  it("protects a both-sides conflict", () => {
+    assert.equal(isUnpushed("conflict"), true);
+  });
+
+  it("protects an unexpected failure", () => {
+    assert.equal(isUnpushed("error"), true);
+  });
+
+  it("does NOT protect a skipped record — several of its reasons are recovered by pulling", () => {
+    assert.equal(isUnpushed("skipped"), false);
+  });
+
+  it("does not protect a record that pushed cleanly", () => {
+    assert.equal(isUnpushed("created"), false);
+    assert.equal(isUnpushed("updated"), false);
+    assert.equal(isUnpushed("unchanged"), false);
+  });
+});
+
+// A calendar can back several collections, and a conflict in one says nothing
+// about the others. Sharing one protected set across the group starved a
+// collection that never even declares `autoPush` — it cannot conflict, yet a
+// neighbour's conflict froze its records, and the token still advanced so Google
+// never resent them (Codex review on #2666).
+describe("unpushedFor / allUnpushed (#2620 protection is scoped per collection)", () => {
+  const unpushed = new Map<string, ReadonlySet<string>>([
+    ["mine", new Set(["a"])],
+    ["theirs", new Set(["b"])],
+  ]);
+
+  it("gives a collection only what ITS OWN push failed to send", () => {
+    assert.deepEqual([...(unpushedFor(unpushed, "mine") ?? [])], ["a"]);
+  });
+
+  it("protects nothing for a collection that never pushed", () => {
+    assert.equal(unpushedFor(unpushed, "read-only-mirror")?.size, 0);
+  });
+
+  it("does not let one collection's conflict freeze another's records", () => {
+    assert.equal(unpushedFor(unpushed, "mine")?.has("b"), false);
+  });
+
+  // The other half of the asymmetry: `.push-state.json` holds ONE baseline per
+  // calendar, so the holdback there must cover every collection on it.
+  it("holds the shared baseline back for every collection's conflicts", () => {
+    assert.deepEqual([...allUnpushed(unpushed)].sort(), ["a", "b"]);
+  });
+
+  it("holds nothing back when every push landed", () => {
+    assert.equal(allUnpushed(new Map()).size, 0);
+  });
+
+  // Fail closed. A read that failed says nothing about whether the pull's writes
+  // would, so pulling with no protection would destroy exactly the edits this
+  // exists to protect (CodeRabbit review on #2666).
+  it("answers null when a collection's protection could not be worked out", () => {
+    assert.equal(unpushedFor(new Map([["broken", null]]), "broken"), null);
+  });
+
+  it("distinguishes unknown protection from a collection that simply pushed cleanly", () => {
+    const mixed = new Map<string, ReadonlySet<string> | null>([
+      ["broken", null],
+      ["fine", new Set()],
+    ]);
+    assert.equal(unpushedFor(mixed, "broken"), null);
+    assert.equal(unpushedFor(mixed, "fine")?.size, 0);
+  });
+
+  it("leaves an unknown entry out of the baseline union — it reports an error instead", () => {
+    const mixed = new Map<string, ReadonlySet<string> | null>([
+      ["broken", null],
+      ["fine", new Set(["a"])],
+    ]);
+    assert.deepEqual([...allUnpushed(mixed)], ["a"]);
+  });
+});
+
+describe("shadowUpdates (#2620 a refused push holds its baseline back)", () => {
+  it("records what Google now says for every event by default", () => {
+    const updates = shadowUpdates([event({ id: "a" }), event({ id: "b" })]);
+    assert.deepEqual(Object.keys(updates).sort(), ["a", "b"]);
+  });
+
+  it("leaves out an event whose record the push could not send", () => {
+    const updates = shadowUpdates([event({ id: "a" }), event({ id: "b" })], new Set(["b"]));
+    assert.deepEqual(Object.keys(updates), ["a"]);
+    assert.equal(Object.hasOwn(updates, "b"), false, "a held-back baseline must be absent, not null — null DELETES it");
+  });
+
+  it("still clears the baseline of a cancelled event", () => {
+    assert.equal(shadowUpdates([event({ id: "a", status: "cancelled" })]).a, null);
+  });
+
+  it("does not clear the baseline of a cancelled event the push could not send", () => {
+    assert.deepEqual(shadowUpdates([event({ id: "a", status: "cancelled" })], new Set(["a"])), {});
   });
 });
 

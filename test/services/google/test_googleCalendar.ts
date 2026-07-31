@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 
 import { buildEventPatch, calendarApiError, collectCalendarPages, toCalendarSummary, toEventSummary, type CalendarListPage } from "@mulmoclaude/core/google";
 
-const emptyEvent = { id: "", summary: "", start: "", end: "", htmlLink: "", status: "", colorId: "" };
+const emptyEvent = { id: "", summary: "", start: "", end: "", htmlLink: "", status: "", colorId: "", description: "", location: "" };
 
 describe("toEventSummary", () => {
   it("maps a timed event (dateTime) with its colour", () => {
@@ -26,7 +26,18 @@ describe("toEventSummary", () => {
       htmlLink: "https://calendar.google.com/event?eid=ev1",
       status: "confirmed",
       colorId: "7",
+      description: "",
+      location: "",
     });
+  });
+
+  // The body is Google's own limited HTML. Storing it verbatim is what lets a
+  // mirrored event survive the round trip back to Google (#2620).
+  it("keeps the description's markup byte-for-byte", () => {
+    const body = '<b>Agenda</b><br><a href="https://example.test">notes</a>';
+    const summary = toEventSummary({ id: "ev3", description: body, location: "Room 4" });
+    assert.equal(summary.description, body);
+    assert.equal(summary.location, "Room 4");
   });
 
   it("leaves colorId empty when the event inherits the calendar colour", () => {
@@ -144,6 +155,14 @@ describe("buildEventPatch (#2569)", () => {
   // empty the body, and dropping it would silently ignore the edit.
   it('keeps description: "" — it clears the body', () => {
     assert.deepEqual(buildEventPatch({ eventId: "e1", description: "" }), { description: "" });
+  });
+
+  it('keeps location: "" for the same reason', () => {
+    assert.deepEqual(buildEventPatch({ eventId: "e1", location: "" }), { location: "" });
+  });
+
+  it("leaves location alone when the caller never mentioned it", () => {
+    assert.deepEqual(buildEventPatch({ eventId: "e1", summary: "x" }), { summary: "x" });
   });
 
   // Deliberate asymmetry with `description`: Calendar rejects colorId "" as a

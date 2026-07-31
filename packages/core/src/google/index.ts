@@ -74,7 +74,12 @@ export {
 } from "./calendarPushState.js";
 export {
   isDeniedAccessRole,
+  isUnpushed,
+  locallyEditedIds,
   pushCalendarForCollection,
+  pushCollectionNow,
+  unsentLocalEdits,
+  type PushOutcomeKind,
   type CalendarCollectionPushResult,
   type CalendarPushDeps,
   type CalendarPushOutcome,
@@ -97,23 +102,27 @@ export {
   type RecordPlan,
 } from "./pushPlan.js";
 export { toCollectionDateTime } from "./collectionDateTime.js";
+export { withCalendarLock, withKeyedLock } from "./calendarLock.js";
+export { mergeIntoExisting, toCollectionRecord, type GoogleCalendarSourceField } from "./collectionProjection.js";
 export {
   googleCalendarSyncTaskDef,
   classifyDelete,
   classifyWrite,
   anySyncedCollectionSurvives,
   groupByCalendar,
+  allUnpushed,
   orphanedCalendarId,
+  pullableEvents,
   releaseOrphanedCalendarToken,
+  unpushedFor,
+  PROTECTION_UNKNOWN,
+  type UnpushedBySlug,
   syncCalendarForCollection,
   syncCalendarGroup,
   syncDueCalendarCollections,
   syncNewCalendarCollections,
   shadowUpdates,
-  toCollectionRecord,
   unsyncedGroups,
-  withCalendarLock,
-  withKeyedLock,
   GOOGLE_CALENDAR_SYNC_TASK_ID,
   type CalendarCollectionSyncResult,
   type CalendarDeclaring,

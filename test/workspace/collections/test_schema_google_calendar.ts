@@ -48,6 +48,23 @@ describe("collection schema — googleCalendar block (#2095)", () => {
     assert.equal(withSync({ map: { title: "attendees" } }).success, false);
   });
 
+  it("accepts the fields the pull gained in #2620", () => {
+    assert.equal(withSync({ map: { title: "description" } }).success, true);
+    assert.equal(withSync({ map: { title: "location" } }).success, true);
+  });
+
+  // Opt-in, and absent by default: an automatic push writes to a calendar other
+  // people may read, so it is the user's decision (#2620).
+  it("accepts autoPush and leaves it undefined when unstated", () => {
+    assert.equal(withSync({ map: { title: "summary" }, autoPush: true }).success, true);
+    const parsed = withSync({ map: { title: "summary" } });
+    assert.equal(parsed.success && parsed.data.googleCalendar?.autoPush, undefined);
+  });
+
+  it("rejects a non-boolean autoPush rather than treating a typo as on", () => {
+    assert.equal(withSync({ map: { title: "summary" }, autoPush: "yes" }).success, false);
+  });
+
   // A computed field is derived at read time and never materialised, so a
   // sync writing into one would be silently discarded (Sourcery review on
   // #2184).

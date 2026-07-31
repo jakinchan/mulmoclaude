@@ -16,6 +16,7 @@ import {
   isClientSettableEventId,
   locallyChangedFields,
   locallyDeletedIds,
+  locallyEditedIds,
   mayAdoptExisting,
   mergeShadow,
   planRecord,
@@ -42,6 +43,8 @@ const shadow = (overrides: Partial<ShadowEvent> = {}): ShadowEvent => ({
   start: "2026-07-19T09:00:00+09:00",
   end: "2026-07-19T09:15:00+09:00",
   colorId: "7",
+  description: "",
+  location: "",
   ...overrides,
 });
 
@@ -49,8 +52,14 @@ const shadow = (overrides: Partial<ShadowEvent> = {}): ShadowEvent => ({
 const syncedRecord = (eventId: string, base: ShadowEvent) => baselineRecord(eventId, base, MAP, PRIMARY_KEY, fields);
 
 describe("pushableMap", () => {
-  it("keeps the four writable event fields", () => {
+  it("keeps the writable event fields", () => {
     assert.deepEqual(pushableMap({ title: "summary", on: "start", until: "end", colour: "colorId" }), MAP);
+  });
+
+  // Pull and push must agree on what a field is, or a mirrored calendar loses
+  // whichever side the two disagree about (#2620).
+  it("keeps description and location, which the pull can now read", () => {
+    assert.deepEqual(pushableMap({ body: "description", where: "location" }), { body: "description", where: "location" });
   });
 
   it("drops htmlLink and status, which Google will not accept a write for", () => {
@@ -59,6 +68,36 @@ describe("pushableMap", () => {
 
   it("is empty when a schema maps only read-only fields", () => {
     assert.deepEqual(pushableMap({ link: "htmlLink" }), {});
+  });
+});
+
+// When a push cannot run AT ALL (a calendar whose role degraded to reader, a
+// revoked grant), the pull still runs — reading needs no write access — and
+// would overwrite every unsent local edit while advancing its baseline past it.
+// This is the set the pull has to protect in that case (CodeRabbit review #2666).
+describe("locallyEditedIds (#2620 protection when the push never ran)", () => {
+  const base = shadow();
+  const untouched = { ...syncedRecord("ev1", base), gid: "ev1" };
+  const edited = { ...syncedRecord("ev2", base), gid: "ev2", title: "Renamed locally" };
+  const stored = { ev1: base, ev2: base };
+
+  it("names only the records that differ from their baseline", () => {
+    assert.deepEqual(locallyEditedIds([untouched, edited], stored, MAP, PRIMARY_KEY, fields), ["ev2"]);
+  });
+
+  it("protects nothing when every record matches its baseline", () => {
+    assert.deepEqual(locallyEditedIds([untouched], stored, MAP, PRIMARY_KEY, fields), []);
+  });
+
+  // No baseline means the record never came from a sync, so it is local-only —
+  // there is nothing in Google for the pull to overwrite it with, but including
+  // it is harmless and keeps this in step with `planRecord`.
+  it("includes a locally created record that has no baseline yet", () => {
+    assert.deepEqual(locallyEditedIds([{ gid: "brand-new", title: "New" }], {}, MAP, PRIMARY_KEY, fields), ["brand-new"]);
+  });
+
+  it("protects nothing for an empty collection", () => {
+    assert.deepEqual(locallyEditedIds([], stored, MAP, PRIMARY_KEY, fields), []);
   });
 });
 
@@ -73,6 +112,20 @@ describe("planRecord — nothing to do", () => {
     const base = shadow();
     const plan = planRecord("ev1", syncedRecord("ev1", base), base, MAP, PRIMARY_KEY, fields);
     assert.deepEqual(plan, { kind: "unchanged" });
+  });
+
+  // A `.push-state.json` written before `description` / `location` became
+  // pushable carries neither key. If an absent baseline field read as a local
+  // edit, the first push after the upgrade would re-PATCH the whole collection
+  // — so this pins the "absent and empty compare alike" rule that makes the
+  // widened baseline need no migration (#2620).
+  it("does not read a baseline written before description/location existed as edited", () => {
+    // `readJsonOrNull` annotates rather than validates, so this is exactly the
+    // value an older state file yields at runtime.
+    const legacy: ShadowEvent = JSON.parse('{"summary":"Standup","start":"2026-07-19T09:00:00+09:00","end":"2026-07-19T09:15:00+09:00","colorId":"7"}');
+    const mapWithBody: Record<string, PushableSourceField> = { ...MAP, body: "description", where: "location" };
+    const record = baselineRecord("ev1", legacy, mapWithBody, PRIMARY_KEY, fields);
+    assert.deepEqual(planRecord("ev1", record, legacy, mapWithBody, PRIMARY_KEY, fields), { kind: "unchanged" });
   });
 
   it("does not read an all-day event as edited (stored `…T00:00` vs Google's date)", () => {

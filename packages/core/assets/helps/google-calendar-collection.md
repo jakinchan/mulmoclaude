@@ -10,17 +10,22 @@ for deleting events, use the `google` tool — see
 [The `google` tool](google.md). There is no bundled calendar collection: you
 author the schema when the user asks for one.
 
-## Both directions, but only one of them automatic
+## Both directions
 
 | Direction | How | When it runs |
 | --- | --- | --- |
 | Google → collection | the `googleCalendar` block | hourly, on creation, and on the **Sync** button |
-| collection → Google | the **Push to Google** button in the collection view | only when the user clicks it |
+| collection → Google | the **Push to Google** button | whenever the user clicks it |
+| collection → Google | `"autoPush": true` in the block | hourly, immediately before each pull |
 
-There is no automatic write-back and no setting that enables one. If a user
-asks for "two-way sync", tell them plainly: the pull is automatic, the push is
-a button they press. Do not go looking for a config key for it — there isn't
-one, and hunting for it is what makes this conversation go in circles.
+When a user asks for "two-way sync", `autoPush` is the answer: set it and each
+scheduled run pushes local edits up and then pulls Google's changes down, as one
+cycle. Without it the pull is automatic and the push is a button they must
+remember to press — which is why the order used to matter so much.
+
+It is **opt-in and off by default**, and that is deliberate: a push writes to a
+calendar other people may be reading, so turning it on is the user's call. Ask
+before you add it.
 
 ## Requirements
 
@@ -45,7 +50,8 @@ it isn't, sync silently does nothing until they link it in settings.
 
   "googleCalendar": {
     "calendarId": "primary",
-    "map": { "title": "summary", "on": "start", "until": "end" }
+    "map": { "title": "summary", "on": "start", "until": "end" },
+    "autoPush": true
   }
 }
 ```
@@ -58,9 +64,20 @@ it isn't, sync silently does nothing until they link it in settings.
   names suit the collection; the map absorbs the difference. Map at least one
   field: an empty map syncs records that carry only the event id, so the user
   would see rows with no content.
+- `autoPush` — push local edits on the sync schedule, just before each pull.
+  Omit it (the default) and the push stays a button. See "Both directions".
 
-Mappable event fields: `summary`, `start`, `end`, `htmlLink`, `colorId`,
-`status`.
+Mappable event fields: `summary`, `start`, `end`, `description`, `location`,
+`htmlLink`, `colorId`, `status`.
+
+`description` is the event body, and Google stores limited **HTML** in it. It is
+kept verbatim — mirroring it through a plain-text field and pushing it back would
+strip the user's formatting. Give it a `text` field, and do not "clean it up" on
+the way in.
+
+Mapping a column the user already filled by hand (a `notes` column, say) onto
+`description` means the next push sends that text to Google. That is usually what
+they want, but say so before you write the map.
 
 ## The primary field is the event id
 
@@ -82,8 +99,10 @@ the calendar day view then draws each record as a proportional time block.
 
 ## What sync does
 
-- New or edited events are written, keyed by event id (existing records are
-  replaced in place).
+- New or edited events are written, keyed by event id. Only the mapped columns
+  are overwritten: a column the map does not name (a local note the user keeps
+  next to the event) survives the pull. The flip side is that a field you REMOVE
+  from `map` keeps its last synced value rather than disappearing.
 - Events deleted in Google are **deleted** from the collection.
 - Only what changed since the last run is fetched, so a big calendar stays
   cheap after the first sync.
@@ -100,10 +119,10 @@ them like any other.
 The collection view has a **Push to Google** button next to Sync. It creates
 events for records added locally and updates events for records edited locally.
 
-**Order matters, and this is the one thing to warn users about.** A pull
-overwrites a locally edited record as soon as Google reports any change to that
-event. So: push first, then sync. Syncing first can discard the edit that was
-waiting to be pushed.
+**Order matters when the push is manual.** A pull overwrites a locally edited
+record as soon as Google reports any change to that event, so: push first, then
+sync. Syncing first can discard the edit that was waiting to be pushed. This is
+exactly the trap `autoPush` closes — it runs the two in that order for the user.
 
 What the button does and deliberately does not do:
 
@@ -115,9 +134,13 @@ What the button does and deliberately does not do:
   The count is reported so the user knows it was skipped; deleting for real is
   the `google` tool's `calendarDeleteEvent`, after confirming with them.
 - **Skips a record edited on both sides** and reports it, rather than picking a
-  winner. The user resolves it by editing one side to match.
-- Pushes only `summary`, `start`, `end` and `colorId` — `htmlLink` and `status`
-  are read-only in Google, so a column mapped to either is ignored.
+  winner. The user resolves it by editing one side to match. Under `autoPush`
+  the pull that follows leaves that record alone too, so the local edit is not
+  destroyed while it waits — the cost is that the record stays behind Google
+  until someone resolves it, and the host logs which records those are.
+- Pushes `summary`, `start`, `end`, `description`, `location` and `colorId` —
+  everything the pull can read except `htmlLink` and `status`, which are
+  read-only in Google, so a column mapped to either is ignored.
 
 Reasons a record can be reported as skipped:
 

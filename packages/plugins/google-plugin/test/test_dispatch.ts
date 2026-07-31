@@ -23,6 +23,8 @@ const EVENT: CalendarEventSummary = {
   htmlLink: "https://calendar.google.com/event?eid=evt-1",
   status: "confirmed",
   colorId: "",
+  description: "",
+  location: "",
 };
 const CANCELLED_EVENT: CalendarEventSummary = { ...EVENT, id: "evt-cancelled", status: "cancelled" };
 const TASK = { id: "task-1", title: "Buy milk", status: "needsAction", due: "", notes: "" };

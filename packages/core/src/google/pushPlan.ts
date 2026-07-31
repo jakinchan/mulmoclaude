@@ -6,13 +6,13 @@
 import type { CollectionFieldSpec, CollectionItem } from "../collection/core/schema.js";
 import type { CalendarEventSummary } from "./calendar.js";
 import type { ShadowEvent } from "./calendarPushState.js";
-import { toCollectionRecord } from "./collectionSync.js";
+import { toCollectionRecord } from "./collectionProjection.js";
 
 /** The event fields Google lets a caller write. `htmlLink` and `status` are
  *  read-only, so a record column mapped to either is ignored here rather than
  *  rejected — the mapping was authored for the pull, and a push has no business
  *  invalidating it. */
-export const PUSHABLE_SOURCE_FIELDS = ["summary", "start", "end", "colorId"] as const;
+export const PUSHABLE_SOURCE_FIELDS = ["summary", "start", "end", "colorId", "description", "location"] as const;
 
 export type PushableSourceField = (typeof PUSHABLE_SOURCE_FIELDS)[number];
 
