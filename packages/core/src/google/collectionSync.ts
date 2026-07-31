@@ -127,9 +127,9 @@ const NOTHING_UNPUSHED: ReadonlySet<string> = new Set();
  *  Reported through the retryable `errors` channel rather than as a special case:
  *  that already holds the sync token AND skips the baseline save, so the window
  *  simply replays next run with nothing lost. Failing OPEN here — pulling with no
- *  protection — would overwrite the very edits this exists to protect, and the
- *  read that failed says nothing about whether the pull's writes would
- *  (CodeRabbit review #2666). */
+ *  protection — would overwrite the very edits this exists to protect; the read
+ *  that failed is no evidence that the pull's own writes would fail too, so they
+ *  would land (CodeRabbit review #2666). */
 export const PROTECTION_UNKNOWN = "could not work out which records to protect after a failed push";
 
 /** What ONE collection's pull must leave alone: only what ITS OWN push failed to
@@ -259,36 +259,53 @@ async function syncCalendarGroupNow(
   const first = await syncCalendarEvents(accessToken, { calendarId, syncToken: storedToken ?? undefined });
   const result = first.fullResyncRequired ? await restartFullSync(accessToken, calendarId, workspaceRoot) : first;
 
+  const results = await applyWindowToGroup(collections, result.events, workspaceRoot, unpushed);
+  if (windowFullyLanded(calendarId, results)) {
+    // Gated with the token, for the same reason: a baseline recorded for a window
+    // the records never received would make the next push read a local edit where
+    // there was only a failed write.
+    await saveCalendarShadow(calendarId, shadowUpdates(result.events, allUnpushed(unpushed)), workspaceRoot);
+    if (result.nextSyncToken) await advanceToken(calendarId, result.nextSyncToken, collections, workspaceRoot);
+  }
+  return results;
+}
+
+/** Apply one window to every collection on the calendar, honouring what each
+ *  one's own push protected. A collection whose protection could not be worked
+ *  out is not pulled at all — it reports a retryable error instead, which holds
+ *  the token and the baseline back for the whole group. */
+async function applyWindowToGroup(
+  collections: readonly LoadedCollection[],
+  events: readonly CalendarEventSummary[],
+  workspaceRoot: string,
+  unpushed: UnpushedBySlug,
+): Promise<CalendarCollectionSyncResult[]> {
   const results: CalendarCollectionSyncResult[] = [];
   for (const collection of collections) {
     const protection = unpushedFor(unpushed, collection.slug);
     results.push(
       protection === null
         ? { slug: collection.slug, written: 0, removed: 0, unwritable: [], errors: [PROTECTION_UNKNOWN] }
-        : await applyEventsToCollection(collection, result.events, workspaceRoot, protection),
+        : await applyEventsToCollection(collection, events, workspaceRoot, protection),
     );
   }
-  // Advance the token only after every collection in the group consumed the
-  // window AND every record actually landed. Google never resends a window, so
-  // advancing past a failed write would lose those events for good; holding the
-  // token back just replays them next run (writes are idempotent).
-  const unwritable = results.flatMap((entry) => entry.unwritable);
-  if (unwritable.length > 0) {
-    // Never retryable, so the token still advances — but say so loudly, since
-    // these events will silently never appear in the collection.
-    log.warn("google", "skipping calendar events that can never be stored", { calendarId, unwritable });
-  }
-  const failed = results.flatMap((entry) => entry.errors);
-  if (failed.length > 0) {
-    log.warn("google", "holding back calendar sync token after failed writes", { calendarId, failed: failed.length });
-    return results;
-  }
-  // Gated with the token, for the same reason: a baseline recorded for a window
-  // the records never received would make the next push read a local edit where
-  // there was only a failed write.
-  await saveCalendarShadow(calendarId, shadowUpdates(result.events, allUnpushed(unpushed)), workspaceRoot);
-  if (result.nextSyncToken) await advanceToken(calendarId, result.nextSyncToken, collections, workspaceRoot);
   return results;
+}
+
+/** Whether the token and baseline may advance past this window.
+ *
+ *  Google never resends a window, so advancing past a failed write would lose
+ *  those events for good; holding the token back just replays them next run
+ *  (writes are idempotent). An `unwritable` event can never succeed, so it does
+ *  NOT hold the token — but it is logged loudly, since it will silently never
+ *  appear in the collection. */
+function windowFullyLanded(calendarId: string | undefined, results: readonly CalendarCollectionSyncResult[]): boolean {
+  const unwritable = results.flatMap((entry) => entry.unwritable);
+  if (unwritable.length > 0) log.warn("google", "skipping calendar events that can never be stored", { calendarId, unwritable });
+  const failed = results.flatMap((entry) => entry.errors);
+  if (failed.length === 0) return true;
+  log.warn("google", "holding back calendar sync token after failed writes", { calendarId, failed: failed.length });
+  return false;
 }
 
 /** The baseline this window establishes: what Google now says per event, and
