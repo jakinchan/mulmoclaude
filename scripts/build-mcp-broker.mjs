@@ -1,0 +1,60 @@
+// Bundle the MCP broker (`server/agent/mcp-server.ts`) into a single ESM file
+// at `server/build/mcp-server.mjs`. Run as `yarn build:mcp-broker` (chained
+// from `yarn build`).
+//
+// Why: the CLI spawns the broker per turn and waits ~5s for it to answer
+// `initialize`. Under `tsx` over a Windows/macOS Docker bind mount that took
+// 20-24 seconds (#2233 measured it), which is the `handlePermission not found`
+// race in #2201. The cost is per-file: the broker's runtime graph is 292 files
+// plus a CJS tree underneath, and #2233 found cold and warm runs equally slow —
+// so it is work paid every turn, not a cache miss. Bundling makes it one file.
+//
+// Unlike `build-hooks.mjs`, the output is NOT committed: it is ~12 MB, and a
+// blob that size rewritten on every build would bloat the repo. It is
+// gitignored and produced by `yarn build`; `buildMulmoclaudeServer` falls back
+// to `tsx` when it is absent, so a fresh checkout still runs before any build.
+
+import { build } from "esbuild";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, "..");
+
+const ENTRY = "server/agent/mcp-server.ts";
+const OUTFILE = "server/build/mcp-server.mjs";
+
+// Native `.node` bindings cannot be inlined. duckdb reaches the graph through
+// the collection store; left external it resolves from node_modules as before.
+const NATIVE_EXTERNALS = ["@duckdb/*", "duckdb"];
+
+// express / body-parser / debug are CJS and call `require()` at runtime, which
+// an ESM bundle has no binding for — without this the broker dies at load with
+// `Dynamic require of "tty" is not supported`.
+const CJS_REQUIRE_SHIM = ["import { createRequire as __createRequire } from 'node:module';", "const require = __createRequire(import.meta.url);"].join("\n");
+
+async function main() {
+  const result = await build({
+    entryPoints: [path.join(repoRoot, ENTRY)],
+    outfile: path.join(repoRoot, OUTFILE),
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    target: "node22",
+    external: NATIVE_EXTERNALS,
+    banner: { js: CJS_REQUIRE_SHIM },
+    // Same rationale as build-hooks.mjs: an inline map's base64 churns on every
+    // rebuild. The bundle is not committed, but a stable output still keeps
+    // `yarn build` reproducible.
+    sourcemap: false,
+    logLevel: "silent",
+    metafile: true,
+  });
+  const bytes = Object.values(result.metafile.outputs)[0]?.bytes ?? 0;
+  console.log(`[build:mcp-broker] ${ENTRY} -> ${OUTFILE} (${(bytes / 1024 / 1024).toFixed(1)} MB)`);
+  for (const warning of result.warnings) {
+    console.warn(`[build:mcp-broker] warning: ${warning.text}`);
+  }
+}
+
+await main();

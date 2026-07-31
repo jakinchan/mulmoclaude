@@ -45,3 +45,8 @@ test-results-live/
 
 # V8 heap snapshots written by the dev server on near-OOM (scripts/dev-server.mjs)
 *.heapsnapshot
+
+# Bundled MCP broker (`yarn build:mcp-broker`). ~12 MB and rewritten on every
+# build, so unlike server/build/dispatcher.mjs it is not committed; the spawn
+# path falls back to tsx when it is absent.
+/server/build/mcp-server.mjs
