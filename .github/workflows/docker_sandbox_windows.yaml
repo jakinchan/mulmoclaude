@@ -93,6 +93,11 @@ jobs:
       - name: Build every workspace package (the probe + MCP child import their dist)
         run: yarn build:packages:dev
 
+      # Without this the bundle is absent, `buildMulmoclaudeServer` falls back
+      # to tsx, and the timing below would keep measuring the old path (#2235).
+      - name: Build the bundled MCP broker (what the spawn spec now points at)
+        run: yarn build:mcp-broker
+
       # windows-latest ships Docker CLI + a Windows-only engine, no Docker
       # Desktop. Docker Desktop in CI needs UI dialogs on first launch and
       # is flake-prone. Instead we use the preinstalled WSL2 with Ubuntu +
