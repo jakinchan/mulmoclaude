@@ -256,7 +256,12 @@ jobs:
       # Mounts / env / argv come from the SHIPPED builders via
       # print-mcp-container-spec.ts, so this can never drift the way the
       # hardcoded smoke test did.
-      - name: "#2052 — end-to-end: real mcp-server.ts answers initialize + tools/list"
+      #
+      # The handshake is driven through /repro/time-broker-handshake.sh, which
+      # stamps how long the broker takes to answer — the input #2235 needs to
+      # decide between prebuilding the broker and deferring its imports (#2233).
+      # The assertions below are unchanged; the timing rides along and reports.
+      - name: "#2052 — end-to-end: real mcp-server.ts answers initialize + tools/list (+ #2233 cold-boot timing)"
         shell: pwsh
         run: |
           $wsWin = "${{ github.workspace }}"
@@ -274,12 +279,43 @@ jobs:
           $dockerArgs += @("-v", "${wsLinux}/test/sandbox-repro:/repro:ro")
           foreach ($mount in $spec.pkgModuleMounts) { $dockerArgs += @("-v", $mount) }
           foreach ($entry in $spec.env.PSObject.Properties) { $dockerArgs += @("-e", "$($entry.Name)=$($entry.Value)") }
+          # `npm install -g tsx` stays OUTSIDE the timed window: the shipped
+          # sandbox image already carries tsx, so counting it would inflate a
+          # number that production never pays.
           $dockerArgs += @("-w", "/app", "node:22-slim", "bash", "-c",
-            "npm install -g tsx --silent && cat /repro/mcp-handshake.jsonl | $($spec.command) $($spec.args -join ' ')")
+            "npm install -g tsx --silent && bash /repro/time-broker-handshake.sh $($spec.command) $($spec.args -join ' ')")
 
           Write-Host "pkg_modules mounts: $($spec.pkgModuleMounts.Count)"
+          $runClock = [System.Diagnostics.Stopwatch]::StartNew()
           $out = wsl -d Ubuntu-22.04 -u root -- docker @dockerArgs 2>&1 | Out-String
+          $runClock.Stop()
           Write-Host $out
+
+          # #2233 timing is published BEFORE the assertions below: a broker slow
+          # enough to fail them is exactly when the number is worth reading, and
+          # a thrown assertion would skip everything after it.
+          $measured = @{}
+          foreach ($match in [regex]::Matches($out, 'TIMING (\w+) (\w+) (\d+)')) {
+            $measured["$($match.Groups[1].Value)/$($match.Groups[2].Value)"] = [int]$match.Groups[3].Value
+          }
+          function Format-Timing($key) {
+            if ($measured.ContainsKey($key)) { "$($measured[$key]) ms" } else { "not reported" }
+          }
+          $summary = @(
+            '### MCP broker cold-boot timing (#2233)'
+            ''
+            'Measured inside the sandbox container over the Windows bind mount, from broker spawn to the response line. That is the window the CLI waits through before it gives up and reports `handlePermission not found` (#2201) - not the same as how long the process runs in total.'
+            ''
+            '| run | `initialize` answered | `tools/list` answered |'
+            '|---|---|---|'
+            "| cold (first read over the mount) | $(Format-Timing 'cold/initialize') | $(Format-Timing 'cold/tools_list') |"
+            "| warm (page cache hot) | $(Format-Timing 'warm/initialize') | $(Format-Timing 'warm/tools_list') |"
+            ''
+            "Whole ``docker run``: $([int]$runClock.Elapsed.TotalMilliseconds) ms. That figure includes the one-off ``npm install -g tsx`` which production does not pay, so read the table for the boot cost, not this."
+            ''
+            'Before tuning anything to these numbers: a shared runner under WSL2 9p is the same *class* of slow mount as Docker Desktop file sharing but not the same absolute values, and `npm install -g tsx` leaves node warmer here than a fresh production container would be. Treat `cold` as a floor, not a worst case.'
+          )
+          $summary -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
           if ($out -notmatch '"serverInfo"') {
             throw "MCP server never answered initialize — the child died at load. See stderr above."
