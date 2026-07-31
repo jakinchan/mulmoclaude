@@ -52,7 +52,7 @@ Covers D–F end-to-end on real NTFS junctions. Schedule + `workflow_dispatch` o
 | # | Trigger | Platform | Fix | Test | Status |
 |---|---------|----------|-----|------|--------|
 | J | same-minute fan-out (5 tasks at 20:00 UTC) floods CPU, broker boots slowly | any incl. macOS | stagger independent firings by `firingStaggerMs` (default 1s) | `packages/core/test/scheduler/test_scheduler.ts` stagger cases | **FIXED (mitigation)** |
-| K | single-task cold-boot race (broker slower than the first tool call even with 1 task) | any incl. macOS | detect `handlePermission not found` → wait 3s → replay the turn once | `test/agent/test_mcpBrokerFailover.ts` + `test/agent/test_abort_caused_exit.ts` | **FIXED (self-recovery)** |
+| K | single-task cold-boot race (broker slower than the first tool call even with 1 task) | any incl. macOS | (1) prebuilt broker bundle — 20 s cold boot → 0.5 s, so the race window closes (#2235); (2) detect `handlePermission not found` → wait 3s → replay the turn once, kept as backstop | `test/agent/test_mcpBrokerFailover.ts` + `test/agent/test_abort_caused_exit.ts` + the #2233 timing in `docker_sandbox_windows.yaml` | **FIXED (cause removed + self-recovery)** |
 | L | scheduler records the run `"success"` on spawn, not on turn outcome → silent failures | any | record the real outcome from the turn's completion hook, not at dispatch | `test/skills/test_skill_scheduler.ts` (#2057 error-run case) | **FIXED (honest logging)** |
 
 ### J — stagger (`packages/core/src/scheduler/task-manager.ts`)
@@ -105,9 +105,11 @@ latest), not a pin.
 
 - **Layer 1 is done and regression-locked** across every platform × layout × mode combination
   (A–I), plus a real-container Windows e2e for the junction cases.
-- **Layer 2 is done and tested:** J (stagger) cuts multi-task contention, K (retry) self-recovers
-  the single-task race that stagger can't touch, L (honest logging) makes any residual failure
-  visible instead of a false success. All three ship with regression tests.
+- **Layer 2 is done and tested:** J (stagger) cuts multi-task contention, K removes the
+  single-task race at its source (the broker now boots in ~0.5 s instead of ~20 s, #2235) and
+  keeps the retry as a backstop, L (honest logging) makes any residual failure visible instead of
+  a false success. All three ship with regression tests, and K's cold boot is now measured on
+  every Windows canary run rather than inferred.
 - **Layer 3 (M) is open by choice** — no code fix, documented recovery only. The family is
   therefore *not* fully closed; a `handlePermission not found` report that survives a manual
   retry and shows no `Cannot find module` should be checked against M before reopening A–L.
@@ -118,6 +120,36 @@ The race ultimately lives inside the Claude CLI (it spawns our broker AND issues
 call; there is no host-side broker-readiness gate — confirmed: `validateStdioPackages` is
 fire-and-forget over third-party npx servers, and the broker's `runtimeReady` gates plugin tools
 while `handlePermission` already answers without it, #1698). So K is a bounded *self-recovery*
-(one replay), not a guarantee; a further hardening would be to shrink the broker's cold-boot
-window by deferring its heavy top-level imports so stdio answers `initialize` sooner — a larger
-`mcp-server.ts` refactor, tracked separately.
+(one replay), not a guarantee.
+
+The hardening this note used to call for — shrink the cold-boot window so stdio answers
+`initialize` sooner — **shipped in #2235**, though not in the shape proposed here. Deferring the
+broker's heavy top-level imports was measured and rejected: the runtime graph is 292 files and
+most of them are a core shared by several top-level imports, so cutting the biggest single
+import (`mcp-tools/index.ts`) removes only 26 of them. Bundling the broker ahead of time
+collapses all 292 into one file instead.
+
+| broker | cold | warm |
+|---|---|---|
+| `tsx server/agent/mcp-server.ts` (before) | 20,232 ms | 20,828 ms |
+| `node server/build/mcp-server.mjs` (now) | **508 ms** | **555 ms** |
+
+Measured on the Windows bind mount by the timing added to `docker_sandbox_windows.yaml` in
+#2233 — the same harness reports it on every run, so a regression here shows up as a number
+rather than as an intermittent field report.
+
+Two things that are easy to get wrong if this is ever revisited:
+
+- **Measure the runtime graph, not a static one.** esbuild's metafile counts `import type` edges,
+  which tsx erases. It makes `spawnBackgroundChat.ts` look like it drags in 1843 files via
+  `api/routes/agent.ts`; at runtime that file is never read. Use an ESM `resolve` hook.
+- **The bundle must inline its dependencies.** `packages: "external"` gives a 505 KB artifact
+  instead of 6 MB, and dies in the container with `Cannot find package
+  '@mulmoclaude/markdown-utils'` — Layer 1's junction problem again, because a bundle resolving
+  bare specifiers from `server/build/` never reaches the `/app/pkg_modules` fallback. Inlining is
+  what keeps Layer 1 fixed, not just what makes it fast. It looked healthy on native macOS; only
+  the Windows harness caught it.
+
+The broker's cold boot is now ~40x lower than before and ~10x under the CLI's ~5 s connect wait,
+so the self-recovery replay should effectively stop firing — but it stays in place, since the
+guarantee still lives in the CLI, not here.
