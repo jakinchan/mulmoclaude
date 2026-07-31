@@ -20,7 +20,7 @@
 
 > **[How AI-Native Applications Should Be Built](MANIFEST.md)** — MulmoClaude의 아키텍처, UX, 그리고 프로토콜에 대한 주장.
 
-### 📣 업데이트 소식
+## 📣 업데이트 소식
 
 새 릴리스와 새 기능은 X에서 **일본어**로 안내합니다.
 

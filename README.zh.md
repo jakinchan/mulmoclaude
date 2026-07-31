@@ -20,7 +20,7 @@
 
 > **[How AI-Native Applications Should Be Built](MANIFEST.md)** —— MulmoClaude 背后的架构、UX 与协议论述。
 
-### 📣 更新资讯
+## 📣 更新资讯
 
 新版本与新功能会在 X 上以**日语**发布。
 

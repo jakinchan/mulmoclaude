@@ -20,7 +20,7 @@ Por baixo dos panos, o MulmoClaude é uma plataforma de aplicações AI-nativa: 
 
 > **[How AI-Native Applications Should Be Built](MANIFEST.md)** — a tese de arquitetura, UX e protocolo por trás do MulmoClaude.
 
-### 📣 Novidades
+## 📣 Novidades
 
 Novas versões e funcionalidades são anunciadas **em japonês** no X.
 
