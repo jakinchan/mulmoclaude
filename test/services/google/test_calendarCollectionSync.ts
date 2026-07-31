@@ -222,15 +222,15 @@ describe("unpushedFor / allUnpushed (#2620 protection is scoped per collection)"
   ]);
 
   it("gives a collection only what ITS OWN push failed to send", () => {
-    assert.deepEqual([...unpushedFor(unpushed, "mine")], ["a"]);
+    assert.deepEqual([...(unpushedFor(unpushed, "mine") ?? [])], ["a"]);
   });
 
   it("protects nothing for a collection that never pushed", () => {
-    assert.equal(unpushedFor(unpushed, "read-only-mirror").size, 0);
+    assert.equal(unpushedFor(unpushed, "read-only-mirror")?.size, 0);
   });
 
   it("does not let one collection's conflict freeze another's records", () => {
-    assert.equal(unpushedFor(unpushed, "mine").has("b"), false);
+    assert.equal(unpushedFor(unpushed, "mine")?.has("b"), false);
   });
 
   // The other half of the asymmetry: `.push-state.json` holds ONE baseline per
@@ -241,6 +241,30 @@ describe("unpushedFor / allUnpushed (#2620 protection is scoped per collection)"
 
   it("holds nothing back when every push landed", () => {
     assert.equal(allUnpushed(new Map()).size, 0);
+  });
+
+  // Fail closed. A read that failed says nothing about whether the pull's writes
+  // would, so pulling with no protection would destroy exactly the edits this
+  // exists to protect (CodeRabbit review on #2666).
+  it("answers null when a collection's protection could not be worked out", () => {
+    assert.equal(unpushedFor(new Map([["broken", null]]), "broken"), null);
+  });
+
+  it("distinguishes unknown protection from a collection that simply pushed cleanly", () => {
+    const mixed = new Map<string, ReadonlySet<string> | null>([
+      ["broken", null],
+      ["fine", new Set()],
+    ]);
+    assert.equal(unpushedFor(mixed, "broken"), null);
+    assert.equal(unpushedFor(mixed, "fine")?.size, 0);
+  });
+
+  it("leaves an unknown entry out of the baseline union — it reports an error instead", () => {
+    const mixed = new Map<string, ReadonlySet<string> | null>([
+      ["broken", null],
+      ["fine", new Set(["a"])],
+    ]);
+    assert.deepEqual([...allUnpushed(mixed)], ["a"]);
   });
 });
 

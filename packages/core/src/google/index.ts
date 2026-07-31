@@ -115,6 +115,7 @@ export {
   pullableEvents,
   releaseOrphanedCalendarToken,
   unpushedFor,
+  PROTECTION_UNKNOWN,
   type UnpushedBySlug,
   syncCalendarForCollection,
   syncCalendarGroup,

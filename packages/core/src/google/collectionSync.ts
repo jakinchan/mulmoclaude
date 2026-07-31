@@ -116,10 +116,21 @@ function reportAutoPush(slug: string, result: CalendarCollectionPushResult): voi
   if (errors.length > 0) log.warn("google", "auto push errors", { slug, errors });
 }
 
-/** What an automatic push protected, per collection slug. */
-export type UnpushedBySlug = ReadonlyMap<string, ReadonlySet<string>>;
+/** What an automatic push protected, per collection slug. `null` means it could
+ *  not be worked out at all — see `PROTECTION_UNKNOWN`. */
+export type UnpushedBySlug = ReadonlyMap<string, ReadonlySet<string> | null>;
 
 const NOTHING_UNPUSHED: ReadonlySet<string> = new Set();
+
+/** A collection whose protection is unknown must not be pulled this run.
+ *
+ *  Reported through the retryable `errors` channel rather than as a special case:
+ *  that already holds the sync token AND skips the baseline save, so the window
+ *  simply replays next run with nothing lost. Failing OPEN here — pulling with no
+ *  protection — would overwrite the very edits this exists to protect, and the
+ *  read that failed says nothing about whether the pull's writes would
+ *  (CodeRabbit review #2666). */
+export const PROTECTION_UNKNOWN = "could not work out which records to protect after a failed push";
 
 /** What ONE collection's pull must leave alone: only what ITS OWN push failed to
  *  send.
@@ -129,7 +140,10 @@ const NOTHING_UNPUSHED: ReadonlySet<string> = new Set();
  *  group starved a collection that never even declares `autoPush`: it cannot
  *  conflict, yet a neighbour's conflict froze its records — and the sync token
  *  still advanced, so Google never resent them (Codex review #2666). */
-export const unpushedFor = (unpushed: UnpushedBySlug, slug: string): ReadonlySet<string> => unpushed.get(slug) ?? NOTHING_UNPUSHED;
+export const unpushedFor = (unpushed: UnpushedBySlug, slug: string): ReadonlySet<string> | null => {
+  const protection = unpushed.get(slug);
+  return protection === undefined ? NOTHING_UNPUSHED : protection;
+};
 
 /** What the calendar's BASELINE must leave alone: the union over every
  *  collection.
@@ -140,8 +154,11 @@ export const unpushedFor = (unpushed: UnpushedBySlug, slug: string): ReadonlySet
  *  still has an unresolved conflict is the failure that silently overwrites
  *  Google on the next push, and holding it back only ever means "keep reporting
  *  the conflict" — so the union is the safe side of an asymmetry the shared
- *  storage forces. */
-export const allUnpushed = (unpushed: UnpushedBySlug): ReadonlySet<string> => new Set([...unpushed.values()].flatMap((ids) => [...ids]));
+ *  storage forces.
+ *
+ *  A `null` (unknown) entry contributes nothing, because that collection reports
+ *  a retryable error instead — which stops the baseline being saved at all. */
+export const allUnpushed = (unpushed: UnpushedBySlug): ReadonlySet<string> => new Set([...unpushed.values()].flatMap((ids) => (ids === null ? [] : [...ids])));
 
 /** What a collection's pull must protect when its push did not run AT ALL.
  *
@@ -152,16 +169,17 @@ export const allUnpushed = (unpushed: UnpushedBySlug): ReadonlySet<string> => ne
  *  next push could not even report the conflict (CodeRabbit review #2666).
  *
  *  Protects the edited records rather than all of them, so an unchanged record
- *  keeps syncing normally. Falls back to protecting nothing only when the records
- *  cannot be read either — the same state that would fail the pull's own writes. */
-async function protectUnsentEdits(collection: LoadedCollection, workspaceRoot: string): Promise<ReadonlySet<string>> {
+ *  keeps syncing normally. `null` when even that could not be worked out — the
+ *  caller then refuses to pull the collection at all, because failing open here
+ *  destroys exactly what this protects. */
+async function protectUnsentEdits(collection: LoadedCollection, workspaceRoot: string): Promise<ReadonlySet<string> | null> {
   try {
     const edited = await unsentLocalEdits(collection, workspaceRoot);
     if (edited.length > 0) log.warn("google", "protecting local edits a failed push could not send", { slug: collection.slug, edited });
     return new Set(edited);
   } catch (error) {
-    log.warn("google", "could not work out which records to protect after a failed push", { slug: collection.slug, error: String(error) });
-    return NOTHING_UNPUSHED;
+    log.warn("google", PROTECTION_UNKNOWN, { slug: collection.slug, error: String(error) });
+    return null;
   }
 }
 
@@ -175,7 +193,7 @@ async function protectUnsentEdits(collection: LoadedCollection, workspaceRoot: s
  *  A failed push must not stop the pull: the pull is what keeps the collection
  *  fresh, and a revoked write grant is no reason to freeze reading. */
 async function pushAutoCollections(collections: readonly LoadedCollection[], workspaceRoot: string): Promise<UnpushedBySlug> {
-  const unpushed = new Map<string, ReadonlySet<string>>();
+  const unpushed = new Map<string, ReadonlySet<string> | null>();
   for (const collection of collections.filter((entry) => entry.schema.googleCalendar?.autoPush)) {
     try {
       const outcome = await pushCollectionNow(collection, workspaceRoot);
@@ -243,7 +261,12 @@ async function syncCalendarGroupNow(
 
   const results: CalendarCollectionSyncResult[] = [];
   for (const collection of collections) {
-    results.push(await applyEventsToCollection(collection, result.events, workspaceRoot, unpushedFor(unpushed, collection.slug)));
+    const protection = unpushedFor(unpushed, collection.slug);
+    results.push(
+      protection === null
+        ? { slug: collection.slug, written: 0, removed: 0, unwritable: [], errors: [PROTECTION_UNKNOWN] }
+        : await applyEventsToCollection(collection, result.events, workspaceRoot, protection),
+    );
   }
   // Advance the token only after every collection in the group consumed the
   // window AND every record actually landed. Google never resends a window, so
