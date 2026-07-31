@@ -20,6 +20,13 @@ Unter der Haube ist MulmoClaude eine KI-native Anwendungsplattform: Fähigkeiten
 
 > **[How AI-Native Applications Should Be Built](MANIFEST.md)** — die Architektur-, UX- und Protokollthese hinter MulmoClaude.
 
+### 📣 Neuigkeiten / アップデート情報
+
+Neue Releases und Funktionen werden **auf Japanisch** auf X angekündigt — 新バージョンや新機能のお知らせは X で。
+
+- [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci) — Ankündigungen zu Releases und neuen Funktionen
+- [Satoshi Nakajima (@snakajima)](https://x.com/snakajima) — Eigentümer von MulmoClaude
+
 ## Schnellstart
 
 ```bash

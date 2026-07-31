@@ -1,8 +1,8 @@
 <template>
   <div v-if="open" class="fixed inset-0 z-50 bg-black/40 flex items-start justify-center pt-16" data-testid="settings-modal-backdrop" @click="close">
     <div
-      class="bg-white rounded-lg shadow-xl max-w-[95vw] max-h-[85vh] flex flex-col"
-      :class="isFullTab ? 'w-[64rem] h-[85vh]' : 'w-[52rem]'"
+      class="bg-white rounded-lg shadow-xl w-[clamp(64rem,88vw,90rem)] max-w-[95vw] max-h-[85vh] flex flex-col"
+      :class="{ 'h-[85vh]': isFullTab }"
       role="dialog"
       aria-modal="true"
       aria-labelledby="settings-modal-title"
@@ -41,7 +41,10 @@
           </div>
         </nav>
 
-        <div :class="isFullTab ? 'flex-1 min-h-0 overflow-hidden text-gray-900' : 'px-5 py-4 overflow-y-auto flex-1 space-y-4 text-gray-900'">
+        <!-- Form tabs cap their own width: the modal is sized for the
+             skill / role editors, and single-column inputs stretched to
+             that width are hard to read. -->
+        <div :class="isFullTab ? 'flex-1 min-h-0 overflow-hidden text-gray-900' : 'px-5 py-4 overflow-y-auto flex-1 max-w-[52rem] space-y-4 text-gray-900'">
           <!-- Full management surfaces (relocated from the top-bar
                launcher). Each ships its own header / scrolling / save,
                so they render full-bleed. SkillsView calls useRuntime()
