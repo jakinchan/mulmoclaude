@@ -150,6 +150,6 @@ Two things that are easy to get wrong if this is ever revisited:
   what keeps Layer 1 fixed, not just what makes it fast. It looked healthy on native macOS; only
   the Windows harness caught it.
 
-K's window is now ~40x smaller than the CLI's ~5 s connect wait, so the self-recovery replay
-should effectively stop firing — but it stays in place, since the guarantee still lives in the
-CLI, not here.
+The broker's cold boot is now ~40x lower than before and ~10x under the CLI's ~5 s connect wait,
+so the self-recovery replay should effectively stop firing — but it stays in place, since the
+guarantee still lives in the CLI, not here.
