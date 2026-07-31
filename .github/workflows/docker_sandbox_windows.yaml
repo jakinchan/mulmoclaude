@@ -315,7 +315,12 @@ jobs:
             ''
             'Before tuning anything to these numbers: a shared runner under WSL2 9p is the same *class* of slow mount as Docker Desktop file sharing but not the same absolute values, and `npm install -g tsx` leaves node warmer here than a fresh production container would be. Treat `cold` as a floor, not a worst case.'
           )
-          $summary -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          $summaryText = $summary -join "`n"
+          # Echo it too: the job summary tab has no API, so this is the only way
+          # to see what was actually published (a mis-parsed TIMING line renders
+          # as "not reported" and would otherwise look like a real measurement).
+          Write-Host $summaryText
+          $summaryText | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
           if ($out -notmatch '"serverInfo"') {
             throw "MCP server never answered initialize — the child died at load. See stderr above."
