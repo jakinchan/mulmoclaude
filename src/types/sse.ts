@@ -5,6 +5,7 @@
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import { EVENT_TYPES, type GenerationKind } from "./events";
 import type { SkillScope } from "./session";
+import type { PersistedAttachment } from "./attachment";
 
 export interface SseToolCall {
   type: typeof EVENT_TYPES.toolCall;
@@ -33,11 +34,12 @@ export interface SseText {
   type: typeof EVENT_TYPES.text;
   message: string;
   source?: "user" | "assistant";
-  // Workspace-relative paths attached to this user turn. Forwarded
-  // verbatim from the server's user-text broadcast so observing tabs
-  // can render attachment chips matching the originating tab. Only
-  // populated when `source === "user"`.
-  attachments?: string[];
+  // Files attached to this user turn. Forwarded verbatim from the
+  // server's user-text broadcast so observing tabs can render attachment
+  // chips matching the originating tab. Only populated when
+  // `source === "user"`. Read via `normalizeAttachments` — an older host
+  // on the other end of the stream still sends bare path strings.
+  attachments?: PersistedAttachment[];
 }
 
 export interface SseToolResult {

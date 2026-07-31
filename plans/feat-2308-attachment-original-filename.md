@@ -72,13 +72,43 @@ PPTX は `<id>.pdf` として届くが、元名は `商品カタログ.pptx` の
 代わりに system.md で「path と元名の拡張子が違う場合はサーバ変換であり、
 バイト列は path の拡張子が正」と教える。
 
-## Phase A — 履歴表示（次の PR）
+## Phase A — 履歴表示
 
-`attachments?: string[]` が 4 箇所（`src/types/session.ts` / `src/types/sse.ts` /
-`src/plugins/textResponse/types.ts` / `makeTextResult`）に散っており、これを名前付きに
-広げる。既存 jsonl には素の文字列が入っているので `string | { path, name }` の union +
-正規化ヘルパーで受ける。表示は `SentAttachmentChip.vue` の `basename` computed を
-「表示名があればそれ、無ければ従来どおり basename」に変えるだけ。
+`attachments?: string[]` を `PersistedAttachment[]`（= `string | { path, filename }`）に広げ、
+**読み取りは必ず `normalizeAttachments` を通す**。
+
+| レイヤ | 変更 |
+| --- | --- |
+| `src/types/attachment.ts`（新規） | `AttachmentEntry` / `PersistedAttachment` |
+| `src/utils/attachment/entries.ts`（新規） | `normalizeAttachments(raw: unknown)` — 純粋関数 |
+| `src/types/session.ts` / `src/types/sse.ts` / `src/plugins/textResponse/types.ts` | 型を広げる |
+| `src/utils/tools/result.ts` | `makeTextResult` が**唯一の正規化ポイント**。以降の View は `AttachmentEntry[]` しか見ない |
+| `server/api/routes/agent.ts` | `collectAttachedPaths` → `collectAttachedFiles`。jsonl / SSE にオブジェクトで書く |
+| `src/components/SentAttachmentChip.vue` | `filename` prop を追加。表示名 = `filename ?? basename` |
+
+### 後方互換 — 2形態が1つの会話に混ざる
+
+#2308 以前のターンは素の文字列、以降はオブジェクト。**同じ会話にどちらも入りうる**
+（アップグレードを跨いだ会話）ので、正規化は「配列の要素ごと」に効かせる。
+`normalizeAttachments` が `unknown` を取るのはそのため — 旧い / 新しいホストが書いた
+セッションは「チップが出ない」に劣化すべきで、描画中に throw してはいけない。
+
+### 表示名のサニタイズはマーカーと同じゲートを使う
+
+`collectAttachedFiles` は永続化前に `sanitiseOriginalFilename` を通す。
+**モデルに伝えることを拒否した名前を、チップが「このファイルの名前です」と主張しては
+いけない** — ユーザーとエージェントが別のファイル名で会話することになる。
+
+トレードオフ: マーカー文法の都合で `]` を含む名前も落ちるので、
+`report[final].pdf` はチップでも hex basename にフォールバックする（= 従来どおりの表示）。
+一貫性を優先した。分けるなら「表示用サニタイズ」と「マーカー用の追加チェック」に
+分割することになる。
+
+### アイコンと hover
+
+- アイコン・画像判定は**引き続き `path` の拡張子**から引く。PPTX → PDF 変換なら PDF アイコン
+  （中身は本当に PDF なので、マーカーの「中身は path が正」と揃う）
+- `title` は名前が違うときだけ `元名 (hex名)` を出し、ディスク上のファイルに辿り着けるようにする
 
 ## できないこと
 

@@ -5,7 +5,9 @@
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import { v4 as uuidv4 } from "uuid";
 import { isRecord } from "../types";
+import { normalizeAttachments } from "../attachment/entries";
 import type { SkillScope } from "../../types/session";
+import type { PersistedAttachment } from "../../types/attachment";
 
 /** Tool name used by the synthetic envelope `makeSkillResult`
  *  produces for `type: "skill"` jsonl entries. The skill plugin's
@@ -41,15 +43,23 @@ export function isUserTextResponse(res: ToolResultComplete): boolean {
 // Build a synthetic text-response result for either a user or
 // assistant turn. Used by sendMessage and the chat history UI.
 // `attachments` is optional and only meaningful on user turns —
-// they're the workspace paths the user attached for this message
-// and surface as chips next to the bubble. `seededByPlugin` is
-// optional and set by `parseSessionEntries` on the first user turn
-// of a plugin-origin session (Phase 1 of the Encore plan); the
-// textResponse view renders a "from <pkg>" chip when present.
-export function makeTextResult(text: string, role: "user" | "assistant", attachments?: readonly string[], seededByPlugin?: string): ToolResultComplete {
+// they're the files the user attached for this message and surface as
+// chips next to the bubble. This is the ONE place the two persisted
+// shapes (bare path string pre-#2308, `{ path, filename }` since)
+// converge, so every view downstream sees `AttachmentEntry[]`.
+// `seededByPlugin` is optional and set by `parseSessionEntries` on the
+// first user turn of a plugin-origin session (Phase 1 of the Encore
+// plan); the textResponse view renders a "from <pkg>" chip when present.
+export function makeTextResult(
+  text: string,
+  role: "user" | "assistant",
+  attachments?: readonly PersistedAttachment[],
+  seededByPlugin?: string,
+): ToolResultComplete {
   const data: Record<string, unknown> = { text, role, transportKind: "text-rest" };
-  if (attachments && attachments.length > 0) {
-    data.attachments = [...attachments];
+  const entries = normalizeAttachments(attachments);
+  if (entries.length > 0) {
+    data.attachments = entries;
   }
   if (seededByPlugin) {
     data.seededByPlugin = seededByPlugin;

@@ -40,7 +40,7 @@
             ></div>
             <!-- eslint-enable vue/no-v-html -->
             <div v-if="messageAttachments.length > 0" class="space-y-3 mt-3" data-testid="text-response-seeded-attachments">
-              <SentAttachmentChip v-for="path in messageAttachments" :key="path" :path="path" variant="block" />
+              <SentAttachmentChip v-for="file in messageAttachments" :key="file.path" :path="file.path" :filename="file.filename" variant="block" />
             </div>
           </div>
         </details>
@@ -102,7 +102,7 @@
                 ></div>
                 <!-- eslint-enable vue/no-v-html -->
                 <div v-if="messageAttachments.length > 0" class="space-y-3 mt-3" data-testid="text-response-attachments">
-                  <SentAttachmentChip v-for="path in messageAttachments" :key="path" :path="path" variant="block" />
+                  <SentAttachmentChip v-for="file in messageAttachments" :key="file.path" :path="file.path" :filename="file.filename" variant="block" />
                 </div>
               </div>
             </div>
@@ -132,6 +132,7 @@ import { useI18n } from "vue-i18n";
 import { marked } from "marked";
 import type { ToolResult, ToolResultComplete } from "gui-chat-protocol/vue";
 import type { TextResponseData } from "./types";
+import type { AttachmentEntry } from "../../types/attachment";
 import SentAttachmentChip from "../../components/SentAttachmentChip.vue";
 import { handleExternalLinkClick } from "@mulmoclaude/markdown-utils/dom/externalLink";
 import { classifyWorkspacePath } from "../../utils/path/workspaceLinkRouter";
@@ -182,7 +183,7 @@ watch(editorSource, (next) => {
 
 const messageRole = computed(() => props.selectedResult.data?.role ?? "assistant");
 const transportKind = computed(() => props.selectedResult.data?.transportKind ?? "");
-const messageAttachments = computed<string[]>(() => props.selectedResult.data?.attachments ?? []);
+const messageAttachments = computed<AttachmentEntry[]>(() => props.selectedResult.data?.attachments ?? []);
 // Pkg name when this user turn was seeded by `runtime.chat.start()`
 // (Phase 1 of the Encore plan). Drives the "from <pkg>" chip and a
 // muted background variant so the user can tell the message came

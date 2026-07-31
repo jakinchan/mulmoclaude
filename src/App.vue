@@ -1068,11 +1068,7 @@ async function sendMessage(text?: string) {
   const session = sessionMap.get(currentSessionId.value);
   if (!session) return;
 
-  beginUserTurn(
-    session,
-    message,
-    attachments?.map((attachment) => attachment.path),
-  );
+  beginUserTurn(session, message, attachments);
   ensureSessionSubscription(session);
 
   const result = await postAgentRun(

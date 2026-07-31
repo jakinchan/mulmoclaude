@@ -86,13 +86,25 @@ describe("makeTextResult", () => {
     assert.notEqual(result1.uuid, result2.uuid);
   });
 
-  it("attaches workspace paths when provided", () => {
+  // #2308 — the two persisted shapes converge here, so views only ever see
+  // `{ path, filename? }`.
+  it("widens a pre-#2308 path string into an attachment entry", () => {
     const result = makeTextResult("hello", "user", ["data/attachments/2026/04/abc.png"]);
     assert.deepEqual(result.data, {
       text: "hello",
       role: "user",
       transportKind: "text-rest",
-      attachments: ["data/attachments/2026/04/abc.png"],
+      attachments: [{ path: "data/attachments/2026/04/abc.png" }],
+    });
+  });
+
+  it("keeps the original filename when the entry carries one", () => {
+    const result = makeTextResult("hello", "user", [{ path: "data/attachments/2026/07/b458a5d0.csv", filename: "商品カタログ_v2.csv" }]);
+    assert.deepEqual(result.data, {
+      text: "hello",
+      role: "user",
+      transportKind: "text-rest",
+      attachments: [{ path: "data/attachments/2026/07/b458a5d0.csv", filename: "商品カタログ_v2.csv" }],
     });
   });
 
