@@ -46,6 +46,16 @@ fi
 # Feeds the handshake to the broker and stamps each response as it arrives.
 # The elapsed clock starts at spawn, so it measures exactly the window the CLI
 # is waiting through.
+#
+# Responses are recognised by JSON-RPC id, not by their contents: the fixture
+# assigns id 1 to `initialize` and id 2 to `tools/list`, so a reply that arrives
+# but is missing `serverInfo` / `handlePermission` still gets timed. Keying on
+# the contents would drop the measurement in exactly the #2052 case where the
+# reply comes back without the tool — the run worth measuring most.
+#
+# Whether those contents were there is reported separately, as a per-run RESULT
+# line, so the caller can gate each run on its own rather than on the two runs
+# smeared together.
 run_handshake() {
   local run_label="$1"
   shift
@@ -53,16 +63,27 @@ run_handshake() {
   started_ms=$(now_ms)
   # shellcheck disable=SC2002  # `cat |` keeps the broker's stdin a pipe, which
   # is what the CLI hands it; a `<` redirect would give it a seekable file.
-  cat "$HANDSHAKE_FILE" | "$@" | while IFS= read -r line; do
-    local elapsed_ms=$(($(now_ms) - started_ms))
-    case "$line" in
-    *serverInfo*) echo "TIMING $run_label initialize $elapsed_ms" ;;
-    esac
-    case "$line" in
-    *handlePermission*) echo "TIMING $run_label tools_list $elapsed_ms" ;;
-    esac
-    printf '%s\n' "$line"
-  done
+  # The trailing block keeps the flags and the summary line in one subshell —
+  # a bare `while` at the end of a pipeline cannot export what it saw.
+  cat "$HANDSHAKE_FILE" | "$@" | {
+    saw_server_info=no
+    saw_handle_permission=no
+    while IFS= read -r line; do
+      elapsed_ms=$(($(now_ms) - started_ms))
+      case "$line" in
+      *'"id":1'* | *'"id": 1'*)
+        echo "TIMING $run_label initialize $elapsed_ms"
+        case "$line" in *serverInfo*) saw_server_info=yes ;; esac
+        ;;
+      *'"id":2'* | *'"id": 2'*)
+        echo "TIMING $run_label tools_list $elapsed_ms"
+        case "$line" in *'"name":"handlePermission"'*) saw_handle_permission=yes ;; esac
+        ;;
+      esac
+      printf '%s\n' "$line"
+    done
+    echo "RESULT $run_label serverInfo=$saw_server_info handlePermission=$saw_handle_permission"
+  }
 }
 
 run_handshake cold "$@"

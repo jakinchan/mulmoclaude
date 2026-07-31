@@ -322,13 +322,23 @@ jobs:
           Write-Host $summaryText
           $summaryText | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
-          if ($out -notmatch '"serverInfo"') {
-            throw "MCP server never answered initialize — the child died at load. See stderr above."
+          # Assert per run, not over the combined output: `$out` now holds two
+          # handshakes, so a substring match anywhere would let a warm success
+          # cover for a cold failure — and the cold run is the one that models
+          # the startup race this canary exists to catch.
+          foreach ($run in @("cold", "warm")) {
+            $result = [regex]::Match($out, "RESULT $run serverInfo=(\w+) handlePermission=(\w+)")
+            if (-not $result.Success) {
+              throw "[$run] the handshake produced no RESULT line — the child died before answering. See stderr above."
+            }
+            if ($result.Groups[1].Value -ne "yes") {
+              throw "[$run] MCP server never answered initialize — the child died at load. See stderr above."
+            }
+            if ($result.Groups[2].Value -ne "yes") {
+              throw "[$run] tools/list did not include handlePermission — this is the #2052 symptom."
+            }
           }
-          if ($out -notmatch '"name":"handlePermission"') {
-            throw "tools/list did not include handlePermission — this is the #2052 symptom."
-          }
-          Write-Host "OK: mcp-server.ts started and listed handlePermission under real NTFS junctions."
+          Write-Host "OK: mcp-server.ts started and listed handlePermission under real NTFS junctions (cold and warm)."
 
       - name: "#2052 — reproduce the crash verbatim (static import, production layout)"
         shell: pwsh
