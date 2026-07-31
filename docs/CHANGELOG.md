@@ -8,10 +8,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-31
+
+**Two-way Google Calendar sync, and a pull that stopped deleting columns it was never asked about.**
+
+### Highlights
+
+#### Google Calendar sync now goes both ways on its own (#2620, PR #2666)
+
+A collection mirroring a calendar could already be pushed back to Google — but only by pressing a button, which made the docs warn "push first, then sync", because a pull overwrites a locally edited record as soon as Google reports any change to that event. Keeping that order by hand is not realistic against an hourly automatic pull, so the practical state was "pull is automatic, push is manual" — not two-way sync.
+
+Ask for two-way sync and the collection now sets `googleCalendar.autoPush`: each scheduled run pushes local edits and then pulls Google's changes as one cycle, inside the same calendar lock. The window in which an edit sits unpushed closes, so the ordering trap closes with it. It is opt-in and off by default — a push writes to a calendar other people may be reading, so turning it on stays the user's decision.
+
+The push already resolved conflicts field by field: it patches only the fields you changed, and calls it a conflict only when Google changed one of those same fields. **The pull ignored all of that** and overwrote the whole record, which is the asymmetry that made two-way operation painful. A record the push could not send is now left alone by the pull — **and its baseline is held back with it**. That second half is load-bearing: advance the baseline while a conflict is unresolved and the next push reads a plain one-sided local edit, with no conflict left to detect, and overwrites Google silently. Protection is scoped per collection, so one collection's conflict cannot freeze another that shares the calendar; the baseline holdback stays calendar-wide because the state file keeps one baseline per calendar.
+
+When the push cannot run at all — an access role degraded to `reader`, a revoked grant, an IO failure — the records with unsent edits are protected rather than overwritten, and if even that cannot be determined the collection is not pulled and reports a retryable error, so the window simply replays next run with nothing lost.
+
+**Event notes and location now travel in both directions** alongside title, times and colour, so the two directions finally carry the same fields. `description` keeps Google's limited HTML verbatim — normalising it on the way in would strip your formatting on the way back out.
+
+#### Fixed: syncing a calendar deleted collection columns it did not map (#2620, PR #2666)
+
+A record file is written whole, so each pull rewrote it from the field map alone — silently deleting every column the map did not name. Keeping a personal note beside a mirrored event was therefore impossible; it vanished the next time Google touched that event. Mapped fields are still Google's to own, but everything else now survives. The flip side: a field *removed* from the map keeps its last synced value rather than disappearing.
+
+#### Attachments keep their original filename (#2308, PRs #2670 / #2672)
+
+The chip in the composer shows the name of the file you actually attached, and the agent is told that name too, instead of only the stored path.
+
+#### Roles that fail to load now say which file and why (#2649 / #2656, PRs #2655 / #2660 / #2662)
+
+A role file that could not be read was previously silent. It is now warned with its name and the reason, and mismatches between filename and `id` — plus duplicate ids — are reported. The follow-up fixed the advice itself: when the `id` was the invalid side, the warning recommended a "fix" that would have made the role unreachable.
+
+#### Sandbox cold boot got shorter (#2233 / #2235, PRs #2668 / #2674 / #2676)
+
+The broker is prebuilt rather than assembled on first use, cutting cold-boot time; CI now measures it, and the availability matrix's residual note was replaced with the measured figure instead of an estimate.
+
+#### Smaller fixes
+
+- **Settings modal** follows the window width instead of staying narrow (#1898, PR #2669).
+- **`claudeConfigJson` honours `CLAUDE_CONFIG_DIR`** instead of ignoring it (#2654, PR #2659).
+- **`yarn dev`'s vite proxy** follows `PORT` instead of being pinned to 3001 (#2650, PR #2653).
+- Three code comments that contradicted the implementation were corrected (#2651, PR #2657); the `google` and `spotify` plugins had their dispatch extracted into `core/dispatch.ts` (#2583, PRs #2665 / #2667).
+
 ### Packages published during this cycle
 
 - **`@mulmoclaude/core@1.11.0`** (#2620/PR #2666) — released 2026-07-31. Two-way Google Calendar sync for collections that mirror a calendar. The new **`googleCalendar.autoPush`** schema key (opt-in, off by default) makes each scheduled run push local edits and then pull Google's changes as one cycle inside the same calendar lock, which closes the window in which an unpushed local edit sat waiting for someone to press a button. **`description` and `location`** became mappable on the pull and writable on the push, so the two directions finally carry the same fields; `description` keeps Google's limited HTML verbatim, because normalising it on the way in strips the user's formatting on the way back out. The pull now leaves alone any record the push could not send **and holds that record's baseline back with it** — advancing the baseline while a conflict is unresolved is precisely what would let the next push overwrite Google with no conflict to detect. Protection is scoped per collection, so one collection's conflict cannot freeze another sharing the calendar, while the baseline holdback stays calendar-wide because `.push-state.json` keeps one baseline per calendar. When the push cannot run at all (an access role degraded to `reader`, a revoked grant, an IO failure) the records with unsent edits are protected rather than overwritten, and if even that cannot be worked out the collection is not pulled and reports a retryable error, so the window replays next run with nothing lost. Separately, a **data-loss bug**: a record file is written whole, so the pull rewrote it from `map` alone and silently deleted every column the map did not name — keeping a local note beside a mirrored event was impossible. `withCalendarLock` and the event→record projection moved to leaf modules so the pull can drive the push without the two importing each other; both are still exported from `@mulmoclaude/core/google`. `assets/helps/google-calendar-collection.md` was rewritten — it previously told the agent outright that no automatic write-back exists and not to look for a config key. Also carries the `assets/helps/error-recovery.md` section on hand-placed roles that 1.10.1 was bumped for but never published. No `.push-state.json` migration and no OAuth re-consent are needed. All 13 declared ranges swept to `^1.11.0`.
-- The retroactive **`mulmoclaude@1.8.0`** tag was created on the commit that bumped the launcher to that version (`656c2bde`). It had been published without one, so release-drift detection could not measure the launcher at all.
+- The retroactive **`mulmoclaude@1.8.0`** tag was created on the commit that bumped the launcher to that version (`656c2bde`). It had been published without one, so release-drift detection could not measure the launcher at all. Note that `yarn audit:releases` still under-reports the launcher: `packages/mulmoclaude/{server,src,client}/` are gitignored copies made at publish time, so the tool sees no change there and the honest measure is a diff of the repo-root `server/` and `src/` against the tag — 24 files this cycle.
+
+Ships `@mulmoclaude/core@1.11.0`.
 
 ## [1.8.0] - 2026-07-29
 
