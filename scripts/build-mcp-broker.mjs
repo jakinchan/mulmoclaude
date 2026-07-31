@@ -9,10 +9,10 @@
 // plus a CJS tree underneath, and #2233 found cold and warm runs equally slow —
 // so it is work paid every turn, not a cache miss. Bundling makes it one file.
 //
-// Unlike `build-hooks.mjs`, the output is NOT committed: it is ~12 MB, and a
-// blob that size rewritten on every build would bloat the repo. It is
-// gitignored and produced by `yarn build`; `buildMulmoclaudeServer` falls back
-// to `tsx` when it is absent, so a fresh checkout still runs before any build.
+// Unlike `build-hooks.mjs`, the output is NOT committed: it is ~6 MB, and a blob
+// that size rewritten on every build would bloat the repo. It is gitignored and
+// produced by `yarn build`; `buildMulmoclaudeServer` falls back to `tsx` when it
+// is absent, so a fresh checkout still runs before any build.
 
 import { build } from "esbuild";
 import path from "node:path";
@@ -33,8 +33,10 @@ const NATIVE_EXTERNALS = ["@duckdb/*", "duckdb"];
 // `Dynamic require of "tty" is not supported`.
 const CJS_REQUIRE_SHIM = ["import { createRequire as __createRequire } from 'node:module';", "const require = __createRequire(import.meta.url);"].join("\n");
 
-async function main() {
-  const result = await build({
+/** The esbuild options, exported so the reasoning behind each one is readable
+ *  (and assertable) without running a build. */
+export function brokerBuildOptions() {
+  return {
     entryPoints: [path.join(repoRoot, ENTRY)],
     outfile: path.join(repoRoot, OUTFILE),
     bundle: true,
@@ -63,12 +65,19 @@ async function main() {
     sourcemap: false,
     logLevel: "silent",
     metafile: true,
-  });
+  };
+}
+
+function report(result) {
   const bytes = Object.values(result.metafile.outputs)[0]?.bytes ?? 0;
   console.log(`[build:mcp-broker] ${ENTRY} -> ${OUTFILE} (${(bytes / 1024 / 1024).toFixed(1)} MB)`);
   for (const warning of result.warnings) {
     console.warn(`[build:mcp-broker] warning: ${warning.text}`);
   }
+}
+
+async function main() {
+  report(await build(brokerBuildOptions()));
 }
 
 await main();
