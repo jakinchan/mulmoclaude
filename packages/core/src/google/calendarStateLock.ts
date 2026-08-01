@@ -14,7 +14,7 @@
 // What it does NOT do: stop two hosts walking the same calendar at once. That
 // wastes API calls, but the records are upserts and the baseline is now safe,
 // so nothing is lost by it.
-import { open, readFile, unlink } from "node:fs/promises";
+import { open, readFile, stat, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { log } from "./host.js";
 
@@ -93,32 +93,48 @@ async function tryAcquire(lockPath: string, holder: string, clock: LockClock): P
   }
 }
 
-/** Drop a lock whose holder has gone quiet for longer than the TTL.
+/** How long this lock has existed, by the best evidence available.
  *
- *  The holder seen before the age check is re-read and compared before the
- *  unlink, so a holder that renewed in between is not evicted. That narrows the
- *  window rather than closing it — two processes can still both decide to steal
- *  the same corpse. The cost of losing that race is one lost update, which is
- *  what this file reduces rather than a new failure, and it takes a host dying
- *  mid-write plus a 10-second wait to reach at all. */
+ *  A lock the holder wrote says so itself. One that cannot be parsed still has
+ *  an mtime, and that matters: `open("wx")` creates the file EMPTY and the
+ *  payload lands a moment later, so "unreadable" is a state every healthy lock
+ *  passes through on its way into existence. Treating it as a corpse on sight
+ *  would unlink a live lock mid-creation and hand the same lock to two holders
+ *  — the very race this file removes (Codex review #2690).
+ *
+ *  Null when the file is gone, which is not an age but an absence. */
+async function lockAgeMs(lockPath: string, held: LockFile | null, clock: LockClock): Promise<number | null> {
+  if (held !== null) return clock.now() - held.at;
+  const stamped = await stat(lockPath).catch(() => null);
+  return stamped === null ? null : clock.now() - stamped.mtimeMs;
+}
+
+/** Drop a lock that has sat untouched past the TTL, whatever it says.
+ *
+ *  Readable or not, nothing is reclaimed until it is demonstrably stale. For a
+ *  readable one the holder is re-read and compared before the unlink, so a
+ *  holder that renewed in between is not evicted. That narrows the window
+ *  rather than closing it — two processes can still both decide to clear the
+ *  same corpse. The cost of losing that race is one lost update, which is what
+ *  this file reduces rather than a new failure, and reaching it takes a host
+ *  dying mid-write plus a full TTL of waiting. */
 async function stealIfStale(lockPath: string, clock: LockClock): Promise<void> {
   const raw = await readLockRaw(lockPath);
   if (raw === null) return;
   const held = parseLock(raw);
-  // A lock nobody can read is a lock nobody can release: `release` only removes
-  // a file whose holder matches, so a truncated or hand-edited one would sit
-  // there forever, costing every later mutation the full wait before it gave up
-  // and proceeded unlocked. Reclaim it instead (found by its own test taking
-  // the timeout to pass).
+  const age_ms = await lockAgeMs(lockPath, held, clock);
+  if (age_ms === null || age_ms < LOCK_STALE_MS) return;
+  // A lock nobody can read is a lock nobody can release — `release` only removes
+  // a file whose holder matches — so once it IS stale it has to be cleared here
+  // or it would cost every later mutation the full wait before giving up.
   if (held === null) {
-    log.warn("google", "reclaiming an unreadable calendar state lock", { lockPath });
+    log.warn("google", "reclaiming an unreadable calendar state lock", { lockPath, age_ms });
     await unlink(lockPath).catch(() => undefined);
     return;
   }
-  if (clock.now() - held.at < LOCK_STALE_MS) return;
   const stillHeld = await readLock(lockPath);
   if (stillHeld?.holder !== held.holder) return;
-  log.warn("google", "reclaiming a calendar state lock whose holder went quiet", { lockPath, heldForMs: clock.now() - held.at });
+  log.warn("google", "reclaiming a calendar state lock whose holder went quiet", { lockPath, age_ms });
   await unlink(lockPath).catch(() => undefined);
 }
 

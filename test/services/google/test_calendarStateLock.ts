@@ -128,18 +128,32 @@ describe("withCalendarStateLock (#2679 cross-process read-modify-write)", () => 
 
   // Hand-edited, truncated, or written by an older version. `release` only
   // removes a file whose holder matches, so an unreadable one can never be
-  // released by anybody — it has to be reclaimed, not waited on. (This test
-  // first passed by taking the full timeout, which is what exposed it.)
-  it("reclaims an unreadable lock file rather than waiting it out", async () => {
+  // released by anybody — once it is stale it has to be reclaimed, not waited
+  // on. (This test first passed by taking the full timeout, which exposed that
+  // the reclaim was missing entirely.)
+  it("reclaims an unreadable lock file once it is stale", async () => {
     await withTempDir(async (dir) => {
       const lock = stateLockPath(path.join(dir, "state.json"));
       await writeFile(lock, "not json at all");
-      const clock = fastClock();
+      // The age of an unreadable lock comes from its mtime, which is real wall
+      // time — so the clock has to be ahead of it, not at zero.
+      const clock = fastClock(Date.now() + 60_000);
       assert.equal(await withCalendarStateLock(lock, () => Promise.resolve("ran"), clock), "ran");
-      // One reclaim plus one retry, not the whole wait budget — which is what
-      // separates "took the lock" from "gave up and ran unlocked".
-      assert.ok(clock.now() < 100, `took the lock after ${clock.now()}ms of waiting`);
       assert.equal(await pathExists(lock), false);
+    });
+  });
+
+  // `open("wx")` creates the file EMPTY and the payload lands a moment later,
+  // so every healthy lock is briefly unreadable. Reclaiming on sight would
+  // unlink a live lock mid-creation and hand it to two holders at once — the
+  // exact race this module exists to remove (Codex review #2690).
+  it("leaves a freshly created lock alone while its payload is still being written", async () => {
+    await withTempDir(async (dir) => {
+      const lock = stateLockPath(path.join(dir, "state.json"));
+      await writeFile(lock, "");
+      const clock = fastClock(Date.now());
+      assert.equal(await withCalendarStateLock(lock, () => Promise.resolve("ran"), clock), "ran");
+      assert.equal(await pathExists(lock), true, "a lock being written must survive another process's acquire attempt");
     });
   });
 
