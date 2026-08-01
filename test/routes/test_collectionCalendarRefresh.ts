@@ -12,6 +12,7 @@ const result = (overrides: Partial<CalendarCollectionSyncResult> & { slug: strin
   written: 0,
   removed: 0,
   unwritable: [],
+  withheld: [],
   errors: [],
   ...overrides,
 });

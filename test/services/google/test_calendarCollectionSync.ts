@@ -16,6 +16,8 @@ import {
   pushableMap,
   toShadowEvent,
   groupByCalendar,
+  hasUnsentEdit,
+  heldBack,
   isUnpushed,
   mergeIntoExisting,
   orphanedCalendarId,
@@ -620,7 +622,7 @@ describe("withKeyedLock (#2566 per-calendar queuing)", () => {
 // missing grant explains. Exercised through injected fakes, so no workspace on
 // disk and no Google grant (CodeRabbit review #2566).
 describe("syncCalendarForCollection (#2427 manual refresh)", () => {
-  const syncedResult = (slug: string): CalendarCollectionSyncResult => ({ slug, written: 2, removed: 0, unwritable: [], errors: [] });
+  const syncedResult = (slug: string): CalendarCollectionSyncResult => ({ slug, written: 2, removed: 0, unwritable: [], withheld: [], errors: [] });
 
   const deps = (overrides: Partial<ManualCalendarSyncDeps> = {}): ManualCalendarSyncDeps & { ranWith: Map<string, LoadedCollection[]>[] } => {
     const ranWith: Map<string, LoadedCollection[]>[] = [];
@@ -792,5 +794,84 @@ describe("pullProtectionFor / pushAndProtect (#2683 a collection that never push
     const unpushed = await pushAndProtect([calendarCollection("mirror", false)], "/ws", deps);
     assert.deepEqual([...allUnpushed(unpushed)], ["ev-5"]);
     assert.deepEqual(shadowUpdates([event({ id: "ev-5" })], allUnpushed(unpushed)), {});
+  });
+});
+
+// The protected set used to be a snapshot taken when the push finished, so an
+// edit made while the window was in flight — minutes of it on a full walk — was
+// invisible to it. The pull then wrote Google's value over that edit AND advanced
+// the shared baseline past it, after which the next push saw a one-sided edit
+// and no conflict to report (#2684). The apply now decides per event, immediately
+// before its own write, and reports what it refused so the baseline agrees.
+describe("heldBack (#2684 the apply's refusals must reach the baseline)", () => {
+  const applied = (slug: string, withheld: string[]): CalendarCollectionSyncResult => ({
+    slug,
+    written: 0,
+    removed: 0,
+    unwritable: [],
+    withheld,
+    errors: [],
+  });
+
+  it("holds back what the push could not send AND what the apply refused", () => {
+    const unpushed = new Map<string, ReadonlySet<string>>([["mine", new Set(["pushed-conflict"])]]);
+    assert.deepEqual([...heldBack(unpushed, [applied("mine", ["edited-mid-window"])])].sort(), ["edited-mid-window", "pushed-conflict"]);
+  });
+
+  it("keeps the baseline off every event the apply left alone", () => {
+    const held = heldBack(new Map(), [applied("mine", ["ev-1"])]);
+    assert.deepEqual(shadowUpdates([event({ id: "ev-1" }), event({ id: "ev-2" })], held), {
+      "ev-2": toShadowEvent(event({ id: "ev-2" })),
+    });
+  });
+
+  it("advances the baseline normally when nothing was withheld", () => {
+    const held = heldBack(new Map(), [applied("mine", [])]);
+    assert.deepEqual(Object.keys(shadowUpdates([event({ id: "ev-1" })], held)), ["ev-1"]);
+  });
+
+  it("unions the refusals of every collection on the calendar", () => {
+    const held = heldBack(new Map(), [applied("mine", ["a"]), applied("theirs", ["b"])]);
+    assert.deepEqual([...held].sort(), ["a", "b"]);
+  });
+});
+
+// The rule the apply now runs immediately before each write. It has to answer
+// "would writing Google's value here destroy something Google has not seen?" —
+// and it must answer NO for a record the pull itself just wrote, or the whole
+// pull freezes (#2684).
+describe("hasUnsentEdit (#2684 the per-event guard)", () => {
+  const map = { title: "summary", on: "start", until: "end", colour: "colorId" } as const;
+  const schema = { googleCalendar: { map }, primaryKey: "gid", fields: recipeFields } as unknown as LoadedCollection["schema"];
+  const synced = event();
+  const baseline = { "ev-1": toShadowEvent(synced) };
+  const syncedRecord = toCollectionRecord(synced, map, "gid", recipeFields);
+
+  it("says no for a record that still matches the baseline", () => {
+    assert.equal(hasUnsentEdit(syncedRecord, synced, schema, baseline), false);
+  });
+
+  it("says yes for a record edited since the baseline was taken", () => {
+    assert.equal(hasUnsentEdit({ ...syncedRecord, title: "Standup (moved)" }, synced, schema, baseline), true);
+  });
+
+  // A brand-new event this workspace has never held. There is no local edit to
+  // lose, so withholding it would just stop the collection ever receiving it.
+  it("says no when the workspace holds no baseline for the event", () => {
+    assert.equal(hasUnsentEdit(syncedRecord, synced, schema, {}), false);
+  });
+
+  // Local-only columns are the point of `mergeIntoExisting` — the pull keeps
+  // them, so they are not a reason to refuse Google's own fields.
+  it("ignores a column the map does not name", () => {
+    assert.equal(hasUnsentEdit({ ...syncedRecord, notes: "call Alice first" }, synced, schema, baseline), false);
+  });
+
+  // Google changing the event is not what this guard is about: it compares the
+  // RECORD against the baseline, so a moved event with an untouched record still
+  // pulls normally and the conflict check on the next push does its own job.
+  it("says no when only Google moved, and the record never diverged", () => {
+    const moved = event({ start: "2026-07-19T10:00:00+09:00" });
+    assert.equal(hasUnsentEdit(syncedRecord, moved, schema, baseline), false);
   });
 });
