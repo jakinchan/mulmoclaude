@@ -67,7 +67,7 @@
     "typescript": "^6.0.3",
     "vite": "^8.1.4",
     "vue-eslint-parser": "^10.4.0",
-    "vue-tsc": "^3.3.8"
+    "vue-tsc": "^3.3.9"
   },
   "license": "MIT",
   "homepage": "https://github.com/receptron/mulmoclaude/tree/main/packages/plugins/mulmoscript-plugin#readme",
