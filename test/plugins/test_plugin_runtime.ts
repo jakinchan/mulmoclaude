@@ -11,15 +11,23 @@
 //     two plugins on the same host can't see each other's events;
 //     `files.data` and `files.config` write into separate roots and
 //     reject traversal.
+//   - `log.*`: a non-record payload (the protocol allows any `object`)
+//     reaches the host logger wrapped, never dropped or reshaped.
+//   - `fetch`: a `SharedArrayBuffer`-backed `Uint8Array` body arrives on
+//     the wire as its raw bytes, not as its `toString()`.
 
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { Buffer } from "node:buffer";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { makePluginRuntime, normalizePluginPath, pluginChannelName, pluginTaskId, sanitisePackageNameForFs } from "../../server/plugins/runtime.js";
 import { WORKSPACE_PATHS } from "../../server/workspace/paths.js";
+import { hasNumberProp, hasStringProp } from "../../server/utils/types.js";
+import { log as hostLog, type LogLevel } from "../../server/system/logger/index.js";
 import type { IPubSub } from "../../server/events/pub-sub/index.js";
 import { createTaskManager, type ITaskManager } from "../../server/events/task-manager/index.js";
 
@@ -41,6 +49,11 @@ function makeRecordingPubSub(): { pubsub: IPubSub; published: { channel: string;
 // the registration lands under the contracted id.
 function makeStubTaskManager(): ITaskManager {
   return createTaskManager();
+}
+
+function makeTestRuntime(pkgName: string) {
+  const { pubsub } = makeRecordingPubSub();
+  return makePluginRuntime({ pkgName, pubsub, locale: "en", taskManager: makeStubTaskManager() });
 }
 
 describe("normalizePluginPath", () => {
@@ -314,5 +327,144 @@ describe("makePluginRuntime — files.data and files.config", () => {
     await runtime.files.data.write("books\\2026\\journal.jsonl", "winpath");
     // Reads with the POSIX form because that's the contract.
     assert.equal(await runtime.files.data.read("books/2026/journal.jsonl"), "winpath");
+  });
+});
+
+describe("makePluginRuntime — scoped logger payload", () => {
+  const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
+  const calls: { level: LogLevel; prefix: string; message: string; data: Record<string, unknown> | undefined }[] = [];
+  const originals = { debug: hostLog.debug, info: hostLog.info, warn: hostLog.warn, error: hostLog.error };
+
+  // Assert on what the scoped logger hands the HOST logger: that is the
+  // contract boundary the plugin runtime owns, and `LogRecord.data` is
+  // where a non-record payload used to break the declared shape.
+  beforeEach(() => {
+    calls.length = 0;
+    LOG_LEVELS.forEach((level) => {
+      hostLog[level] = (prefix, message, data) => {
+        calls.push({ level, prefix, message, data });
+      };
+    });
+  });
+
+  afterEach(() => {
+    LOG_LEVELS.forEach((level) => {
+      hostLog[level] = originals[level];
+    });
+  });
+
+  it("forwards a record payload by reference on every level", () => {
+    const runtime = makeTestRuntime("@example/foo");
+    const payload = { a: 1, b: "two" };
+    LOG_LEVELS.forEach((level) => runtime.log[level](`msg-${level}`, payload));
+    assert.equal(calls.length, LOG_LEVELS.length);
+    calls.forEach((call, index) => {
+      assert.equal(call.level, LOG_LEVELS[index]);
+      assert.equal(call.prefix, "plugin/@example/foo");
+      assert.equal(call.message, `msg-${LOG_LEVELS[index]}`);
+      assert.equal(call.data, payload);
+    });
+  });
+
+  it("wraps a non-record payload instead of dropping it", () => {
+    const runtime = makeTestRuntime("@example/foo");
+    const payload = ["x", "y"];
+    LOG_LEVELS.forEach((level) => runtime.log[level]("msg-array", payload));
+    assert.equal(calls.length, LOG_LEVELS.length);
+    calls.forEach((call) => {
+      // Dropping the payload would be the silent-data-loss regression.
+      assert.notEqual(call.data, undefined);
+      // The host contracts for a keyed record; the array survives under it.
+      assert.deepEqual(call.data, { value: ["x", "y"] });
+      assert.equal(call.data?.value, payload);
+    });
+  });
+
+  it("leaves an absent payload absent (no empty wrapper)", () => {
+    const runtime = makeTestRuntime("@example/foo");
+    runtime.log.warn("msg-none");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].data, undefined);
+  });
+
+  it("does not wrap an Error payload — it is already a record", () => {
+    const runtime = makeTestRuntime("@example/foo");
+    const failure = Object.assign(new Error("boom"), { code: "ENOENT" });
+    runtime.log.error("msg-error", failure);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].data, failure);
+  });
+
+  it("scopes the prefix per plugin", () => {
+    makeTestRuntime("@a/p").log.info("from-a");
+    makeTestRuntime("@b/p").log.info("from-b");
+    assert.deepEqual(
+      calls.map((call) => call.prefix),
+      ["plugin/@a/p", "plugin/@b/p"],
+    );
+  });
+});
+
+describe("makePluginRuntime — scoped fetch body", () => {
+  const BODY_TEXT = "hi!";
+  const expectedHex = Buffer.from(BODY_TEXT, "utf-8").toString("hex");
+  // Filled in by `before` once the OS has assigned a port.
+  const echo = { url: "" };
+
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ bodyHex: Buffer.concat(chunks).toString("hex") }));
+    });
+  });
+
+  before(async () => {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!hasNumberProp(address, "port")) throw new Error("echo server did not report a TCP port");
+    echo.url = `http://127.0.0.1:${address.port}/echo`;
+  });
+
+  after(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  // The body assertion is against what actually arrived on the wire,
+  // not against our own construction of it.
+  async function postBodyHex(body?: string | Uint8Array): Promise<string> {
+    const response = await makeTestRuntime("@example/foo").fetch(echo.url, { method: "POST", body });
+    const parsed: unknown = await response.json();
+    assert.ok(hasStringProp(parsed, "bodyHex"), "echo server must answer with bodyHex");
+    return parsed.bodyHex;
+  }
+
+  it("sends a string body verbatim", async () => {
+    assert.equal(await postBodyHex(BODY_TEXT), expectedHex);
+  });
+
+  it("sends an ArrayBuffer-backed Uint8Array as raw bytes", async () => {
+    assert.equal(await postBodyHex(new TextEncoder().encode(BODY_TEXT)), expectedHex);
+  });
+
+  it("sends a SharedArrayBuffer-backed Uint8Array as raw bytes, not its toString()", async () => {
+    const bytes = new TextEncoder().encode(BODY_TEXT);
+    const shared = new Uint8Array(new SharedArrayBuffer(bytes.byteLength));
+    shared.set(bytes);
+    const received = await postBodyHex(shared);
+    // A SharedArrayBuffer-backed view is not a `BodyInit`, so undici
+    // stringifies it ("104,105,33") unless the runtime copies it into a
+    // transferable buffer first.
+    assert.notEqual(received, Buffer.from(shared.toString(), "utf-8").toString("hex"));
+    assert.equal(received, expectedHex);
+  });
+
+  it("sends no body when none was supplied", async () => {
+    assert.equal(await postBodyHex(), "");
+  });
+
+  it("sends an empty string body as an empty payload", async () => {
+    assert.equal(await postBodyHex(""), "");
   });
 });
