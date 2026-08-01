@@ -7,7 +7,10 @@ export const TOOL_NAME = META.toolName;
 export type SpreadsheetEndpoints = { readonly [K in keyof typeof META.apiRoutes]: ResolvedRoute };
 
 export interface SpreadsheetCell {
-  v: string | number;
+  /** Mirrors the engine's `StoredCellValue`. Declaring it narrower than what
+   *  the engine stores and renders is what forced the View to cast its
+   *  decoded sheets back to this type. */
+  v: string | number | boolean;
   f?: string;
 }
 

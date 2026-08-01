@@ -134,7 +134,7 @@ import "./engine/functions";
 import { apiGet, apiPut } from "../../utils/api";
 import { pluginEndpoints } from "../api";
 import type { FilesContentResponseLike } from "./engine/responseDecoder";
-import { isObj, isRecord } from "../../utils/types";
+import { isObj, isRecord, isUnknownArray } from "../../utils/types";
 
 const endpoints = pluginEndpoints<SpreadsheetEndpoints>("spreadsheet");
 const filesEndpoints = pluginEndpoints<{ content: string }>("files");
@@ -210,6 +210,29 @@ function isFilePath(value: unknown): value is string {
   return typeof value === "string" && value.startsWith("artifacts/spreadsheets/") && value.endsWith(".json");
 }
 
+const isCellValue = (value: unknown): value is SpreadsheetCell["v"] => typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+
+// The engine reads a bare value, a `{ v, f }` cell, an empty `{}` and a `null`
+// gap, and `normalizeData` folds all four — so a reader that took only `{ v }`
+// would reject workbooks the app renders today.
+const isStorableCell = (value: unknown): value is SpreadsheetCell =>
+  value === null ||
+  isCellValue(value) ||
+  (isRecord(value) && (value.v === undefined || value.v === null || isCellValue(value.v)) && (value.f === undefined || typeof value.f === "string"));
+
+const isCellRow = (value: unknown): value is SpreadsheetCell[] => isUnknownArray(value) && value.every(isStorableCell);
+
+const isSheet = (value: unknown): value is SpreadsheetSheet =>
+  isRecord(value) && typeof value.name === "string" && isUnknownArray(value.data) && value.data.every(isCellRow);
+
+/** Sheets replayed from session JSONL, where the declared type is a claim
+ *  about whatever wrote the log rather than about this value. Taken whole or
+ *  rejected whole — dropping the unreadable half of a workbook would hide
+ *  part of a user's file behind cells that merely look empty. */
+function readReplayedSheets(value: unknown): SpreadsheetSheet[] | null {
+  return isUnknownArray(value) && value.every(isSheet) ? value : null;
+}
+
 // Editor textarea backing ref. Declared up here (rather than next to
 // the other view-state refs further down) so the `fetchSheets().then`
 // initializer below can assign to it without TDZ.
@@ -227,7 +250,9 @@ async function fetchSheets(): Promise<void> {
   }
   if (!isFilePath(raw)) {
     // Legacy inline data
-    resolvedSheets.value = raw as SpreadsheetSheet[];
+    const inline = readReplayedSheets(raw);
+    resolvedSheets.value = inline ?? [];
+    if (!inline) errorMessage.value = t("pluginSpreadsheet.dataMustBeArray");
     return;
   }
   loading.value = true;
@@ -246,7 +271,7 @@ async function fetchSheets(): Promise<void> {
     errorMessage.value = result.message;
     resolvedSheets.value = [];
   } else {
-    resolvedSheets.value = result.sheets as SpreadsheetSheet[];
+    resolvedSheets.value = result.sheets;
   }
   loading.value = false;
 }
@@ -542,14 +567,11 @@ function handleTableClick(event: MouseEvent) {
   // External http(s) links inside cells (XLSX hyperlink fields) —
   // open in a new tab instead of navigating the SPA away (#1221).
   if (handleExternalLinkClick(event)) return;
-  const target = event.target as HTMLElement;
-
-  // Check if clicked element is a table cell
-  if (target.tagName !== "TD") return;
-
-  // Get the row and column indices
-  const cell = target as HTMLTableCellElement;
-  const row = cell.parentElement as HTMLTableRowElement;
+  const cell = event.target;
+  // HTMLTableCellElement covers <th> too, and only data cells carry coordinates.
+  if (!(cell instanceof HTMLTableCellElement) || cell.tagName !== "TD") return;
+  const row = cell.parentElement;
+  if (!(row instanceof HTMLTableRowElement)) return;
 
   const colIndex = cell.cellIndex;
   const { rowIndex } = row;
