@@ -1,7 +1,7 @@
 import "./_setup.ts"; // configure @mulmoclaude/core collection + feeds hosts for tests
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { registerRetriever } from "../../src/feeds/server/retrievers/index.ts";
@@ -124,5 +124,53 @@ describe("refreshOne — maxItems cap", () => {
     nextItems = [{ id: "a", when: "2026-01-01T00:00:00.000Z" }];
     const result = await refreshOne(root, feed);
     assert.equal(result.removed, 0);
+  });
+});
+
+// The ingest used to write the retrieved item straight over the record, which
+// silently deleted every column the user had added beside it (#2696). Merging
+// over the stored record fixes that — but it made the ingest READ, and
+// `readItem` throws on unparsable JSON rather than answering null. Unguarded,
+// one bad file failed the whole refresh and wrote nothing at all, where the old
+// overwrite had quietly healed it. (Observed during Claude review; both review
+// bots were rate-limited on that PR.)
+describe("refreshOne — local columns and unreadable records (#2696)", () => {
+  it("keeps a column the ingest does not produce", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "feeds-local-"));
+    const feed = makeFeed(root);
+
+    nextItems = [{ id: "a", title: "A" }];
+    await refreshOne(root, feed);
+
+    // The user annotates the record through the UI.
+    writeFileSync(path.join(feed.dataDir, "a.json"), JSON.stringify({ id: "a", title: "A", note: "read on the train" }));
+
+    nextItems = [{ id: "a", title: "A2" }];
+    const second = await refreshOne(root, feed);
+    assert.equal(second.errors.length, 0);
+
+    const [stored] = await listItems(feed.dataDir, { workspaceRoot: root });
+    assert.equal(stored.note, "read on the train", "the local column survived the refresh");
+    assert.equal(stored.title, "A2", "the feed still won on the field it produces");
+  });
+
+  it("replaces an unreadable record instead of failing the whole refresh", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "feeds-corrupt-"));
+    const feed = makeFeed(root);
+
+    nextItems = [{ id: "a", title: "A" }];
+    await refreshOne(root, feed);
+    writeFileSync(path.join(feed.dataDir, "a.json"), "{ not valid json");
+
+    nextItems = [
+      { id: "a", title: "A2" },
+      { id: "b", title: "B" },
+    ];
+    const second = await refreshOne(root, feed);
+    assert.deepEqual(second.errors, [], "one bad file must not fail the refresh");
+    assert.equal(second.written, 2, "and must not stop the items after it being written");
+
+    const ids = (await listItems(feed.dataDir, { workspaceRoot: root })).map((item) => String(item.id)).sort();
+    assert.deepEqual(ids, ["a", "b"]);
   });
 });

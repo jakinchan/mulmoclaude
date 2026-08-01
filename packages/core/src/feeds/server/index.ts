@@ -4,7 +4,7 @@
 // task import from this module.
 
 export { listFeeds, removeFeed } from "./registry.js";
-export { refreshOne, refreshDue, type RefreshResult } from "./engine.js";
+export { refreshOne, refreshDue, hasLocalContent, ingestedFields, type RefreshResult } from "./engine.js";
 export { feedRefreshTaskDef, FEED_REFRESH_TASK_ID, DEFAULT_FEED_REFRESH_INTERVAL_MS } from "./scheduledRefresh.js";
 export { refreshViaAgent } from "./agentIngest.js";
 export { readFeedState, type FeedState } from "./state.js";
