@@ -120,7 +120,7 @@ export {
   anySyncedCollectionSurvives,
   groupByCalendar,
   allUnpushed,
-  hasUnsentEdit,
+  unsentEditGuard,
   heldBack,
   orphanedCalendarId,
   pullableEvents,

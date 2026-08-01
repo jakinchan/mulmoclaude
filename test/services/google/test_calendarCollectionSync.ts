@@ -16,7 +16,7 @@ import {
   pushableMap,
   toShadowEvent,
   groupByCalendar,
-  hasUnsentEdit,
+  unsentEditGuard,
   heldBack,
   isUnpushed,
   mergeIntoExisting,
@@ -840,31 +840,33 @@ describe("heldBack (#2684 the apply's refusals must reach the baseline)", () => 
 // "would writing Google's value here destroy something Google has not seen?" —
 // and it must answer NO for a record the pull itself just wrote, or the whole
 // pull freezes (#2684).
-describe("hasUnsentEdit (#2684 the per-event guard)", () => {
+describe("unsentEditGuard (#2684 the per-event guard)", () => {
   const map = { title: "summary", on: "start", until: "end", colour: "colorId" } as const;
   const schema = { googleCalendar: { map }, primaryKey: "gid", fields: recipeFields } as unknown as LoadedCollection["schema"];
   const synced = event();
   const baseline = { "ev-1": toShadowEvent(synced) };
   const syncedRecord = toCollectionRecord(synced, map, "gid", recipeFields);
 
+  const guard = unsentEditGuard(schema, baseline);
+
   it("says no for a record that still matches the baseline", () => {
-    assert.equal(hasUnsentEdit(syncedRecord, synced, schema, baseline), false);
+    assert.equal(guard(syncedRecord, synced.id), false);
   });
 
   it("says yes for a record edited since the baseline was taken", () => {
-    assert.equal(hasUnsentEdit({ ...syncedRecord, title: "Standup (moved)" }, synced, schema, baseline), true);
+    assert.equal(guard({ ...syncedRecord, title: "Standup (moved)" }, synced.id), true);
   });
 
   // A brand-new event this workspace has never held. There is no local edit to
   // lose, so withholding it would just stop the collection ever receiving it.
   it("says no when the workspace holds no baseline for the event", () => {
-    assert.equal(hasUnsentEdit(syncedRecord, synced, schema, {}), false);
+    assert.equal(unsentEditGuard(schema, {})(syncedRecord, synced.id), false);
   });
 
   // Local-only columns are the point of `mergeIntoExisting` — the pull keeps
   // them, so they are not a reason to refuse Google's own fields.
   it("ignores a column the map does not name", () => {
-    assert.equal(hasUnsentEdit({ ...syncedRecord, notes: "call Alice first" }, synced, schema, baseline), false);
+    assert.equal(guard({ ...syncedRecord, notes: "call Alice first" }, synced.id), false);
   });
 
   // Google changing the event is not what this guard is about: it compares the
@@ -872,6 +874,44 @@ describe("hasUnsentEdit (#2684 the per-event guard)", () => {
   // pulls normally and the conflict check on the next push does its own job.
   it("says no when only Google moved, and the record never diverged", () => {
     const moved = event({ start: "2026-07-19T10:00:00+09:00" });
-    assert.equal(hasUnsentEdit(syncedRecord, moved, schema, baseline), false);
+    assert.equal(guard(syncedRecord, moved.id), false);
+  });
+});
+
+// Omitting a held-back event is enough on an incremental run — `.push-state.json`
+// is merged, not replaced, so the old entry survives. A full re-walk CLEARS the
+// baseline first, and there the omission dropped the entry for good: the next
+// push then read a conflicted record as a brand-new create, hit Google's
+// duplicate-id 409 and refused it instead of reporting the conflict.
+// (Observed during Claude review of #2684; no bot flagged it.)
+describe("shadowUpdates carry-forward (#2684 a held-back baseline must survive a full re-walk)", () => {
+  const held = { "ev-1": toShadowEvent(event({ id: "ev-1", summary: "As Google had it" })) };
+
+  it("re-states the pre-run baseline for a held-back event", () => {
+    const updates = shadowUpdates([event({ id: "ev-1", summary: "Google moved on" })], new Set(["ev-1"]), held);
+    assert.deepEqual(updates["ev-1"], held["ev-1"]);
+  });
+
+  it("never advances a held-back event to what Google now says", () => {
+    const updates = shadowUpdates([event({ id: "ev-1", summary: "Google moved on" })], new Set(["ev-1"]), held);
+    assert.notDeepEqual(updates["ev-1"], toShadowEvent(event({ id: "ev-1", summary: "Google moved on" })));
+  });
+
+  it("still advances everything that was not held back", () => {
+    const moved = event({ id: "ev-2" });
+    const updates = shadowUpdates([event({ id: "ev-1" }), moved], new Set(["ev-1"]), held);
+    assert.deepEqual(updates["ev-2"], toShadowEvent(moved));
+  });
+
+  // A held-back id the workspace holds no baseline for — a record created
+  // locally and never pushed. There is nothing to carry, and inventing one would
+  // make the next push read it as already-synced.
+  it("carries nothing for a held-back event with no previous baseline", () => {
+    const updates = shadowUpdates([event({ id: "ev-3" })], new Set(["ev-3"]), held);
+    assert.equal("ev-3" in updates, false);
+  });
+
+  it("behaves as before when no carry-forward is supplied", () => {
+    assert.deepEqual(shadowUpdates([event({ id: "ev-1" })], new Set(["ev-1"])), {});
   });
 });
