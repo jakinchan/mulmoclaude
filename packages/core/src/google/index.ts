@@ -72,6 +72,7 @@ export {
   saveCalendarSyncToken,
 } from "./calendarSyncStore.js";
 export { calendarSyncDueWindowMs, isCalendarSyncDue } from "./calendarSyncDue.js";
+export { stateLockPath, withCalendarStateLock, liveLockClock, type LockClock } from "./calendarStateLock.js";
 export {
   calendarPushStatePath,
   clearCalendarShadow,
@@ -112,12 +113,16 @@ export {
 } from "./pushPlan.js";
 export { toCollectionDateTime } from "./collectionDateTime.js";
 export { withCalendarLock, withKeyedLock } from "./calendarLock.js";
-export { mergeIntoExisting, toCollectionRecord, type GoogleCalendarSourceField } from "./collectionProjection.js";
+export { toCollectionRecord, type GoogleCalendarSourceField } from "./collectionProjection.js";
+// Re-homed to `collection/core` when the feeds ingest turned out to need the
+// same merge (#2696). Kept on this subpath so the published surface is unchanged.
+export { mergeIntoExisting } from "../collection/core/project.js";
 export {
   googleCalendarSyncTaskDef,
   classifyDelete,
   classifyWrite,
   anySyncedCollectionSurvives,
+  applyPlanFor,
   groupByCalendar,
   allUnpushed,
   unsentEditGuard,

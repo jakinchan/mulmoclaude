@@ -38,7 +38,9 @@ import { pluginEndpoints } from "./api";
  *  @param scope    plugin scope name (matches the install registry
  *                  key, e.g. `"todos"`, `"wiki"`, `"mulmoScript"`).
  *  @param inner    the plugin's raw View / Preview component. */
-export function wrapWithScope<TInner extends Component | undefined>(scope: string, inner: TInner): TInner {
+export function wrapWithScope(scope: string, inner: Component): Component;
+export function wrapWithScope(scope: string, inner: Component | undefined): Component | undefined;
+export function wrapWithScope(scope: string, inner: Component | undefined): Component | undefined {
   if (!inner) return inner;
   // `markRaw` so reactive containers don't try to proxy this
   // component object — Vue warns + the proxy can interfere with
@@ -53,5 +55,5 @@ export function wrapWithScope<TInner extends Component | undefined>(scope: strin
         return () => h(PluginScopedRoot, { pkgName: scope, endpoints }, () => h(inner, attrs, slots));
       },
     }),
-  ) as TInner;
+  );
 }

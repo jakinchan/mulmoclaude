@@ -5,7 +5,6 @@
 // (server/plugins/markdown-builtin.ts). This adapter keeps MulmoClaude's
 // existing client-side create path (POST /api/markdown) rather than the
 // package's context.app create, so the legacy create route is untouched.
-import type { Component } from "vue";
 import type { PluginRegistration, ToolPlugin } from "../../tools/types";
 import { View, Preview, TOOL_DEFINITION, TOOL_NAME, type MarkdownToolData } from "@mulmoclaude/markdown-plugin/vue";
 // The package's component scoped styles (incl. the flex/overflow layout
@@ -22,16 +21,14 @@ import type { ResolvedRoute } from "../meta-types";
 type DocumentEndpoints = { readonly [K in keyof typeof META.apiRoutes]: ResolvedRoute };
 
 const markdownPlugin: ToolPlugin<MarkdownToolData> = {
-  // gui-chat-protocol type is externalized but yarn-4's dual-@vue can
-  // make the package's nominal types distinct; coerce once here.
-  toolDefinition: TOOL_DEFINITION as ToolPlugin<MarkdownToolData>["toolDefinition"],
+  toolDefinition: TOOL_DEFINITION,
 
   execute: makeRouteExecute<DocumentEndpoints, MarkdownToolData>("markdown", "create", TOOL_NAME),
 
   isEnabled: () => true,
   generatingMessage: "Creating document...",
-  viewComponent: wrapWithScope("markdown", View as unknown as Component),
-  previewComponent: wrapWithScope("markdown", Preview as unknown as Component),
+  viewComponent: wrapWithScope("markdown", View),
+  previewComponent: wrapWithScope("markdown", Preview),
 };
 export { TOOL_NAME };
 

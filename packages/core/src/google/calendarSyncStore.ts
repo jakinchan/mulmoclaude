@@ -10,6 +10,7 @@ import path from "node:path";
 import { getWorkspaceRoot } from "../collection/server/host.js";
 import { readJsonOrNull, writeJsonAtomicWithMode } from "./fsJson.js";
 import { canonicalCalendarId } from "./calendar.js";
+import { stateLockPath, withCalendarStateLock } from "./calendarStateLock.js";
 
 const SYNC_STATE_MODE = 0o600;
 
@@ -62,11 +63,18 @@ const writeQueue: { tail: Promise<unknown> } = { tail: Promise.resolve() };
  *  nothing in this process can read between the two. A `null` state skips the
  *  write; `result` is what the caller learns about the decision. */
 async function updateStateWith<T>(decide: (state: CalendarSyncState) => { state: CalendarSyncState | null; result: T }, workspaceRoot?: string): Promise<T> {
-  const run = writeQueue.tail.then(async () => {
-    const { state, result } = decide(await readState(workspaceRoot));
-    if (state) await writeJsonAtomicWithMode(calendarSyncStatePath(workspaceRoot), state, SYNC_STATE_MODE);
-    return result;
-  });
+  const statePath = calendarSyncStatePath(workspaceRoot);
+  // The queue orders this process; the file lock orders the others. Both are
+  // needed — the lock is per read-modify-write, so two of THIS process's own
+  // mutations would still interleave without the queue (#2679).
+  const run = writeQueue.tail.then(
+    async () =>
+      await withCalendarStateLock(stateLockPath(statePath), async () => {
+        const { state, result } = decide(await readState(workspaceRoot));
+        if (state) await writeJsonAtomicWithMode(statePath, state, SYNC_STATE_MODE);
+        return result;
+      }),
+  );
   // Swallow on the queue only — the caller still sees the original rejection.
   writeQueue.tail = run.catch(() => undefined);
   return await run;

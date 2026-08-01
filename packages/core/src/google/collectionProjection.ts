@@ -42,14 +42,3 @@ export function toCollectionRecord(
   const mapped = Object.entries(map).map(([field, source]): [string, unknown] => [field, projectValue(fields, field, event[source])]);
   return { ...Object.fromEntries(mapped), [primaryKey]: event.id };
 }
-
-/** Google's mapped values laid over whatever the record already holds.
- *
- *  A record file is written whole (`writeItem`), so projecting alone would drop
- *  every column the map does not name — a collection cannot then carry a local
- *  note next to a mirrored event, because the next pull that touches that event
- *  silently deletes it. The projection still wins on the fields it covers: those
- *  are Google's to own. */
-export function mergeIntoExisting(existing: CollectionItem | null, projected: CollectionItem): CollectionItem {
-  return { ...(existing ?? {}), ...projected };
-}

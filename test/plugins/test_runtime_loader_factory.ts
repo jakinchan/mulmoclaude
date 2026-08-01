@@ -121,6 +121,44 @@ export default definePlugin(({ pubsub }) => ({
     // that path live above.
   });
 
+  // The stub runtime used to be asserted into `PluginRuntime` with a double
+  // cast, so members the real runtime had since grown (`files.artifacts`,
+  // `notifier.update` / `.get`) silently stayed `undefined` — a plugin
+  // touching one got `TypeError: … is not a function` instead of the
+  // loader's "unavailable in this process" message.
+  it("stub runtime exposes every member the real runtime provides", async () => {
+    const dir = makeFixture({
+      entryContent: `
+function definePlugin(setup) { return setup; }
+export default definePlugin((runtime) => ({
+  TOOL_DEFINITION: {
+    name: "fixtureTool",
+    description: "runtime-shape probe",
+    parameters: { type: "object", properties: {} },
+  },
+  async fixtureTool() {
+    // The stub throws synchronously rather than rejecting, so this cannot
+    // be a \`.catch\`.
+    let artifactsReadError = null;
+    try { await runtime.files.artifacts.read("x"); } catch (err) { artifactsReadError = err.message; }
+    return {
+      files: Object.keys(runtime.files),
+      notifier: Object.keys(runtime.notifier),
+      artifactsReadError,
+    };
+  },
+}));
+`,
+    });
+    const plugin = await loadPluginFromCacheDir("@fixture/plugin", "1.0.0", dir);
+    assert.ok(plugin?.execute);
+    assert.deepEqual(await plugin.execute({}, {}), {
+      files: ["data", "config", "artifacts"],
+      notifier: ["publish", "update", "clear", "get"],
+      artifactsReadError: "plugin/@fixture/plugin: runtime.files.read unavailable in this process (definition-only load)",
+    });
+  });
+
   it("legacy shape continues to load (backward compatibility)", async () => {
     const dir = makeFixture({
       entryContent: `
