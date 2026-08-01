@@ -14,11 +14,12 @@
 import path from "node:path";
 import { readFile, readdir, stat as fsStat, unlink as fsUnlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import type { FileOps, PluginRuntime } from "gui-chat-protocol";
+import type { FileOps, PluginFetchJsonOptions, PluginFetchOptions, PluginRuntime } from "gui-chat-protocol";
 
 import { WORKSPACE_PATHS, workspacePath } from "../workspace/paths.js";
 import { writeFileAtomic } from "../utils/files/atomic.js";
 import { errorMessage } from "../utils/errors.js";
+import { isErrorWithCode, isRecord } from "../utils/types.js";
 import { log as hostLog, type Logger } from "../system/logger/index.js";
 import { ensureInsideBase } from "./runtime-loader.js";
 import { ONE_SECOND_MS } from "../utils/time.js";
@@ -91,10 +92,6 @@ export function normalizePluginPath(scopeRoot: string, rel: string): string {
 // Scoped FileOps factory
 // ─────────────────────────────────────────────────────────────────────
 
-function isErrnoException(value: unknown): value is { code: string } {
-  return typeof value === "object" && value !== null && "code" in value && typeof (value as { code: unknown }).code === "string";
-}
-
 /** Shared (NOT per-plugin) FileOps rooted at the workspace `artifacts/`
  *  dir. Backs `runtime.files.artifacts`, and is exported so host routes can
  *  inject the same generic capability into directly-consumed plugins (e.g.
@@ -129,7 +126,7 @@ function makeFileOps(scopeRoot: string): FileOps {
       try {
         return await readdir(abs);
       } catch (err) {
-        if (isErrnoException(err) && err.code === "ENOENT") return [];
+        if (isErrorWithCode(err) && err.code === "ENOENT") return [];
         throw err;
       }
     },
@@ -142,7 +139,7 @@ function makeFileOps(scopeRoot: string): FileOps {
         await fsStat(normalizePluginPath(scopeRoot, rel));
         return true;
       } catch (err) {
-        if (isErrnoException(err) && err.code === "ENOENT") return false;
+        if (isErrorWithCode(err) && err.code === "ENOENT") return false;
         throw err;
       }
     },
@@ -150,7 +147,7 @@ function makeFileOps(scopeRoot: string): FileOps {
       try {
         await fsUnlink(normalizePluginPath(scopeRoot, rel));
       } catch (err) {
-        if (isErrnoException(err) && err.code === "ENOENT") return;
+        if (isErrorWithCode(err) && err.code === "ENOENT") return;
         throw err;
       }
     },
@@ -175,19 +172,37 @@ export function sanitisePackageNameForFs(pkgName: string): string {
 // Scoped logger
 // ─────────────────────────────────────────────────────────────────────
 
+/** The protocol lets a plugin log any `object`; the host logger and its
+ *  sinks contract for a keyed record. Wrap rather than drop a non-record
+ *  (an array) so the payload still reaches the log line. */
+function toLogData(data: object | undefined): Record<string, unknown> | undefined {
+  if (data === undefined || isRecord(data)) return data;
+  return { value: data };
+}
+
 function makeScopedLogger(pkgName: string): PluginRuntime["log"] {
   const prefix = `plugin/${pkgName}`;
   return {
-    debug: (msg, data) => hostLog.debug(prefix, msg, data as Record<string, unknown> | undefined),
-    info: (msg, data) => hostLog.info(prefix, msg, data as Record<string, unknown> | undefined),
-    warn: (msg, data) => hostLog.warn(prefix, msg, data as Record<string, unknown> | undefined),
-    error: (msg, data) => hostLog.error(prefix, msg, data as Record<string, unknown> | undefined),
+    debug: (msg, data) => hostLog.debug(prefix, msg, toLogData(data)),
+    info: (msg, data) => hostLog.info(prefix, msg, toLogData(data)),
+    warn: (msg, data) => hostLog.warn(prefix, msg, toLogData(data)),
+    error: (msg, data) => hostLog.error(prefix, msg, toLogData(data)),
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────
 // Scoped fetch (timeout + optional host allowlist)
 // ─────────────────────────────────────────────────────────────────────
+
+const isArrayBufferBacked = (view: Uint8Array): view is Uint8Array<ArrayBuffer> => view.buffer instanceof ArrayBuffer;
+
+/** `fetch` accepts a byte view only when it is `ArrayBuffer`-backed. A
+ *  `SharedArrayBuffer`-backed one is not a `BodyInit`, and undici sends
+ *  its `toString()` ("104,105,33") as the body instead of the bytes — so
+ *  copy those into a transferable buffer. */
+function toTransferableBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  return isArrayBufferBacked(bytes) ? bytes : new Uint8Array(bytes);
+}
 
 function makeScopedFetch(pkgName: string): PluginRuntime["fetch"] {
   return async (url, opts = {}) => {
@@ -205,9 +220,7 @@ function makeScopedFetch(pkgName: string): PluginRuntime["fetch"] {
       // signal. AbortSignal.any returns a signal that fires when
       // either input fires — Node 20+.
       const signal = opts.signal ? AbortSignal.any([opts.signal, controller.signal]) : controller.signal;
-      // The runtime cast keeps PluginFetchInit narrow (string | Uint8Array)
-      // so plugin authors don't need to know the wider DOM BodyInit union.
-      const body = opts.body as Parameters<typeof fetch>[1] extends infer T ? (T extends { body?: infer B } ? B : never) : never;
+      const body = opts.body instanceof Uint8Array ? toTransferableBytes(opts.body) : opts.body;
       return await fetch(url, { method: opts.method, headers: opts.headers, body, signal });
     } catch (err) {
       // Re-throw with plugin context so a fan-out failure in the
@@ -227,17 +240,19 @@ function makeScopedFetch(pkgName: string): PluginRuntime["fetch"] {
 }
 
 function makeScopedFetchJson(pkgName: string, scopedFetch: PluginRuntime["fetch"]): PluginRuntime["fetchJson"] {
-  // When `opts.parse` is provided we trust its narrowing; when absent
-  // the caller asserts the JSON shape themselves (same contract as
-  // `JSON.parse(...) as T`).
-  return async function fetchJson<T>(url: string, opts: { parse?: (raw: unknown) => T } & Parameters<PluginRuntime["fetch"]>[1] = {}): Promise<T> {
+  // Overloads mirror the protocol's: `T` is reachable only through
+  // `opts.parse`, so un-validated JSON is never handed back as `T`.
+  function fetchJson(url: string, opts?: PluginFetchOptions): Promise<unknown>;
+  function fetchJson<T>(url: string, opts: PluginFetchJsonOptions<T>): Promise<T>;
+  async function fetchJson(url: string, opts: PluginFetchOptions & { parse?: (raw: unknown) => unknown } = {}): Promise<unknown> {
     const response = await scopedFetch(url, opts);
     if (!response.ok) {
       throw new Error(`plugin/${pkgName}: fetchJson HTTP ${response.status} for ${url}`);
     }
-    const raw = (await response.json()) as unknown;
-    return opts.parse ? opts.parse(raw) : (raw as T);
-  };
+    const raw: unknown = await response.json();
+    return opts.parse ? opts.parse(raw) : raw;
+  }
+  return fetchJson;
 }
 
 // ─────────────────────────────────────────────────────────────────────
