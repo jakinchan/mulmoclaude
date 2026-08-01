@@ -9,13 +9,19 @@ import assert from "node:assert/strict";
 import {
   allUnpushed,
   anySyncedCollectionSurvives,
+  baselineRecord,
   classifyDelete,
   classifyWrite,
+  locallyChangedFields,
+  pushableMap,
+  toShadowEvent,
   groupByCalendar,
   isUnpushed,
   mergeIntoExisting,
   orphanedCalendarId,
   pullableEvents,
+  pullProtectionFor,
+  pushAndProtect,
   shadowUpdates,
   toCollectionRecord,
   syncCalendarForCollection,
@@ -23,7 +29,14 @@ import {
   unsyncedGroups,
   withKeyedLock,
 } from "@mulmoclaude/core/google";
-import type { CalendarCollectionSyncResult, CalendarDeclaring, CalendarEventSummary, ManualCalendarSyncDeps } from "@mulmoclaude/core/google";
+import type {
+  CalendarCollectionPushResult,
+  CalendarCollectionSyncResult,
+  CalendarDeclaring,
+  CalendarEventSummary,
+  ManualCalendarSyncDeps,
+  PullProtectionDeps,
+} from "@mulmoclaude/core/google";
 import { parseIsoDateTime } from "@mulmoclaude/core/collection";
 import type { CollectionFieldSpec } from "@mulmoclaude/core/collection";
 import type { LoadedCollection } from "@mulmoclaude/core/collection/server";
@@ -210,11 +223,11 @@ describe("isUnpushed (#2620 which outcomes the pull must not overwrite)", () => 
   });
 });
 
-// A calendar can back several collections, and a conflict in one says nothing
-// about the others. Sharing one protected set across the group starved a
-// collection that never even declares `autoPush` — it cannot conflict, yet a
-// neighbour's conflict froze its records, and the token still advanced so Google
-// never resent them (Codex review on #2666).
+// A calendar can back several collections, and one collection's unsent edit says
+// nothing about the others. Sharing one protected set across the group starved a
+// collection that never even declares `autoPush` — a neighbour's conflict froze
+// its records, and the token still advanced so Google never resent them (Codex
+// review on #2666).
 describe("unpushedFor / allUnpushed (#2620 protection is scoped per collection)", () => {
   const unpushed = new Map<string, ReadonlySet<string>>([
     ["mine", new Set(["a"])],
@@ -225,8 +238,10 @@ describe("unpushedFor / allUnpushed (#2620 protection is scoped per collection)"
     assert.deepEqual([...(unpushedFor(unpushed, "mine") ?? [])], ["a"]);
   });
 
-  it("protects nothing for a collection that never pushed", () => {
-    assert.equal(unpushedFor(unpushed, "read-only-mirror")?.size, 0);
+  // Since #2683 every collection in the group gets an entry, so an absent slug
+  // means "not on this calendar" rather than "did not push".
+  it("protects nothing for a slug that is not in this group", () => {
+    assert.equal(unpushedFor(unpushed, "other-calendar")?.size, 0);
   });
 
   it("does not let one collection's conflict freeze another's records", () => {
@@ -658,5 +673,124 @@ describe("syncCalendarForCollection (#2427 manual refresh)", () => {
     const outcome = await syncCalendarForCollection("my-schedule", "/ws", fake);
     assert.deepEqual([...fake.ranWith[0].keys()], ["work"]);
     assert.deepEqual(outcome.kind === "synced" ? outcome.results.map((entry) => entry.slug).sort() : [], ["my-schedule", "team"]);
+  });
+});
+
+// A collection that never declares `autoPush` is in the SAME state a failed push
+// leaves behind — its local edits are unsent — yet it used to be filtered out of
+// the push loop entirely, so it got an empty protected set on every run. The
+// pull then overwrote those edits AND advanced the shared baseline past them,
+// after which no conflict could be detected any more (#2683). No concurrency and
+// no failure needed: one scheduled sync was enough.
+describe("pullProtectionFor / pushAndProtect (#2683 a collection that never pushes still needs protecting)", () => {
+  const calendarCollection = (slug: string, autoPush: boolean): LoadedCollection =>
+    ({ slug, schema: { googleCalendar: { calendarId: "work", map: {}, autoPush } } }) as unknown as LoadedCollection;
+
+  const pushResult = (slug: string, unpushedIds: string[]): CalendarCollectionPushResult => ({
+    slug,
+    created: 0,
+    updated: 0,
+    conflicts: unpushedIds.length,
+    localDeletes: 0,
+    skipped: [],
+    errors: [],
+    unpushedIds,
+  });
+
+  const protectionDeps = (overrides: Partial<PullProtectionDeps> = {}): PullProtectionDeps & { pushedSlugs: string[] } => {
+    const pushedSlugs: string[] = [];
+    return {
+      pushedSlugs,
+      pushNow: (collection) => {
+        pushedSlugs.push(collection.slug);
+        return Promise.resolve({ kind: "pushed", result: pushResult(collection.slug, []) });
+      },
+      unsentEdits: () => Promise.resolve([]),
+      ...overrides,
+    };
+  };
+
+  it("protects the unsent local edits of a collection that never declares autoPush", async () => {
+    const deps = protectionDeps({ unsentEdits: () => Promise.resolve(["ev-1"]) });
+    const protection = await pullProtectionFor(calendarCollection("mirror", false), "/ws", deps);
+    assert.deepEqual([...(protection ?? [])], ["ev-1"]);
+  });
+
+  it("never pushes a collection that did not ask to be pushed", async () => {
+    const deps = protectionDeps({ unsentEdits: () => Promise.resolve(["ev-1"]) });
+    await pullProtectionFor(calendarCollection("mirror", false), "/ws", deps);
+    assert.deepEqual(deps.pushedSlugs, []);
+  });
+
+  it("protects nothing when there are no unsent edits", async () => {
+    const protection = await pullProtectionFor(calendarCollection("mirror", false), "/ws", protectionDeps());
+    assert.equal(protection?.size, 0);
+  });
+
+  // The regression that would make this fix worse than the bug it closes. Every
+  // record of a non-autoPush collection now runs through `unsentLocalEdits`, so
+  // if what the PULL writes did not compare equal to the baseline built from the
+  // SAME event, every record would be protected and the pull would freeze whole.
+  // Both sides go through `toCollectionRecord`, which is what makes "unchanged"
+  // mean exactly "the pull would produce this" — pinned here with the real
+  // functions, since the deps above are fakes.
+  it("reads a record the pull just wrote as having no unsent edit", () => {
+    const map = { title: "summary", on: "start", until: "end", colour: "colorId" } as const;
+    const pulled = toCollectionRecord(event(), map, "gid", recipeFields);
+    const baseline = baselineRecord("ev-1", toShadowEvent(event()), pushableMap(map), "gid", recipeFields);
+    assert.deepEqual(locallyChangedFields(pulled, baseline, pushableMap(map)), []);
+  });
+
+  it("still gives an autoPush collection exactly what its own push could not send", async () => {
+    const deps = protectionDeps({
+      pushNow: (collection) => Promise.resolve({ kind: "pushed", result: pushResult(collection.slug, ["ev-2"]) }),
+    });
+    const protection = await pullProtectionFor(calendarCollection("mine", true), "/ws", deps);
+    assert.deepEqual([...(protection ?? [])], ["ev-2"]);
+  });
+
+  // The #2666 branches must keep working: a push that refuses (a role degraded
+  // to reader) or throws leaves every local edit unsent, not just the ones a
+  // completed push reported.
+  it("falls back to the unsent edits when the push refused to run", async () => {
+    const deps = protectionDeps({
+      pushNow: () => Promise.resolve({ kind: "read-only", accessRole: "reader" }),
+      unsentEdits: () => Promise.resolve(["ev-3"]),
+    });
+    const protection = await pullProtectionFor(calendarCollection("mine", true), "/ws", deps);
+    assert.deepEqual([...(protection ?? [])], ["ev-3"]);
+  });
+
+  it("falls back to the unsent edits when the push threw", async () => {
+    const deps = protectionDeps({
+      pushNow: () => Promise.reject(new Error("network down")),
+      unsentEdits: () => Promise.resolve(["ev-4"]),
+    });
+    const protection = await pullProtectionFor(calendarCollection("mine", true), "/ws", deps);
+    assert.deepEqual([...(protection ?? [])], ["ev-4"]);
+  });
+
+  // Fail closed, now on the no-autoPush path too: a read that failed says nothing
+  // about whether the pull's writes would, so pulling with no protection would
+  // destroy exactly what this protects.
+  it("answers null when the unsent edits of a non-autoPush collection cannot be read", async () => {
+    const deps = protectionDeps({ unsentEdits: () => Promise.reject(new Error("EACCES")) });
+    assert.equal(await pullProtectionFor(calendarCollection("mirror", false), "/ws", deps), null);
+  });
+
+  it("gives EVERY collection on the calendar an entry, not only the pushing ones", async () => {
+    const deps = protectionDeps({ unsentEdits: () => Promise.resolve(["ev-5"]) });
+    const unpushed = await pushAndProtect([calendarCollection("mine", true), calendarCollection("mirror", false)], "/ws", deps);
+    assert.deepEqual([...unpushed.keys()].sort(), ["mine", "mirror"]);
+    assert.deepEqual([...(unpushedFor(unpushed, "mirror") ?? [])], ["ev-5"]);
+  });
+
+  // The shared baseline is what makes this load-bearing: advancing it past an
+  // unsent edit is what destroys the ability to detect the conflict later.
+  it("holds the shared baseline back for a non-autoPush collection's unsent edits", async () => {
+    const deps = protectionDeps({ unsentEdits: () => Promise.resolve(["ev-5"]) });
+    const unpushed = await pushAndProtect([calendarCollection("mirror", false)], "/ws", deps);
+    assert.deepEqual([...allUnpushed(unpushed)], ["ev-5"]);
+    assert.deepEqual(shadowUpdates([event({ id: "ev-5" })], allUnpushed(unpushed)), {});
   });
 });
