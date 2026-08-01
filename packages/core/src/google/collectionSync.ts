@@ -20,7 +20,7 @@ import { getGoogleAccessToken } from "./auth.js";
 import { canonicalCalendarId, syncCalendarEvents, CANCELLED_EVENT_STATUS, type CalendarEventSummary } from "./calendar.js";
 import { withCalendarLock } from "./calendarLock.js";
 import { mergeIntoExisting, toCollectionRecord } from "./collectionProjection.js";
-import { pushCollectionNow, unsentLocalEdits, type CalendarCollectionPushResult } from "./collectionPush.js";
+import { pushCollectionNow, unsentLocalEdits, type CalendarCollectionPushResult, type CalendarPushOutcome } from "./collectionPush.js";
 import {
   claimCalendarSyncIfDue,
   clearCalendarLastSyncedAt,
@@ -137,16 +137,16 @@ const NOTHING_UNPUSHED: ReadonlySet<string> = new Set();
  *  protection — would overwrite the very edits this exists to protect; the read
  *  that failed is no evidence that the pull's own writes would fail too, so they
  *  would land (CodeRabbit review #2666). */
-export const PROTECTION_UNKNOWN = "could not work out which records to protect after a failed push";
+export const PROTECTION_UNKNOWN = "could not work out which records to protect from the pull";
 
-/** What ONE collection's pull must leave alone: only what ITS OWN push failed to
+/** What ONE collection's pull must leave alone: only what ITS OWN push did not
  *  send.
  *
- *  Scoped per collection because a calendar can back several of them, and a
- *  conflict in one says nothing about the others. Sharing one set across the
- *  group starved a collection that never even declares `autoPush`: it cannot
- *  conflict, yet a neighbour's conflict froze its records — and the sync token
- *  still advanced, so Google never resent them (Codex review #2666). */
+ *  Scoped per collection because a calendar can back several of them, and one
+ *  collection's unsent edit says nothing about the others. Sharing one set across
+ *  the group starved a collection that never even declares `autoPush`: a
+ *  neighbour's conflict froze its records — and the sync token still advanced, so
+ *  Google never resent them (Codex review #2666). */
 export const unpushedFor = (unpushed: UnpushedBySlug, slug: string): ReadonlySet<string> | null => {
   const protection = unpushed.get(slug);
   return protection === undefined ? NOTHING_UNPUSHED : protection;
@@ -173,16 +173,19 @@ export const allUnpushed = (unpushed: UnpushedBySlug): ReadonlySet<string> => ne
  *  feature exists to prevent: a calendar whose role degrades to reader refuses
  *  the whole push, yet the pull still runs — reading needs no write access — and
  *  overwrote every unsent local edit while advancing its baseline past it, so the
- *  next push could not even report the conflict (CodeRabbit review #2666).
+ *  next push could not even report the conflict (CodeRabbit review #2666). A
+ *  collection that never declares `autoPush` is in that same state on every
+ *  single run, which is how the loss reappeared without a failure in sight
+ *  (#2683).
  *
  *  Protects the edited records rather than all of them, so an unchanged record
  *  keeps syncing normally. `null` when even that could not be worked out — the
  *  caller then refuses to pull the collection at all, because failing open here
  *  destroys exactly what this protects. */
-async function protectUnsentEdits(collection: LoadedCollection, workspaceRoot: string): Promise<ReadonlySet<string> | null> {
+async function protectUnsentEdits(collection: LoadedCollection, workspaceRoot: string, deps: PullProtectionDeps): Promise<ReadonlySet<string> | null> {
   try {
-    const edited = await unsentLocalEdits(collection, workspaceRoot);
-    if (edited.length > 0) log.warn("google", "protecting local edits a failed push could not send", { slug: collection.slug, edited });
+    const edited = await deps.unsentEdits(collection, workspaceRoot);
+    if (edited.length > 0) log.warn("google", "protecting local edits that have not reached Google", { slug: collection.slug, edited });
     return new Set(edited);
   } catch (error) {
     log.warn("google", PROTECTION_UNKNOWN, { slug: collection.slug, error: String(error) });
@@ -190,8 +193,24 @@ async function protectUnsentEdits(collection: LoadedCollection, workspaceRoot: s
   }
 }
 
-/** Push every `autoPush` collection in this group, and answer with the records
- *  whose local edit did not reach Google, keyed by collection.
+/** The I/O the protection rule crosses, injected so every branch of it can be
+ *  exercised with fakes instead of a workspace on disk and a live Google grant.
+ *  The rule is what #2666 and #2683 both got wrong, so it is worth pinning. */
+export interface PullProtectionDeps {
+  pushNow: (collection: LoadedCollection, workspaceRoot: string) => Promise<CalendarPushOutcome>;
+  unsentEdits: (collection: LoadedCollection, workspaceRoot: string) => Promise<string[]>;
+}
+
+const livePullProtectionDeps: PullProtectionDeps = { pushNow: pushCollectionNow, unsentEdits: unsentLocalEdits };
+
+/** What ONE collection's pull must leave alone, pushing it first if it asked to
+ *  be pushed.
+ *
+ *  A collection WITHOUT `autoPush` never pushes, so its local edits are unsent by
+ *  definition — the same state a failed push leaves behind, and it needs the same
+ *  protection. Pulling over them destroys the edit AND advances the baseline past
+ *  it, after which no conflict can be detected any more (#2683). "The push did not
+ *  run" is the condition that matters here; why it did not run is not.
  *
  *  MUST run inside the calendar lock the caller already holds — hence
  *  `pushCollectionNow` rather than `pushCalendarForCollection`, which would take
@@ -199,22 +218,35 @@ async function protectUnsentEdits(collection: LoadedCollection, workspaceRoot: s
  *
  *  A failed push must not stop the pull: the pull is what keeps the collection
  *  fresh, and a revoked write grant is no reason to freeze reading. */
-async function pushAutoCollections(collections: readonly LoadedCollection[], workspaceRoot: string): Promise<UnpushedBySlug> {
-  const unpushed = new Map<string, ReadonlySet<string> | null>();
-  for (const collection of collections.filter((entry) => entry.schema.googleCalendar?.autoPush)) {
-    try {
-      const outcome = await pushCollectionNow(collection, workspaceRoot);
-      if (outcome.kind === "pushed") {
-        reportAutoPush(collection.slug, outcome.result);
-        unpushed.set(collection.slug, new Set(outcome.result.unpushedIds));
-        continue;
-      }
-      log.warn("google", "auto push did not run", { slug: collection.slug, reason: outcome.kind });
-      unpushed.set(collection.slug, await protectUnsentEdits(collection, workspaceRoot));
-    } catch (error) {
-      log.warn("google", "auto push failed — pulling anyway", { slug: collection.slug, error: String(error) });
-      unpushed.set(collection.slug, await protectUnsentEdits(collection, workspaceRoot));
+export async function pullProtectionFor(
+  collection: LoadedCollection,
+  workspaceRoot: string,
+  deps: PullProtectionDeps = livePullProtectionDeps,
+): Promise<ReadonlySet<string> | null> {
+  if (!collection.schema.googleCalendar?.autoPush) return await protectUnsentEdits(collection, workspaceRoot, deps);
+  try {
+    const outcome = await deps.pushNow(collection, workspaceRoot);
+    if (outcome.kind === "pushed") {
+      reportAutoPush(collection.slug, outcome.result);
+      return new Set(outcome.result.unpushedIds);
     }
+    log.warn("google", "auto push did not run", { slug: collection.slug, reason: outcome.kind });
+  } catch (error) {
+    log.warn("google", "auto push failed — pulling anyway", { slug: collection.slug, error: String(error) });
+  }
+  return await protectUnsentEdits(collection, workspaceRoot, deps);
+}
+
+/** Push the `autoPush` collections in this group, and answer with what every
+ *  collection's pull must leave alone, keyed by collection. */
+export async function pushAndProtect(
+  collections: readonly LoadedCollection[],
+  workspaceRoot: string,
+  deps: PullProtectionDeps = livePullProtectionDeps,
+): Promise<UnpushedBySlug> {
+  const unpushed = new Map<string, ReadonlySet<string> | null>();
+  for (const collection of collections) {
+    unpushed.set(collection.slug, await pullProtectionFor(collection, workspaceRoot, deps));
   }
   return unpushed;
 }
@@ -321,7 +353,7 @@ async function syncCalendarGroupNow(
   // the pull reads it: the record then comes back holding Google's own canonical
   // value, and the baseline agrees with both. Pulling first would overwrite the
   // very edit that was waiting to go up (#2620).
-  const unpushed = await pushAutoCollections(collections, workspaceRoot);
+  const unpushed = await pushAndProtect(collections, workspaceRoot);
 
   const accessToken = await getGoogleAccessToken();
   const storedToken = await loadCalendarSyncToken(calendarId, workspaceRoot);
