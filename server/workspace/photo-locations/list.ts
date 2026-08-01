@@ -75,14 +75,24 @@ const EXIF_NUMBER_FIELDS = [
   "fNumber",
   "iso",
   "focalLength",
+  "focalLength35mm",
   "width",
   "height",
   "orientation",
 ] as const;
 const EXIF_STRING_FIELDS = ["takenAt", "make", "model", "lens", "software"] as const;
+const EXIF_BOOLEAN_FIELDS = ["flashFired"] as const;
 
 type ExifNumberField = (typeof EXIF_NUMBER_FIELDS)[number];
 type ExifStringField = (typeof EXIF_STRING_FIELDS)[number];
+type ExifBooleanField = (typeof EXIF_BOOLEAN_FIELDS)[number];
+
+// A field missing from the lists above is dropped from every sidecar the
+// listing returns, and nothing downstream notices. Let the compiler catch
+// the omission instead of a reviewer: adding a field to `PhotoExif` now
+// fails the build until it is listed under its type.
+type UncoveredExifField = Exclude<keyof PhotoExif, ExifNumberField | ExifStringField | ExifBooleanField>;
+const __everyExifFieldIsRead: UncoveredExifField extends never ? true : never = true;
 
 function readExifNumbers(record: Record<string, unknown>): Pick<PhotoExif, ExifNumberField> {
   return EXIF_NUMBER_FIELDS.reduce<Pick<PhotoExif, ExifNumberField>>((picked, field) => {
@@ -102,14 +112,16 @@ function readExifStrings(record: Record<string, unknown>): Pick<PhotoExif, ExifS
  *  produces one, so for a hook-written sidecar this is the identity;
  *  it earns its keep on a hand-edited file, where `lat: "35.6"` used
  *  to reach the map view typed as a number. */
+function readExifBooleans(record: Record<string, unknown>): Pick<PhotoExif, ExifBooleanField> {
+  return EXIF_BOOLEAN_FIELDS.reduce<Pick<PhotoExif, ExifBooleanField>>((picked, field) => {
+    const raw = record[field];
+    return typeof raw === "boolean" ? { ...picked, [field]: raw } : picked;
+  }, {});
+}
+
 function readSidecarExif(value: unknown): PhotoExif {
   const record = isRecord(value) ? value : {};
-  const { flashFired } = record;
-  return {
-    ...readExifNumbers(record),
-    ...readExifStrings(record),
-    ...(typeof flashFired === "boolean" ? { flashFired } : {}),
-  };
+  return { ...readExifNumbers(record), ...readExifStrings(record), ...readExifBooleans(record) };
 }
 
 /** Defensive shape check for one sidecar JSON. The post-save hook

@@ -14,6 +14,7 @@ import path from "node:path";
 
 import { listAllSidecars, countAllSidecars } from "../../server/workspace/photo-locations/list.js";
 import { WORKSPACE_PATHS } from "../../server/workspace/paths.js";
+import type { PhotoExif } from "../../server/utils/exif.js";
 
 type DescriptorMap = Record<string, PropertyDescriptor>;
 
@@ -123,6 +124,37 @@ describe("photo-locations list — defensive sidecar validation", () => {
   it("keeps every well-typed exif field verbatim", async () => {
     const exif = { lat: 35.6, lng: 139.7, altitude: 12.5, iso: 100, takenAt: "2026-04-12T08:30:00.000Z", make: "Apple", flashFired: false };
     writeSidecar("good.json", { ...VALID_SIDECAR, exif });
+    const [row] = await listAllSidecars();
+    assert.deepEqual(row.sidecar.exif, exif);
+  });
+
+  it("round-trips EVERY field PhotoExif declares", async () => {
+    // A field the reader forgets is dropped from every listing, and the
+    // loss is invisible unless something enumerates the whole type.
+    // `focalLength35mm` was missed exactly this way (codex on #2701).
+    const exif: Required<PhotoExif> = {
+      lat: 35.6,
+      lng: 139.7,
+      altitude: 12.5,
+      hPositioningError: 4.5,
+      heading: 180,
+      speed: 0,
+      takenAt: "2026-04-12T08:30:00.000Z",
+      make: "Apple",
+      model: "iPhone 15 Pro",
+      lens: "iPhone 15 Pro back camera 6.765mm f/1.78",
+      software: "26.5",
+      exposureTime: 0.0166,
+      fNumber: 2.2,
+      iso: 400,
+      focalLength: 6.765,
+      focalLength35mm: 24,
+      flashFired: true,
+      width: 4032,
+      height: 3024,
+      orientation: 1,
+    };
+    writeSidecar("full.json", { ...VALID_SIDECAR, exif });
     const [row] = await listAllSidecars();
     assert.deepEqual(row.sidecar.exif, exif);
   });
