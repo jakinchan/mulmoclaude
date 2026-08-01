@@ -80,6 +80,23 @@ export function hasLocalContent(item: CollectionItem, ingested: ReadonlySet<stri
   return Object.entries(item).some(([field, value]) => !ingested.has(field) && value !== undefined && value !== null && value !== "");
 }
 
+/** The stored record, or null when it cannot be read.
+ *
+ *  `readItem` answers null for a MISSING record but THROWS on unparsable JSON
+ *  or an IO error. Letting that escape would fail the whole refresh over one bad
+ *  file — and write nothing at all, since the loop aborts partway. Before the
+ *  merge landed, the ingest simply overwrote such a file and the feed healed
+ *  itself; treating "unreadable" as "absent" keeps that. (Observed during Claude
+ *  review; both review bots were rate-limited on this PR.) */
+async function readableRecord(store: { read: CollectionStore["read"] }, feed: LoadedCollection, itemId: string): Promise<CollectionItem | null> {
+  try {
+    return await store.read(itemId);
+  } catch (error) {
+    log.warn("feeds", "unreadable feed record — the retrieved item will replace it", { slug: feed.slug, itemId, error: String(error) });
+    return null;
+  }
+}
+
 async function upsertItems(workspaceRoot: string, feed: LoadedCollection, items: CollectionItem[]): Promise<number> {
   const store = writableFeedStore(workspaceRoot, feed);
   if (!store) return 0;
@@ -92,7 +109,7 @@ async function upsertItems(workspaceRoot: string, feed: LoadedCollection, items:
     // ingest does not produce — the note the user put beside the article. The
     // Google Calendar pull learned this in #2620; the feeds ingest never did
     // (#2696).
-    const result = await store.write(itemId, mergeIntoExisting(await store.read(itemId), item));
+    const result = await store.write(itemId, mergeIntoExisting(await readableRecord(store, feed, itemId), item));
     if (result.kind === "ok") written += 1;
     else log.warn("feeds", "feed item write skipped", { slug: feed.slug, itemId, kind: result.kind });
   }
