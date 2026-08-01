@@ -52,19 +52,22 @@ Drain order is largest-file-first, so the dominant shapes get a reusable fix
 early.
 
 - [x] `eslint.config.mjs` — rule at `warn`, tests exempt
-- [x] `accounting-plugin/src/server/router.ts` — 30 → 3
-- [ ] 447 casts / 199 files remaining
+- [x] `accounting-plugin/src/server/router.ts` — 30 → 3 → **0**
+- [ ] 413 casts / 197 files remaining (re-measured 2026-08-02, after #2694 / #2697 / #2699 / #2702)
 
-### Deferred: the accounting validation layer
+### Done: the accounting validation layer
 
 The three casts left in `router.ts` (`account` / `entries` / `lines`
-`as never`) can't be removed at the router. The service declares them as
+`as never`) couldn't be removed at the router. The service declared them as
 already-validated shapes (`Account`, `AddEntriesItem[]`, `JournalLine[]`) while
 receiving them raw, and the validators written to turn bad input into a
 structured 400 read `item.date` / `line.accountCode` off elements that may not
-be objects. Fixing it honestly means changing `journal.ts`,
-`openingBalances.ts` and `service.ts` together, with their tests. Reported on
-#2692 with the repro.
+be objects.
+
+Fixed on #2695 by turning those validators into parsers — see
+[`fix-2695-accounting-parse-boundary.md`](./fix-2695-accounting-parse-boundary.md).
+The cast was hiding three live bugs, not just a type mismatch: two 500s and
+three silent 200s that persisted unchecked data.
 
 ## Notes
 

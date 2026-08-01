@@ -11,6 +11,7 @@
 // `addEntries` call for the corrected booking.
 
 import { randomUUID } from "node:crypto";
+import { isRecord, isUnknownArray } from "@mulmoclaude/common";
 
 import type { Account, JournalEntry, JournalLine } from "../shared/types.js";
 
@@ -34,10 +35,17 @@ export interface ValidationError {
   message: string;
 }
 
-export interface ValidationResult {
-  ok: boolean;
-  errors: ValidationError[];
+/** The fields `parseEntry` proves about one wire entry. `makeEntry`
+ *  takes this, so an entry can only be built from input something
+ *  actually checked. */
+export interface ParsedEntry {
+  date: string;
+  lines: JournalLine[];
+  memo?: string;
+  replacesEntryId?: string;
 }
+
+export type EntryParseResult = { ok: true; entry: ParsedEntry } | { ok: false; errors: ValidationError[] };
 
 function lineHasExactlyOneSide(line: JournalLine): boolean {
   const hasDebit = typeof line.debit === "number" && line.debit !== 0;
@@ -87,32 +95,102 @@ export function netBalance(lines: readonly JournalLine[]): number {
   return net;
 }
 
-/** Pure validation. Does not throw; returns a list of issues so the
- *  REST handler can return a structured 400 instead of an opaque
- *  500. */
-function validateLine(line: JournalLine, idx: number, accountCodes: ReadonlySet<string>, errors: ValidationError[]): void {
+function checkTaxRegistrationId(value: unknown, idx: number, errors: ValidationError[]): void {
+  if (value === undefined) return;
+  if (typeof value !== "string") {
+    errors.push({ field: `lines[${idx}].taxRegistrationId`, message: "must be a string" });
+    return;
+  }
+  if (value.trim().length > MAX_TAX_REGISTRATION_ID_LENGTH) {
+    errors.push({
+      field: `lines[${idx}].taxRegistrationId`,
+      message: `must be at most ${MAX_TAX_REGISTRATION_ID_LENGTH} characters (got ${value.trim().length})`,
+    });
+  }
+}
+
+/** One issue per bad field, so a caller fixing a line learns about all
+ *  of them at once. Returns whether the line came through clean. */
+function checkLineFields(raw: Record<string, unknown>, idx: number, errors: ValidationError[]): boolean {
+  const issuesBefore = errors.length;
+  const { accountCode, debit, credit, memo, taxRegistrationId } = raw;
+  if (typeof accountCode !== "string") errors.push({ field: `lines[${idx}].accountCode`, message: "accountCode must be a string" });
+  if (debit !== undefined && !isNonNegativeNumber(debit)) errors.push({ field: `lines[${idx}].debit`, message: "debit must be a non-negative finite number" });
+  if (credit !== undefined && !isNonNegativeNumber(credit))
+    errors.push({ field: `lines[${idx}].credit`, message: "credit must be a non-negative finite number" });
+  if (memo !== undefined && typeof memo !== "string") errors.push({ field: `lines[${idx}].memo`, message: "memo must be a string" });
+  checkTaxRegistrationId(taxRegistrationId, idx, errors);
+  return errors.length === issuesBefore;
+}
+
+/** Re-tested rather than assigned straight through: `checkLineFields`
+ *  proved each of these, but only a `typeof` narrows them for the
+ *  compiler. */
+function buildLine(raw: Record<string, unknown>): JournalLine | null {
+  const { accountCode, debit, credit, memo, taxRegistrationId } = raw;
+  if (typeof accountCode !== "string") return null;
+  const line: JournalLine = { accountCode };
+  if (typeof debit === "number") line.debit = debit;
+  if (typeof credit === "number") line.credit = credit;
+  if (typeof memo === "string") line.memo = memo;
+  if (typeof taxRegistrationId === "string") line.taxRegistrationId = taxRegistrationId;
+  return line;
+}
+
+/** Narrow one wire value to a `JournalLine`, pushing an issue per bad
+ *  field. Shape only: account existence and the debit/credit-side rule
+ *  belong to the caller, because journal entries and opening balances
+ *  disagree about them. Returns null when nothing usable came out —
+ *  the caller drops the line rather than reading fields off it. */
+export function parseJournalLine(raw: unknown, idx: number, errors: ValidationError[]): JournalLine | null {
+  if (!isRecord(raw)) {
+    errors.push({ field: `lines[${idx}]`, message: "each line must be an object with an accountCode and a debit or credit amount" });
+    return null;
+  }
+  if (!checkLineFields(raw, idx, errors)) return null;
+  return buildLine(raw);
+}
+
+/** The rules a journal line answers to on top of its shape: the code
+ *  must name a real account, and exactly one side carries an amount. */
+function validateEntryLine(line: JournalLine, idx: number, accountCodes: ReadonlySet<string>, errors: ValidationError[]): void {
   if (!line.accountCode || !accountCodes.has(line.accountCode)) {
     errors.push({ field: `lines[${idx}].accountCode`, message: `unknown account code ${JSON.stringify(line.accountCode)}` });
-  }
-  if (line.debit !== undefined && !isNonNegativeNumber(line.debit)) {
-    errors.push({ field: `lines[${idx}].debit`, message: "debit must be a non-negative finite number" });
-  }
-  if (line.credit !== undefined && !isNonNegativeNumber(line.credit)) {
-    errors.push({ field: `lines[${idx}].credit`, message: "credit must be a non-negative finite number" });
   }
   if (!lineHasExactlyOneSide(line)) {
     errors.push({ field: `lines[${idx}]`, message: "each line must set exactly one of debit or credit (and to a non-zero amount)" });
   }
-  if (line.taxRegistrationId !== undefined) {
-    if (typeof line.taxRegistrationId !== "string") {
-      errors.push({ field: `lines[${idx}].taxRegistrationId`, message: "must be a string" });
-    } else if (line.taxRegistrationId.trim().length > MAX_TAX_REGISTRATION_ID_LENGTH) {
-      errors.push({
-        field: `lines[${idx}].taxRegistrationId`,
-        message: `must be at most ${MAX_TAX_REGISTRATION_ID_LENGTH} characters (got ${line.taxRegistrationId.trim().length})`,
-      });
-    }
+}
+
+function parseEntryLines(raw: readonly unknown[], accountCodes: ReadonlySet<string>, errors: ValidationError[]): JournalLine[] {
+  const lines: JournalLine[] = [];
+  raw.forEach((rawLine, idx) => {
+    const line = parseJournalLine(rawLine, idx, errors);
+    if (line === null) return;
+    validateEntryLine(line, idx, accountCodes, errors);
+    lines.push(line);
+  });
+  return lines;
+}
+
+/** Report the debit = credit imbalance — but only when every line was
+ *  readable. A line that failed to parse contributes nothing to the sum,
+ *  so an entry that balances perfectly would otherwise be told it
+ *  doesn't, sending the caller off to "fix" amounts that were never
+ *  wrong. Naming the unreadable line is the actionable message; the
+ *  balance is worth re-checking once it's a line. */
+export function checkBalances(lines: readonly JournalLine[], expectedLineCount: number, subject: string, errors: ValidationError[]): void {
+  if (lines.length !== expectedLineCount) return;
+  const net = netBalance(lines);
+  if (Math.abs(net) > EQUALITY_TOLERANCE) {
+    errors.push({ field: "lines", message: `Σ debit − Σ credit = ${net.toFixed(4)}; ${subject} must balance` });
   }
+}
+
+function parseOptionalString(value: unknown, field: string, errors: ValidationError[]): string | undefined {
+  if (value === undefined || typeof value === "string") return value;
+  errors.push({ field, message: `${field} must be a string when supplied` });
+  return undefined;
 }
 
 /** Normalize a journal line before persistence: trim string fields
@@ -129,26 +207,32 @@ function normalizeLine(line: JournalLine): JournalLine {
   return out;
 }
 
-export function validateEntry(input: { date: string; lines: readonly JournalLine[]; accounts: readonly Account[] }): ValidationResult {
-  const errors: ValidationError[] = [];
-  if (!isValidCalendarDate(input.date)) {
-    errors.push({ field: "date", message: `expected YYYY-MM-DD calendar date, got ${JSON.stringify(input.date)}` });
+/** Parse one entry off the wire. Does not throw: every rejection comes
+ *  back as a list of issues so the REST handler can return a structured
+ *  400 instead of an opaque 500. Parse rather than validate — the
+ *  narrowed entry rides along on success, so `makeEntry` never has to
+ *  take the caller's word for the shape. */
+export function parseEntry(raw: unknown, accounts: readonly Account[]): EntryParseResult {
+  if (!isRecord(raw)) {
+    return { ok: false, errors: [{ field: "entry", message: "each entry must be an object with a date and a lines array" }] };
   }
-  if (!Array.isArray(input.lines) || input.lines.length < 2) {
+  const errors: ValidationError[] = [];
+  const date = typeof raw.date === "string" && isValidCalendarDate(raw.date) ? raw.date : null;
+  if (date === null) errors.push({ field: "date", message: `expected YYYY-MM-DD calendar date, got ${JSON.stringify(raw.date)}` });
+  if (!isUnknownArray(raw.lines) || raw.lines.length < 2) {
     errors.push({ field: "lines", message: "an entry needs at least two lines (one debit, one credit)" });
     return { ok: false, errors };
   }
-  const accountCodes = new Set(input.accounts.map((account) => account.code));
-  input.lines.forEach((line, idx) => validateLine(line, idx, accountCodes, errors));
-  const net = netBalance(input.lines);
-  if (Math.abs(net) > EQUALITY_TOLERANCE) {
-    errors.push({ field: "lines", message: `Σ debit − Σ credit = ${net.toFixed(4)}; entry must balance` });
-  }
-  return { ok: errors.length === 0, errors };
+  const lines = parseEntryLines(raw.lines, new Set(accounts.map((account) => account.code)), errors);
+  checkBalances(lines, raw.lines.length, "entry", errors);
+  const memo = parseOptionalString(raw.memo, "memo", errors);
+  const replacesEntryId = parseOptionalString(raw.replacesEntryId, "replacesEntryId", errors);
+  if (errors.length > 0 || date === null) return { ok: false, errors };
+  return { ok: true, entry: { date, lines, memo, replacesEntryId } };
 }
 
-/** Build a JournalEntry — validation is the caller's responsibility
- *  (it should have called `validateEntry` first). The id is a fresh
+/** Build a JournalEntry from lines something already parsed
+ *  (`parseEntry` / `parseOpening`). The id is a fresh
  *  UUID; createdAt is the wall clock at the moment of creation.
  *  Lines are normalized so optional string fields don't persist as
  *  empty strings. */

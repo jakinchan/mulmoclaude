@@ -693,6 +693,41 @@ describe("opening balances", () => {
       AccountingError,
     );
   });
+  it("rejects a mistyped amount instead of writing a string into the journal (#2695)", async () => {
+    // A non-number contributed nothing to the debit = credit sum, so a
+    // lone bad line balanced to zero, passed, and persisted verbatim.
+    const root = makeTmp();
+    const book = await createBook({ name: "Test" }, root);
+    const bookId = book.book.id;
+    await assert.rejects(() => setOpeningBalances({ bookId, asOfDate: "2026-01-01", lines: [{ accountCode: "1000", debit: "abc" }] }, root), AccountingError);
+    const opening = await getOpeningBalances({ bookId }, root);
+    assert.equal(opening.opening, null, "a rejected opening must not reach disk");
+  });
+});
+
+describe("upsertAccount input parsing (#2695)", () => {
+  it("rejects an account without a name / type instead of persisting one no report can group", async () => {
+    const root = makeTmp();
+    const book = await createBook({ name: "X" }, root);
+    const bookId = book.book.id;
+    const { listAccounts, upsertAccount } = await import("../../src/server/service.js");
+    // 1777 is outside the default chart, so its absence afterwards is
+    // the write not happening rather than a seeded row.
+    await assert.rejects(() => upsertAccount({ bookId, account: { code: "1777" } }, root), AccountingError);
+    await assert.rejects(() => upsertAccount({ bookId, account: { code: "1777", name: "Equipment" } }, root), AccountingError);
+    await assert.rejects(() => upsertAccount({ bookId, account: { code: "1777", name: "Equipment", type: "nonsense" } }, root), AccountingError);
+    const { accounts } = await listAccounts({ bookId }, root);
+    assert.equal(
+      accounts.some((account) => account.code === "1777"),
+      false,
+    );
+  });
+  it("rejects a null account", async () => {
+    const root = makeTmp();
+    const book = await createBook({ name: "X" }, root);
+    const { upsertAccount } = await import("../../src/server/service.js");
+    await assert.rejects(() => upsertAccount({ bookId: book.book.id, account: null }, root), AccountingError);
+  });
 });
 
 describe("reports end-to-end", () => {
