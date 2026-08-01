@@ -63,6 +63,7 @@ import {
 import { clampImageMaxEdge, clampLimit, clampOffset, normalizeFields, normalizeMutate } from "@mulmoclaude/core/remote-view";
 import { resolveThumbnail } from "../../utils/files/thumbnail-store.js";
 import { badRequest, notFound, conflict, forbidden, methodNotAllowed, serverError, serviceUnavailable, type ApiResponse } from "../../utils/httpError.js";
+import { requestBodyRecord } from "../../utils/requestBody.js";
 import { ONE_MINUTE_MS } from "../../utils/time.js";
 import { errorMessage } from "../../utils/errors.js";
 import { singleLineForLog } from "../../utils/logPreview.js";
@@ -541,10 +542,9 @@ async function respondForMutateAction(
   collection: LoadedCollection,
   action: CollectionMutateAction,
   itemId: string,
-  body: { params?: unknown } | undefined,
+  body: unknown,
 ): Promise<void> {
-  const raw = body?.params;
-  const params = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const params = requestBodyRecord(requestBodyRecord(body).params);
   const outcome = await applyMutateAction(collection, action, itemId, params);
   if (!outcome.ok) {
     // `itemId` is caller-controlled (a route param) — strip CR/LF so a
@@ -603,7 +603,7 @@ router.post(
           methodNotAllowed(res, readOnlyRefusal(collection.slug));
           return;
         }
-        await respondForMutateAction(res, collection, action, req.params.itemId, req.body as { params?: unknown } | undefined);
+        await respondForMutateAction(res, collection, action, req.params.itemId, req.body);
         return;
       }
       const template = await readSkillTemplate(collection.skillDir, action.template);
@@ -840,7 +840,7 @@ function sendMutateRemoteViewFailure(res: Response, result: Exclude<MutateRemote
 router.post(API_ROUTES.collections.remoteViewMutate, async (req: Request<{ slug: string; viewId: string }>, res: Response) => {
   try {
     const { slug, viewId } = req.params;
-    const body = (req.body ?? {}) as { op?: unknown; id?: unknown; patch?: unknown };
+    const body = requestBodyRecord(req.body);
     const request = normalizeMutate(body);
     if (!request) {
       badRequest(res, "invalid mutate request — expected { op: 'update'|'delete', id, patch? }");
@@ -942,7 +942,7 @@ router.get(API_ROUTES.collections.viewI18n, async (req: Request<{ slug: string }
 router.post(API_ROUTES.collections.viewToken, async (req: Request<{ slug: string }>, res: Response) => {
   try {
     const { slug } = req.params;
-    const body = (req.body ?? {}) as { viewId?: unknown; capabilities?: unknown };
+    const body = requestBodyRecord(req.body);
     const viewId = typeof body.viewId === "string" ? body.viewId.trim() : "";
     if (!viewId) {
       badRequest(res, "`viewId` is required");
@@ -1036,7 +1036,7 @@ router.post(
   requireViewToken("read"),
   async (req: Request<{ slug: string }>, res: Response) => {
     try {
-      const body = (req.body ?? {}) as { query?: unknown };
+      const body = requestBodyRecord(req.body);
       const raw = await manageCollection.handler({ action: "queryItems", slug: req.params.slug, query: body.query });
       sendToolResult(res, raw);
     } catch (err) {
@@ -1129,7 +1129,7 @@ router.get(
 // Scoped write: validated putItems. Requires the `write` capability.
 router.put(API_ROUTES.collections.viewData, viewDataCors, requireViewToken("write"), async (req: Request<{ slug: string }>, res: Response) => {
   try {
-    const body = (req.body ?? {}) as { items?: unknown; mode?: unknown };
+    const body = requestBodyRecord(req.body);
     const raw = await manageCollection.handler({ action: "putItems", slug: req.params.slug, items: body.items, mode: body.mode });
     sendToolResult(res, raw);
   } catch (err) {
@@ -1166,7 +1166,7 @@ router.post(
         forbidden(res, `action '${action.id}' has kind "${action.kind}" — view tokens can only invoke "mutate" actions`);
         return;
       }
-      const body = (req.body ?? {}) as { itemId?: unknown; params?: unknown };
+      const body = requestBodyRecord(req.body);
       const itemId = typeof body.itemId === "string" ? body.itemId.trim() : "";
       if (!itemId) {
         badRequest(res, "`itemId` is required (the record's primary-key value)");

@@ -1,4 +1,3 @@
-import type { Component } from "vue";
 import type { PluginRegistration, ToolPlugin } from "../../tools/types";
 import { View, Preview, TOOL_DEFINITION, type PresentChartData } from "@mulmoclaude/chart-plugin/vue";
 // The package's component scoped styles are compiled into a standalone
@@ -16,16 +15,14 @@ import { wrapWithScope } from "../scope";
 // components in MulmoClaude's scoped runtime provider (wrapWithScope) so the
 // package's useT()/locale resolves to the host.
 const chartPlugin: ToolPlugin<PresentChartData> = {
-  // gui-chat-protocol type is externalized but yarn-4's dual-@vue can make the
-  // package's nominal types distinct; coerce once here.
-  toolDefinition: TOOL_DEFINITION as ToolPlugin<PresentChartData>["toolDefinition"],
+  toolDefinition: TOOL_DEFINITION,
 
   execute: makeRouteExecute<ChartEndpoints, PresentChartData>("chart", "create", TOOL_NAME),
 
   isEnabled: () => true,
   generatingMessage: "Rendering chart…",
-  viewComponent: wrapWithScope("chart", View as unknown as Component),
-  previewComponent: wrapWithScope("chart", Preview as unknown as Component),
+  viewComponent: wrapWithScope("chart", View),
+  previewComponent: wrapWithScope("chart", Preview),
 };
 export { TOOL_NAME };
 

@@ -24,6 +24,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { PluginRuntime, ToolDefinition } from "gui-chat-protocol";
 import { isPluginFactory } from "gui-chat-protocol";
+import type { MulmoclaudeRuntime } from "../notifier/runtime-api.js";
 import { WORKSPACE_PATHS } from "../workspace/paths.js";
 import { readLedger, type LedgerEntry } from "../utils/files/plugins-io.js";
 import { isRecord } from "../utils/types.js";
@@ -69,7 +70,10 @@ export interface RuntimePlugin {
 interface PackageJson {
   name?: string;
   version?: string;
-  exports?: string | Record<string, unknown>;
+  /** Left unnarrowed because every legal Node.js `exports` value is
+   *  accepted here — string sugar, array fallback chain, condition or
+   *  subpath map. `pickExportsTarget` is what discriminates them. */
+  exports?: unknown;
   main?: string;
   module?: string;
 }
@@ -78,6 +82,23 @@ const isToolDefinition = (value: unknown): value is ToolDefinition => {
   if (!isRecord(value)) return false;
   return typeof value.name === "string" && typeof value.description === "string";
 };
+
+const optionalString = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+
+/** Rebuild the fields the loader reads from arbitrary parsed JSON.
+ *  Field-by-field rather than a predicate, so a plugin shipping a
+ *  non-string `main` can't reach `path.join` as if it were one.
+ *  Returns null when the parsed value isn't an object at all. */
+export function toPackageJson(value: unknown): PackageJson | null {
+  if (!isRecord(value)) return null;
+  return {
+    name: optionalString(value.name),
+    version: optionalString(value.version),
+    exports: value.exports,
+    main: optionalString(value.main),
+    module: optionalString(value.module),
+  };
+}
 
 /** Resolve the entry-point path from a plugin's `package.json`. Covers
  *  the four legal `exports` shapes per the Node.js spec, then falls
@@ -100,7 +121,7 @@ function resolveEntrySpecifier(pkg: PackageJson): string | null {
   return null;
 }
 
-function resolveExportsField(exportsField: PackageJson["exports"]): string | null {
+function resolveExportsField(exportsField: unknown): string | null {
   // Form 1: top-level string sugar.
   // Form A: array fallback chain (e.g. ["./dist/index.js", "./fallback.js"]).
   // Form 2: conditional root (e.g. `{ import, require, default }`).
@@ -187,7 +208,10 @@ function extractTgz(tgzAbs: string, destDir: string): void {
 function readPackageJson(cachePath: string): PackageJson | null {
   const pkgPath = path.join(cachePath, "package.json");
   try {
-    return JSON.parse(readFileSync(pkgPath, "utf-8")) as PackageJson;
+    const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    const pkg = toPackageJson(parsed);
+    if (!pkg) log.warn(LOG_PREFIX, "package.json is not an object — skipping", { path: pkgPath });
+    return pkg;
   } catch (err) {
     log.warn(LOG_PREFIX, "package.json read/parse failed", { path: pkgPath, error: String(err) });
     return null;
@@ -206,6 +230,34 @@ export interface LoaderDeps {
   runtimeFactory?: (pkgName: string) => PluginRuntime;
 }
 
+/** Naming the operation in the message is what lets a plugin author
+ *  tell "the host is a definition-only loader" apart from a bug in
+ *  their own setup code. */
+const unavailable = (name: string, operation: string) => (): never => {
+  throw new Error(`plugin/${name}: runtime.${operation} unavailable in this process (definition-only load)`);
+};
+
+function makeStubFileOps(name: string): MulmoclaudeRuntime["files"]["data"] {
+  return {
+    read: unavailable(name, "files.read"),
+    readBytes: unavailable(name, "files.readBytes"),
+    write: unavailable(name, "files.write"),
+    readDir: unavailable(name, "files.readDir"),
+    stat: unavailable(name, "files.stat"),
+    exists: unavailable(name, "files.exists"),
+    unlink: unavailable(name, "files.unlink"),
+  };
+}
+
+function makeStubNotifier(name: string): MulmoclaudeRuntime["notifier"] {
+  return {
+    publish: unavailable(name, "notifier.publish"),
+    update: unavailable(name, "notifier.update"),
+    clear: unavailable(name, "notifier.clear"),
+    get: unavailable(name, "notifier.get"),
+  };
+}
+
 /** Stub runtime — the factory pattern requires SOME runtime to call,
  *  even if we only care about extracting `TOOL_DEFINITION`. Methods
  *  throw rather than silently no-op so a plugin that mistakenly does
@@ -221,46 +273,28 @@ export interface LoaderDeps {
  *  process has no task manager to register against. `chat.start`
  *  matches the throw pattern of `fetch` / `files`, since starting a
  *  chat is a parent-only side effect a plugin should never trigger
- *  at setup time. The stub deliberately doesn't carry the
- *  `MulmoclaudeRuntime` type — the cast lives at the plugin call
- *  site (Phase 3 of Encore upstreams these into PluginRuntime). */
-function makeStubRuntime(name: string): PluginRuntime {
-  const error = (operation: string) => () => {
-    throw new Error(`plugin/${name}: runtime.${operation} unavailable in this process (definition-only load)`);
-  };
-  const fileOps = {
-    read: error("files.read"),
-    readBytes: error("files.readBytes"),
-    write: error("files.write"),
-    readDir: error("files.readDir"),
-    stat: error("files.stat"),
-    exists: error("files.exists"),
-    unlink: error("files.unlink"),
-  };
-  const stub = {
-    pubsub: { publish: () => undefined },
+ *  at setup time.
+ *
+ *  Typed as the full `MulmoclaudeRuntime` so the compiler — not a
+ *  reviewer — notices when the real runtime grows a member the stub
+ *  lacks (`files.artifacts` and `notifier.update` / `.get` had each
+ *  drifted out of it, surfacing to plugins as `undefined`). */
+function makeStubRuntime(name: string): MulmoclaudeRuntime {
+  const fileOps = makeStubFileOps(name);
+  const noop = () => undefined;
+  return {
+    pubsub: { publish: noop },
     locale: "en",
-    files: { data: fileOps, config: fileOps },
-    log: { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined },
-    fetch: error("fetch") as unknown as PluginRuntime["fetch"],
-    fetchJson: error("fetchJson") as unknown as PluginRuntime["fetchJson"],
-    notifier: {
-      publish: error("notifier.publish") as unknown as (...args: unknown[]) => Promise<{ id: string }>,
-      clear: error("notifier.clear") as unknown as (id: string) => Promise<void>,
-    },
-    tasks: {
-      // Silent no-op: definition-only loads (MCP child) shouldn't fail
-      // just because the plugin declared a tick at setup time.
-      register: () => undefined,
-    },
-    chat: {
-      start: error("chat.start") as unknown as (...args: unknown[]) => Promise<{ chatId: string }>,
-    },
+    files: { data: fileOps, config: fileOps, artifacts: fileOps },
+    log: { debug: noop, info: noop, warn: noop, error: noop },
+    fetch: unavailable(name, "fetch"),
+    fetchJson: unavailable(name, "fetchJson"),
+    notifier: makeStubNotifier(name),
+    // Silent no-op: definition-only loads (MCP child) shouldn't fail
+    // just because the plugin declared a tick at setup time.
+    tasks: { register: noop },
+    chat: { start: unavailable(name, "chat.start") },
   };
-  // Returned typed as `PluginRuntime` — host extensions (notifier /
-  // tasks / chat) are accessed by plugins via the `MulmoclaudeRuntime`
-  // cast and thus aren't part of the stub's nominal type yet.
-  return stub as unknown as PluginRuntime;
 }
 
 /** Two carrier shapes (#1110 backward compatibility):
@@ -280,10 +314,15 @@ function resolveCarrier(name: string, mod: Record<string, unknown>, deps: Loader
   const defaultExport = mod.default;
   if (isPluginFactory(defaultExport)) {
     const runtime = deps.runtimeFactory ? deps.runtimeFactory(name) : makeStubRuntime(name);
-    return { carrier: defaultExport(runtime) as unknown as Record<string, unknown>, usingFactory: true };
+    return { carrier: defaultExport(runtime), usingFactory: true };
   }
   return { carrier: mod, usingFactory: false };
 }
+
+/** Callability is the whole of what a dynamically imported export can be
+ *  proved to have, so parameters and result stay `unknown` — the loader
+ *  never inspects either. */
+const isPluginHandler = (value: unknown): value is (...args: unknown[]) => unknown => typeof value === "function";
 
 /** Pull the executable from a carrier. Factory-shape handlers take
  *  `(args)` only (runtime is closed over) so we wrap to discard the
@@ -300,12 +339,9 @@ export function resolveExecute(
   // tool `constructor` / `toString` resolves to an Object.prototype function,
   // defeating the `typeof … !== "function"` gate below (#2319).
   const handler = Object.hasOwn(carrier, definitionName) ? carrier[definitionName] : undefined;
-  if (typeof handler !== "function") return null;
-  if (usingFactory) {
-    const factoryHandler = handler as (args: unknown) => unknown;
-    return (_context, args) => factoryHandler(args);
-  }
-  return handler as (context: unknown, args: unknown) => unknown;
+  if (!isPluginHandler(handler)) return null;
+  if (usingFactory) return (_context, args) => handler(args);
+  return handler;
 }
 
 /** Read the optional `OAUTH_CALLBACK_ALIAS` named export. Validated
@@ -340,7 +376,11 @@ export async function loadPluginFromCacheDir(name: string, version: string, cach
   }
   const entryAbs = path.join(cachePath, entrySpec);
   try {
-    const mod = (await import(pathToFileURL(entryAbs).href)) as Record<string, unknown>;
+    const mod: unknown = await import(pathToFileURL(entryAbs).href);
+    if (!isRecord(mod)) {
+      log.warn(LOG_PREFIX, "plugin module namespace is not an object — skipping", { name, entrySpec });
+      return null;
+    }
     const { carrier, usingFactory } = resolveCarrier(name, mod, deps);
     const definition = carrier.TOOL_DEFINITION;
     if (!isToolDefinition(definition)) {

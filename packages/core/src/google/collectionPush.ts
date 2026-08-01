@@ -250,6 +250,18 @@ function buildPatch(ctx: PushContext, record: CollectionItem, changed: readonly 
   };
 }
 
+/** Google has dropped the event this record mirrors.
+ *
+ *  The advice used to be "sync first, then re-create it", which sent people
+ *  nowhere: Google never resends a cancellation, so a sync sees nothing to do —
+ *  and before #2688 the sync that DID see it deleted the record along with the
+ *  edit. Deliberately silent on whether Google will hand the id back; that is
+ *  unverified. */
+const goneFromGoogle = (eventId: string): PushOutcome => ({
+  kind: "skipped",
+  message: `${eventId}: Google no longer has this event, and your local edit was kept. Delete this record, or copy it into a new one.`,
+});
+
 async function updateFromRecord(
   ctx: PushContext,
   eventId: string,
@@ -258,9 +270,7 @@ async function updateFromRecord(
   shadow: ShadowEvent,
 ): Promise<PushOutcome> {
   const fetched = await getCalendarEvent(ctx.accessToken, { calendarId: ctx.calendarId, eventId });
-  if (fetched === null || fetched.event.status === CANCELLED_EVENT_STATUS) {
-    return { kind: "skipped", message: `${eventId}: the event no longer exists in Google — sync first, then re-create it` };
-  }
+  if (fetched === null || fetched.event.status === CANCELLED_EVENT_STATUS) return goneFromGoogle(eventId);
   if (conflictingFields(shadow, toShadowEvent(fetched.event), changed).length > 0) return { kind: "conflict" };
   const built = buildPatch(ctx, record, changed, shadow);
   if (!built.ok) return { kind: "skipped", message: `${eventId}: ${built.reason}` };
