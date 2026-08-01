@@ -7,7 +7,7 @@
 // mechanism IS the filesystem's `O_EXCL`, so faking it would test nothing.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { stateLockPath, withCalendarStateLock, type LockClock } from "@mulmoclaude/core/google";
@@ -31,6 +31,13 @@ const fastClock = (start = 0): LockClock => {
       return Promise.resolve();
     },
   };
+};
+
+/** Backdate a lock so it reads as stale. The age comes from the filesystem, so
+ *  this is the only honest way to simulate a holder that went quiet. */
+const ageFile = async (file: string, by_ms: number): Promise<void> => {
+  const when = new Date(Date.now() - by_ms);
+  await utimes(file, when, when);
 };
 
 const pathExists = async (file: string): Promise<boolean> => {
@@ -97,7 +104,7 @@ describe("withCalendarStateLock (#2679 cross-process read-modify-write)", () => 
     await withTempDir(async (dir) => {
       const lock = stateLockPath(path.join(dir, "state.json"));
       const clock = fastClock();
-      await writeFile(lock, JSON.stringify({ holder: "someone-else", at: clock.now() }));
+      await writeFile(lock, JSON.stringify({ holder: "someone-else" }));
       assert.equal(await withCalendarStateLock(lock, () => Promise.resolve("ran"), clock), "ran");
     });
   });
@@ -106,7 +113,7 @@ describe("withCalendarStateLock (#2679 cross-process read-modify-write)", () => 
     await withTempDir(async (dir) => {
       const lock = stateLockPath(path.join(dir, "state.json"));
       const clock = fastClock();
-      await writeFile(lock, JSON.stringify({ holder: "someone-else", at: clock.now() }));
+      await writeFile(lock, JSON.stringify({ holder: "someone-else" }));
       await withCalendarStateLock(lock, () => Promise.resolve(null), clock);
       const held: unknown = JSON.parse(await readFile(lock, "utf-8"));
       assert.equal((held as { holder: string }).holder, "someone-else");
@@ -116,12 +123,16 @@ describe("withCalendarStateLock (#2679 cross-process read-modify-write)", () => 
   // A host that died mid-write must not block the others forever. The TTL is
   // sized against the HOLD time (one read plus one atomic write), not against a
   // sync run, which is what lets it be this short.
+  //
+  // Aged via `utimes` rather than a field in the payload: staleness reads the
+  // FILESYSTEM's mtime, so that a timestamp written by one host is never
+  // compared against another host's clock (#2690).
   it("reclaims a lock whose holder went quiet past the TTL", async () => {
     await withTempDir(async (dir) => {
       const lock = stateLockPath(path.join(dir, "state.json"));
-      const clock = fastClock(1_000_000);
-      await writeFile(lock, JSON.stringify({ holder: "crashed-host", at: clock.now() - 60_000 }));
-      assert.equal(await withCalendarStateLock(lock, () => Promise.resolve("ran"), clock), "ran");
+      await writeFile(lock, JSON.stringify({ holder: "crashed-host" }));
+      await ageFile(lock, 60_000);
+      assert.equal(await withCalendarStateLock(lock, () => Promise.resolve("ran"), fastClock(Date.now())), "ran");
       assert.equal(await pathExists(lock), false);
     });
   });
@@ -135,10 +146,8 @@ describe("withCalendarStateLock (#2679 cross-process read-modify-write)", () => 
     await withTempDir(async (dir) => {
       const lock = stateLockPath(path.join(dir, "state.json"));
       await writeFile(lock, "not json at all");
-      // The age of an unreadable lock comes from its mtime, which is real wall
-      // time — so the clock has to be ahead of it, not at zero.
-      const clock = fastClock(Date.now() + 60_000);
-      assert.equal(await withCalendarStateLock(lock, () => Promise.resolve("ran"), clock), "ran");
+      await ageFile(lock, 60_000);
+      assert.equal(await withCalendarStateLock(lock, () => Promise.resolve("ran"), fastClock(Date.now())), "ran");
       assert.equal(await pathExists(lock), false);
     });
   });
@@ -161,7 +170,7 @@ describe("withCalendarStateLock (#2679 cross-process read-modify-write)", () => 
     await withTempDir(async (dir) => {
       const lock = stateLockPath(path.join(dir, "state.json"));
       const clock = fastClock();
-      await writeFile(lock, JSON.stringify({ holder: "held-by-another", at: clock.now() }));
+      await writeFile(lock, JSON.stringify({ holder: "held-by-another" }));
       await withCalendarStateLock(lock, () => Promise.resolve(null), clock);
       assert.equal(await pathExists(lock), true);
     });

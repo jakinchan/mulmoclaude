@@ -30,11 +30,15 @@ const LOCK_STALE_MS = 10_000;
 const LOCK_WAIT_MS = 5_000;
 const LOCK_RETRY_MS = 20;
 
+/** Deliberately just the holder. There is no timestamp in here: an age written
+ *  by one host and read by another is two different wall clocks compared as if
+ *  they were one, which breaks staleness in BOTH directions — a live lock
+ *  reclaimed early, or a dead one that never expires (Codex review #2690). The
+ *  filesystem's own mtime is the single authority instead. */
 interface LockFile {
-  /** Who holds it. Not a secret — it only has to be unique per acquisition, so
-   *  that a release removes its OWN lock and never the one that replaced it. */
+  /** Not a secret — it only has to be unique per acquisition, so that a release
+   *  removes its OWN lock and never the one that replaced it. */
   holder: string;
-  at: number;
 }
 
 /** The clock and the sleep, injected so the timing rules can be exercised
@@ -65,8 +69,8 @@ function parseLock(raw: string): LockFile | null {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return null;
-    const { holder, at } = parsed as Partial<LockFile>;
-    return typeof holder === "string" && typeof at === "number" ? { holder, at } : null;
+    const { holder } = parsed as Partial<LockFile>;
+    return typeof holder === "string" ? { holder } : null;
   } catch {
     return null;
   }
@@ -78,11 +82,11 @@ async function readLock(lockPath: string): Promise<LockFile | null> {
 }
 
 /** Take the lock, or answer false because someone else holds a live one. */
-async function tryAcquire(lockPath: string, holder: string, clock: LockClock): Promise<boolean> {
+async function tryAcquire(lockPath: string, holder: string): Promise<boolean> {
   try {
     const handle = await open(lockPath, "wx", LOCK_MODE);
     try {
-      await handle.writeFile(JSON.stringify({ holder, at: clock.now() }));
+      await handle.writeFile(JSON.stringify({ holder }));
     } finally {
       await handle.close();
     }
@@ -93,18 +97,24 @@ async function tryAcquire(lockPath: string, holder: string, clock: LockClock): P
   }
 }
 
-/** How long this lock has existed, by the best evidence available.
+/** How long this lock has existed, per the filesystem that holds it.
  *
- *  A lock the holder wrote says so itself. One that cannot be parsed still has
- *  an mtime, and that matters: `open("wx")` creates the file EMPTY and the
- *  payload lands a moment later, so "unreadable" is a state every healthy lock
- *  passes through on its way into existence. Treating it as a corpse on sight
- *  would unlink a live lock mid-creation and hand the same lock to two holders
- *  — the very race this file removes (Codex review #2690).
+ *  From mtime rather than anything the holder wrote down, and for every lock
+ *  rather than only the unreadable ones. A timestamp written by one host and
+ *  compared against another host's clock is two wall clocks pretending to be
+ *  one: skew either way reclaims a live lock or immortalises a dead one (Codex
+ *  review #2690). Every host reading this workspace sees the SAME mtime.
+ *
+ *  This still assumes the reader's clock and the filesystem's are within a TTL
+ *  of each other — true by construction on a local disk, and a sub-second NTP
+ *  question on a network mount, against a window of ten seconds.
+ *
+ *  Reading mtime also covers the moment `open("wx")` has created the file but
+ *  its payload has not landed yet: "unreadable" is a state every healthy lock
+ *  passes through, and one being born reads as newborn rather than dead.
  *
  *  Null when the file is gone, which is not an age but an absence. */
-async function lockAgeMs(lockPath: string, held: LockFile | null, clock: LockClock): Promise<number | null> {
-  if (held !== null) return clock.now() - held.at;
+async function lockAgeMs(lockPath: string, clock: LockClock): Promise<number | null> {
   const stamped = await stat(lockPath).catch(() => null);
   return stamped === null ? null : clock.now() - stamped.mtimeMs;
 }
@@ -122,7 +132,7 @@ async function stealIfStale(lockPath: string, clock: LockClock): Promise<void> {
   const raw = await readLockRaw(lockPath);
   if (raw === null) return;
   const held = parseLock(raw);
-  const age_ms = await lockAgeMs(lockPath, held, clock);
+  const age_ms = await lockAgeMs(lockPath, clock);
   if (age_ms === null || age_ms < LOCK_STALE_MS) return;
   // A lock nobody can read is a lock nobody can release — `release` only removes
   // a file whose holder matches — so once it IS stale it has to be cleared here
@@ -176,7 +186,7 @@ export async function withCalendarStateLock<T>(lockPath: string, mutate: () => P
 async function acquireBefore(lockPath: string, holder: string, deadline: number, clock: LockClock): Promise<boolean> {
   for (;;) {
     try {
-      if (await tryAcquire(lockPath, holder, clock)) return true;
+      if (await tryAcquire(lockPath, holder)) return true;
       await stealIfStale(lockPath, clock);
     } catch (error) {
       log.warn("google", "could not take the calendar state lock — mutating without it", { lockPath, error: String(error) });
