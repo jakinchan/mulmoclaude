@@ -649,11 +649,32 @@ watch(
   min-height: 0;
 }
 
+/* Body styles for the rendered Markdown.
+   The container carries `prose prose-slate`, but those classes have never
+   done anything in either host — Tailwind Typography is not installed in
+   MulmoClaude or in MulmoTerminal. What actually rendered paragraphs and
+   bullets was MulmoClaude's hand-written global `.markdown-content` CSS
+   (src/index.css), which MulmoTerminal does not have; and this View is
+   mounted into a Shadow DOM there, so host global CSS could not reach it
+   anyway. Worse, the Tailwind preflight bundled in this plugin's
+   dist/style.css applies `ol,ul,menu{list-style:none}` and `*{margin:0}`
+   inside that shadow root, so the defaults are actively removed rather
+   than merely absent.
+
+   So the rules below are NOT redundant with a host's stylesheet — they are
+   what makes this plugin look the same in any host. Do not delete them on
+   the assumption that installing Tailwind Typography would cover them.
+   Values are copied verbatim from MulmoClaude's src/index.css so the
+   appearance there is unchanged (a `:deep()` rule compiles to
+   `.markdown-content[data-v-x] p` = specificity (0,2,1) and outranks the
+   host's (0,1,1), so any mismatch would show up as a visual change). */
+
 .markdown-content :deep(h1) {
   font-size: 2rem;
   font-weight: bold;
   margin-top: 1em;
   margin-bottom: 0.5em;
+  color: #111827;
 }
 
 .markdown-content :deep(h2) {
@@ -661,6 +682,9 @@ watch(
   font-weight: bold;
   margin-top: 1em;
   margin-bottom: 0.5em;
+  color: #1f2937;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 0.25rem;
 }
 
 .markdown-content :deep(h3) {
@@ -668,6 +692,7 @@ watch(
   font-weight: bold;
   margin-top: 1em;
   margin-bottom: 0.5em;
+  color: #374151;
 }
 
 .markdown-content :deep(h4) {
@@ -675,6 +700,7 @@ watch(
   font-weight: bold;
   margin-top: 1em;
   margin-bottom: 0.5em;
+  color: #374151;
 }
 
 .markdown-content :deep(h5) {
@@ -689,6 +715,89 @@ watch(
   font-weight: bold;
   margin-top: 1em;
   margin-bottom: 0.5em;
+}
+
+.markdown-content :deep(p) {
+  margin-bottom: 0.75rem;
+  line-height: 1.6;
+}
+
+.markdown-content :deep(ul),
+.markdown-content :deep(ol) {
+  margin-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.markdown-content :deep(ul) {
+  list-style-type: disc;
+}
+
+.markdown-content :deep(ol) {
+  list-style-type: decimal;
+}
+
+.markdown-content :deep(li) {
+  margin-bottom: 0.25rem;
+  line-height: 1.5;
+}
+
+.markdown-content :deep(code) {
+  background: #f3f4f6;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "MS Gothic", "BIZ UDGothic", monospace;
+}
+
+.markdown-content :deep(pre) {
+  background: #f3f4f6;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
+
+.markdown-content :deep(pre code) {
+  background: none;
+  padding: 0;
+  font-size: 0.85em;
+}
+
+.markdown-content :deep(blockquote) {
+  border-left: 3px solid #d1d5db;
+  padding-left: 1rem;
+  color: #6b7280;
+  margin: 0.75rem 0;
+}
+
+.markdown-content :deep(a) {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.markdown-content :deep(hr) {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 1rem 0;
+}
+
+.markdown-content :deep(table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.markdown-content :deep(th),
+.markdown-content :deep(td) {
+  border: 1px solid #e5e7eb;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.markdown-content :deep(th) {
+  background: #f9fafb;
+  font-weight: 600;
 }
 
 .bottom-bar-wrapper {
