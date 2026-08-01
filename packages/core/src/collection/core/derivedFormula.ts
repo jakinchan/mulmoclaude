@@ -242,25 +242,32 @@ class Parser {
     if (operator) this.consume();
     return operator;
   }
-
-  parseExpr(): Node {
-    return this.parseAdditiveRest(this.parseTerm());
+  /** Yields each operator of a chain, consuming it. Iteration keeps the caller's
+   *  stack depth constant — a formula is user input, so its length must not
+   *  decide whether we overflow. */
+  private *operatorRun<Op extends BinaryOperator>(match: (kind: TokenKind | undefined) => Op | null): Generator<Op> {
+    while (true) {
+      const operator = this.takeOperator(match);
+      if (!operator) return;
+      yield operator;
+    }
   }
 
-  private parseAdditiveRest(left: Node): Node {
-    const operator = this.takeOperator(matchAdditive);
-    if (!operator) return left;
-    return this.parseAdditiveRest({ kind: "binop", operator, left, right: this.parseTerm() });
+  private parseChain<Op extends BinaryOperator>(match: (kind: TokenKind | undefined) => Op | null, parseOperand: () => Node): Node {
+    const left = parseOperand();
+    const rest: { operator: Op; right: Node }[] = [];
+    for (const operator of this.operatorRun(match)) {
+      rest.push({ operator, right: parseOperand() });
+    }
+    return rest.reduce<Node>((accumulated, { operator, right }) => ({ kind: "binop", operator, left: accumulated, right }), left);
+  }
+
+  parseExpr(): Node {
+    return this.parseChain(matchAdditive, () => this.parseTerm());
   }
 
   private parseTerm(): Node {
-    return this.parseMultiplicativeRest(this.parseFactor());
-  }
-
-  private parseMultiplicativeRest(left: Node): Node {
-    const operator = this.takeOperator(matchMultiplicative);
-    if (!operator) return left;
-    return this.parseMultiplicativeRest({ kind: "binop", operator, left, right: this.parseFactor() });
+    return this.parseChain(matchMultiplicative, () => this.parseFactor());
   }
 
   private parseFactor(): Node {
@@ -302,16 +309,13 @@ class Parser {
   }
 
   private parseSumArg(): SumArg {
-    return this.parseSumArgRest({ factors: [this.parseTableCol()], operators: [] });
-  }
-
-  private parseSumArgRest(parsed: SumArg): SumArg {
-    const operator = this.takeOperator(matchMultiplicative);
-    if (!operator) return parsed;
-    return this.parseSumArgRest({
-      factors: [...parsed.factors, this.parseTableCol()],
-      operators: [...parsed.operators, operator],
-    });
+    const factors = [this.parseTableCol()];
+    const operators: MultiplicativeOperator[] = [];
+    for (const operator of this.operatorRun(matchMultiplicative)) {
+      operators.push(operator);
+      factors.push(this.parseTableCol());
+    }
+    return { factors, operators };
   }
 
   private parseTableCol(): TableCol {
