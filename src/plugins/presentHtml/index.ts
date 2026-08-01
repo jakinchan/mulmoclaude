@@ -1,4 +1,3 @@
-import type { Component } from "vue";
 import type { PluginRegistration, ToolPlugin } from "../../tools/types";
 import type { ToolResult } from "gui-chat-protocol";
 import { View, Preview, type PresentHtmlData } from "@mulmoclaude/html-plugin/vue";
@@ -47,10 +46,8 @@ const presentHtmlPlugin: ToolPlugin<PresentHtmlData> = {
 
   isEnabled: () => true,
   generatingMessage: "Presenting HTML page…",
-  // gui-chat-protocol's Component type is externalized but yarn-4's dual-@vue can
-  // make the package's nominal types distinct; coerce once here (same as chart).
-  viewComponent: wrapWithScope("html", View as unknown as Component),
-  previewComponent: wrapWithScope("html", Preview as unknown as Component),
+  viewComponent: wrapWithScope("html", View),
+  previewComponent: wrapWithScope("html", Preview),
 };
 export { TOOL_NAME };
 
