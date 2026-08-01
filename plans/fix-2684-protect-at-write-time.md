@@ -11,7 +11,7 @@
 
 `syncCalendarGroupNow` はこの順で動く:
 
-```
+```text
 ① push     … autoPush の collection を Google へ送り、保護集合 unpushed を得る
 ② fetch    … Google から変更ウィンドウを取る            ← 数秒〜数分
 ③ apply    … events を record ファイルに書く（unpushed のものは除外）
@@ -60,12 +60,28 @@ Google が勝つ）、④が baseline も進める。
 
 1. `ApplyOutcome` に `{ kind: "withheld" }` を足す
 2. `CalendarCollectionSyncResult` に `withheld: string[]` を足す（構築箇所4つを更新）
-3. `applyEvent` に baseline スナップショットを渡し、書き込み直前に
-   `locallyChangedFields(existing, baselineRecord(...), pushableMap(map))` が空でなければ `withheld`
+3. `unsentEditGuard(schema, baseline)` — 判定を返す述語。`applyEventsToCollection` が
+   **collection ごとに1回だけ**作り、`applyEvent` へ渡す。`applyEvent` は `store.read` の直後、
+   書き込み直前にこれを呼び、真なら `withheld`
+   （map の構築を毎イベント繰り返さないための形。Sourcery review #2687）
 4. `applyEventsToCollection` が `withheld` を集める
-5. `syncCalendarGroupNow` が①直後にスナップショットを取り、③の `withheld` を `allUnpushed(unpushed)` と
-   union して④の `shadowUpdates` に渡す
+5. `syncCalendarGroupNow` が①直後にスナップショットを取り、`heldBack(unpushed, results)` で
+   ③の `withheld` を `allUnpushed(unpushed)` と union して④の `shadowUpdates` に渡す
    ── ③の保護と④の保護は**必ず一致していなければならない**（`pullableEvents` の docstring が明記）
+
+### held-back の baseline はフルウォークで消えてしまう（レビュー中に発見）
+
+④で「省く」だけでは足りない。増分同期なら `.push-state.json` はマージ書き込みなので既存エントリが
+残るが、**`restartFullSync` は先に `clearCalendarShadow` を呼ぶ**ので、そこでは省略がそのまま
+エントリ消滅になる。すると次の push は conflict しているレコードを**新規 create として扱い**、
+Google の duplicate-id 409 を踏んで `createOrAdopt` に拒否される ── conflict として報告されるべき
+ものが別のエラーに化ける。
+
+`shadowUpdates` に第3引数（carry-forward）を足し、held-back のイベントについては **run 開始前の
+スナップショット値を書き戻す**。増分・フルウォークのどちらでも同じ挙動になる。
+
+baseline を持たない held-back（ローカル作成でまだ push していないレコード）は carry しない ──
+無いものを捏造すると、次の push が「同期済み」と誤読するため。
 
 ### token は進めてよい、baseline は進めてはいけない
 
@@ -84,8 +100,27 @@ Google が勝つ）、④が baseline も進める。
 
 ## テスト
 
-- ②の最中に編集された record が上書きされないこと（スナップショットと食い違う record を withheld に）
-- baseline と一致する record は普通に上書きされること（全件凍結しない回帰）
-- withheld のイベントが `shadowUpdates` から外れること（③と④の一致）
-- withheld が token を止めないこと（`windowFullyLanded` が true のまま）
-- baseline が無い record（純粋な新規イベント）は withheld にならないこと
+`test/services/google/test_calendarCollectionSync.ts` に3ブロック。
+
+`unsentEditGuard`:
+
+- baseline と一致する record は保護しない（全件凍結しない回帰）
+- スナップショット以降に編集された record は保護する
+- baseline を持たないイベントは保護しない（初めて受け取るイベントを止めない）
+- map が覆わないローカル列の差分は保護理由にしない
+- Google 側だけが動き record が無変更なら保護しない
+
+`heldBack`:
+
+- ①の未送信と③の拒否を union すること／collection をまたいで union すること
+- union に入ったイベントが `shadowUpdates` から外れること（③と④の一致）
+
+`shadowUpdates` carry-forward:
+
+- held-back は run 開始前の値を書き戻し、Google の現在値へは進めないこと
+- held-back でないものは通常どおり進むこと
+- baseline を持たない held-back は carry しないこと
+- 第3引数を渡さない従来の呼び出しは挙動が変わらないこと
+
+**「withheld が token を止めない」は構造で担保**している（`windowFullyLanded` は `errors` しか見ず、
+`withheld` は別フィールド）。`windowFullyLanded` は private なので直接のテストは書いていない。

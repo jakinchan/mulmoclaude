@@ -11,7 +11,7 @@
 
 `syncCalendarGroupNow` (`collectionSync.ts:315-339`) は必ずこの順で動く:
 
-```
+```text
 ① push     … autoPush の collection を Google へ送り、送れなかった id 集合 unpushed を得る
 ② fetch    … Google から変更ウィンドウを取る
 ③ apply    … events を record ファイルに書く（unpushed のものは除外）
