@@ -11,6 +11,9 @@
 // identical state changes.
 
 import { Router, Request, Response } from "express";
+import { isRecord, isUnknownArray } from "@mulmoclaude/common";
+
+import { describeEntry, optionalRecord, optionalReportPeriod, optionalString } from "./bodyFields.js";
 
 import {
   AccountingError,
@@ -89,14 +92,20 @@ async function handleOpenBook(rest: ActionRest): Promise<OpenBookToolResult> {
 
 async function handleGetReport(rest: ActionRest): Promise<unknown> {
   const kind = typeof rest.kind === "string" ? rest.kind : "";
-  const periodInput = rest.period as { kind: "month"; period: string } | { kind: "range"; from: string; to: string } | undefined;
-  const bookId = rest.bookId as string | undefined;
+  const periodInput = optionalReportPeriod(rest.period);
+  const bookId = optionalString(rest.bookId);
+  // A period that is present but malformed reads as absent, so it
+  // lands on this same message rather than reaching the report
+  // builders as `${undefined}-01`. Spell the accepted shapes out —
+  // the LLM repairs its own payload from this text.
+  const periodRequired = (label: string) =>
+    new AccountingError(400, `${label}: period is required — { kind: "month", period: "YYYY-MM" } or { kind: "range", from: "YYYY-MM-DD", to: "YYYY-MM-DD" }`);
   if (kind === "balance") {
-    if (!periodInput) throw new AccountingError(400, "getReport balance: period is required");
+    if (!periodInput) throw periodRequired("getReport balance");
     return getBalanceSheetReport({ bookId, period: periodInput });
   }
   if (kind === "pl") {
-    if (!periodInput) throw new AccountingError(400, "getReport pl: period is required");
+    if (!periodInput) throw periodRequired("getReport pl");
     return getProfitLossReport({ bookId, period: periodInput });
   }
   if (kind === "ledger") {
@@ -140,52 +149,60 @@ const ACTION_HANDLERS: Record<string, ActionHandler> = {
     return { bookId: result.book.id, ...result };
   },
   [ACCOUNTING_ACTIONS.deleteBook]: (rest) => deleteBook({ bookId: typeof rest.bookId === "string" ? rest.bookId : "", confirm: rest.confirm === true }),
-  [ACCOUNTING_ACTIONS.getAccounts]: (rest) => listAccounts({ bookId: rest.bookId as string | undefined }),
+  [ACCOUNTING_ACTIONS.getAccounts]: (rest) => listAccounts({ bookId: optionalString(rest.bookId) }),
+  // The three `as never` below are the last casts in this file. Removing
+  // them means making the service signatures honest — `entries` / `lines`
+  // / `account` are declared as validated shapes but arrive raw, and the
+  // validators that were written to turn bad input into a structured 400
+  // read `item.date` / `line.accountCode` off elements that may not be
+  // objects. `entries: [null]` therefore throws a TypeError and 500s
+  // instead. That is a validation-layer fix (journal.ts, openingBalances.ts,
+  // service.ts) with its own tests, tracked on #2692.
   [ACCOUNTING_ACTIONS.upsertAccount]: (rest) =>
     upsertAccount({
-      bookId: rest.bookId as string | undefined,
+      bookId: optionalString(rest.bookId),
       // Service validates the shape — route doesn't reach into it.
       account: rest.account as never,
     }),
   [ACCOUNTING_ACTIONS.addEntries]: (rest) =>
     addEntries({
-      bookId: rest.bookId as string | undefined,
+      bookId: optionalString(rest.bookId),
       // Service validates each entry's shape — route doesn't reach into it.
       entries: (rest.entries ?? []) as never,
     }),
   [ACCOUNTING_ACTIONS.voidEntry]: (rest) =>
     voidEntry({
-      bookId: rest.bookId as string | undefined,
+      bookId: optionalString(rest.bookId),
       entryId: typeof rest.entryId === "string" ? rest.entryId : "",
-      reason: rest.reason as string | undefined,
-      voidDate: rest.voidDate as string | undefined,
+      reason: optionalString(rest.reason),
+      voidDate: optionalString(rest.voidDate),
     }),
   [ACCOUNTING_ACTIONS.getJournalEntries]: (rest) =>
     listEntries({
-      bookId: rest.bookId as string | undefined,
-      from: rest.from as string | undefined,
-      to: rest.to as string | undefined,
-      accountCode: rest.accountCode as string | undefined,
+      bookId: optionalString(rest.bookId),
+      from: optionalString(rest.from),
+      to: optionalString(rest.to),
+      accountCode: optionalString(rest.accountCode),
     }),
-  [ACCOUNTING_ACTIONS.getOpeningBalances]: (rest) => getOpeningBalances({ bookId: rest.bookId as string | undefined }),
+  [ACCOUNTING_ACTIONS.getOpeningBalances]: (rest) => getOpeningBalances({ bookId: optionalString(rest.bookId) }),
   [ACCOUNTING_ACTIONS.setOpeningBalances]: (rest) =>
     setOpeningBalances({
-      bookId: rest.bookId as string | undefined,
+      bookId: optionalString(rest.bookId),
       asOfDate: typeof rest.asOfDate === "string" ? rest.asOfDate : "",
       lines: (rest.lines ?? []) as never,
-      memo: rest.memo as string | undefined,
+      memo: optionalString(rest.memo),
     }),
   [ACCOUNTING_ACTIONS.getReport]: handleGetReport,
   [ACCOUNTING_ACTIONS.getTimeSeries]: (rest) =>
     getTimeSeriesReport({
-      bookId: rest.bookId as string | undefined,
+      bookId: optionalString(rest.bookId),
       metric: rest.metric,
       granularity: rest.granularity,
       from: rest.from,
       to: rest.to,
       accountCode: rest.accountCode,
     }),
-  [ACCOUNTING_ACTIONS.rebuildSnapshots]: (rest) => rebuildSnapshots({ bookId: rest.bookId as string | undefined }),
+  [ACCOUNTING_ACTIONS.rebuildSnapshots]: (rest) => rebuildSnapshots({ bookId: optionalString(rest.bookId) }),
 };
 
 // Actions whose tool-result envelope should carry a `data` field so
@@ -224,12 +241,14 @@ const MESSAGE_BUILDERS: Record<string, MessageBuilder> = {
     return `Mounted the accounting app in the canvas${idFragment}.${booksFragment}`;
   },
   [ACCOUNTING_ACTIONS.createBook]: (fields) => {
-    const book = fields.book as { id?: string; name?: string } | undefined;
-    const subject = book?.name ? `A new book named ${JSON.stringify(book.name)}` : "A new book";
+    const book = optionalRecord(fields.book);
+    const name = optionalString(book?.name);
+    const bookId = optionalString(book?.id);
+    const subject = name ? `A new book named ${JSON.stringify(name)}` : "A new book";
     // The LLM needs book.id to call any follow-up action on this
     // book (getAccounts, addEntries, etc.), so include it in the
     // status message instead of forcing a round-trip via getBooks.
-    const idFragment = book?.id ? ` (id: ${book.id})` : "";
+    const idFragment = bookId ? ` (id: ${bookId})` : "";
     // The View's opening-gate hides every tab except `opening` and
     // `settings` until an opening entry is on file (even a zero-line
     // one). If the agent doesn't tell the user to set opening
@@ -240,52 +259,57 @@ const MESSAGE_BUILDERS: Record<string, MessageBuilder> = {
     return `${subject} has been created${idFragment}. Next required step: set opening balances via setOpeningBalances — the journal-entry, ledger, and report tabs are locked until an opening (even an empty one) is saved.`;
   },
   [ACCOUNTING_ACTIONS.upsertAccount]: (fields) => {
-    const account = fields.account as { code?: string; name?: string } | undefined;
-    if (account?.code && account?.name) {
-      return `Upserted account ${account.code} ${JSON.stringify(account.name)}.`;
+    const account = optionalRecord(fields.account);
+    const code = optionalString(account?.code);
+    const name = optionalString(account?.name);
+    if (code && name) {
+      return `Upserted account ${code} ${JSON.stringify(name)}.`;
     }
     return "Updated the chart of accounts.";
   },
   [ACCOUNTING_ACTIONS.addEntries]: (fields) => {
-    const entries = Array.isArray(fields.entries) ? (fields.entries as { id?: string; date?: string }[]) : [];
+    const entries = (isUnknownArray(fields.entries) ? fields.entries : []).map(describeEntry);
     if (entries.length === 0) return "Posted 0 journal entries.";
     if (entries.length === 1) {
       const [entry] = entries;
-      const idFragment = entry?.id ? ` (id: ${entry.id})` : "";
-      return `Posted a journal entry on ${entry?.date ?? "the requested date"}${idFragment}.`;
+      const idFragment = entry.id ? ` (id: ${entry.id})` : "";
+      return `Posted a journal entry on ${entry.date ?? "the requested date"}${idFragment}.`;
     }
     // Surface every id so the LLM can later voidEntry any one of
     // them without a follow-up getJournalEntries round-trip.
-    const summary = entries.map((entry) => `${entry?.date ?? "?"} (id: ${entry?.id ?? "?"})`).join(", ");
+    const summary = entries.map((entry) => `${entry.date ?? "?"} (id: ${entry.id ?? "?"})`).join(", ");
     return `Posted ${entries.length} journal entries: ${summary}.`;
   },
   [ACCOUNTING_ACTIONS.voidEntry]: (fields) => {
-    const reverse = fields.reverseEntry as { date?: string } | undefined;
-    return `Voided the entry; a reversing pair was posted on ${reverse?.date ?? "today"}.`;
+    const reverseDate = optionalString(optionalRecord(fields.reverseEntry)?.date);
+    return `Voided the entry; a reversing pair was posted on ${reverseDate ?? "today"}.`;
   },
   [ACCOUNTING_ACTIONS.setOpeningBalances]: (fields) => {
-    const opening = fields.openingEntry as { date?: string; lines?: unknown } | undefined;
+    const opening = optionalRecord(fields.openingEntry);
     const verb = fields.replacedExisting === true ? "replaced" : "set";
-    const date = opening?.date ?? "the requested date";
+    const date = optionalString(opening?.date) ?? "the requested date";
     // Surface the actual lines so the LLM can answer follow-up
     // questions like "what's my opening cash?" without a separate
     // getOpeningBalances round-trip. An empty-marker opening
     // (zero lines, used to unlock the gate) gets no fragment.
-    const lines = Array.isArray(opening?.lines) ? (opening.lines as unknown[]) : [];
+    const openingLines = opening?.lines;
+    const lines = isUnknownArray(openingLines) ? openingLines : [];
     const linesFragment = lines.length > 0 ? ` Lines: ${JSON.stringify(lines)}.` : "";
     return `Opening balances were ${verb} as of ${date}.${linesFragment}`;
   },
   [ACCOUNTING_ACTIONS.deleteBook]: (fields) => {
-    const bookId = fields.deletedBookId as string | undefined;
-    const name = fields.deletedBookName as string | undefined;
+    const bookId = optionalString(fields.deletedBookId);
+    const name = optionalString(fields.deletedBookName);
     const subject = name ? `the book ${JSON.stringify(name)}` : "the book";
     const idFragment = bookId ? ` (id: ${bookId})` : "";
     return `Deleted ${subject}${idFragment}.`;
   },
   [ACCOUNTING_ACTIONS.updateBook]: (fields) => {
-    const book = fields.book as { id?: string; name?: string; country?: string; currency?: string } | undefined;
-    const name = book?.name ? JSON.stringify(book.name) : "the book";
-    const countryFragment = book?.country ? ` (country: ${book.country})` : "";
+    const book = optionalRecord(fields.book);
+    const bookName = optionalString(book?.name);
+    const country = optionalString(book?.country);
+    const name = bookName ? JSON.stringify(bookName) : "the book";
+    const countryFragment = country ? ` (country: ${country})` : "";
     return `Updated ${name}${countryFragment}.`;
   },
 };
@@ -314,7 +338,11 @@ async function dispatch(body: AccountingActionBody): Promise<unknown> {
   // Direct browser callers (the AccountingApp view) ignore the field.
   // Service responses that already set `action` win via the spread.
   const result = await handler(rest);
-  const handlerFields = result && typeof result === "object" ? (result as Record<string, unknown>) : { value: result };
+  // `isRecord` rejects arrays where the previous `typeof === "object"`
+  // check accepted them — an array result would have spread into
+  // `{0: …, 1: …}`. Every service function returns a plain object, so
+  // nothing changes today; an array would now arrive as `{ value: [...] }`.
+  const handlerFields = isRecord(result) ? result : { value: result };
   // `data` is the host's preview-eligibility signal (see
   // SessionSidebar.vue's v-if gate). Mirror the handler payload
   // into it for the actions that should render a card; leave it
