@@ -255,7 +255,16 @@ export default [
       "no-useless-return": "error",
       "prefer-regex-literals": "error",
       "prefer-exponentiation-operator": "error",
-      "@typescript-eslint/consistent-type-assertions": "error",
+      // CLAUDE.md bans `as` casts outright ("MUST use type guards instead"),
+      // but the rule's default `assertionStyle: "as"` only enforces the
+      // *syntax*, so the ban was never machine-checked and the codebase
+      // accumulated ~190 casts in production code (#2692). `never` is the
+      // setting that matches the written rule.
+      //
+      // Staged at `warn` while the backlog drains file by file; it graduates
+      // to `error` once production code is clean. Tests keep the permissive
+      // setting via the test override below.
+      "@typescript-eslint/consistent-type-assertions": ["warn", { assertionStyle: "never" }],
       "@typescript-eslint/no-require-imports": "error",
       "@typescript-eslint/prefer-enum-initializers": "error",
       "import/first": "error",
@@ -389,6 +398,17 @@ export default [
       // readability — it doesn't map onto a describe() block that
       // happens to hold ten it() cases.
       "max-lines-per-function": "off",
+      // Tests have a legitimate use for `as` that production code does not:
+      // constructing input the types say is impossible, so the runtime guard
+      // being tested has something to reject, and handing partial mocks to
+      // code that wants a full interface. Writing a type guard to produce
+      // deliberately-invalid data defeats the point of the test. Production
+      // code stays on `assertionStyle: "never"` (#2692); this restores the
+      // rule's default, which still enforces `as` over angle-bracket syntax.
+      // The options must be spelled out: flat config keeps the options from
+      // the previous match when an override supplies only a severity, so a
+      // bare `"error"` here would inherit `never` and ban `as` in tests too.
+      "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "as", objectLiteralTypeAssertions: "allow" }],
     },
   },
   {
