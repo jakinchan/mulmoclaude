@@ -72,6 +72,7 @@ export {
   saveCalendarSyncToken,
 } from "./calendarSyncStore.js";
 export { calendarSyncDueWindowMs, isCalendarSyncDue } from "./calendarSyncDue.js";
+export { stateLockPath, withCalendarStateLock, liveLockClock, type LockClock } from "./calendarStateLock.js";
 export {
   calendarPushStatePath,
   clearCalendarShadow,
