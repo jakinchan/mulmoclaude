@@ -15,6 +15,7 @@
 // (enforced by `test/accounting/test_snapshotCache.ts`).
 
 import { randomUUID } from "node:crypto";
+import { isUnknownArray } from "@mulmoclaude/common";
 
 import {
   appendJournal,
@@ -33,9 +34,9 @@ import {
   writeAccounts,
   writeConfig,
 } from "./io.js";
-import { findActiveOpening, validateOpening } from "./openingBalances.js";
-import { normalizeStoredAccount } from "./accountNormalize.js";
-import { isValidCalendarDate, localDateString, makeEntry, makeVoidEntries, validateEntry, voidedIdSet } from "./journal.js";
+import { findActiveOpening, parseOpening } from "./openingBalances.js";
+import { normalizeStoredAccount, parseAccountInput } from "./accountNormalize.js";
+import { isValidCalendarDate, localDateString, makeEntry, makeVoidEntries, parseEntry, voidedIdSet, type ParsedEntry } from "./journal.js";
 import { aggregateBalances, buildBalanceSheet, buildLedger, buildProfitLoss } from "./report.js";
 import {
   bucketize,
@@ -62,7 +63,7 @@ import {
   type FiscalYearEnd,
 } from "../shared";
 import type { AccountingConfig } from "./types.js";
-import type { Account, BookSummary, JournalEntry, JournalLine, ReportPeriod } from "../shared/types.js";
+import type { Account, AccountType, BookSummary, JournalEntry, ReportPeriod } from "../shared/types.js";
 
 export class AccountingError extends Error {
   constructor(
@@ -318,78 +319,90 @@ export async function listAccounts(input: { bookId?: string }, workspaceRoot?: s
   return { bookId, accounts: await readAccounts(bookId, workspaceRoot) };
 }
 
+/** Parse the caller's account, then apply the one rule the chart owns
+ *  rather than the record: codes starting with `_` are reserved for the
+ *  synthetic rows the report layer injects (e.g. `_currentEarnings` in
+ *  the Equity section). A user account there would either duplicate a
+ *  B/S row or hide a real account behind the synthetic label. */
+function parseUpsertAccount(raw: unknown): Account {
+  const parsed = parseAccountInput(raw);
+  if (!parsed.ok) throw new AccountingError(400, parsed.message);
+  if (parsed.account.code.startsWith("_")) {
+    throw new AccountingError(
+      400,
+      `account code ${JSON.stringify(parsed.account.code)} is reserved (codes starting with _ are used for synthetic report rows)`,
+    );
+  }
+  return parsed.account;
+}
+
+/** Insert or replace the account in the chart. The whitelist +
+ *  active-flag policy lives in normalizeStoredAccount (see
+ *  ./accountNormalize.ts) so it stays unit-testable in isolation.
+ *  `previousType` is null for a new code — callers use it to decide
+ *  whether aggregation across periods just changed meaning. */
+function applyAccount(accounts: readonly Account[], account: Account): { next: Account[]; previousType: AccountType | null } {
+  const existingIdx = accounts.findIndex((stored) => stored.code === account.code);
+  const existing = existingIdx >= 0 ? accounts[existingIdx] : undefined;
+  const stored = normalizeStoredAccount(account, existing);
+  const next = [...accounts];
+  if (existingIdx >= 0) next[existingIdx] = stored;
+  else next.push(stored);
+  // `existing ? … : null`, not `existing?.type ?? null`: a book written
+  // before the account payload was parsed can hold a record whose `type`
+  // is missing, and collapsing that into "no previous type" would skip
+  // the invalidation below on the very upsert that repairs it.
+  return { next, previousType: existing ? existing.type : null };
+}
+
 export async function upsertAccount(
-  input: { bookId?: string; account: Account },
+  input: { bookId?: string; account: unknown },
   workspaceRoot?: string,
 ): Promise<{ bookId: string; account: Account; accounts: Account[] }> {
   const config = await loadOrInitConfig(workspaceRoot);
   const bookId = resolveBookId(config, input.bookId);
-  // Account codes starting with `_` are reserved for synthetic
-  // rows that the report layer injects (e.g. the
-  // `_currentEarnings` row added to the Equity section by
-  // buildBalanceSheet). Forbid user accounts in that namespace so
-  // a B/S can't display two rows with the same code or
-  // accidentally lose a real account behind the synthetic label.
-  if (typeof input.account?.code !== "string" || input.account.code.length === 0) {
-    throw new AccountingError(400, "account code is required");
-  }
-  if (input.account.code.startsWith("_")) {
-    throw new AccountingError(400, `account code ${JSON.stringify(input.account.code)} is reserved (codes starting with _ are used for synthetic report rows)`);
-  }
-  const accounts = await readAccounts(bookId, workspaceRoot);
-  const existingIdx = accounts.findIndex((account) => account.code === input.account.code);
-  const next = [...accounts];
-  const oldType = existingIdx >= 0 ? accounts[existingIdx].type : null;
-  // Whitelist + active-flag policy lives in normalizeStoredAccount
-  // (see ./accountNormalize.ts) so the rules are unit-testable in
-  // isolation and this service function stays focused on the
-  // file-IO + snapshot-invalidation orchestration.
-  const stored = normalizeStoredAccount(input.account, existingIdx >= 0 ? accounts[existingIdx] : undefined);
-  if (existingIdx >= 0) {
-    next[existingIdx] = stored;
-  } else {
-    next.push(stored);
-  }
+  const account = parseUpsertAccount(input.account);
+  const { next, previousType } = applyAccount(await readAccounts(bookId, workspaceRoot), account);
   await writeAccounts(bookId, next, workspaceRoot);
   // Type changes affect aggregation across periods — drop every
   // snapshot to be safe. Pure name / note changes don't, but
   // distinguishing isn't worth the complexity.
-  if (oldType !== null && oldType !== input.account.type) {
+  if (previousType !== null && previousType !== account.type) {
     scheduleRebuild(bookId, "0000-00", workspaceRoot);
     await invalidateAllSnapshots(bookId, workspaceRoot);
   }
   publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.accounts });
-  return { bookId, account: { ...input.account }, accounts: next };
+  return { bookId, account, accounts: next };
 }
 
 // ── journal entries ────────────────────────────────────────────────
-
-export interface AddEntriesItem {
-  date: string;
-  lines: JournalLine[];
-  memo?: string;
-  replacesEntryId?: string;
-}
 
 interface BatchValidationFailure {
   index: number;
   errors: unknown;
 }
 
-// All-or-nothing validation: collect failures across every entry
-// so the whole batch can be rejected before any write touches disk
-// (a half-applied batch can never end up persisted).
-function collectBatchValidationFailures(items: readonly AddEntriesItem[], accounts: readonly Account[]): BatchValidationFailure[] {
-  const failures: BatchValidationFailure[] = [];
-  for (let idx = 0; idx < items.length; idx++) {
-    const item = items[idx];
-    const validation = validateEntry({ date: item.date, lines: item.lines, accounts });
-    if (!validation.ok) failures.push({ index: idx, errors: validation.errors });
-  }
-  return failures;
+interface BatchParseResult {
+  failures: BatchValidationFailure[];
+  items: ParsedEntry[];
 }
 
-function buildBatchEntries(items: readonly AddEntriesItem[]): JournalEntry[] {
+// All-or-nothing parse: collect failures across every entry so the
+// whole batch can be rejected before any write touches disk (a
+// half-applied batch can never end up persisted). The parsed items
+// ride along so the build step gets a shape something checked.
+function parseBatchEntries(items: readonly unknown[], accounts: readonly Account[]): BatchParseResult {
+  const failures: BatchValidationFailure[] = [];
+  const parsed: ParsedEntry[] = [];
+  items.forEach((item, index) => {
+    const result = parseEntry(item, accounts);
+    if (result.ok) parsed.push(result.entry);
+    else failures.push({ index, errors: result.errors });
+  });
+  return { failures, items: parsed };
+}
+
+function buildBatchEntries(items: readonly ParsedEntry[]): JournalEntry[] {
   return items.map((item) => makeEntry({ date: item.date, lines: item.lines, memo: item.memo, kind: "normal", replacesEntryId: item.replacesEntryId }));
 }
 
@@ -401,19 +414,16 @@ function earliestPeriodOf(entries: readonly JournalEntry[]): string {
   return entries.map((entry) => periodFromDate(entry.date)).reduce((min, period) => (period < min ? period : min));
 }
 
-export async function addEntries(
-  input: { bookId?: string; entries: AddEntriesItem[] },
-  workspaceRoot?: string,
-): Promise<{ bookId: string; entries: JournalEntry[] }> {
+export async function addEntries(input: { bookId?: string; entries: unknown }, workspaceRoot?: string): Promise<{ bookId: string; entries: JournalEntry[] }> {
   const config = await loadOrInitConfig(workspaceRoot);
   const bookId = resolveBookId(config, input.bookId);
-  if (!Array.isArray(input.entries) || input.entries.length === 0) {
+  if (!isUnknownArray(input.entries) || input.entries.length === 0) {
     throw new AccountingError(400, "addEntries: entries must be a non-empty array");
   }
   const accounts = await readAccounts(bookId, workspaceRoot);
-  const failures = collectBatchValidationFailures(input.entries, accounts);
+  const { failures, items } = parseBatchEntries(input.entries, accounts);
   if (failures.length > 0) throw new AccountingError(400, "invalid journal entries", failures);
-  const built = buildBatchEntries(input.entries);
+  const built = buildBatchEntries(items);
   // Two-phase batched write: stage every affected month's full new
   // content, then commit all renames at the end. Same-period
   // batches are fully atomic; multi-period failure window is
@@ -511,21 +521,21 @@ export async function getOpeningBalances(input: { bookId?: string }, workspaceRo
 }
 
 export async function setOpeningBalances(
-  input: { bookId?: string; asOfDate: string; lines: JournalLine[]; memo?: string },
+  input: { bookId?: string; asOfDate: string; lines: unknown; memo?: string },
   workspaceRoot?: string,
 ): Promise<{ bookId: string; openingEntry: JournalEntry; replacedExisting: boolean }> {
   const config = await loadOrInitConfig(workspaceRoot);
   const bookId = resolveBookId(config, input.bookId);
   const accounts = await readAccounts(bookId, workspaceRoot);
   const all = await readAllEntries(bookId, workspaceRoot);
-  const validation = validateOpening({
+  const parsed = parseOpening({
     asOfDate: input.asOfDate,
     lines: input.lines,
     accounts,
     existingEntries: all,
   });
-  if (!validation.ok) {
-    throw new AccountingError(400, "invalid opening balances", validation.errors);
+  if (!parsed.ok) {
+    throw new AccountingError(400, "invalid opening balances", parsed.errors);
   }
   // Replace-mode: void any existing active opening so the new one
   // is unambiguous. The marker is dated today (when the void
@@ -539,7 +549,7 @@ export async function setOpeningBalances(
   }
   const opening = makeEntry({
     date: input.asOfDate,
-    lines: input.lines,
+    lines: parsed.lines,
     memo: input.memo ?? "Opening balances",
     kind: "opening",
   });

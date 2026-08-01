@@ -71,9 +71,9 @@ type ActionRest = Omit<AccountingActionBody, "action">;
 type ActionHandler = (rest: ActionRest) => Promise<unknown>;
 
 // Each action is a tiny adapter that pulls the typed slice it needs
-// out of the loosely-typed body. Validation of the slice shape
-// itself lives inside the service layer (validateEntry,
-// validateOpening) so the adapters can stay one-liners.
+// out of the loosely-typed body. Parsing of the slice shape itself
+// lives inside the service layer (parseEntry, parseOpening,
+// parseAccountInput) so the adapters can stay one-liners.
 
 async function handleOpenBook(rest: ActionRest): Promise<OpenBookToolResult> {
   // openBook requires an explicit `bookId` that resolves to an
@@ -150,26 +150,12 @@ const ACTION_HANDLERS: Record<string, ActionHandler> = {
   },
   [ACCOUNTING_ACTIONS.deleteBook]: (rest) => deleteBook({ bookId: typeof rest.bookId === "string" ? rest.bookId : "", confirm: rest.confirm === true }),
   [ACCOUNTING_ACTIONS.getAccounts]: (rest) => listAccounts({ bookId: optionalString(rest.bookId) }),
-  // The three `as never` below are the last casts in this file. Removing
-  // them means making the service signatures honest — `entries` / `lines`
-  // / `account` are declared as validated shapes but arrive raw, and the
-  // validators that were written to turn bad input into a structured 400
-  // read `item.date` / `line.accountCode` off elements that may not be
-  // objects. `entries: [null]` therefore throws a TypeError and 500s
-  // instead. That is a validation-layer fix (journal.ts, openingBalances.ts,
-  // service.ts) with its own tests, tracked on #2692.
-  [ACCOUNTING_ACTIONS.upsertAccount]: (rest) =>
-    upsertAccount({
-      bookId: optionalString(rest.bookId),
-      // Service validates the shape — route doesn't reach into it.
-      account: rest.account as never,
-    }),
-  [ACCOUNTING_ACTIONS.addEntries]: (rest) =>
-    addEntries({
-      bookId: optionalString(rest.bookId),
-      // Service validates each entry's shape — route doesn't reach into it.
-      entries: (rest.entries ?? []) as never,
-    }),
+  // `account` / `entries` / `lines` travel to the service as `unknown`:
+  // the parsers there own the narrowing, so a bad field keeps its own
+  // message ("debit must be a non-negative finite number") instead of
+  // collapsing into a generic shape error the LLM can't repair from.
+  [ACCOUNTING_ACTIONS.upsertAccount]: (rest) => upsertAccount({ bookId: optionalString(rest.bookId), account: rest.account }),
+  [ACCOUNTING_ACTIONS.addEntries]: (rest) => addEntries({ bookId: optionalString(rest.bookId), entries: rest.entries }),
   [ACCOUNTING_ACTIONS.voidEntry]: (rest) =>
     voidEntry({
       bookId: optionalString(rest.bookId),
@@ -189,7 +175,9 @@ const ACTION_HANDLERS: Record<string, ActionHandler> = {
     setOpeningBalances({
       bookId: optionalString(rest.bookId),
       asOfDate: typeof rest.asOfDate === "string" ? rest.asOfDate : "",
-      lines: (rest.lines ?? []) as never,
+      // Omitted `lines` means the zero-line opening marker that unlocks
+      // the View's gate, so it stays an empty array rather than a 400.
+      lines: rest.lines ?? [],
       memo: optionalString(rest.memo),
     }),
   [ACCOUNTING_ACTIONS.getReport]: handleGetReport,
