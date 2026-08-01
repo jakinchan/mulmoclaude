@@ -218,3 +218,55 @@ describe("pushSessionEvent — pendingGenerations lifecycle", () => {
     assert.equal(Object.keys(pending).length, 0, "no leftover keys");
   });
 });
+
+// The store reads these fields off a `Record<string, unknown>` whose shape
+// nothing validates upstream. Pin that a field the declared type promises is
+// a string can never be stored as `undefined`, a number, or an object.
+describe("pushSessionEvent — malformed payload fields", () => {
+  beforeEach(() => {
+    initSessionStore(stubPubSub());
+    getOrCreateSession("s1", sessionOpts());
+  });
+
+  const history = () => getSession("s1")?.toolCallHistory ?? [];
+
+  it("drops a tool_call missing toolUseId or toolName", () => {
+    pushSessionEvent("s1", { type: EVENT_TYPES.toolCall, toolName: "Bash", args: {} });
+    pushSessionEvent("s1", { type: EVENT_TYPES.toolCall, toolUseId: "t1", args: {} });
+    pushSessionEvent("s1", { type: EVENT_TYPES.toolCall, toolUseId: 42, toolName: 7, args: {} });
+    assert.deepEqual(history(), []);
+  });
+
+  it("keeps a well-formed tool_call and its result", () => {
+    pushSessionEvent("s1", { type: EVENT_TYPES.toolCall, toolUseId: "t1", toolName: "Bash", args: { cmd: "ls" } });
+    pushSessionEvent("s1", { type: EVENT_TYPES.toolCallResult, toolUseId: "t1", content: "out" });
+    assert.equal(history().length, 1);
+    assert.equal(history()[0].toolUseId, "t1");
+    assert.equal(history()[0].toolName, "Bash");
+    assert.equal(history()[0].result, "out");
+  });
+
+  it("leaves result undefined when tool_call_result content is absent or not a string", () => {
+    pushSessionEvent("s1", { type: EVENT_TYPES.toolCall, toolUseId: "t1", toolName: "Bash", args: {} });
+    pushSessionEvent("s1", { type: EVENT_TYPES.toolCallResult, toolUseId: "t1" });
+    assert.equal(history()[0].result, undefined);
+    pushSessionEvent("s1", { type: EVENT_TYPES.toolCallResult, toolUseId: "t1", content: { nested: true } });
+    assert.equal(history()[0].result, undefined);
+  });
+
+  it("falls back to an empty statusMessage when status.message is absent or not a string", () => {
+    pushSessionEvent("s1", { type: EVENT_TYPES.status, message: "Thinking..." });
+    assert.equal(getSession("s1")?.statusMessage, "Thinking...");
+    pushSessionEvent("s1", { type: EVENT_TYPES.status });
+    assert.equal(getSession("s1")?.statusMessage, "");
+    pushSessionEvent("s1", { type: EVENT_TYPES.status, message: 123 });
+    assert.equal(getSession("s1")?.statusMessage, "");
+  });
+
+  it("ignores an event whose type is absent or not a string", () => {
+    pushSessionEvent("s1", { message: "no type" });
+    pushSessionEvent("s1", { type: 99, toolUseId: "t1", toolName: "Bash", args: {} });
+    assert.deepEqual(history(), []);
+    assert.equal(getSession("s1")?.statusMessage, "");
+  });
+});
