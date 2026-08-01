@@ -348,7 +348,11 @@ function applyAccount(accounts: readonly Account[], account: Account): { next: A
   const next = [...accounts];
   if (existingIdx >= 0) next[existingIdx] = stored;
   else next.push(stored);
-  return { next, previousType: existing?.type ?? null };
+  // `existing ? … : null`, not `existing?.type ?? null`: a book written
+  // before the account payload was parsed can hold a record whose `type`
+  // is missing, and collapsing that into "no previous type" would skip
+  // the invalidation below on the very upsert that repairs it.
+  return { next, previousType: existing ? existing.type : null };
 }
 
 export async function upsertAccount(
