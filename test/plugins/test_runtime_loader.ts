@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { loadPluginFromCacheDir, isCacheValid, EXTRACT_MARKER, ensureInsideBase, resolveExecute } from "../../server/plugins/runtime-loader.js";
+import { loadPluginFromCacheDir, isCacheValid, EXTRACT_MARKER, ensureInsideBase, resolveExecute, toPackageJson } from "../../server/plugins/runtime-loader.js";
 
 interface FixtureOpts {
   exportsImport?: string;
@@ -206,6 +206,47 @@ describe("loadPluginFromCacheDir", () => {
       const handler = () => "real";
       assert.equal(resolveExecute({ toString: handler }, "toString", false), handler);
     });
+
+    it("wraps a factory handler so the dispatch route's `context` arg is dropped", () => {
+      const seen: unknown[][] = [];
+      const execute = resolveExecute({ myTool: (...args: unknown[]) => seen.push(args) }, "myTool", true);
+      assert.ok(execute);
+      execute({ ctx: true }, { a: 1 });
+      assert.deepEqual(seen, [[{ a: 1 }]]);
+    });
+
+    for (const notAFunction of [undefined, null, 42, "handler", { call: true }, []]) {
+      it(`returns null when the exported value is ${JSON.stringify(notAFunction) ?? "undefined"} rather than a function`, () => {
+        assert.equal(resolveExecute({ myTool: notAFunction }, "myTool", false), null);
+      });
+    }
+  });
+
+  // `package.json` is plugin-authored, so every field the loader reads has to
+  // survive being the wrong type. Before #2692 the parsed JSON was asserted
+  // straight to `PackageJson`, which let a non-string `main` reach `path.join`.
+  describe("toPackageJson", () => {
+    it("keeps the string fields the entry resolver reads", () => {
+      const pkg = toPackageJson({ name: "@x/p", version: "1.2.3", main: "./m.js", module: "./esm.js" });
+      assert.deepEqual(pkg, { name: "@x/p", version: "1.2.3", exports: undefined, main: "./m.js", module: "./esm.js" });
+    });
+
+    it("drops non-string values instead of letting them pose as strings", () => {
+      const pkg = toPackageJson({ name: 42, version: null, main: { nested: true }, module: ["./a.js"] });
+      assert.deepEqual(pkg, { name: undefined, version: undefined, exports: undefined, main: undefined, module: undefined });
+    });
+
+    it("passes `exports` through unnarrowed so every legal Node.js shape survives", () => {
+      assert.deepEqual(toPackageJson({ exports: "./e.js" })?.exports, "./e.js");
+      assert.deepEqual(toPackageJson({ exports: ["./a.js", "./b.js"] })?.exports, ["./a.js", "./b.js"]);
+      assert.deepEqual(toPackageJson({ exports: { ".": { import: "./e.js" } } })?.exports, { ".": { import: "./e.js" } });
+    });
+
+    for (const notAnObject of [null, 42, "pkg", [], true]) {
+      it(`returns null for a package.json parsing to ${JSON.stringify(notAnObject) ?? "null"}`, () => {
+        assert.equal(toPackageJson(notAnObject), null);
+      });
+    }
   });
 
   it("returns null when entry file is missing on disk", async () => {
