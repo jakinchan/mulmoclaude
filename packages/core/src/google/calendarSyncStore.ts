@@ -1,4 +1,5 @@
-// Persistence for the Google Calendar incremental-sync tokens (#2095).
+// Persistence for the Google Calendar incremental-sync tokens (#2095) and the
+// cross-host sync markers (#2678).
 //
 // Unlike the OAuth material in `paths.ts`, this state lives INSIDE the
 // workspace. A syncToken is a claim about which records the workspace already
@@ -20,6 +21,13 @@ export function calendarSyncStatePath(workspaceRoot?: string): string {
 interface CalendarSyncState {
   /** calendarId → the `nextSyncToken` returned by that calendar's last sync. */
   tokens: Record<string, string>;
+  /** calendarId → when a sync of it last STARTED (ISO).
+   *
+   *  A separate concern from the token, deliberately: the token says how far
+   *  the workspace has read, never when anyone last ran. Workspace state rather
+   *  than host state, because that is exactly what lets a second host see that
+   *  this calendar is already being synced (#2678, `calendarSyncDue.ts`). */
+  lastSyncedAt: Record<string, string>;
 }
 
 // Shared with the REST layer so a stored token is keyed by exactly the
@@ -27,9 +35,18 @@ interface CalendarSyncState {
 // must never end up as two different keys.
 const calendarKey = canonicalCalendarId;
 
+/** Read one map out of whatever is on disk. Tolerant on purpose: a file written
+ *  before `lastSyncedAt` existed simply lacks the key, and a hand-edited one may
+ *  hold anything. A dropped entry costs a full re-walk or a duplicate run, never
+ *  data — throwing here would stop the sync entirely. */
+function stringRecord(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+}
+
 async function readState(workspaceRoot?: string): Promise<CalendarSyncState> {
-  const stored = await readJsonOrNull<CalendarSyncState>(calendarSyncStatePath(workspaceRoot));
-  return stored?.tokens ? stored : { tokens: {} };
+  const stored = await readJsonOrNull<Partial<CalendarSyncState>>(calendarSyncStatePath(workspaceRoot));
+  return { tokens: stringRecord(stored?.tokens), lastSyncedAt: stringRecord(stored?.lastSyncedAt) };
 }
 
 // One file holds every calendar's token, so an unguarded read-modify-write
@@ -41,15 +58,26 @@ async function readState(workspaceRoot?: string): Promise<CalendarSyncState> {
 // next). Held in a const wrapper so the tail can advance without a `let`.
 const writeQueue: { tail: Promise<unknown> } = { tail: Promise.resolve() };
 
-async function updateState(mutate: (tokens: Record<string, string>) => Record<string, string>, workspaceRoot?: string): Promise<void> {
+/** Decide from the stored state and write the result, both inside the queue, so
+ *  nothing in this process can read between the two. A `null` state skips the
+ *  write; `result` is what the caller learns about the decision. */
+async function updateStateWith<T>(decide: (state: CalendarSyncState) => { state: CalendarSyncState | null; result: T }, workspaceRoot?: string): Promise<T> {
   const run = writeQueue.tail.then(async () => {
-    const state = await readState(workspaceRoot);
-    await writeJsonAtomicWithMode(calendarSyncStatePath(workspaceRoot), { tokens: mutate(state.tokens) }, SYNC_STATE_MODE);
+    const { state, result } = decide(await readState(workspaceRoot));
+    if (state) await writeJsonAtomicWithMode(calendarSyncStatePath(workspaceRoot), state, SYNC_STATE_MODE);
+    return result;
   });
   // Swallow on the queue only — the caller still sees the original rejection.
   writeQueue.tail = run.catch(() => undefined);
   return await run;
 }
+
+async function updateState(mutate: (state: CalendarSyncState) => CalendarSyncState, workspaceRoot?: string): Promise<void> {
+  await updateStateWith((state) => ({ state: mutate(state), result: undefined }), workspaceRoot);
+}
+
+const withoutKey = (record: Record<string, string>, dropped: string): Record<string, string> =>
+  Object.fromEntries(Object.entries(record).filter(([key]) => key !== dropped));
 
 export async function loadCalendarSyncToken(calendarId?: string, workspaceRoot?: string): Promise<string | null> {
   const state = await readState(workspaceRoot);
@@ -58,12 +86,51 @@ export async function loadCalendarSyncToken(calendarId?: string, workspaceRoot?:
 
 export async function saveCalendarSyncToken(calendarId: string | undefined, syncToken: string, workspaceRoot?: string): Promise<void> {
   const stored = calendarKey(calendarId);
-  await updateState((tokens) => ({ ...tokens, [stored]: syncToken }), workspaceRoot);
+  await updateState((state) => ({ ...state, tokens: { ...state.tokens, [stored]: syncToken } }), workspaceRoot);
 }
 
 /** Drop one calendar's token — used when Google answers 410, so the next run
- *  starts a clean full sync. */
+ *  starts a clean full sync. Leaves the sync marker alone: "restart the walk"
+ *  says nothing about "nobody is running". */
 export async function clearCalendarSyncToken(calendarId?: string, workspaceRoot?: string): Promise<void> {
   const dropped = calendarKey(calendarId);
-  await updateState((tokens) => Object.fromEntries(Object.entries(tokens).filter(([key]) => key !== dropped)), workspaceRoot);
+  await updateState((state) => ({ ...state, tokens: withoutKey(state.tokens, dropped) }), workspaceRoot);
+}
+
+export async function loadCalendarLastSyncedAt(calendarId?: string, workspaceRoot?: string): Promise<string | null> {
+  const state = await readState(workspaceRoot);
+  return state.lastSyncedAt[calendarKey(calendarId)] ?? null;
+}
+
+/** Stamp when a sync of this calendar started, but only if `mayClaim` accepts
+ *  what the marker currently says. Answers whether THIS call is the one that
+ *  claimed it.
+ *
+ *  The decision and the stamp share one pass through the queue on purpose.
+ *  Deciding from a snapshot read earlier — as a caller filtering a whole map of
+ *  calendars up front must — leaves both hosts believing the calendar is free,
+ *  which is the race this exists to close (Codex review #2680). What remains is
+ *  the read→write gap BETWEEN processes; closing that needs a real file lock
+ *  (#2679), and this stays a soft dedup until then.
+ *
+ *  The time is passed in rather than read here so the rule stays testable
+ *  without freezing the clock. */
+export async function claimCalendarSyncIfDue(
+  calendarId: string | undefined,
+  startedAt: string,
+  mayClaim: (lastSyncedAt: string | null) => boolean,
+  workspaceRoot?: string,
+): Promise<boolean> {
+  const stored = calendarKey(calendarId);
+  return await updateStateWith((state) => {
+    const claimed = mayClaim(state.lastSyncedAt[stored] ?? null);
+    return { state: claimed ? { ...state, lastSyncedAt: { ...state.lastSyncedAt, [stored]: startedAt } } : null, result: claimed };
+  }, workspaceRoot);
+}
+
+/** Drop one calendar's marker, so the next tick — on either host — may sync it
+ *  immediately instead of waiting the window out. */
+export async function clearCalendarLastSyncedAt(calendarId?: string, workspaceRoot?: string): Promise<void> {
+  const dropped = calendarKey(calendarId);
+  await updateState((state) => ({ ...state, lastSyncedAt: withoutKey(state.lastSyncedAt, dropped) }), workspaceRoot);
 }
