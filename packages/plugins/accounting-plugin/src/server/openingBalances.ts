@@ -16,9 +16,7 @@ import { isUnknownArray } from "@mulmoclaude/common";
 
 import type { Account, JournalEntry, JournalLine } from "../shared/types.js";
 import { BALANCE_SHEET_ACCOUNT_TYPES } from "../shared/types.js";
-import { isValidCalendarDate, netBalance, parseJournalLine, voidedIdSet } from "./journal.js";
-
-const EQUALITY_TOLERANCE = 0.005;
+import { checkBalances, isValidCalendarDate, parseJournalLine, voidedIdSet } from "./journal.js";
 
 export interface OpeningValidationError {
   field: string;
@@ -118,10 +116,7 @@ export function parseOpening(input: OpeningParseInput): OpeningParseResult {
     return { ok: false, errors };
   }
   const lines = parseOpeningLines(input.lines, input.accounts, errors);
-  const net = netBalance(lines);
-  if (Math.abs(net) > EQUALITY_TOLERANCE) {
-    errors.push({ field: "lines", message: `Σ debit − Σ credit = ${net.toFixed(4)}; opening must balance` });
-  }
+  checkBalances(lines, input.lines.length, "opening", errors);
   validateAsOfPredatesEverything(input, errors);
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, lines };

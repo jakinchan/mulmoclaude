@@ -1,9 +1,9 @@
 // Pure parsing + normalization for the Account record: `parseAccountInput`
 // narrows a wire payload to an `Account`, `normalizeStoredAccount` decides
-// what of it reaches disk. Lives in its own module so unit tests can
-// exercise the field-whitelist + active-flag policy without spinning up
-// the file system, and so the service-layer `upsertAccount` stays under
-// the repo's 20-line guideline.
+// what of it reaches disk. Both are pure, so unit tests exercise the
+// shape rules + the field-whitelist + the active-flag policy without
+// spinning up a file system, and the service-layer `upsertAccount` is
+// left with only its file-IO and snapshot-invalidation orchestration.
 //
 // Policy summary (mirrored in the `upsertAccount` JSDoc):
 //   - whitelist: only `code`, `name`, `type`, optional `note`, and

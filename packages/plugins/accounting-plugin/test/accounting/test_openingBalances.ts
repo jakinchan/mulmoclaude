@@ -110,6 +110,20 @@ describe("parseOpening — non-object input", () => {
     assert.equal(result.ok, false);
     assert.ok(issuesOf(result).some((err) => err.message === "lines must be an array"));
   });
+  it("does not claim an opening is unbalanced when a line was unreadable", () => {
+    const result = parseOpening({
+      asOfDate: "2026-01-01",
+      lines: [null, { accountCode: "1000", debit: 100 }, { accountCode: "3000", credit: 100 }],
+      accounts: ACCOUNTS,
+      existingEntries: [],
+    });
+    assert.equal(result.ok, false);
+    assert.equal(
+      issuesOf(result).some((err) => err.message.includes("must balance")),
+      false,
+      JSON.stringify(issuesOf(result)),
+    );
+  });
   it("rejects a mistyped amount that would otherwise balance to zero", () => {
     const result = parseOpening({
       asOfDate: "2026-01-01",

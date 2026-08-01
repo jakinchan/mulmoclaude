@@ -251,6 +251,40 @@ describe("parseEntry — non-object input", () => {
     assert.equal(result.ok, false);
     assert.ok(issuesOf(result).some((err) => err.field === "lines[0].accountCode"));
   });
+  it("does not claim an entry is unbalanced when a line was unreadable", () => {
+    // 100 debit against 100 credit — it balances. An unreadable line
+    // contributes nothing to the sum, so reporting the difference would
+    // send the caller off to fix amounts that were never wrong.
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: 1000, debit: 100 },
+          { accountCode: "4000", credit: 100 },
+        ],
+      },
+      ACCOUNTS,
+    );
+    assert.equal(result.ok, false);
+    assert.equal(
+      issuesOf(result).some((err) => err.message.includes("must balance")),
+      false,
+      JSON.stringify(issuesOf(result)),
+    );
+  });
+  it("still reports a genuine imbalance when every line is readable", () => {
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: "1000", debit: 100 },
+          { accountCode: "4000", credit: 90 },
+        ],
+      },
+      ACCOUNTS,
+    );
+    assert.ok(issuesOf(result).some((err) => err.message.includes("must balance")));
+  });
 });
 
 describe("makeEntry", () => {

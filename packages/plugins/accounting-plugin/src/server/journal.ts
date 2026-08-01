@@ -109,6 +109,34 @@ function checkTaxRegistrationId(value: unknown, idx: number, errors: ValidationE
   }
 }
 
+/** One issue per bad field, so a caller fixing a line learns about all
+ *  of them at once. Returns whether the line came through clean. */
+function checkLineFields(raw: Record<string, unknown>, idx: number, errors: ValidationError[]): boolean {
+  const issuesBefore = errors.length;
+  const { accountCode, debit, credit, memo, taxRegistrationId } = raw;
+  if (typeof accountCode !== "string") errors.push({ field: `lines[${idx}].accountCode`, message: "accountCode must be a string" });
+  if (debit !== undefined && !isNonNegativeNumber(debit)) errors.push({ field: `lines[${idx}].debit`, message: "debit must be a non-negative finite number" });
+  if (credit !== undefined && !isNonNegativeNumber(credit))
+    errors.push({ field: `lines[${idx}].credit`, message: "credit must be a non-negative finite number" });
+  if (memo !== undefined && typeof memo !== "string") errors.push({ field: `lines[${idx}].memo`, message: "memo must be a string" });
+  checkTaxRegistrationId(taxRegistrationId, idx, errors);
+  return errors.length === issuesBefore;
+}
+
+/** Re-tested rather than assigned straight through: `checkLineFields`
+ *  proved each of these, but only a `typeof` narrows them for the
+ *  compiler. */
+function buildLine(raw: Record<string, unknown>): JournalLine | null {
+  const { accountCode, debit, credit, memo, taxRegistrationId } = raw;
+  if (typeof accountCode !== "string") return null;
+  const line: JournalLine = { accountCode };
+  if (typeof debit === "number") line.debit = debit;
+  if (typeof credit === "number") line.credit = credit;
+  if (typeof memo === "string") line.memo = memo;
+  if (typeof taxRegistrationId === "string") line.taxRegistrationId = taxRegistrationId;
+  return line;
+}
+
 /** Narrow one wire value to a `JournalLine`, pushing an issue per bad
  *  field. Shape only: account existence and the debit/credit-side rule
  *  belong to the caller, because journal entries and opening balances
@@ -119,23 +147,8 @@ export function parseJournalLine(raw: unknown, idx: number, errors: ValidationEr
     errors.push({ field: `lines[${idx}]`, message: "each line must be an object with an accountCode and a debit or credit amount" });
     return null;
   }
-  const issuesBefore = errors.length;
-  const { accountCode, debit, credit, memo, taxRegistrationId } = raw;
-  if (typeof accountCode !== "string") errors.push({ field: `lines[${idx}].accountCode`, message: "accountCode must be a string" });
-  if (debit !== undefined && !isNonNegativeNumber(debit)) errors.push({ field: `lines[${idx}].debit`, message: "debit must be a non-negative finite number" });
-  if (credit !== undefined && !isNonNegativeNumber(credit))
-    errors.push({ field: `lines[${idx}].credit`, message: "credit must be a non-negative finite number" });
-  if (memo !== undefined && typeof memo !== "string") errors.push({ field: `lines[${idx}].memo`, message: "memo must be a string" });
-  checkTaxRegistrationId(taxRegistrationId, idx, errors);
-  if (errors.length !== issuesBefore || typeof accountCode !== "string") return null;
-  const line: JournalLine = { accountCode };
-  // Re-tested rather than assigned straight through: the checks above
-  // proved these, but only a `typeof` narrows them for the compiler.
-  if (typeof debit === "number") line.debit = debit;
-  if (typeof credit === "number") line.credit = credit;
-  if (typeof memo === "string") line.memo = memo;
-  if (typeof taxRegistrationId === "string") line.taxRegistrationId = taxRegistrationId;
-  return line;
+  if (!checkLineFields(raw, idx, errors)) return null;
+  return buildLine(raw);
 }
 
 /** The rules a journal line answers to on top of its shape: the code
@@ -158,6 +171,20 @@ function parseEntryLines(raw: readonly unknown[], accountCodes: ReadonlySet<stri
     lines.push(line);
   });
   return lines;
+}
+
+/** Report the debit = credit imbalance — but only when every line was
+ *  readable. A line that failed to parse contributes nothing to the sum,
+ *  so an entry that balances perfectly would otherwise be told it
+ *  doesn't, sending the caller off to "fix" amounts that were never
+ *  wrong. Naming the unreadable line is the actionable message; the
+ *  balance is worth re-checking once it's a line. */
+export function checkBalances(lines: readonly JournalLine[], expectedLineCount: number, subject: string, errors: ValidationError[]): void {
+  if (lines.length !== expectedLineCount) return;
+  const net = netBalance(lines);
+  if (Math.abs(net) > EQUALITY_TOLERANCE) {
+    errors.push({ field: "lines", message: `Σ debit − Σ credit = ${net.toFixed(4)}; ${subject} must balance` });
+  }
 }
 
 function parseOptionalString(value: unknown, field: string, errors: ValidationError[]): string | undefined {
@@ -197,10 +224,7 @@ export function parseEntry(raw: unknown, accounts: readonly Account[]): EntryPar
     return { ok: false, errors };
   }
   const lines = parseEntryLines(raw.lines, new Set(accounts.map((account) => account.code)), errors);
-  const net = netBalance(lines);
-  if (Math.abs(net) > EQUALITY_TOLERANCE) {
-    errors.push({ field: "lines", message: `Σ debit − Σ credit = ${net.toFixed(4)}; entry must balance` });
-  }
+  checkBalances(lines, raw.lines.length, "entry", errors);
   const memo = parseOptionalString(raw.memo, "memo", errors);
   const replacesEntryId = parseOptionalString(raw.replacesEntryId, "replacesEntryId", errors);
   if (errors.length > 0 || date === null) return { ok: false, errors };

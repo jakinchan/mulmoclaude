@@ -63,7 +63,7 @@ import {
   type FiscalYearEnd,
 } from "../shared";
 import type { AccountingConfig } from "./types.js";
-import type { Account, BookSummary, JournalEntry, ReportPeriod } from "../shared/types.js";
+import type { Account, AccountType, BookSummary, JournalEntry, ReportPeriod } from "../shared/types.js";
 
 export class AccountingError extends Error {
   constructor(
@@ -319,43 +319,51 @@ export async function listAccounts(input: { bookId?: string }, workspaceRoot?: s
   return { bookId, accounts: await readAccounts(bookId, workspaceRoot) };
 }
 
+/** Parse the caller's account, then apply the one rule the chart owns
+ *  rather than the record: codes starting with `_` are reserved for the
+ *  synthetic rows the report layer injects (e.g. `_currentEarnings` in
+ *  the Equity section). A user account there would either duplicate a
+ *  B/S row or hide a real account behind the synthetic label. */
+function parseUpsertAccount(raw: unknown): Account {
+  const parsed = parseAccountInput(raw);
+  if (!parsed.ok) throw new AccountingError(400, parsed.message);
+  if (parsed.account.code.startsWith("_")) {
+    throw new AccountingError(
+      400,
+      `account code ${JSON.stringify(parsed.account.code)} is reserved (codes starting with _ are used for synthetic report rows)`,
+    );
+  }
+  return parsed.account;
+}
+
+/** Insert or replace the account in the chart. The whitelist +
+ *  active-flag policy lives in normalizeStoredAccount (see
+ *  ./accountNormalize.ts) so it stays unit-testable in isolation.
+ *  `previousType` is null for a new code — callers use it to decide
+ *  whether aggregation across periods just changed meaning. */
+function applyAccount(accounts: readonly Account[], account: Account): { next: Account[]; previousType: AccountType | null } {
+  const existingIdx = accounts.findIndex((stored) => stored.code === account.code);
+  const existing = existingIdx >= 0 ? accounts[existingIdx] : undefined;
+  const stored = normalizeStoredAccount(account, existing);
+  const next = [...accounts];
+  if (existingIdx >= 0) next[existingIdx] = stored;
+  else next.push(stored);
+  return { next, previousType: existing?.type ?? null };
+}
+
 export async function upsertAccount(
   input: { bookId?: string; account: unknown },
   workspaceRoot?: string,
 ): Promise<{ bookId: string; account: Account; accounts: Account[] }> {
   const config = await loadOrInitConfig(workspaceRoot);
   const bookId = resolveBookId(config, input.bookId);
-  const parsed = parseAccountInput(input.account);
-  if (!parsed.ok) throw new AccountingError(400, parsed.message);
-  const { account } = parsed;
-  // Account codes starting with `_` are reserved for synthetic
-  // rows that the report layer injects (e.g. the
-  // `_currentEarnings` row added to the Equity section by
-  // buildBalanceSheet). Forbid user accounts in that namespace so
-  // a B/S can't display two rows with the same code or
-  // accidentally lose a real account behind the synthetic label.
-  if (account.code.startsWith("_")) {
-    throw new AccountingError(400, `account code ${JSON.stringify(account.code)} is reserved (codes starting with _ are used for synthetic report rows)`);
-  }
-  const accounts = await readAccounts(bookId, workspaceRoot);
-  const existingIdx = accounts.findIndex((stored) => stored.code === account.code);
-  const next = [...accounts];
-  const oldType = existingIdx >= 0 ? accounts[existingIdx].type : null;
-  // Whitelist + active-flag policy lives in normalizeStoredAccount
-  // (see ./accountNormalize.ts) so the rules are unit-testable in
-  // isolation and this service function stays focused on the
-  // file-IO + snapshot-invalidation orchestration.
-  const stored = normalizeStoredAccount(account, existingIdx >= 0 ? accounts[existingIdx] : undefined);
-  if (existingIdx >= 0) {
-    next[existingIdx] = stored;
-  } else {
-    next.push(stored);
-  }
+  const account = parseUpsertAccount(input.account);
+  const { next, previousType } = applyAccount(await readAccounts(bookId, workspaceRoot), account);
   await writeAccounts(bookId, next, workspaceRoot);
   // Type changes affect aggregation across periods — drop every
   // snapshot to be safe. Pure name / note changes don't, but
   // distinguishing isn't worth the complexity.
-  if (oldType !== null && oldType !== account.type) {
+  if (previousType !== null && previousType !== account.type) {
     scheduleRebuild(bookId, "0000-00", workspaceRoot);
     await invalidateAllSnapshots(bookId, workspaceRoot);
   }
