@@ -258,8 +258,16 @@ async function updateFromRecord(
   shadow: ShadowEvent,
 ): Promise<PushOutcome> {
   const fetched = await getCalendarEvent(ctx.accessToken, { calendarId: ctx.calendarId, eventId });
+  // "Sync first" used to be the advice here, and it sent people nowhere: Google
+  // never resends a cancellation, so a sync sees nothing to do — and before
+  // #2688 the sync that DID see it deleted the record along with the edit. Say
+  // what is actually true and what actually resolves it. Deliberately silent on
+  // whether Google will hand this id back: that is unverified (#2688).
   if (fetched === null || fetched.event.status === CANCELLED_EVENT_STATUS) {
-    return { kind: "skipped", message: `${eventId}: the event no longer exists in Google — sync first, then re-create it` };
+    return {
+      kind: "skipped",
+      message: `${eventId}: Google no longer has this event, and your local edit was kept. Delete this record, or copy it into a new one.`,
+    };
   }
   if (conflictingFields(shadow, toShadowEvent(fetched.event), changed).length > 0) return { kind: "conflict" };
   const built = buildPatch(ctx, record, changed, shadow);

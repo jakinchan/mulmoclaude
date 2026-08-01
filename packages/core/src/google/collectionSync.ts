@@ -111,6 +111,22 @@ export function unsentEditGuard(
   };
 }
 
+/** What the pull may do to the record behind one event.
+ *
+ *  The guard runs BEFORE the status is consulted, and that order is the whole
+ *  fix: "is there something local to lose here?" outranks "what did Google do
+ *  to it?". Asking about the status first is how a cancellation kept deleting
+ *  records that held an edit Google had never seen (#2688), long after the
+ *  same guard had been put in front of the overwrite (#2684). */
+export function applyPlanFor(
+  existing: CollectionItem | null,
+  event: CalendarEventSummary,
+  hasUnsentEdit: (existing: CollectionItem, eventId: string) => boolean,
+): "withhold" | "delete" | "write" {
+  if (existing !== null && hasUnsentEdit(existing, event.id)) return "withhold";
+  return event.status === CANCELLED_EVENT_STATUS ? "delete" : "write";
+}
+
 async function applyEvent(
   collection: LoadedCollection,
   event: CalendarEventSummary,
@@ -124,15 +140,13 @@ async function applyEvent(
     // threads the slug into the change publish, so an open view updates live.
     const store = storeFor(collection, { workspaceRoot });
     if (!store.write || !store.delete) return { kind: "unwritable", message: `collection '${collection.slug}' is read-only` };
-    if (event.status === CANCELLED_EVENT_STATUS) {
-      const deleted = await store.delete(event.id);
-      return classifyDelete(event.id, deleted.kind);
-    }
-    // Read and check together, immediately before the write. The set computed
-    // back at push time cannot cover an edit made while the window was in
-    // flight — minutes of it, on a full walk (#2684).
+    // Read and decide immediately before acting. The set computed back at push
+    // time cannot cover an edit made while the window was in flight — minutes
+    // of it, on a full walk (#2684).
     const existing = await store.read(event.id);
-    if (existing !== null && hasUnsentEdit(existing, event.id)) return { kind: "withheld" };
+    const plan = applyPlanFor(existing, event, hasUnsentEdit);
+    if (plan === "withhold") return { kind: "withheld" };
+    if (plan === "delete") return classifyDelete(event.id, (await store.delete(event.id)).kind);
     const record = toCollectionRecord(event, schema.googleCalendar?.map ?? {}, schema.primaryKey, schema.fields);
     const written = await store.write(event.id, mergeIntoExisting(existing, record));
     return classifyWrite(event.id, written.kind);
