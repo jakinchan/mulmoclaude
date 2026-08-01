@@ -2,7 +2,7 @@
 
 `CLAUDE.md` says "NEVER use `as` type casts; MUST use type guards instead", but
 ESLint never enforced it: `@typescript-eslint/consistent-type-assertions` was on
-at its default `assertionStyle: "as"`, which only polices the *syntax* (`as T`
+at its default `assertionStyle: "as"`, which only polices the _syntax_ (`as T`
 over `<T>x`). The written ban was therefore unmachined, and casts accumulated.
 
 Follows the approach established in
@@ -16,17 +16,17 @@ files**. The issue's headline number (187) counted `src/` + `server/` only;
 
 By shape:
 
-| count | shape | intended treatment |
-|---|---|---|
-| 218 | other | case by case |
-| 68 | `as unknown as T` (double cast) | **fix** — the most dangerous kind |
-| 64 | `as Record<…>` | usually a typed reader / guard |
-| 35 | `as string \| undefined` | typed field reader |
-| 25 | error narrowing (`err as NodeJS.ErrnoException`) | shared guard helper |
-| 25 | `JSON.parse(…) as T` | **fix** — parse + validate |
-| 18 | DOM element (`$event.target as HTMLInputElement`) | allowlist candidate |
-| 11 | `as never` | fix — hides a real type mismatch |
-| 10 | `Object.fromEntries(…) as …` | TS inference limit — allowlist candidate |
+| count | shape                                             | intended treatment                       |
+| ----- | ------------------------------------------------- | ---------------------------------------- |
+| 218   | other                                             | case by case                             |
+| 68    | `as unknown as T` (double cast)                   | **fix** — the most dangerous kind        |
+| 64    | `as Record<…>`                                    | usually a typed reader / guard           |
+| 35    | `as string \| undefined`                          | typed field reader                       |
+| 25    | error narrowing (`err as NodeJS.ErrnoException`)  | shared guard helper                      |
+| 25    | `JSON.parse(…) as T`                              | **fix** — parse + validate               |
+| 18    | DOM element (`$event.target as HTMLInputElement`) | allowlist candidate                      |
+| 11    | `as never`                                        | fix — hides a real type mismatch         |
+| 10    | `Object.fromEntries(…) as …`                      | TS inference limit — allowlist candidate |
 
 ## Approach
 
@@ -36,7 +36,7 @@ By shape:
    constructing input the types call impossible so a runtime guard has
    something to reject, and handing partial mocks to code wanting a full
    interface. The exemption lives in the existing test override and spells out
-   its options — flat config *keeps* the previous match's options when an
+   its options — flat config _keeps_ the previous match's options when an
    override supplies only a severity, so a bare `"error"` there would have
    inherited `never` and banned `as` in tests too.
 3. **Drain file by file.** One file per commit, each one a real fix (type
@@ -53,7 +53,25 @@ early.
 
 - [x] `eslint.config.mjs` — rule at `warn`, tests exempt
 - [x] `accounting-plugin/src/server/router.ts` — 30 → 3 → **0**
-- [ ] 413 casts / 197 files remaining (re-measured 2026-08-02, after #2694 / #2697 / #2699 / #2702)
+- [x] `server/plugins/runtime-loader.ts` (#2697) · `server/api/routes/collections.ts` (#2699)
+- [x] `src/plugins/presentMulmoScript/index.ts` (#2702) · `packages/core/src/notifier/store.ts` (#2703)
+- [x] `server/api/routes/plugins.ts` (#2705) · `server/events/session-store/index.ts` (#2706)
+- [x] `server/workspace/photo-locations/list.ts` (#2701) · `server/plugins/runtime.ts` (#2698)
+- [x] `src/plugins/scope.ts` + chart / markdown / presentHtml (#2710) — 15 in one go
+- [ ] 368 casts / 188 files remaining (re-measured 2026-08-02, after #2698)
+
+### Two shapes worth copying
+
+**Fix the signature, not the call site.** `wrapWithScope` and `withHostAdapter`
+both declared `<TInner> (…): TInner` while returning a brand-new wrapper
+component; `as TInner` laundered it. Correcting the two signatures deleted 15
+casts across four files, because every one of them existed only to satisfy the
+lie. When several files cast the same call, suspect the callee.
+
+**A stale comment outlives its reason.** Fourteen of those casts carried
+"yarn-4's dual-@vue can make the package's nominal types distinct". The tree
+resolves one `vue` today, so the direct assignment type-checks. Re-test the
+premise before preserving a workaround.
 
 ### Done: the accounting validation layer
 

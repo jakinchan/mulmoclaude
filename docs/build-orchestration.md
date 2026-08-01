@@ -26,6 +26,39 @@ Tiers 3 and 4 are auto-discovered by `scripts/build-workspaces.mjs`. Tiers 0-2 s
 
 NEVER name a non-runtime-plugin package `@mulmoclaude/foo-plugin` (e.g. a helper library). The build driver will try to run its `build` script in tier 4, after every consumer has already been built. Pick a different name (`@mulmoclaude/foo`, `@mulmoclaude/foo-helpers`, …) or fold it into `@mulmoclaude/core`.
 
+## Touching `packages/core` invalidates a committed artifact
+
+`server/build/dispatcher.mjs` is an esbuild bundle **committed to git**, and CI
+gates it (`Verify built hook bundles are up-to-date` runs `yarn build` then
+`git diff --exit-code`). The bundle records core's vite chunk filename as a
+source annotation, so **any** change to `packages/core` — or to what it bundles
+in, i.e. `@mulmoclaude/common` and `@mulmoclaude/markdown-utils` — shifts that
+line and the gate fails with a one-line diff:
+
+```diff
+-// packages/core/dist/dist-Cwk0e12G.js
++// packages/core/dist/dist-DfFWwikm.js
+```
+
+Regenerate and commit it in the same PR:
+
+```bash
+yarn build:packages && yarn build:hooks
+git add server/build/dispatcher.mjs
+```
+
+Two traps, both hit repeatedly during #2692:
+
+- **Verify your tree reproduces the CURRENT artifact before trusting a new
+  hash.** In a git worktree whose `node_modules` is a symlink to another
+  checkout, `@mulmoclaude/*` resolves to _that_ checkout's sources, so the hash
+  you generate describes someone else's tree. Revert to the base commit, build,
+  and confirm `git diff --exit-code` passes before generating the real value.
+- **On a merge conflict here, regenerate — don't pick a side.** When two PRs
+  both touch core, each carries a different hash and neither is correct for the
+  merge result. Resolve by running the two commands above on the merged tree;
+  that is the only value the gate accepts.
+
 ## yarn 4 compatibility
 
 The `yarn4_smoke` workflow verifies the chain still works under yarn 4. Both tiers' driver only spawns `yarn workspace <name> run build` — identical syntax in yarn 1 and 4 — so portability is preserved.
