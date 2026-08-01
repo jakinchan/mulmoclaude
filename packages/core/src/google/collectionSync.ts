@@ -11,6 +11,7 @@
 import { stat } from "node:fs/promises";
 import { MISSED_RUN_POLICIES, SCHEDULE_TYPES } from "@receptron/task-scheduler";
 import type { SystemTaskDef } from "../scheduler/adapter.js";
+import type { CollectionItem } from "../collection/core/schema.js";
 import { discoverCollections } from "../collection/server/discovery.js";
 import { getWorkspaceRoot } from "../collection/server/host.js";
 import type { LoadedCollection } from "../collection/server/discoveredCollection.js";
@@ -29,7 +30,8 @@ import {
   saveCalendarSyncToken,
 } from "./calendarSyncStore.js";
 import { calendarSyncDueWindowMs, isCalendarSyncDue } from "./calendarSyncDue.js";
-import { clearCalendarShadow, saveCalendarShadow, toShadowEvent, type ShadowEvent } from "./calendarPushState.js";
+import { clearCalendarShadow, loadCalendarShadow, saveCalendarShadow, toShadowEvent, type ShadowEvent } from "./calendarPushState.js";
+import { baselineRecord, locallyChangedFields, pushableMap } from "./pushPlan.js";
 import { loadGoogleTokens } from "./tokenStore.js";
 import { log } from "./host.js";
 
@@ -43,14 +45,24 @@ export interface CalendarCollectionSyncResult {
   /** Events that can NEVER be stored — e.g. an id the record-file sanitiser
    *  rejects. Reported and skipped rather than retried; see `classifyWrite`. */
   unwritable: string[];
+  /** Events left alone because the record they would overwrite holds an edit
+   *  Google has not seen. NOT an error — the token still advances past them; only
+   *  the baseline is held back, so the next push reports the conflict (#2684). */
+  withheld: string[];
   /** Retryable failures. Any of these hold the sync token back. */
   errors: string[];
 }
 
 /** `skipped` is a benign no-op; `unwritable` can never succeed so it must NOT
- *  hold the token; `error` is retryable and does hold it. */
+ *  hold the token; `error` is retryable and does hold it; `withheld` is a
+ *  deliberate refusal to overwrite a local edit. */
 type ApplyOutcome =
-  { kind: "written" } | { kind: "removed" } | { kind: "skipped" } | { kind: "unwritable"; message: string } | { kind: "error"; message: string };
+  | { kind: "written" }
+  | { kind: "removed" }
+  | { kind: "skipped" }
+  | { kind: "withheld" }
+  | { kind: "unwritable"; message: string }
+  | { kind: "error"; message: string };
 
 // `writeItem` / `deleteItem` report most failures by RETURNING a non-`ok` kind
 // rather than throwing. Ignoring that would let the token advance past events
@@ -76,7 +88,35 @@ export function classifyDelete(eventId: string, kind: DeleteItemResult["kind"]):
   return { kind: "error", message: `delete ${eventId}: ${kind}` };
 }
 
-async function applyEvent(collection: LoadedCollection, event: CalendarEventSummary, workspaceRoot: string): Promise<ApplyOutcome> {
+/** Whether this record still says what the workspace last saw Google say.
+ *
+ *  Compared against the baseline as it stood when this run STARTED READING, not
+ *  as it stands now: a full re-walk clears the baseline before writing a new one
+ *  (`restartFullSync`), so reading it live would answer "no baseline" for every
+ *  event and protect nothing exactly when the window is widest (#2684).
+ *
+ *  A record with no baseline at all is NOT withheld — that is an event this
+ *  workspace has never held, so there is no local edit to lose. */
+export function unsentEditGuard(
+  schema: LoadedCollection["schema"],
+  baseline: Record<string, ShadowEvent>,
+): (existing: CollectionItem, eventId: string) => boolean {
+  // Built once per collection rather than per event: a full walk runs this over
+  // every event the calendar has (Sourcery review #2687).
+  const map = pushableMap(schema.googleCalendar?.map ?? {});
+  return (existing, eventId) => {
+    const shadow = baseline[eventId];
+    if (shadow === undefined) return false;
+    return locallyChangedFields(existing, baselineRecord(eventId, shadow, map, schema.primaryKey, schema.fields), map).length > 0;
+  };
+}
+
+async function applyEvent(
+  collection: LoadedCollection,
+  event: CalendarEventSummary,
+  workspaceRoot: string,
+  hasUnsentEdit: (existing: CollectionItem, eventId: string) => boolean,
+): Promise<ApplyOutcome> {
   const { schema } = collection;
   try {
     // Discovery rejects googleCalendar on a read-only (dataSource) schema,
@@ -88,8 +128,13 @@ async function applyEvent(collection: LoadedCollection, event: CalendarEventSumm
       const deleted = await store.delete(event.id);
       return classifyDelete(event.id, deleted.kind);
     }
+    // Read and check together, immediately before the write. The set computed
+    // back at push time cannot cover an edit made while the window was in
+    // flight — minutes of it, on a full walk (#2684).
+    const existing = await store.read(event.id);
+    if (existing !== null && hasUnsentEdit(existing, event.id)) return { kind: "withheld" };
     const record = toCollectionRecord(event, schema.googleCalendar?.map ?? {}, schema.primaryKey, schema.fields);
-    const written = await store.write(event.id, mergeIntoExisting(await store.read(event.id), record));
+    const written = await store.write(event.id, mergeIntoExisting(existing, record));
     return classifyWrite(event.id, written.kind);
   } catch (error) {
     // A thrown IO error (EACCES, ENOSPC, …) must not abort the remaining events
@@ -344,6 +389,16 @@ async function releaseCalendarSyncClaim(calendarId: string | undefined, workspac
   }
 }
 
+/** Every event whose baseline must NOT advance: what the push could not send,
+ *  plus what the apply refused to overwrite.
+ *
+ *  The two must agree exactly. The apply's refusals only became visible after it
+ *  ran, so they join the union here rather than at push time — leaving them out
+ *  would advance the baseline past a record the pull deliberately left holding a
+ *  local edit, which is the silent overwrite this whole path exists to stop. */
+export const heldBack = (unpushed: UnpushedBySlug, results: readonly CalendarCollectionSyncResult[]): ReadonlySet<string> =>
+  new Set([...allUnpushed(unpushed), ...results.flatMap((result) => result.withheld)]);
+
 async function syncCalendarGroupNow(
   calendarId: string | undefined,
   collections: readonly LoadedCollection[],
@@ -355,17 +410,24 @@ async function syncCalendarGroupNow(
   // very edit that was waiting to go up (#2620).
   const unpushed = await pushAndProtect(collections, workspaceRoot);
 
+  // Snapshot AFTER the push and BEFORE the window is read. After, because the
+  // push writes a baseline per record it sends, and an earlier snapshot would
+  // read those records as locally edited. Before, because `restartFullSync`
+  // clears the baseline — the snapshot is what survives that clear and lets the
+  // apply still tell an edit from an untouched record (#2684).
+  const baseline = await loadCalendarShadow(calendarId, workspaceRoot);
+
   const accessToken = await getGoogleAccessToken();
   const storedToken = await loadCalendarSyncToken(calendarId, workspaceRoot);
   const first = await syncCalendarEvents(accessToken, { calendarId, syncToken: storedToken ?? undefined });
   const result = first.fullResyncRequired ? await restartFullSync(accessToken, calendarId, workspaceRoot) : first;
 
-  const results = await applyWindowToGroup(collections, result.events, workspaceRoot, unpushed);
+  const results = await applyWindowToGroup(collections, result.events, workspaceRoot, unpushed, baseline);
   if (windowFullyLanded(calendarId, results)) {
     // Gated with the token, for the same reason: a baseline recorded for a window
     // the records never received would make the next push read a local edit where
     // there was only a failed write.
-    await saveCalendarShadow(calendarId, shadowUpdates(result.events, allUnpushed(unpushed)), workspaceRoot);
+    await saveCalendarShadow(calendarId, shadowUpdates(result.events, heldBack(unpushed, results), baseline), workspaceRoot);
     if (result.nextSyncToken) await advanceToken(calendarId, result.nextSyncToken, collections, workspaceRoot);
   }
   return results;
@@ -380,14 +442,15 @@ async function applyWindowToGroup(
   events: readonly CalendarEventSummary[],
   workspaceRoot: string,
   unpushed: UnpushedBySlug,
+  baseline: Record<string, ShadowEvent>,
 ): Promise<CalendarCollectionSyncResult[]> {
   const results: CalendarCollectionSyncResult[] = [];
   for (const collection of collections) {
     const protection = unpushedFor(unpushed, collection.slug);
     results.push(
       protection === null
-        ? { slug: collection.slug, written: 0, removed: 0, unwritable: [], errors: [PROTECTION_UNKNOWN] }
-        : await applyEventsToCollection(collection, events, workspaceRoot, protection),
+        ? { slug: collection.slug, written: 0, removed: 0, unwritable: [], withheld: [], errors: [PROTECTION_UNKNOWN] }
+        : await applyEventsToCollection(collection, events, workspaceRoot, protection, baseline),
     );
   }
   return results;
@@ -409,6 +472,15 @@ function windowFullyLanded(calendarId: string | undefined, results: readonly Cal
     .forEach((entry) =>
       log.warn("google", "skipping calendar events that can never be stored", { calendarId, slug: entry.slug, unwritable: entry.unwritable }),
     );
+  // A withheld event is a decision, not a failure: the record kept a local edit
+  // Google has not seen, so re-fetching the window would only refuse it again.
+  // The token advances past it and the BASELINE is what holds back, which is
+  // what keeps the next push able to report the conflict (#2684).
+  results
+    .filter((entry) => entry.withheld.length > 0)
+    .forEach((entry) =>
+      log.warn("google", "leaving calendar records alone — they hold edits Google has not seen", { calendarId, slug: entry.slug, withheld: entry.withheld }),
+    );
   const failed = results.filter((entry) => entry.errors.length > 0);
   failed.forEach((entry) => log.warn("google", "holding back calendar sync token after failed writes", { calendarId, slug: entry.slug, errors: entry.errors }));
   return failed.length === 0;
@@ -422,10 +494,27 @@ function windowFullyLanded(calendarId: string | undefined, results: readonly Cal
  *  keeps the local one would make the next push read a plain one-sided edit —
  *  no conflict to detect any more — and quietly overwrite Google. Held back, the
  *  baseline stays older than both sides, so the conflict keeps being reported
- *  until someone resolves it (#2620). */
-export function shadowUpdates(events: readonly CalendarEventSummary[], unpushed: ReadonlySet<string> = new Set()): Record<string, ShadowEvent | null> {
-  const carried = pullableEvents(events, unpushed);
-  return Object.fromEntries(carried.map((event) => [event.id, event.status === CANCELLED_EVENT_STATUS ? null : toShadowEvent(event)]));
+ *  until someone resolves it (#2620).
+ *
+ *  `held` carries what those events must KEEP. Omitting them is enough on an
+ *  incremental run, where the file is merged rather than replaced — but a full
+ *  re-walk CLEARS the baseline first (`restartFullSync`), and there omission
+ *  drops the entry for good. The next push would then read a conflicted record
+ *  as a brand-new create, hit Google's duplicate-id 409 and refuse it, instead
+ *  of reporting the conflict it actually is. Re-stating the pre-run value makes
+ *  a held-back event behave the same either way (observed during Claude review;
+ *  no bot flagged it). */
+export function shadowUpdates(
+  events: readonly CalendarEventSummary[],
+  unpushed: ReadonlySet<string> = new Set(),
+  held: Record<string, ShadowEvent> = {},
+): Record<string, ShadowEvent | null> {
+  const advanced = pullableEvents(events, unpushed).map((event): [string, ShadowEvent | null] => [
+    event.id,
+    event.status === CANCELLED_EVENT_STATUS ? null : toShadowEvent(event),
+  ]);
+  const kept = [...unpushed].flatMap((eventId): [string, ShadowEvent][] => (held[eventId] === undefined ? [] : [[eventId, held[eventId]]]));
+  return Object.fromEntries([...kept, ...advanced]);
 }
 
 /** Save the window's token unless every collection that consumed it was deleted
@@ -476,15 +565,19 @@ async function applyEventsToCollection(
   events: readonly CalendarEventSummary[],
   workspaceRoot: string,
   unpushed: ReadonlySet<string>,
+  baseline: Record<string, ShadowEvent>,
 ): Promise<CalendarCollectionSyncResult> {
-  const outcomes: ApplyOutcome[] = [];
+  const hasUnsentEdit = unsentEditGuard(collection.schema, baseline);
+  const attempts: { eventId: string; outcome: ApplyOutcome }[] = [];
   for (const event of pullableEvents(events, unpushed)) {
-    outcomes.push(await applyEvent(collection, event, workspaceRoot));
+    attempts.push({ eventId: event.id, outcome: await applyEvent(collection, event, workspaceRoot, hasUnsentEdit) });
   }
+  const outcomes = attempts.map((attempt) => attempt.outcome);
   return {
     slug: collection.slug,
     written: outcomes.filter((outcome) => outcome.kind === "written").length,
     removed: outcomes.filter((outcome) => outcome.kind === "removed").length,
+    withheld: attempts.flatMap((attempt) => (attempt.outcome.kind === "withheld" ? [attempt.eventId] : [])),
     unwritable: outcomes.flatMap((outcome) => (outcome.kind === "unwritable" ? [outcome.message] : [])),
     errors: outcomes.flatMap((outcome) => (outcome.kind === "error" ? [outcome.message] : [])),
   };
@@ -603,7 +696,9 @@ async function runCalendarGroups(
       results.push(...(await syncCalendarGroup(calendarId, collections, workspaceRoot, mayClaim)));
     } catch (error) {
       log.warn("google", "calendar sync failed", { calendarId, error: String(error) });
-      results.push(...collections.map((collection) => ({ slug: collection.slug, written: 0, removed: 0, unwritable: [], errors: [String(error)] })));
+      results.push(
+        ...collections.map((collection) => ({ slug: collection.slug, written: 0, removed: 0, unwritable: [], withheld: [], errors: [String(error)] })),
+      );
     }
   }
   return results;
