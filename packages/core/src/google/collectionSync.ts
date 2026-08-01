@@ -127,6 +127,19 @@ export function applyPlanFor(
   return event.status === CANCELLED_EVENT_STATUS ? "delete" : "write";
 }
 
+/** Lay Google's mapped values over whatever the record already holds. Split out
+ *  so `applyEvent` reads as read → decide → act rather than carrying the write
+ *  itself (CodeRabbit review #2689). */
+async function writeProjected(
+  write: NonNullable<ReturnType<typeof storeFor>["write"]>,
+  event: CalendarEventSummary,
+  schema: LoadedCollection["schema"],
+  existing: CollectionItem | null,
+): Promise<ApplyOutcome> {
+  const record = toCollectionRecord(event, schema.googleCalendar?.map ?? {}, schema.primaryKey, schema.fields);
+  return classifyWrite(event.id, (await write(event.id, mergeIntoExisting(existing, record))).kind);
+}
+
 async function applyEvent(
   collection: LoadedCollection,
   event: CalendarEventSummary,
@@ -147,9 +160,7 @@ async function applyEvent(
     const plan = applyPlanFor(existing, event, hasUnsentEdit);
     if (plan === "withhold") return { kind: "withheld" };
     if (plan === "delete") return classifyDelete(event.id, (await store.delete(event.id)).kind);
-    const record = toCollectionRecord(event, schema.googleCalendar?.map ?? {}, schema.primaryKey, schema.fields);
-    const written = await store.write(event.id, mergeIntoExisting(existing, record));
-    return classifyWrite(event.id, written.kind);
+    return await writeProjected(store.write, event, schema, existing);
   } catch (error) {
     // A thrown IO error (EACCES, ENOSPC, …) must not abort the remaining events
     // or the other collections on this calendar — record it as retryable so the
