@@ -5,7 +5,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { calendarSyncDueWindowMs, dueCalendarGroups, isCalendarSyncDue } from "@mulmoclaude/core/google";
+import { calendarSyncDueWindowMs, isCalendarSyncDue } from "@mulmoclaude/core/google";
 
 const ONE_MINUTE_MS = 60 * 1000;
 const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
@@ -58,30 +58,20 @@ describe("isCalendarSyncDue (#2678)", () => {
   });
 });
 
-describe("dueCalendarGroups (#2678)", () => {
-  const groups = new Map([
-    ["primary", "group-primary"],
-    ["work@group.calendar.google.com", "group-work"],
-  ]);
+// The predicate is the guard the sync hands DOWN to the claim rather than
+// evaluating up front, so these pin the two shapes the caller actually passes.
+describe("the guard a scheduled run hands to the claim (#2678)", () => {
+  const scheduledGuard = (lastSyncedAt: string | null) => isCalendarSyncDue(lastSyncedAt, HOURLY_WINDOW_MS, NOW);
 
-  it("keeps only the calendars nothing synced inside the window", async () => {
-    const markers: Record<string, string> = { primary: isoAt(-ONE_MINUTE_MS) };
-    const due = await dueCalendarGroups(groups, (calendarId) => Promise.resolve(markers[calendarId] ?? null), HOURLY_WINDOW_MS, NOW);
-    assert.deepEqual([...due.keys()], ["work@group.calendar.google.com"]);
+  it("takes a calendar nothing has claimed", () => {
+    assert.equal(scheduledGuard(null), true);
   });
 
-  it("keeps every group when nothing has been synced", async () => {
-    const due = await dueCalendarGroups(groups, () => Promise.resolve(null), HOURLY_WINDOW_MS, NOW);
-    assert.equal(due.size, 2);
+  it("backs off a calendar another host claimed a minute ago", () => {
+    assert.equal(scheduledGuard(isoAt(-ONE_MINUTE_MS)), false);
   });
 
-  it("drops every group while another host holds them all", async () => {
-    const due = await dueCalendarGroups(groups, () => Promise.resolve(isoAt(-ONE_MINUTE_MS)), HOURLY_WINDOW_MS, NOW);
-    assert.equal(due.size, 0);
-  });
-
-  it("carries the group value through untouched", async () => {
-    const due = await dueCalendarGroups(groups, () => Promise.resolve(null), HOURLY_WINDOW_MS, NOW);
-    assert.equal(due.get("primary"), "group-primary");
+  it("takes one whose last run has aged past the window", () => {
+    assert.equal(scheduledGuard(isoAt(-ONE_HOUR_MS)), true);
   });
 });

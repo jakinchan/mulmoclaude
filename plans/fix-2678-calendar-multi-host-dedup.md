@@ -60,18 +60,24 @@ Google カレンダー本体と `~/.config/mulmo` だけになる）。**この 
 sync token とは別の関心事にする（issue の指摘どおり）。token は「どこまで取り込んだか」であって
 「最後にいつ走ったか」ではない。
 
-### 2. 実行の**開始時**にスタンプし、失敗したら取り消す
+### 2. 実行の**開始時**に「取れたら取る」形で claim する
 
 feeds は成功時にスタンプするが、feeds の refresh は読むだけ。`autoPush` 以降のカレンダー同期は
 Google に**書き込み**、`.push-state.json` を書き換える。終了時スタンプでは実行時間まるごと
 （初回フルウォークなら数分）が他ホストの開始に対して開いたままになる — それが baseline の
 lost update が起きる窓そのもの。開始時に押せば、窓は read → write の隙間だけになる。
 
-失敗時（throw、または結果に retryable な `errors` がある）はマーカーを消す。掴んだまま失敗した
-ホストが1時間カレンダーを塞ぐのを防ぐ = 失敗時の挙動は現状と変わらない。
+**判定と書き込みは1つの `claimCalendarSyncIfDue` に閉じる**（初版のレビューで Codex が指摘。
+詳細は下記）。事前に全 group を絞ってから順に回すと、判定が「その group を実行する時点」から
+最大で数分ずれ、両ホストとも「空いている」と読む。
 
-マーカーの書き込み自体が失敗しても同期は止めない（重複防止は最適化であって同期の前提条件では
-ない）。warn を出して現状の挙動に落ちる。
+throw した場合（= 実行そのものが成立しなかった）だけマーカーを消す。**retryable な
+`errors` が出ただけの場合は消さない**: その run は起きていて token も baseline も保留済みなので
+どのみち次の tick で replay される。消すと、恒久的に失敗するカレンダーを毎時2ホストに同時に
+掴ませることになり、防ぎたかった重なりそのものを作る（自己レビューで発見）。
+
+claim の書き込み自体が失敗した場合は **fail open**（`true` を返して同期を続行）。重複防止は
+最適化であって同期の前提条件ではない。warn を出して #2678 以前の挙動に落ちる。
 
 ### 3. ゲートはスケジュール経路だけに掛ける
 
@@ -121,9 +127,9 @@ Refresh / Push ボタンがホスト B のスケジュール実行に重なる�
 
 | ファイル | 変更 |
 |---|---|
-| `packages/core/src/google/calendarSyncStore.ts` | 状態を2マップ化。`load/save/clearCalendarLastSyncedAt` を追加。壊れたファイルに耐える正規化 |
+| `packages/core/src/google/calendarSyncStore.ts` | 状態を2マップ化。`claimCalendarSyncIfDue` / `load/clearCalendarLastSyncedAt` を追加。壊れたファイルに耐える正規化 |
 | `packages/core/src/google/calendarSyncDue.ts` | 新規。純関数 `calendarSyncDueWindowMs` / `isCalendarSyncDue` |
-| `packages/core/src/google/collectionSync.ts` | `syncCalendarGroup` に claim/release、`syncDueCalendarCollections` にゲート、`dueCalendarGroups`、task def の interval 引き回し、ログ文言 |
+| `packages/core/src/google/collectionSync.ts` | `syncCalendarGroup` に claim/release、`ClaimGuard` を下まで引き回す、task def の interval 引き回し、ログ文言 |
 | `packages/core/src/google/index.ts` | 追加分の re-export |
 | `test/services/google/test_calendarSyncStore.ts` | マーカーの round-trip / 隔離 / token との共存 / 旧ファイル互換 |
 | `test/services/google/test_calendarSyncDue.ts` | 新規。窓の計算と due 判定（未設定 / 直後 / 窓ちょうど / パース不能 / 未来） |

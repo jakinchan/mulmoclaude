@@ -58,14 +58,22 @@ async function readState(workspaceRoot?: string): Promise<CalendarSyncState> {
 // next). Held in a const wrapper so the tail can advance without a `let`.
 const writeQueue: { tail: Promise<unknown> } = { tail: Promise.resolve() };
 
-async function updateState(mutate: (state: CalendarSyncState) => CalendarSyncState, workspaceRoot?: string): Promise<void> {
+/** Decide from the stored state and write the result, both inside the queue, so
+ *  nothing in this process can read between the two. A `null` state skips the
+ *  write; `result` is what the caller learns about the decision. */
+async function updateStateWith<T>(decide: (state: CalendarSyncState) => { state: CalendarSyncState | null; result: T }, workspaceRoot?: string): Promise<T> {
   const run = writeQueue.tail.then(async () => {
-    const state = await readState(workspaceRoot);
-    await writeJsonAtomicWithMode(calendarSyncStatePath(workspaceRoot), mutate(state), SYNC_STATE_MODE);
+    const { state, result } = decide(await readState(workspaceRoot));
+    if (state) await writeJsonAtomicWithMode(calendarSyncStatePath(workspaceRoot), state, SYNC_STATE_MODE);
+    return result;
   });
   // Swallow on the queue only — the caller still sees the original rejection.
   writeQueue.tail = run.catch(() => undefined);
   return await run;
+}
+
+async function updateState(mutate: (state: CalendarSyncState) => CalendarSyncState, workspaceRoot?: string): Promise<void> {
+  await updateStateWith((state) => ({ state: mutate(state), result: undefined }), workspaceRoot);
 }
 
 const withoutKey = (record: Record<string, string>, dropped: string): Record<string, string> =>
@@ -94,11 +102,30 @@ export async function loadCalendarLastSyncedAt(calendarId?: string, workspaceRoo
   return state.lastSyncedAt[calendarKey(calendarId)] ?? null;
 }
 
-/** Stamp when a sync of this calendar started. The time is passed in rather than
- *  read here so the rule stays testable without freezing the clock. */
-export async function saveCalendarLastSyncedAt(calendarId: string | undefined, startedAt: string, workspaceRoot?: string): Promise<void> {
+/** Stamp when a sync of this calendar started, but only if `mayClaim` accepts
+ *  what the marker currently says. Answers whether THIS call is the one that
+ *  claimed it.
+ *
+ *  The decision and the stamp share one pass through the queue on purpose.
+ *  Deciding from a snapshot read earlier — as a caller filtering a whole map of
+ *  calendars up front must — leaves both hosts believing the calendar is free,
+ *  which is the race this exists to close (Codex review #2680). What remains is
+ *  the read→write gap BETWEEN processes; closing that needs a real file lock
+ *  (#2679), and this stays a soft dedup until then.
+ *
+ *  The time is passed in rather than read here so the rule stays testable
+ *  without freezing the clock. */
+export async function claimCalendarSyncIfDue(
+  calendarId: string | undefined,
+  startedAt: string,
+  mayClaim: (lastSyncedAt: string | null) => boolean,
+  workspaceRoot?: string,
+): Promise<boolean> {
   const stored = calendarKey(calendarId);
-  await updateState((state) => ({ ...state, lastSyncedAt: { ...state.lastSyncedAt, [stored]: startedAt } }), workspaceRoot);
+  return await updateStateWith((state) => {
+    const claimed = mayClaim(state.lastSyncedAt[stored] ?? null);
+    return { state: claimed ? { ...state, lastSyncedAt: { ...state.lastSyncedAt, [stored]: startedAt } } : null, result: claimed };
+  }, workspaceRoot);
 }
 
 /** Drop one calendar's marker, so the next tick — on either host — may sync it

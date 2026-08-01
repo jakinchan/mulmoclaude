@@ -64,11 +64,11 @@ export {
 } from "./calendar.js";
 export {
   calendarSyncStatePath,
+  claimCalendarSyncIfDue,
   clearCalendarLastSyncedAt,
   clearCalendarSyncToken,
   loadCalendarLastSyncedAt,
   loadCalendarSyncToken,
-  saveCalendarLastSyncedAt,
   saveCalendarSyncToken,
 } from "./calendarSyncStore.js";
 export { calendarSyncDueWindowMs, isCalendarSyncDue } from "./calendarSyncDue.js";
@@ -120,12 +120,12 @@ export {
   anySyncedCollectionSurvives,
   groupByCalendar,
   allUnpushed,
-  dueCalendarGroups,
   orphanedCalendarId,
   pullableEvents,
   releaseOrphanedCalendarToken,
   unpushedFor,
   PROTECTION_UNKNOWN,
+  type ClaimGuard,
   type UnpushedBySlug,
   syncCalendarForCollection,
   syncCalendarGroup,

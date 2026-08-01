@@ -10,13 +10,18 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   calendarSyncStatePath,
+  claimCalendarSyncIfDue,
   clearCalendarLastSyncedAt,
   clearCalendarSyncToken,
   loadCalendarLastSyncedAt,
   loadCalendarSyncToken,
-  saveCalendarLastSyncedAt,
   saveCalendarSyncToken,
 } from "@mulmoclaude/core/google";
+
+/** The unconditional claim every user-facing door makes. */
+const ALWAYS = () => true;
+const saveCalendarLastSyncedAt = (calendarId: string | undefined, startedAt: string, workspaceRoot: string) =>
+  claimCalendarSyncIfDue(calendarId, startedAt, ALWAYS, workspaceRoot);
 
 let workspace: string;
 
@@ -165,6 +170,38 @@ describe("calendar sync marker (#2678)", () => {
     assert.equal(await loadCalendarLastSyncedAt(undefined, workspace), null);
     await saveCalendarLastSyncedAt(undefined, stamp, workspace);
     assert.equal(await loadCalendarSyncToken(undefined, workspace), "tok-old");
+  });
+
+  // The claim decides from the state it is about to write, in one pass through
+  // the write queue. Deciding from a snapshot read earlier is what let two hosts
+  // both conclude the calendar was free (Codex review on PR #2680).
+  it("refuses the claim when the guard rejects what the marker says", async () => {
+    await saveCalendarLastSyncedAt("a", stamp, workspace);
+    const claimed = await claimCalendarSyncIfDue("a", "2026-08-01T09:30:00.000Z", (lastSyncedAt) => lastSyncedAt === null, workspace);
+    assert.equal(claimed, false);
+    assert.equal(await loadCalendarLastSyncedAt("a", workspace), stamp);
+  });
+
+  it("takes the claim when the guard accepts, and reports which call took it", async () => {
+    const claimed = await claimCalendarSyncIfDue("a", stamp, (lastSyncedAt) => lastSyncedAt === null, workspace);
+    assert.equal(claimed, true);
+    assert.equal(await loadCalendarLastSyncedAt("a", workspace), stamp);
+  });
+
+  it("lets exactly one of two concurrent claims through", async () => {
+    const untaken = (lastSyncedAt: string | null) => lastSyncedAt === null;
+    const outcomes = await Promise.all([
+      claimCalendarSyncIfDue("a", "2026-08-01T09:00:00.000Z", untaken, workspace),
+      claimCalendarSyncIfDue("a", "2026-08-01T09:00:01.000Z", untaken, workspace),
+    ]);
+    assert.deepEqual(outcomes.filter(Boolean).length, 1);
+    assert.equal(await loadCalendarLastSyncedAt("a", workspace), "2026-08-01T09:00:00.000Z");
+  });
+
+  it("keeps the claims of different calendars independent", async () => {
+    const untaken = (lastSyncedAt: string | null) => lastSyncedAt === null;
+    await saveCalendarLastSyncedAt("a", stamp, workspace);
+    assert.equal(await claimCalendarSyncIfDue("b", stamp, untaken, workspace), true);
   });
 
   // Hand-edited or half-migrated files must degrade to "nothing stored", not
