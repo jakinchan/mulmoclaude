@@ -11,6 +11,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { isRecord, isUnknownArray } from "@mulmoclaude/common";
 import { useAccountingI18n } from "./lang";
 import { formatAmountNumeric } from "../shared";
 
@@ -18,29 +19,19 @@ const { t } = useAccountingI18n();
 
 const props = defineProps<{ data?: unknown; jsonData?: Record<string, unknown> }>();
 
-interface BalanceSheetSection {
-  type: string;
-  total?: number;
-}
-interface BalanceSheetLike {
-  balanceSheet?: { asOf?: string; sections?: BalanceSheetSection[]; imbalance?: number };
-}
-interface ProfitLossLike {
-  profitLoss?: { from?: string; to?: string; netIncome?: number };
-}
-interface EntriesLike {
-  entries?: { id?: string; date?: string }[];
-}
-interface BookLike {
-  book?: { id?: string; name?: string };
-}
+// Readers, not predicates: everything below the payload root arrives as
+// `unknown`, so a field is a string / number only once one of these has
+// looked. Twins of the server's `bodyFields.ts` readers, duplicated here
+// because a browser bundle must not import the server surface.
+const optionalString = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+const optionalNumber = (value: unknown): number | undefined => (typeof value === "number" ? value : undefined);
 
 // Each summarise* helper returns null when its branch doesn't apply,
 // keeping the dispatch in `summary` linear (no nested if-trees).
 
 function summariseError(json: Record<string, unknown>): string | null {
-  const { error } = json as { error?: unknown };
-  if (typeof error !== "string") return null;
+  const error = optionalString(json.error);
+  if (error === undefined) return null;
   return t("pluginAccounting.previewError", { error });
 }
 
@@ -49,42 +40,51 @@ function summariseEntry(json: Record<string, unknown>): string | null {
   // card shows one date — use the first entry's so single-entry
   // batches (the common case from the manual UI) read naturally
   // and multi-entry batches still anchor to a meaningful date.
-  const { entries } = json as EntriesLike;
-  if (!Array.isArray(entries) || entries.length === 0) return null;
-  const [first] = entries;
-  if (!first?.id || !first?.date) return null;
-  return t("pluginAccounting.preview.entry", { date: first.date });
+  const [first] = isUnknownArray(json.entries) ? json.entries : [];
+  const entry = isRecord(first) ? first : undefined;
+  const entryId = optionalString(entry?.id);
+  const date = optionalString(entry?.date);
+  if (!entryId || !date) return null;
+  return t("pluginAccounting.preview.entry", { date });
 }
 
 function summarisePl(json: Record<string, unknown>): string | null {
-  const { profitLoss } = json as ProfitLossLike;
-  if (!profitLoss || typeof profitLoss.netIncome !== "number") return null;
+  const { profitLoss } = json;
+  if (!isRecord(profitLoss)) return null;
+  const netIncome = optionalNumber(profitLoss.netIncome);
+  if (netIncome === undefined) return null;
   return t("pluginAccounting.preview.pl", {
-    from: profitLoss.from ?? "?",
-    to: profitLoss.to ?? "?",
-    net: formatAmountNumeric(profitLoss.netIncome),
+    from: optionalString(profitLoss.from) ?? "?",
+    to: optionalString(profitLoss.to) ?? "?",
+    net: formatAmountNumeric(netIncome),
   });
 }
 
 function summariseBs(json: Record<string, unknown>): string | null {
-  const { balanceSheet } = json as BalanceSheetLike;
-  if (!balanceSheet?.asOf || !balanceSheet.sections) return null;
-  const assets = balanceSheet.sections.find((section) => section.type === "asset");
+  const { balanceSheet } = json;
+  if (!isRecord(balanceSheet)) return null;
+  const date = optionalString(balanceSheet.asOf);
+  const sections = isUnknownArray(balanceSheet.sections) ? balanceSheet.sections : undefined;
+  if (!date || !sections) return null;
+  const assets = sections.find((section) => isRecord(section) && section.type === "asset");
   return t("pluginAccounting.preview.bs", {
-    date: balanceSheet.asOf,
-    assets: assets ? formatAmountNumeric(assets.total ?? 0) : "?",
+    date,
+    assets: isRecord(assets) ? formatAmountNumeric(optionalNumber(assets.total) ?? 0) : "?",
   });
 }
 
 function summariseBook(json: Record<string, unknown>): string | null {
-  const { book } = json as BookLike;
-  if (!book?.id || !book?.name) return null;
-  return t("pluginAccounting.preview.bookCreated", { name: book.name, id: book.id });
+  const { book } = json;
+  if (!isRecord(book)) return null;
+  const bookId = optionalString(book.id);
+  const name = optionalString(book.name);
+  if (!bookId || !name) return null;
+  return t("pluginAccounting.preview.bookCreated", { name, id: bookId });
 }
 
 function summariseFallback(json: Record<string, unknown>): string {
-  const { bookId } = json as { bookId?: unknown };
-  if (typeof bookId === "string") return t("pluginAccounting.previewSummary", { bookId });
+  const bookId = optionalString(json.bookId);
+  if (bookId !== undefined) return t("pluginAccounting.previewSummary", { bookId });
   return t("pluginAccounting.previewGeneric");
 }
 
@@ -93,7 +93,7 @@ function asObject(value: unknown): Record<string, unknown> {
   // via `jsonData`. Accept either so a tool-result like
   // `{ entry: ... }` resolves to the right summariser regardless
   // of which prop the host harness picks.
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return isRecord(value) ? value : {};
 }
 
 const summary = computed<string>(() => {
