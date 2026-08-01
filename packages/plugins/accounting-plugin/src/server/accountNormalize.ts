@@ -1,8 +1,9 @@
-// Pure normalization for the persisted Account record. Lives in its
-// own module so unit tests can exercise the field-whitelist + active-
-// flag policy without spinning up the file system, and so the
-// service-layer `upsertAccount` stays under the repo's 20-line
-// guideline.
+// Pure parsing + normalization for the Account record: `parseAccountInput`
+// narrows a wire payload to an `Account`, `normalizeStoredAccount` decides
+// what of it reaches disk. Lives in its own module so unit tests can
+// exercise the field-whitelist + active-flag policy without spinning up
+// the file system, and so the service-layer `upsertAccount` stays under
+// the repo's 20-line guideline.
 //
 // Policy summary (mirrored in the `upsertAccount` JSDoc):
 //   - whitelist: only `code`, `name`, `type`, optional `note`, and
@@ -21,7 +22,33 @@
 //                          mentioning the active flag — the bug
 //                          coverage that prompted this helper)
 
-import type { Account } from "../shared/types.js";
+import { isRecord } from "@mulmoclaude/common";
+
+import type { Account, AccountType } from "../shared/types.js";
+import { ACCOUNT_TYPES } from "../shared/types.js";
+
+export type AccountParseResult = { ok: true; account: Account } | { ok: false; message: string };
+
+function isAccountType(value: unknown): value is AccountType {
+  return ACCOUNT_TYPES.some((accountType) => accountType === value);
+}
+
+/** Narrow a wire payload to an `Account`. `name` and `type` are as
+ *  required as `code`: an account persisted without a type is invisible
+ *  to every report, which groups rows by it. */
+export function parseAccountInput(raw: unknown): AccountParseResult {
+  if (!isRecord(raw)) return { ok: false, message: "account is required — pass an object with code, name, and type" };
+  const { code, name, type, note, active } = raw;
+  if (typeof code !== "string" || code.length === 0) return { ok: false, message: "account code is required" };
+  if (typeof name !== "string" || name.trim() === "") return { ok: false, message: "account name is required" };
+  if (!isAccountType(type)) return { ok: false, message: `account type ${JSON.stringify(type)} is invalid — must be one of: ${ACCOUNT_TYPES.join(", ")}` };
+  if (note !== undefined && typeof note !== "string") return { ok: false, message: "account note must be a string when supplied" };
+  if (active !== undefined && typeof active !== "boolean") return { ok: false, message: "account active must be a boolean when supplied" };
+  const account: Account = { code, name, type };
+  if (typeof note === "string") account.note = note;
+  if (typeof active === "boolean") account.active = active;
+  return { ok: true, account };
+}
 
 export function normalizeStoredAccount(input: Account, existing?: Account): Account {
   const stored: Account = { code: input.code, name: input.name, type: input.type };
