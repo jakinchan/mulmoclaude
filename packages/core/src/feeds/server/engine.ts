@@ -7,6 +7,7 @@
 
 import { discoverCollections, storeFor, type CollectionStore, type LoadedCollection } from "../../collection/server/index.js";
 import type { CollectionItem, CollectionSchema } from "../../collection/index.js";
+import { mergeIntoExisting } from "../../collection/core/project.js";
 import { log, requireFeedsHost } from "./host.js";
 import { getRetriever } from "./retrievers/index.js";
 import "./retrievers/registerAll.js";
@@ -45,6 +46,40 @@ function writableFeedStore(
   return { ...store, write, delete: remove };
 }
 
+/** Fields the feed itself produces: what it actually returned this run, the
+ *  declared map's targets, and the primary key the retriever derives. Anything
+ *  else on a record got there some other way — the user.
+ *
+ *  Both sources, because neither alone is enough. The in-tree retrievers project
+ *  through `map`, so it describes them exactly — but `registerRetriever` lets a
+ *  host add one that returns whatever it likes, and only the observed keys catch
+ *  that. Conversely a run that fetched nothing has no keys to observe, and only
+ *  `map` keeps the cap working through it. */
+export const ingestedFields = (items: readonly CollectionItem[], mappedTargets: readonly string[], primaryKey: string): ReadonlySet<string> =>
+  new Set([primaryKey, ...mappedTargets, ...items.flatMap((item) => Object.keys(item))]);
+
+/** The collection fields a declarative `map` names. Read as `unknown` and
+ *  narrowed here rather than through the zod-derived union, whose `map` does not
+ *  survive the `kind` narrowing well enough to index safely. Only the keys are
+ *  wanted, so the value type never has to be reconstructed. */
+export function mappedTargetsOf(ingest: IngestSpec | undefined): string[] {
+  const map: unknown = ingest === undefined || ingest.kind === AGENT_INGEST_KIND ? undefined : ingest.map;
+  return typeof map === "object" && map !== null ? Object.keys(map) : [];
+}
+
+/** Whether a record carries content the feed did not put there.
+ *
+ *  Only a NON-EMPTY value counts. A record saved through the UI can carry every
+ *  declared field as an empty string, and treating those as local content would
+ *  make every touched record un-prunable — the cap would quietly stop working.
+ *
+ *  An edit to a MAPPED field deliberately does not count: a feed is
+ *  one-directional, so the next refresh writes over it by design. The local
+ *  COLUMN is the durable half, and the half worth protecting. */
+export function hasLocalContent(item: CollectionItem, ingested: ReadonlySet<string>): boolean {
+  return Object.entries(item).some(([field, value]) => !ingested.has(field) && value !== undefined && value !== null && value !== "");
+}
+
 async function upsertItems(workspaceRoot: string, feed: LoadedCollection, items: CollectionItem[]): Promise<number> {
   const store = writableFeedStore(workspaceRoot, feed);
   if (!store) return 0;
@@ -52,7 +87,12 @@ async function upsertItems(workspaceRoot: string, feed: LoadedCollection, items:
   for (const item of items) {
     const itemId = item[feed.schema.primaryKey];
     if (typeof itemId !== "string" || itemId.length === 0) continue;
-    const result = await store.write(itemId, item);
+    // Laid OVER the record rather than replacing it. `writeItem` writes the
+    // whole file, so writing the retrieved item alone deletes every column the
+    // ingest does not produce — the note the user put beside the article. The
+    // Google Calendar pull learned this in #2620; the feeds ingest never did
+    // (#2696).
+    const result = await store.write(itemId, mergeIntoExisting(await store.read(itemId), item));
     if (result.kind === "ok") written += 1;
     else log.warn("feeds", "feed item write skipped", { slug: feed.slug, itemId, kind: result.kind });
   }
@@ -78,7 +118,7 @@ function recordTime(item: CollectionItem, field: string): number {
 /** Enforce `ingest.maxItems` (default 100): keep the newest N records by
  *  the schema's date field, delete the rest. No-op when the cap is 0/absent
  *  of a date field, or when under the cap. Returns the number deleted. */
-async function pruneFeed(workspaceRoot: string, feed: LoadedCollection): Promise<number> {
+async function pruneFeed(workspaceRoot: string, feed: LoadedCollection, fetched: readonly CollectionItem[]): Promise<number> {
   const ingest = feedIngest(feed.schema);
   // maxItems is a declarative-feed concept; agent ingest manages its own record
   // set, so it's never pruned here (and `refreshOne` never calls pruneFeed for it).
@@ -93,7 +133,15 @@ async function pruneFeed(workspaceRoot: string, feed: LoadedCollection): Promise
   if (!store) return 0;
   const items = await store.list();
   if (items.length <= cap) return 0;
-  const stale = [...items].sort((left, right) => recordTime(right, dateField) - recordTime(left, dateField)).slice(cap);
+  const ingested = ingestedFields(fetched, mappedTargetsOf(ingest), feed.schema.primaryKey);
+  const aged = [...items].sort((left, right) => recordTime(right, dateField) - recordTime(left, dateField)).slice(cap);
+  // Deleting a record the user annotated is the same silent loss the merge above
+  // prevents, one step later: the note survives every refresh and then goes when
+  // the article ages out. Kept records can push a feed past its cap, so say so
+  // rather than letting the number drift unexplained (#2696).
+  const stale = aged.filter((item) => !hasLocalContent(item, ingested));
+  const kept = aged.length - stale.length;
+  if (kept > 0) log.info("feeds", "keeping aged-out records that carry local content", { slug: feed.slug, kept, cap });
   let removed = 0;
   for (const item of stale) {
     const itemId = item[feed.schema.primaryKey];
@@ -122,7 +170,7 @@ export async function refreshOne(workspaceRoot: string, feed: LoadedCollection, 
     const result = await retriever(ingest, feed.schema, state);
     const written = await upsertItems(workspaceRoot, feed, result.items);
     await writeFeedState(workspaceRoot, feed, { ...state, lastFetchedAt: new Date().toISOString(), cursor: result.cursor, consecutiveFailures: 0 });
-    const removed = await pruneFeed(workspaceRoot, feed);
+    const removed = await pruneFeed(workspaceRoot, feed, result.items);
     log.info("feeds", "feed refreshed", { slug, written, removed, fetched: result.items.length });
     return { slug, written, removed, errors: [] };
   } catch (error) {

@@ -20,7 +20,8 @@ import { storeFor } from "../collection/server/store.js";
 import { getGoogleAccessToken } from "./auth.js";
 import { canonicalCalendarId, syncCalendarEvents, CANCELLED_EVENT_STATUS, type CalendarEventSummary } from "./calendar.js";
 import { withCalendarLock } from "./calendarLock.js";
-import { mergeIntoExisting, toCollectionRecord } from "./collectionProjection.js";
+import { mergeIntoExisting } from "../collection/core/project.js";
+import { toCollectionRecord } from "./collectionProjection.js";
 import { pushCollectionNow, unsentLocalEdits, type CalendarCollectionPushResult, type CalendarPushOutcome } from "./collectionPush.js";
 import {
   claimCalendarSyncIfDue,
