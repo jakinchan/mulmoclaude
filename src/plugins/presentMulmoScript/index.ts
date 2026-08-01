@@ -45,7 +45,7 @@ async function fetchMediaBlob(query: { moviePath?: string; pdfPath?: string }): 
 /** Provide the package's host-adapter injection around the View —
  *  mounted INSIDE wrapWithScope's PluginScopedRoot, forwarding every
  *  prop / attr / slot through verbatim (same shape as wrapWithScope). */
-function withHostAdapter<TInner extends Component>(inner: TInner): TInner {
+function withHostAdapter(inner: Component): Component {
   return markRaw(
     defineComponent({
       name: "MulmoScriptHostAdapter",
@@ -60,13 +60,11 @@ function withHostAdapter<TInner extends Component>(inner: TInner): TInner {
         return () => h(inner, attrs, slots);
       },
     }),
-  ) as unknown as TInner;
+  );
 }
 
 const presentMulmoScriptPlugin: ToolPlugin<MulmoScriptData> = {
-  // gui-chat-protocol type is externalized but yarn-4's dual-@vue can
-  // make the package's nominal types distinct; coerce once here.
-  toolDefinition: toolDefinition as ToolPlugin<MulmoScriptData>["toolDefinition"],
+  toolDefinition,
 
   // Pass-through: the agent (MCP) and GUI dispatcher both end up at the
   // same backend route, which dispatches between create-new (`script`)
@@ -77,8 +75,8 @@ const presentMulmoScriptPlugin: ToolPlugin<MulmoScriptData> = {
 
   isEnabled: () => true,
   generatingMessage: "Generating MulmoScript storyboard…",
-  viewComponent: wrapWithScope("mulmoScript", withHostAdapter(View as unknown as Component)),
-  previewComponent: wrapWithScope("mulmoScript", Preview as unknown as Component),
+  viewComponent: wrapWithScope("mulmoScript", withHostAdapter(View)),
+  previewComponent: wrapWithScope("mulmoScript", Preview),
 };
 
 export const REGISTRATION: PluginRegistration = {
