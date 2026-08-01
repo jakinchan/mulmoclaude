@@ -7,10 +7,18 @@ import {
   makeEntry,
   makeVoidEntries,
   netBalance,
-  validateEntry,
+  parseEntry,
   voidedIdSet,
+  type EntryParseResult,
+  type ValidationError,
 } from "../../src/server/journal.js";
 import type { Account, JournalEntry, JournalLine } from "../../src/shared/types.js";
+
+/** Reading issues off a parse result: the ok branch carries the entry,
+ *  not an empty error list, so tests ask for the issues explicitly. */
+function issuesOf(result: EntryParseResult): ValidationError[] {
+  return result.ok ? [] : result.errors;
+}
 
 const ACCOUNTS: Account[] = [
   { code: "1000", name: "Cash", type: "asset" },
@@ -55,107 +63,227 @@ describe("isValidCalendarDate", () => {
   });
 });
 
-describe("validateEntry", () => {
-  it("accepts a balanced entry", () => {
-    const result = validateEntry({ date: "2026-04-01", lines: balancedLines(), accounts: ACCOUNTS });
+describe("parseEntry", () => {
+  it("accepts a balanced entry and returns it narrowed", () => {
+    const result = parseEntry({ date: "2026-04-01", lines: balancedLines(), memo: "Sale" }, ACCOUNTS);
     assert.equal(result.ok, true);
-    assert.deepEqual(result.errors, []);
+    assert.deepEqual(issuesOf(result), []);
+    // The point of parsing over validating: the caller gets a value it
+    // doesn't have to re-assert before handing to makeEntry.
+    assert.ok(result.ok);
+    assert.equal(result.entry.date, "2026-04-01");
+    assert.equal(result.entry.memo, "Sale");
+    assert.deepEqual(result.entry.lines, balancedLines());
   });
   it("rejects malformed dates", () => {
-    const result = validateEntry({ date: "2026/04/01", lines: balancedLines(), accounts: ACCOUNTS });
+    const result = parseEntry({ date: "2026/04/01", lines: balancedLines() }, ACCOUNTS);
     assert.equal(result.ok, false);
-    assert.ok(result.errors.some((err) => err.field === "date"));
+    assert.ok(issuesOf(result).some((err) => err.field === "date"));
   });
   it("rejects unknown account codes", () => {
-    const result = validateEntry({
-      date: "2026-04-01",
-      lines: [
-        { accountCode: "9999", debit: 100 },
-        { accountCode: "4000", credit: 100 },
-      ],
-      accounts: ACCOUNTS,
-    });
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: "9999", debit: 100 },
+          { accountCode: "4000", credit: 100 },
+        ],
+      },
+      ACCOUNTS,
+    );
     assert.equal(result.ok, false);
-    assert.ok(result.errors.some((err) => err.field.includes("accountCode")));
+    assert.ok(issuesOf(result).some((err) => err.field.includes("accountCode")));
   });
   it("rejects unbalanced entries", () => {
-    const result = validateEntry({
-      date: "2026-04-01",
-      lines: [
-        { accountCode: "1000", debit: 100 },
-        { accountCode: "4000", credit: 90 },
-      ],
-      accounts: ACCOUNTS,
-    });
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: "1000", debit: 100 },
+          { accountCode: "4000", credit: 90 },
+        ],
+      },
+      ACCOUNTS,
+    );
     assert.equal(result.ok, false);
-    assert.ok(result.errors.some((err) => err.message.includes("must balance")));
+    assert.ok(issuesOf(result).some((err) => err.message.includes("must balance")));
   });
   it("rejects single-line entries", () => {
-    const result = validateEntry({ date: "2026-04-01", lines: [{ accountCode: "1000", debit: 100 }], accounts: ACCOUNTS });
+    const result = parseEntry({ date: "2026-04-01", lines: [{ accountCode: "1000", debit: 100 }] }, ACCOUNTS);
     assert.equal(result.ok, false);
   });
   it("rejects lines with both debit and credit set", () => {
-    const result = validateEntry({
-      date: "2026-04-01",
-      lines: [
-        { accountCode: "1000", debit: 50, credit: 30 },
-        { accountCode: "4000", credit: 20 },
-      ],
-      accounts: ACCOUNTS,
-    });
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: "1000", debit: 50, credit: 30 },
+          { accountCode: "4000", credit: 20 },
+        ],
+      },
+      ACCOUNTS,
+    );
     assert.equal(result.ok, false);
   });
   it("tolerates floating-point noise within ±0.005", () => {
     // 0.1 + 0.2 = 0.30000000000000004 in IEEE-754 — must not flunk
-    const result = validateEntry({
-      date: "2026-04-01",
-      lines: [
-        { accountCode: "1000", debit: 0.1 },
-        { accountCode: "1000", debit: 0.2 },
-        { accountCode: "4000", credit: 0.3 },
-      ],
-      accounts: ACCOUNTS,
-    });
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: "1000", debit: 0.1 },
+          { accountCode: "1000", debit: 0.2 },
+          { accountCode: "4000", credit: 0.3 },
+        ],
+      },
+      ACCOUNTS,
+    );
     assert.equal(result.ok, true);
   });
   it("accepts a line with a taxRegistrationId at the length cap", () => {
     const taxId = "T".repeat(MAX_TAX_REGISTRATION_ID_LENGTH);
-    const result = validateEntry({
-      date: "2026-04-01",
-      lines: [
-        { accountCode: "1000", debit: 100, taxRegistrationId: taxId },
-        { accountCode: "4000", credit: 100 },
-      ],
-      accounts: ACCOUNTS,
-    });
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: "1000", debit: 100, taxRegistrationId: taxId },
+          { accountCode: "4000", credit: 100 },
+        ],
+      },
+      ACCOUNTS,
+    );
     assert.equal(result.ok, true);
   });
   it("rejects a taxRegistrationId longer than the length cap (after trim)", () => {
     const tooLong = "T".repeat(MAX_TAX_REGISTRATION_ID_LENGTH + 1);
-    const result = validateEntry({
-      date: "2026-04-01",
-      lines: [
-        { accountCode: "1000", debit: 100, taxRegistrationId: tooLong },
-        { accountCode: "4000", credit: 100 },
-      ],
-      accounts: ACCOUNTS,
-    });
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: "1000", debit: 100, taxRegistrationId: tooLong },
+          { accountCode: "4000", credit: 100 },
+        ],
+      },
+      ACCOUNTS,
+    );
     assert.equal(result.ok, false);
-    assert.ok(result.errors.some((err) => err.field === "lines[0].taxRegistrationId"));
+    assert.ok(issuesOf(result).some((err) => err.field === "lines[0].taxRegistrationId"));
   });
   it("ignores leading/trailing whitespace when checking the length cap", () => {
     // 32 chars padded with whitespace on both sides: trimmed length
     // is at the cap, so the entry should still be accepted.
     const padded = `  ${"T".repeat(MAX_TAX_REGISTRATION_ID_LENGTH)}  `;
-    const result = validateEntry({
-      date: "2026-04-01",
-      lines: [
-        { accountCode: "1000", debit: 100, taxRegistrationId: padded },
-        { accountCode: "4000", credit: 100 },
-      ],
-      accounts: ACCOUNTS,
-    });
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: "1000", debit: 100, taxRegistrationId: padded },
+          { accountCode: "4000", credit: 100 },
+        ],
+      },
+      ACCOUNTS,
+    );
     assert.equal(result.ok, true);
+  });
+});
+
+// #2695: these all used to read `item.date` / `line.accountCode` off a
+// value that isn't an object, so the validator itself threw and the
+// route answered 500 — from the code written to produce a 400.
+describe("parseEntry — non-object input", () => {
+  it("reports a null entry instead of throwing", () => {
+    const result = parseEntry(null, ACCOUNTS);
+    assert.equal(result.ok, false);
+    assert.deepEqual(
+      issuesOf(result).map((err) => err.field),
+      ["entry"],
+    );
+  });
+  it("reports a primitive entry", () => {
+    assert.equal(parseEntry(42, ACCOUNTS).ok, false);
+    assert.equal(parseEntry("nope", ACCOUNTS).ok, false);
+  });
+  it("reports a null line against its own index", () => {
+    const result = parseEntry({ date: "2026-04-01", lines: [null, { accountCode: "4000", credit: 100 }] }, ACCOUNTS);
+    assert.equal(result.ok, false);
+    assert.ok(issuesOf(result).some((err) => err.field === "lines[0]"));
+  });
+  it("reports a primitive line against its own index", () => {
+    const result = parseEntry({ date: "2026-04-01", lines: [{ accountCode: "1000", debit: 100 }, "nope"] }, ACCOUNTS);
+    assert.equal(result.ok, false);
+    assert.ok(issuesOf(result).some((err) => err.field === "lines[1]"));
+  });
+  it("keeps the specific field message for a mistyped amount", () => {
+    // The anti-degradation check: a shape gate at the route would have
+    // answered "entries are malformed" and left the caller guessing.
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: "1000", debit: "abc" },
+          { accountCode: "4000", credit: 100 },
+        ],
+      },
+      ACCOUNTS,
+    );
+    assert.equal(result.ok, false);
+    assert.ok(
+      issuesOf(result).some((err) => err.field === "lines[0].debit" && err.message === "debit must be a non-negative finite number"),
+      JSON.stringify(issuesOf(result)),
+    );
+  });
+  it("rejects a non-string memo rather than persisting it raw", () => {
+    const result = parseEntry({ date: "2026-04-01", lines: balancedLines(), memo: 42 }, ACCOUNTS);
+    assert.equal(result.ok, false);
+    assert.ok(issuesOf(result).some((err) => err.field === "memo"));
+  });
+  it("rejects a non-string accountCode", () => {
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: 1000, debit: 100 },
+          { accountCode: "4000", credit: 100 },
+        ],
+      },
+      ACCOUNTS,
+    );
+    assert.equal(result.ok, false);
+    assert.ok(issuesOf(result).some((err) => err.field === "lines[0].accountCode"));
+  });
+  it("does not claim an entry is unbalanced when a line was unreadable", () => {
+    // 100 debit against 100 credit — it balances. An unreadable line
+    // contributes nothing to the sum, so reporting the difference would
+    // send the caller off to fix amounts that were never wrong.
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: 1000, debit: 100 },
+          { accountCode: "4000", credit: 100 },
+        ],
+      },
+      ACCOUNTS,
+    );
+    assert.equal(result.ok, false);
+    assert.equal(
+      issuesOf(result).some((err) => err.message.includes("must balance")),
+      false,
+      JSON.stringify(issuesOf(result)),
+    );
+  });
+  it("still reports a genuine imbalance when every line is readable", () => {
+    const result = parseEntry(
+      {
+        date: "2026-04-01",
+        lines: [
+          { accountCode: "1000", debit: 100 },
+          { accountCode: "4000", credit: 90 },
+        ],
+      },
+      ACCOUNTS,
+    );
+    assert.ok(issuesOf(result).some((err) => err.message.includes("must balance")));
   });
 });
 

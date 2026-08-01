@@ -30,6 +30,7 @@ import { lstat, mkdir } from "node:fs/promises";
 import { closerFor, watchSingleFile } from "./watchFs";
 import { BackendUnavailableError } from "./backendAvailability";
 import path from "node:path";
+import { hasNumberProp, isErrorWithCode, isRecord } from "@mulmoclaude/common";
 import type { CollectionItem } from "../core/schema";
 import type { LoadedCollection } from "./discoveredCollection";
 import type { DeleteItemResult, IoOptions, WriteItemResult } from "./io";
@@ -54,17 +55,28 @@ interface SqliteModule {
   DatabaseSync: new (dbPath: string) => SqliteDatabase;
 }
 
+/** A constructor's parameter and return types are not observable at runtime,
+ *  so the check stops at "DatabaseSync is constructible" — the only member of
+ *  the module this store ever touches. */
+function isSqliteModule(mod: unknown): mod is SqliteModule {
+  return isRecord(mod) && typeof mod.DatabaseSync === "function";
+}
+
 let sqliteModule: Promise<SqliteModule> | null = null;
+
+/** Drops the memo first so a later call can retry (e.g. tests stubbing the
+ *  runtime), then reports why the backend is unusable. */
+function sqliteUnavailable(reason: string): never {
+  sqliteModule = null;
+  throw new BackendUnavailableError(`sqlite storage needs the node:sqlite module (Node.js >= 22.5) — this runtime cannot load it: ${reason}`);
+}
 
 /** Lazy-load node:sqlite once. A runtime without it (Node < 22.5) throws a
  *  clearly-worded error the caller surfaces — never a bare MODULE_NOT_FOUND. */
 function loadSqlite(): Promise<SqliteModule> {
   sqliteModule ??= import("node:sqlite").then(
-    (mod) => mod as unknown as SqliteModule,
-    (err: unknown) => {
-      sqliteModule = null; // allow a retry (e.g. tests stubbing the runtime)
-      throw new BackendUnavailableError(`sqlite storage needs the node:sqlite module (Node.js >= 22.5) — this runtime cannot load it: ${String(err)}`);
-    },
+    (mod) => (isSqliteModule(mod) ? mod : sqliteUnavailable("the module exposes no DatabaseSync constructor")),
+    (err: unknown) => sqliteUnavailable(String(err)),
   );
   return sqliteModule;
 }
@@ -79,7 +91,7 @@ async function dbFileState(absPath: string): Promise<"missing" | "file" | "refus
     const info = await lstat(absPath);
     return info.isFile() ? "file" : "refused";
   } catch (err) {
-    if ((err as { code?: string }).code === "ENOENT") return "missing";
+    if (isErrorWithCode(err) && err.code === "ENOENT") return "missing";
     throw err;
   }
 }
@@ -143,37 +155,54 @@ async function withDb<T>(
   }
 }
 
+// SQLite extended result codes for the duplicate-id failure our INSERT hits:
+// a PRIMARY KEY clash, and the plain-UNIQUE-index equivalent.
+const SQLITE_CONSTRAINT_PRIMARYKEY = 1555;
+const SQLITE_CONSTRAINT_UNIQUE = 2067;
+
 /** node:sqlite throws ERR_SQLITE_ERROR with the SQLite extended result
- *  code on `errcode`. Our INSERT's duplicate-id failure is
- *  SQLITE_CONSTRAINT_PRIMARYKEY (1555); SQLITE_CONSTRAINT_UNIQUE (2067)
- *  covers a plain UNIQUE index. Checked structurally (message text kept
- *  only as a fallback for runtimes that don't expose `errcode`). */
+ *  code on `errcode`. Checked structurally (message text kept only as a
+ *  fallback for runtimes that don't expose `errcode`). */
 function isUniqueConstraintError(err: unknown): boolean {
-  const { errcode } = err as { errcode?: number };
-  if (errcode !== undefined) return errcode === 1555 || errcode === 2067;
+  if (hasNumberProp(err, "errcode")) return err.errcode === SQLITE_CONSTRAINT_PRIMARYKEY || err.errcode === SQLITE_CONSTRAINT_UNIQUE;
   return String(err).includes("UNIQUE constraint");
 }
 
 function parseRow(raw: unknown): CollectionItem | null {
   if (typeof raw !== "string") return null;
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as CollectionItem) : null;
+    const parsed: unknown = JSON.parse(raw);
+    return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
 }
 
+/** One column of a result row. node:sqlite types rows as `unknown`, so a
+ *  value that is not a row object yields no column at all. */
+function readColumn(row: unknown, column: string): unknown {
+  return isRecord(row) ? row[column] : undefined;
+}
+
 function rowsToItems(rows: unknown[]): CollectionItem[] {
-  return rows.map((row) => parseRow((row as { record?: unknown }).record)).filter((item): item is CollectionItem => item !== null);
+  return rows.map((row) => parseRow(readColumn(row, "record"))).filter((item): item is CollectionItem => item !== null);
+}
+
+/** node:sqlite hands back an integer column as `number`, or as `bigint` once
+ *  it leaves the safe-integer range — COUNT(*) can be either. */
+function countRecords(database: SqliteDatabase): number {
+  const count = readColumn(database.prepare("SELECT COUNT(*) AS n FROM records").get(), "n");
+  if (typeof count === "number") return count;
+  if (typeof count === "bigint") return Number(count);
+  throw new Error(`sqlite COUNT(*) returned no numeric row count (got ${typeof count})`);
 }
 
 async function sqliteList(absPath: string, workspaceRoot: string): Promise<CollectionItem[]> {
-  return withDb(
+  return withDb<CollectionItem[]>(
     absPath,
     workspaceRoot,
     "read",
-    () => [] as CollectionItem[],
+    () => [],
     (database) => rowsToItems(database.prepare("SELECT record FROM records ORDER BY id").all()),
   );
 }
@@ -186,7 +215,7 @@ async function sqlitePage(absPath: string, primaryKey: string, opts: ListOptions
     "read",
     () => emptyPage,
     (database) => {
-      const total = Number((database.prepare("SELECT COUNT(*) AS n FROM records").get() as { n: number | bigint }).n);
+      const total = countRecords(database);
       const offset = Math.max(0, opts.offset ?? 0);
       const limit = opts.limit === undefined ? -1 : Math.max(0, opts.limit); // LIMIT -1 = unbounded in SQLite
       const rows = database.prepare("SELECT record FROM records ORDER BY id LIMIT ? OFFSET ?").all(limit, offset);
@@ -198,14 +227,14 @@ async function sqlitePage(absPath: string, primaryKey: string, opts: ListOptions
 async function sqliteRead(absPath: string, itemId: string, workspaceRoot: string): Promise<CollectionItem | null> {
   const safeId = safeRecordId(itemId);
   if (safeId === null) return null;
-  return withDb(
+  return withDb<CollectionItem | null>(
     absPath,
     workspaceRoot,
     "read",
-    () => null as CollectionItem | null,
+    () => null,
     (database) => {
       const row = database.prepare("SELECT record FROM records WHERE id = ?").get(safeId);
-      return row === undefined ? null : parseRow((row as { record?: unknown }).record);
+      return parseRow(readColumn(row, "record"));
     },
   );
 }

@@ -12,21 +12,18 @@
 // route handler is responsible for ordering this with snapshot
 // invalidation so the "before" snapshots get dropped.
 
+import { isUnknownArray } from "@mulmoclaude/common";
+
 import type { Account, JournalEntry, JournalLine } from "../shared/types.js";
 import { BALANCE_SHEET_ACCOUNT_TYPES } from "../shared/types.js";
-import { isValidCalendarDate, netBalance, voidedIdSet } from "./journal.js";
-
-const EQUALITY_TOLERANCE = 0.005;
+import { checkBalances, isValidCalendarDate, parseJournalLine, voidedIdSet } from "./journal.js";
 
 export interface OpeningValidationError {
   field: string;
   message: string;
 }
 
-export interface OpeningValidationResult {
-  ok: boolean;
-  errors: OpeningValidationError[];
-}
+export type OpeningParseResult = { ok: true; lines: JournalLine[] } | { ok: false; errors: OpeningValidationError[] };
 
 /** Find the existing opening entry for a book, if any. Multiple
  *  openings shouldn't coexist (the route enforces void-then-append),
@@ -43,31 +40,44 @@ export function findActiveOpening(entries: readonly JournalEntry[]): JournalEntr
   return active;
 }
 
-interface OpeningValidationInput {
+interface OpeningParseInput {
   asOfDate: string;
-  lines: readonly JournalLine[];
+  lines: unknown;
   accounts: readonly Account[];
   existingEntries: readonly JournalEntry[];
 }
 
-function validateLineAccountTypes(input: OpeningValidationInput, errors: OpeningValidationError[]): void {
-  const accountByCode = new Map(input.accounts.map((account) => [account.code, account]));
-  input.lines.forEach((line, idx) => {
-    const acct = accountByCode.get(line.accountCode);
-    if (!acct) {
-      errors.push({ field: `lines[${idx}].accountCode`, message: `unknown account code ${JSON.stringify(line.accountCode)}` });
-      return;
-    }
-    if (!BALANCE_SHEET_ACCOUNT_TYPES.includes(acct.type)) {
-      errors.push({
-        field: `lines[${idx}].accountCode`,
-        message: `account ${acct.code} is type ${acct.type}; opening balances may only reference balance-sheet accounts (asset / liability / equity)`,
-      });
-    }
-  });
+function validateOpeningAccount(line: JournalLine, idx: number, accountByCode: ReadonlyMap<string, Account>, errors: OpeningValidationError[]): void {
+  const acct = accountByCode.get(line.accountCode);
+  if (!acct) {
+    errors.push({ field: `lines[${idx}].accountCode`, message: `unknown account code ${JSON.stringify(line.accountCode)}` });
+    return;
+  }
+  if (!BALANCE_SHEET_ACCOUNT_TYPES.includes(acct.type)) {
+    errors.push({
+      field: `lines[${idx}].accountCode`,
+      message: `account ${acct.code} is type ${acct.type}; opening balances may only reference balance-sheet accounts (asset / liability / equity)`,
+    });
+  }
 }
 
-function validateAsOfPredatesEverything(input: OpeningValidationInput, errors: OpeningValidationError[]): void {
+/** Opening lines are narrowed by the same shape parser the journal
+ *  uses, but they answer to different rules afterwards: balance-sheet
+ *  accounts only, and no "exactly one side" requirement — the opening
+ *  form lets a user carry both columns on one account. */
+function parseOpeningLines(raw: readonly unknown[], accounts: readonly Account[], errors: OpeningValidationError[]): JournalLine[] {
+  const accountByCode = new Map(accounts.map((account) => [account.code, account]));
+  const lines: JournalLine[] = [];
+  raw.forEach((rawLine, idx) => {
+    const line = parseJournalLine(rawLine, idx, errors);
+    if (line === null) return;
+    validateOpeningAccount(line, idx, accountByCode, errors);
+    lines.push(line);
+  });
+  return lines;
+}
+
+function validateAsOfPredatesEverything(input: { asOfDate: string; existingEntries: readonly JournalEntry[] }, errors: OpeningValidationError[]): void {
   // The point of the rule is "you can't enter an opening dated
   // 2026-01-01 if you've already booked transactions in December
   // 2025" — that would silently change the meaning of those
@@ -88,27 +98,26 @@ function validateAsOfPredatesEverything(input: OpeningValidationInput, errors: O
   }
 }
 
-/** Validate inputs for `setOpeningBalances`. Caller passes the full
- *  list of journal entries in the book so we can check the
- *  "asOfDate must precede every other entry" rule. An opening with
+/** Parse the inputs for `setOpeningBalances`, returning the narrowed
+ *  lines so the caller can persist what was actually checked. Caller
+ *  passes the full list of journal entries in the book so we can check
+ *  the "asOfDate must precede every other entry" rule. An opening with
  *  zero lines is accepted as a no-op marker — it satisfies the
  *  "book has an opening" gate the UI uses without committing the
  *  user to specific balances on day one (they can replace it
  *  later). */
-export function validateOpening(input: OpeningValidationInput): OpeningValidationResult {
+export function parseOpening(input: OpeningParseInput): OpeningParseResult {
   const errors: OpeningValidationError[] = [];
   if (!isValidCalendarDate(input.asOfDate)) {
     errors.push({ field: "asOfDate", message: `expected YYYY-MM-DD calendar date, got ${JSON.stringify(input.asOfDate)}` });
   }
-  if (!Array.isArray(input.lines)) {
+  if (!isUnknownArray(input.lines)) {
     errors.push({ field: "lines", message: "lines must be an array" });
     return { ok: false, errors };
   }
-  validateLineAccountTypes(input, errors);
-  const net = netBalance(input.lines);
-  if (Math.abs(net) > EQUALITY_TOLERANCE) {
-    errors.push({ field: "lines", message: `Σ debit − Σ credit = ${net.toFixed(4)}; opening must balance` });
-  }
+  const lines = parseOpeningLines(input.lines, input.accounts, errors);
+  checkBalances(lines, input.lines.length, "opening", errors);
   validateAsOfPredatesEverything(input, errors);
-  return { ok: errors.length === 0, errors };
+  if (errors.length > 0) return { ok: false, errors };
+  return { ok: true, lines };
 }

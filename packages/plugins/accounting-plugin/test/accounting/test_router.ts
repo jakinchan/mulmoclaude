@@ -143,6 +143,77 @@ describe("getReport period validation", () => {
   });
 });
 
+// #2695: the payloads below reached a validator that assumed its
+// elements were objects, so the TypeError bubbled to the 500 catch-all —
+// out of the code written to turn bad input into a structured 400.
+describe("null elements in entries / lines", () => {
+  it("rejects a null journal entry with a structured 400", async () => {
+    const { status, body } = await dispatch({ action: ACCOUNTING_ACTIONS.addEntries, bookId, entries: [null] });
+    assert.equal(status, 400);
+    assert.match(String(body.error), /invalid journal entries/);
+    // `details` is what lets the LLM repair its own payload — a bare
+    // 400 would be no better than the 500 it replaces.
+    assert.match(JSON.stringify(body.details), /"index":0/);
+  });
+
+  it("rejects a null opening balance line with a structured 400", async () => {
+    const { status, body } = await dispatch({
+      action: ACCOUNTING_ACTIONS.setOpeningBalances,
+      bookId,
+      asOfDate: "2026-01-01",
+      lines: [null],
+    });
+    assert.equal(status, 400);
+    assert.match(String(body.error), /invalid opening balances/);
+    assert.match(JSON.stringify(body.details), /lines\[0\]/);
+  });
+
+  it("still rejects a primitive entry and a non-array entries", async () => {
+    const primitive = await dispatch({ action: ACCOUNTING_ACTIONS.addEntries, bookId, entries: [42] });
+    assert.equal(primitive.status, 400);
+    const notArray = await dispatch({ action: ACCOUNTING_ACTIONS.addEntries, bookId, entries: "nope" });
+    assert.equal(notArray.status, 400);
+    assert.match(String(notArray.body.error), /entries must be a non-empty array/);
+  });
+
+  it("keeps the per-field message for a mistyped amount", async () => {
+    // Anti-degradation: narrowing happens inside the validator, so this
+    // stays specific instead of collapsing to "malformed entries".
+    const { status, body } = await dispatch({
+      action: ACCOUNTING_ACTIONS.addEntries,
+      bookId,
+      entries: [
+        {
+          date: "2026-01-05",
+          lines: [
+            { accountCode: "1000", debit: "abc" },
+            { accountCode: "3000", credit: 5 },
+          ],
+        },
+      ],
+    });
+    assert.equal(status, 400);
+    assert.match(JSON.stringify(body.details), /debit must be a non-negative finite number/);
+  });
+
+  it("rejects an account payload missing name / type instead of persisting it", async () => {
+    // Previously 200: the account landed on disk with `type` undefined,
+    // and every report groups its rows by type.
+    // 1777 is outside the default chart, so its absence afterwards is
+    // the write not happening rather than a seeded row.
+    const { status, body } = await dispatch({ action: ACCOUNTING_ACTIONS.upsertAccount, bookId, account: { code: "1777" } });
+    assert.equal(status, 400);
+    assert.match(String(body.error), /account name is required/);
+    const accounts = await dispatch({ action: ACCOUNTING_ACTIONS.getAccounts, bookId });
+    assert.doesNotMatch(JSON.stringify(accounts.body), /"1777"/);
+  });
+
+  it("rejects a null account", async () => {
+    const { status } = await dispatch({ action: ACCOUNTING_ACTIONS.upsertAccount, bookId, account: null });
+    assert.equal(status, 400);
+  });
+});
+
 describe("bookId reading", () => {
   it("treats a non-string bookId as absent", async () => {
     // Previously cast to `string | undefined`, so a number reached
