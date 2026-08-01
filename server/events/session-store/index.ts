@@ -13,6 +13,7 @@ import { updateHasUnread } from "../../utils/files/session-io.js";
 import { EVENT_TYPES, GENERATION_KINDS, type GenerationKind, type PendingGeneration, generationKey } from "../../../src/types/events.js";
 import { ONE_HOUR_MS, ONE_MINUTE_MS } from "../../utils/time.js";
 import { errorMessage } from "../../utils/errors.js";
+import { hasStringProp } from "../../utils/types.js";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -223,7 +224,7 @@ export async function markRead(chatSessionId: string): Promise<void> {
 
 /** Publish an agent event to the session's channel + update store. */
 export function pushSessionEvent(chatSessionId: string, event: Record<string, unknown>): void {
-  const type = event.type as string;
+  const type = hasStringProp(event, "type") ? event.type : undefined;
   const isGenerationEvent = type === EVENT_TYPES.generationStarted || type === EVENT_TYPES.generationFinished;
 
   // Non-generation events keep the pre-existing "store or drop"
@@ -281,7 +282,7 @@ export function pushSessionEvent(chatSessionId: string, event: Record<string, un
  * Returns the empty↔non-empty transition so the caller can decide
  * whether to flip hasUnread and notify.
  */
-function resolveGenerationDelta(chatSessionId: string, type: string, event: Record<string, unknown>): GenerationDelta {
+function resolveGenerationDelta(chatSessionId: string, type: string | undefined, event: Record<string, unknown>): GenerationDelta {
   const session = store.get(chatSessionId);
   if (session) return applyEventToSession(session, type, event);
   if (type === EVENT_TYPES.generationStarted || type === EVENT_TYPES.generationFinished) {
@@ -381,44 +382,64 @@ export async function persistToolCallEvent(resultsFilePath: string, event: Recor
   await appendFile(resultsFilePath, buildToolCallLine(event));
 }
 
-function applyEventToSession(session: ServerSession, type: string, event: Record<string, unknown>): GenerationDelta {
+function applyEventToSession(session: ServerSession, type: string | undefined, event: Record<string, unknown>): GenerationDelta {
   if (type === EVENT_TYPES.toolCall) {
-    session.toolCallHistory.push({
-      toolUseId: event.toolUseId as string,
-      toolName: event.toolName as string,
-      args: event.args,
-      timestamp: Date.now(),
-    });
-    if (env.persistToolCalls) {
-      // Fire-and-forget: a write failure shouldn't block the live
-      // SSE flow. The in-memory `toolCallHistory` is the
-      // authoritative copy during the run; the jsonl line is a
-      // debug aid that survives refresh.
-      //
-      // Goes through `enqueueJsonlAppend` so this append precedes
-      // any `tool_result` for the same toolUseId — `pushToolResult`
-      // also enqueues, and the queue is FIFO. Without the queue, the
-      // awaited `tool_result` could hit disk before the unawaited
-      // `tool_call`, and a downstream reader assuming call-before-
-      // result ordering would mis-associate events.
-      enqueueJsonlAppend(session, buildToolCallLine(event)).catch((err: unknown) => {
-        log.warn("session-store", "persist tool_call failed (non-fatal)", {
-          chatSessionId: session.chatSessionId,
-          error: errorMessage(err),
-        });
-      });
-    }
+    recordToolCall(session, event);
   } else if (type === EVENT_TYPES.toolCallResult) {
-    const entry = session.toolCallHistory.find((historyEntry) => historyEntry.toolUseId === event.toolUseId);
-    if (entry) entry.result = event.content as string;
+    applyToolCallResult(session, event);
   } else if (type === EVENT_TYPES.status) {
-    session.statusMessage = event.message as string;
+    // Empty string is the same "no status" value `beginRun` / `endRun` write,
+    // so a message-less event can't leave a non-string in a `string` field.
+    session.statusMessage = hasStringProp(event, "message") ? event.message : "";
     // No notifySessionsChanged() here — status updates are high-frequency
     // and flow to subscribed clients via the session.<id> channel directly.
   } else if (type === EVENT_TYPES.generationStarted || type === EVENT_TYPES.generationFinished) {
     return updatePendingGenerations(session, type, event);
   }
   return "same";
+}
+
+/**
+ * Append one validated `tool_call` to the session history. `toolUseId`
+ * and `toolName` identify the call for every later `tool_call_result`
+ * lookup, so an event missing either is logged and dropped rather than
+ * stored as a history row that nothing can ever match.
+ */
+function recordToolCall(session: ServerSession, event: Record<string, unknown>): void {
+  if (!hasStringProp(event, "toolUseId") || !hasStringProp(event, "toolName")) {
+    log.warn("session-store", "malformed tool_call event", { chatSessionId: session.chatSessionId });
+    return;
+  }
+  session.toolCallHistory.push({
+    toolUseId: event.toolUseId,
+    toolName: event.toolName,
+    args: event.args,
+    timestamp: Date.now(),
+  });
+  if (!env.persistToolCalls) return;
+  // Fire-and-forget: a write failure shouldn't block the live
+  // SSE flow. The in-memory `toolCallHistory` is the
+  // authoritative copy during the run; the jsonl line is a
+  // debug aid that survives refresh.
+  //
+  // Goes through `enqueueJsonlAppend` so this append precedes
+  // any `tool_result` for the same toolUseId — `pushToolResult`
+  // also enqueues, and the queue is FIFO. Without the queue, the
+  // awaited `tool_result` could hit disk before the unawaited
+  // `tool_call`, and a downstream reader assuming call-before-
+  // result ordering would mis-associate events.
+  enqueueJsonlAppend(session, buildToolCallLine(event)).catch((err: unknown) => {
+    log.warn("session-store", "persist tool_call failed (non-fatal)", {
+      chatSessionId: session.chatSessionId,
+      error: errorMessage(err),
+    });
+  });
+}
+
+function applyToolCallResult(session: ServerSession, event: Record<string, unknown>): void {
+  const entry = session.toolCallHistory.find((historyEntry) => historyEntry.toolUseId === event.toolUseId);
+  if (!entry) return;
+  entry.result = hasStringProp(event, "content") ? event.content : undefined;
 }
 
 function updatePendingGenerations(session: ServerSession, type: string, event: Record<string, unknown>): GenerationDelta {
@@ -543,12 +564,12 @@ async function persistHasUnread(chatSessionId: string, hasUnread: boolean): Prom
   }
 }
 
-function publishToSessionChannel(chatSessionId: string, data: unknown): void {
+function publishToSessionChannel(chatSessionId: string, data: Record<string, unknown>): void {
   pubsub?.publish(sessionChannel(chatSessionId), data);
   const listeners = sessionListeners.get(chatSessionId);
   if (listeners) {
     for (const listener of listeners) {
-      listener(data as Record<string, unknown>);
+      listener(data);
     }
   }
 }
