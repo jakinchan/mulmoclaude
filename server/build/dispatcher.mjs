@@ -201,7 +201,7 @@ function mirrorSkillDelete(workspaceRoot2, slug) {
   return { dest };
 }
 
-// packages/core/dist/dist-Cwk0e12G.js
+// packages/core/dist/dist-DfFWwikm.js
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
