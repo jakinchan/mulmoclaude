@@ -461,6 +461,104 @@ Repair pass reports schema violations by record id, but has no
 "malformed file" classification), and the completion/spawn watcher
 reconciles the WHOLE collection per db change (no per-record events).
 
+## A record the user edited came back with the source's value
+
+### Symptoms
+
+Nothing fails — the user reports it. Any of:
+
+- A Google Calendar collection record they edited shows Google's value
+  again after a sync.
+- A feed record lost the column they had added beside it, or the whole
+  record disappeared once the item aged past `ingest.maxItems`.
+- The edit is simply gone, and no conflict was ever reported.
+
+### Cause
+
+Records are written WHOLE (`writeItem`), so anything that mirrors a
+remote source into a collection has to lay its values OVER the stored
+record rather than replace it — and has to refuse when the record holds
+an edit the source has not seen. Four separate places got that wrong:
+
+- `#2683` — a calendar collection without `autoPush` was never in the
+  pull's protected set at all.
+- `#2684` — the protected set was a snapshot taken when the push
+  finished, so an edit made while the window was in flight (minutes of
+  it, on a full re-walk) was invisible to it.
+- `#2688` — a cancellation in Google deleted the record without asking
+  whether it held an unsent edit.
+- `#2696` — the feeds ingest replaced the record whole, and the
+  `maxItems` prune deleted annotated records once they aged out.
+
+### Fix
+
+All four are fixed as of `@mulmoclaude/core` 1.13.0. **Check the host's
+version first** — if it is older, that is the whole answer.
+
+If it happens on 1.13.0 or later, it is a new bug, not one of these:
+capture which collection, whether it declares `googleCalendar` or
+`ingest`, and what the record looked like before and after. Do NOT
+suggest re-editing and hoping — the point of these fixes is that the
+loss is no longer silent.
+
+## A calendar conflict is reported on every Push and will not clear
+
+### Symptoms
+
+Push reports a conflict for a record that already matches Google. It
+comes back on every attempt; nothing the user does in the record clears
+it.
+
+### Cause
+
+The conflict check compares Google against the BASELINE in
+`<workspace>/data/calendar/.push-state.json`, not against the record.
+A baseline older than both sides reports a conflict forever.
+
+Before `#2679` that happened whenever two hosts pointed at the same
+workspace: both read the same snapshot and the later write dropped the
+earlier one's entry. The state files are now serialised across
+processes with a lock file.
+
+**It can still happen when the workspace lives in a sync folder**
+(Dropbox, iCloud, Google Drive). Exclusive file creation gives no
+exclusion there — the file is replicated after the fact, so both hosts
+believe they hold the lock. No mechanism in the app can fix that.
+
+### Fix
+
+Move the workspace onto a real filesystem. A network mount is fine
+(`O_EXCL` is atomic on NFSv3+); a consumer sync folder is not.
+
+Nothing is lost while it persists: the push REFUSES rather than
+overwrites, which is exactly what the conflict report means. If the
+workspace is already on a real filesystem and a conflict still will not
+clear, that is a new bug — report it with the calendar id and the
+record.
+
+## `proceeding without the calendar state lock` in the logs
+
+### Symptoms
+
+A `google` warning naming a `.lock` path, during a calendar sync.
+
+### Cause
+
+The lock guards one read-modify-write of a calendar state file, and it
+fails OPEN: a host that cannot take it does its work anyway, because
+the lock removes a race rather than being a precondition for syncing
+correctly.
+
+A single occurrence is normal — another host held the file for the few
+milliseconds the mutation takes.
+
+### Fix
+
+Nothing, if it is occasional. If it is constant, either another host is
+hammering the same workspace, or the lock file cannot be created at all
+(a read-only mount, a missing `data/calendar` directory, a full disk) —
+check those before treating it as a calendar problem.
+
 ## Fallback
 
 If none of the above matches the failing tool output:
