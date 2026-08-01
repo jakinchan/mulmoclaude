@@ -118,6 +118,7 @@ export {
   classifyDelete,
   classifyWrite,
   anySyncedCollectionSurvives,
+  applyPlanFor,
   groupByCalendar,
   allUnpushed,
   unsentEditGuard,

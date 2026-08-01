@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   allUnpushed,
   anySyncedCollectionSurvives,
+  applyPlanFor,
   baselineRecord,
   classifyDelete,
   classifyWrite,
@@ -40,7 +41,7 @@ import type {
   PullProtectionDeps,
 } from "@mulmoclaude/core/google";
 import { parseIsoDateTime } from "@mulmoclaude/core/collection";
-import type { CollectionFieldSpec } from "@mulmoclaude/core/collection";
+import type { CollectionFieldSpec, CollectionItem } from "@mulmoclaude/core/collection";
 import type { LoadedCollection } from "@mulmoclaude/core/collection/server";
 
 const event = (overrides: Partial<CalendarEventSummary> = {}): CalendarEventSummary => ({
@@ -913,5 +914,57 @@ describe("shadowUpdates carry-forward (#2684 a held-back baseline must survive a
 
   it("behaves as before when no carry-forward is supplied", () => {
     assert.deepEqual(shadowUpdates([event({ id: "ev-1" })], new Set(["ev-1"])), {});
+  });
+});
+
+// #2684 put the guard in front of the OVERWRITE but not the DELETE, so a
+// cancellation in Google still removed a record holding an edit Google had
+// never seen — the same silent loss, one branch over (#2688). The guard now
+// runs before the status is consulted: "is there something local to lose?"
+// outranks "what did Google do to it?".
+describe("applyPlanFor (#2688 a cancellation must not outrank a local edit)", () => {
+  const edited = (_existing: CollectionItem, eventId: string) => eventId === "ev-edited";
+  const cancelled = event({ id: "ev-edited", status: "cancelled" });
+  const record = { gid: "ev-edited", title: "mine" };
+
+  it("refuses to delete a record that holds an unsent edit", () => {
+    assert.equal(applyPlanFor(record, cancelled, edited), "withhold");
+  });
+
+  it("still deletes a record that is in sync with Google", () => {
+    assert.equal(applyPlanFor({ gid: "ev-clean" }, event({ id: "ev-clean", status: "cancelled" }), edited), "delete");
+  });
+
+  // Cancelling an event this collection never stored is normal, not a loss —
+  // `classifyDelete` turns the resulting not-found into a benign skip.
+  it("deletes when there is no local record at all", () => {
+    assert.equal(applyPlanFor(null, cancelled, edited), "delete");
+  });
+
+  it("keeps the #2684 behaviour for a live event with an unsent edit", () => {
+    assert.equal(applyPlanFor(record, event({ id: "ev-edited" }), edited), "withhold");
+  });
+
+  it("writes a live event over a record that is in sync", () => {
+    assert.equal(applyPlanFor({ gid: "ev-clean" }, event({ id: "ev-clean" }), edited), "write");
+  });
+});
+
+// The baseline half of #2688. `shadowUpdates` emits `null` for a cancelled
+// event — dropping the baseline — which is right when the record went with it,
+// and wrong when the record was kept: without a baseline the next push reads a
+// conflicted record as a brand-new create. The #2684 carry-forward covers this
+// once the event is held back, so this pins the two halves together.
+describe("shadowUpdates + a withheld cancellation (#2688)", () => {
+  const previously = toShadowEvent(event({ id: "ev-1", summary: "As Google had it" }));
+
+  it("keeps the pre-run baseline instead of nulling it when the record was kept", () => {
+    const updates = shadowUpdates([event({ id: "ev-1", status: "cancelled" })], new Set(["ev-1"]), { "ev-1": previously });
+    assert.deepEqual(updates["ev-1"], previously);
+  });
+
+  it("still nulls the baseline when the record really was deleted", () => {
+    const updates = shadowUpdates([event({ id: "ev-1", status: "cancelled" })], new Set(), { "ev-1": previously });
+    assert.equal(updates["ev-1"], null);
   });
 });
