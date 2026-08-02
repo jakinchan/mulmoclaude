@@ -633,5 +633,33 @@ export default [
       "sonarjs/different-types-comparison": "off",
     },
   },
+  // Per-package ratchet for the `as`-cast ban (#2692). The rule is `warn`
+  // repo-wide while the backlog drains; these packages are already at ZERO,
+  // so a new cast in them is a regression rather than a known debt — and the
+  // only thing that stops the drained set from refilling behind the drain.
+  //
+  // Verified at zero when added; `packages/relay`'s last one went in the same
+  // PR. Extend this list as a directory reaches zero, and delete the block
+  // once the repo-wide setting itself graduates to `error`.
+  {
+    files: [
+      "packages/chat-service/**/*.ts",
+      "packages/client/**/*.ts",
+      "packages/common/**/*.ts",
+      "packages/create-mulmoclaude-plugin/**/*.ts",
+      "packages/mock-server/**/*.ts",
+      "packages/protocol/**/*.ts",
+      "packages/relay/**/*.ts",
+      "packages/scheduler/**/*.ts",
+      "packages/web-push/**/*.ts",
+      "packages/webhook-runtime/**/*.ts",
+    ],
+    // Tests keep the permissive setting the test override below grants them;
+    // this block covers source only, so it must not reach `**/test/**`.
+    ignores: ["packages/*/test/**", "packages/*/**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
+    },
+  },
   eslintConfigPrettier,
 ];
