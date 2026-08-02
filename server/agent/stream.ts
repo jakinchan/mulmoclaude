@@ -106,6 +106,7 @@ function extractTextDelta(event: RawStreamEvent): string | null {
 // Filter assistant block events: when deltas already streamed the
 // text, remove text-type events to prevent duplication.
 function filterAssistantBlocks(blockEvents: AgentEvent[], deltaStreamed: boolean): AgentEvent[] {
+  // eslint-disable-next-line sonarjs/no-selector-parameter -- `deltaStreamed` is parser state, not a caller-chosen mode (the single call site passes a variable). Folding the branch back into parse() measured cognitive complexity 16 against the cap of 15.
   return deltaStreamed ? blockEvents.filter((agentEvent) => agentEvent.type !== EVENT_TYPES.text) : blockEvents;
 }
 

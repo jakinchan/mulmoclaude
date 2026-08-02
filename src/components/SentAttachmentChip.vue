@@ -25,7 +25,7 @@ const props = withDefaults(
     filename?: string | undefined;
     variant?: Variant | undefined;
   }>(),
-  { variant: "thumb" },
+  { filename: "", variant: "thumb" },
 );
 
 const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);

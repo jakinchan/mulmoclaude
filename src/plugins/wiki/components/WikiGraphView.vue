@@ -6,6 +6,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as echarts from "echarts";
 import type { WikiGraph } from "@mulmoclaude/core/wiki";
+import { isRecord } from "../../../utils/types";
 
 const props = defineProps<{ graph: WikiGraph }>();
 const emit = defineEmits<{ navigate: [slug: string] }>();
@@ -46,7 +47,7 @@ function render(): void {
     instance = echarts.init(element);
     instance.on("click", (params) => {
       if (params.dataType !== "node") return;
-      const nodeId = (params.data as { id?: unknown } | null | undefined)?.id;
+      const nodeId = isRecord(params.data) ? params.data.id : undefined;
       if (typeof nodeId === "string") emit("navigate", nodeId);
     });
   }

@@ -127,7 +127,7 @@ export function satisfies(version, range) {
   if (trimmed.startsWith("^")) {
     // ^0.0.x → exact; ^0.y.z → allow minor/patch increases within 0.y; ^x.y.z → allow within x
     if (lb[0] === 0 && lb[1] === 0) return v[0] === 0 && v[1] === 0 && v[2] === lb[2];
-    if (lb[0] === 0) return v[0] === 0 && v[1] === lb[1] && (v[2] > lb[2] || (v[2] === lb[2]));
+    if (lb[0] === 0) return v[0] === 0 && v[1] === lb[1] && (v[2] > lb[2] || v[2] === lb[2]);
     return v[0] === lb[0] && (v[1] > lb[1] || (v[1] === lb[1] && v[2] >= lb[2]));
   }
   if (trimmed.startsWith("~")) {

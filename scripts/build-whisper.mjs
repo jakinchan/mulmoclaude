@@ -153,7 +153,9 @@ function main() {
   console.log("[build-whisper] done. Verify with:");
   console.log("  whisper-server --help | head -n 1");
   console.log("");
-  console.log(`[build-whisper] whisper-server is in ${where}. Restart 'yarn dev', then enable voice input in Settings → Voice (the model downloads on first enable).`);
+  console.log(
+    `[build-whisper] whisper-server is in ${where}. Restart 'yarn dev', then enable voice input in Settings → Voice (the model downloads on first enable).`,
+  );
 }
 
 main();

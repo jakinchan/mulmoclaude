@@ -8,6 +8,7 @@ import type { ActiveSession, SkillScope } from "../../types/session";
 import type { PersistedAttachment } from "../../types/attachment";
 import { makeSkillResult, makeTextResult, SKILL_TOOL_NAME } from "../tools/result";
 import { shouldSelectAssistantText } from "../agent/toolCalls";
+import { isRecord } from "../types";
 
 /** Push a result and record its timestamp in one place. */
 export function pushResult(session: ActiveSession, result: ToolResultComplete): void {
@@ -39,25 +40,32 @@ export function beginUserTurn(session: ActiveSession, message: string, attachmen
   session.runStartIndex = session.toolResults.length;
 }
 
+/** The tail result when it is a text-response carrying a record payload.
+ *  `data` is the live object, so callers can stream text onto it. */
+function tailTextResponse(session: ActiveSession): { result: ToolResultComplete; data: Record<string, unknown> } | null {
+  const last = session.toolResults[session.toolResults.length - 1];
+  if (!last || last.toolName !== "text-response" || !isRecord(last.data)) return null;
+  return { result: last, data: last.data };
+}
+
 /** Append text to the last assistant text-response if one exists.
  *  Returns true if appended, false if a new card is needed. */
 export function appendToLastAssistantText(session: ActiveSession, text: string): boolean {
-  const last = session.toolResults[session.toolResults.length - 1];
-  const lastData = last?.data as { role?: string; text?: string } | undefined;
-  if (last?.toolName !== "text-response" || lastData?.role !== "assistant") {
+  const tail = tailTextResponse(session);
+  if (!tail || tail.data.role !== "assistant") {
     return false;
   }
-  lastData.text = (lastData.text ?? "") + text;
-  last.message = (last.message ?? "") + text;
+  const previous = typeof tail.data.text === "string" ? tail.data.text : "";
+  tail.data.text = previous + text;
+  tail.result.message = (tail.result.message ?? "") + text;
   return true;
 }
 
 /** Check if an incoming user text event is a duplicate of the last
  *  user message (sent by this tab via beginUserTurn). */
 function isDuplicateUserText(session: ActiveSession, message: string): boolean {
-  const last = session.toolResults[session.toolResults.length - 1];
-  const lastData = last?.data as { role?: string; text?: string } | undefined;
-  return last?.toolName === "text-response" && lastData?.role === "user" && lastData?.text === message;
+  const tail = tailTextResponse(session);
+  return tail !== null && tail.data.role === "user" && tail.data.text === message;
 }
 
 /** Handle an incoming text event (user or assistant) from the
@@ -104,12 +112,11 @@ export function applySkillEvent(
     message: string;
   },
 ): void {
-  const last = session.toolResults[session.toolResults.length - 1];
-  const lastData = last?.data as { role?: string } | undefined;
-  if (last?.toolName === "text-response" && lastData?.role === "assistant") {
+  const tail = tailTextResponse(session);
+  if (tail && tail.data.role === "assistant") {
     const replacement = makeSkillResult(payload);
     // Preserve uuid so selection / scroll anchors don't blink off.
-    Object.assign(last, { ...replacement, uuid: last.uuid });
+    Object.assign(tail.result, { ...replacement, uuid: tail.result.uuid });
     return;
   }
   const skillResult = makeSkillResult(payload);

@@ -80,9 +80,39 @@ const edgeTooltip = (data: { source: string; target: string; field: string; kind
   return `${escapeHtml(data.source)} —${escapeHtml(data.field)}→ ${escapeHtml(data.target)}<br><span style="color:#64748b">${escapeHtml(data.kind)}${escapeHtml(reverse)}</span>`;
 };
 
+// echarts hands the formatter an untyped callback param, so read the item back
+// out field by field. `nodeItem` / `edgeItem` above are the only producers;
+// anything else degrades to empty labels instead of rendering `undefined`.
+const asString = (value: unknown): string => (typeof value === "string" ? value : "");
+
+const toTooltipNode = (data: unknown): { id: string; name: string; missing: boolean; recordCount: number | null } => {
+  if (typeof data !== "object" || data === null) return { id: "", name: "", missing: false, recordCount: null };
+  return {
+    id: asString("id" in data ? data.id : undefined),
+    name: asString("name" in data ? data.name : undefined),
+    missing: "missing" in data && data.missing === true,
+    recordCount: "recordCount" in data && typeof data.recordCount === "number" ? data.recordCount : null,
+  };
+};
+
+const toTooltipEdge = (data: unknown): { source: string; target: string; field: string; kind: string; reverseFields: string[] } => {
+  if (typeof data !== "object" || data === null) return { source: "", target: "", field: "", kind: "", reverseFields: [] };
+  const rawReverse: unknown = "reverseFields" in data ? data.reverseFields : undefined;
+  const reverse: unknown[] = Array.isArray(rawReverse) ? rawReverse : [];
+  return {
+    source: asString("source" in data ? data.source : undefined),
+    target: asString("target" in data ? data.target : undefined),
+    field: asString("field" in data ? data.field : undefined),
+    kind: asString("kind" in data ? data.kind : undefined),
+    reverseFields: reverse.filter((item): item is string => typeof item === "string"),
+  };
+};
+
 const tooltipFormatter = (params: unknown): string => {
-  const { dataType, data } = params as { dataType: string; data: never };
-  return dataType === "edge" ? edgeTooltip(data) : nodeTooltip(data);
+  if (typeof params !== "object" || params === null) return "";
+  const data: unknown = "data" in params ? params.data : undefined;
+  const isEdge = "dataType" in params && params.dataType === "edge";
+  return isEdge ? edgeTooltip(toTooltipEdge(data)) : nodeTooltip(toTooltipNode(data));
 };
 
 const buildOption = (value: OntologyGraph): echarts.EChartsCoreOption => ({
@@ -112,8 +142,11 @@ const render = (): void => {
     instance = echarts.init(element);
     instance.on("click", (params) => {
       if (params.dataType !== "node") return;
-      const data = params.data as { id?: unknown; missing?: unknown } | null | undefined;
-      if (typeof data?.id === "string" && data.missing !== true) emit("open", data.id);
+      const clicked: unknown = params.data;
+      if (typeof clicked !== "object" || clicked === null) return;
+      const nodeId = "id" in clicked ? clicked.id : undefined;
+      const missing = "missing" in clicked ? clicked.missing : undefined;
+      if (typeof nodeId === "string" && missing !== true) emit("open", nodeId);
     });
   }
   instance.setOption(buildOption(graph.value), true);

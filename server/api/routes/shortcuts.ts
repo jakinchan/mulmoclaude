@@ -14,6 +14,7 @@ import type { Shortcut } from "../../../src/types/shortcuts.js";
 import { readShortcuts, writeShortcuts } from "../../utils/files/shortcuts-io.js";
 import { errorMessage } from "../../utils/errors.js";
 import { badRequest, serverError, type ApiResponse } from "../../utils/httpError.js";
+import { requestBodyRecord } from "../../utils/requestBody.js";
 import { log } from "../../system/logger/index.js";
 
 const router = Router();
@@ -32,7 +33,7 @@ router.get(API_ROUTES.shortcuts, async (_req: Request, res: ApiResponse<Shortcut
 });
 
 router.put(API_ROUTES.shortcuts, async (req: Request, res: ApiResponse<ShortcutsResponse>) => {
-  const incoming = req.body?.shortcuts;
+  const incoming = requestBodyRecord(req.body).shortcuts;
   if (!Array.isArray(incoming)) {
     badRequest(res, "Request body must be { shortcuts: Shortcut[] }");
     return;

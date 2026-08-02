@@ -183,7 +183,7 @@ const TABS: readonly TabDef[] = [
 ];
 
 function isTabKey(value: string | undefined): value is TabKey {
-  return typeof value === "string" && (TAB_KEYS as readonly string[]).includes(value);
+  return TAB_KEYS.some((key) => key === value);
 }
 
 const initialPayload = computed<AccountingAppPayload>(() => props.selectedResult?.data ?? props.selectedResult?.jsonData ?? {});

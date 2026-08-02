@@ -18,7 +18,7 @@ const toolDefinition: ToolDefinition = {
   parameters: {
     type: "object",
     properties: {},
-    required: [] as string[],
+    required: [],
   },
 };
 

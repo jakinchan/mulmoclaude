@@ -14,7 +14,7 @@
 import { normalizeMutate, readIdParam } from "@mulmoclaude/core/remote-view";
 import { loadCollection } from "../../workspace/collections/index.js";
 import { mutateRemoteView, mutateRemoteViewFailureMessage } from "../../workspace/collections/remoteView.js";
-import { toJsonObject } from "../commandChannel.js";
+import { coerceJsonObject, toJsonObject } from "../commandChannel.js";
 import type { CommandHandler, JsonObject } from "../commandChannel.js";
 
 export interface MutateRemoteViewHandlerDeps {
@@ -33,13 +33,11 @@ export const createMutateRemoteViewHandler =
     if (!collection) throw new Error(`collection '${slug}' not found`);
     const result = await deps.mutateRemoteView(collection, viewId, request);
     if (result.kind !== "ok") throw new Error(mutateRemoteViewFailureMessage(result, slug));
-    // The delete branch is all strings, so it type-checks. The update branch
-    // carries a `CollectionItem`, whose values are `unknown` — JSON by the
-    // record loader's invariant, but not provably so. Same irreducible gap as
-    // `pageResult` / `getRemoteViewItems`, kept visible per branch rather than
-    // blanketing both.
+    // The delete branch is all strings, so the compile-time widen suffices. The
+    // update branch carries a `CollectionItem`, whose values are `unknown`, so
+    // it has to earn its JSON at runtime instead.
     if (result.op === "delete") return toJsonObject({ op: "delete", id: result.id });
-    return { op: "update", item: result.item } as unknown as JsonObject;
+    return coerceJsonObject({ op: "update", item: result.item });
   };
 
 export const mutateRemoteViewItem = createMutateRemoteViewHandler({ loadCollection, mutateRemoteView });

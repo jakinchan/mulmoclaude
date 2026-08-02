@@ -142,6 +142,7 @@ export async function loadOne(listing: RuntimePluginListing): Promise<void> {
 
   let mod: PluginVueModule;
   try {
+    // Kept (#2692): "is this a Vue component" isn't decidable at runtime.
     mod = (await import(/* @vite-ignore */ moduleUrl)) as PluginVueModule;
   } catch (err) {
     // Asset is reachable but the import threw — parse error,

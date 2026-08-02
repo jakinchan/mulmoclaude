@@ -564,7 +564,7 @@ export const SpawnZ = z.object({
  *  items natively and ignore it — so no kind-specific requirement here. */
 export const DeclarativeIngestZ = z.object({
   kind: z.enum(INGEST_KINDS),
-  url: z.string().url(),
+  url: z.url(),
   schedule: z.enum(FEED_SCHEDULES),
   // Optional UTC hour (0–23) to anchor a `daily` schedule; ignored otherwise.
   atHour: z.number().int().min(0).max(23).optional(),

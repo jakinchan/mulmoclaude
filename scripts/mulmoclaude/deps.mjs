@@ -25,7 +25,7 @@ const NODE_BUILTINS = new Set(builtinModules);
 // Returns true for `"fs"`, `"node:fs"`, `"fs/promises"`, `"node:fs/promises"`.
 export function isNodeBuiltin(specifier) {
   if (specifier.startsWith("node:")) return true;
-  const root = specifier.split("/")[0];
+  const [root] = specifier.split("/");
   return NODE_BUILTINS.has(root);
 }
 
@@ -92,7 +92,7 @@ export function extractBareImports(source) {
     regex.lastIndex = 0;
     let match;
     while ((match = regex.exec(source)) !== null) {
-      const specifier = match[1];
+      const [, specifier] = match;
       if (specifier.startsWith(".") || specifier.startsWith("/")) continue;
       imports.add(packageRoot(specifier));
     }

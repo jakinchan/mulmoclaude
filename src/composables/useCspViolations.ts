@@ -7,6 +7,7 @@
 // informational and carries no capability, so a loose validation is fine.
 
 import { ref, readonly } from "vue";
+import { isRecord } from "../utils/types";
 
 export interface CspViolation {
   /** Origin of the blocked resource, e.g. `https://www.google.com` — this is
@@ -62,7 +63,7 @@ export function registerViewNonce(nonce: string): void {
 }
 
 function isViolationMessage(data: unknown): data is ViolationMessage {
-  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "mc-csp-violation";
+  return isRecord(data) && data.type === "mc-csp-violation";
 }
 
 // Pure: turn a raw `mc-csp-violation` payload into a `{ host, directive }` the
@@ -111,5 +112,6 @@ let installed = false;
 export function installCspViolationListener(): void {
   if (installed || typeof window === "undefined") return;
   installed = true;
+  // eslint-disable-next-line sonarjs/post-message -- `onMessage` delegates to `decideViolation`, which drops anything whose `event.origin` is not the opaque `"null"` AND whose nonce is not in the live per-render allowlist.
   window.addEventListener("message", onMessage);
 }

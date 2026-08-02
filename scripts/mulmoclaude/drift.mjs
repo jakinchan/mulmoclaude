@@ -90,12 +90,7 @@ async function defaultFetchPublishedSource({ packageBaseName, timeoutMs = REGIST
     // Prefer the package's declared `main` / `module` entry rather
     // than assuming `dist/index.js` — a future refactor of the
     // @mulmobridge/* packages could move the entry file.
-    const entry =
-      typeof meta.module === "string"
-        ? meta.module
-        : typeof meta.main === "string"
-          ? meta.main
-          : "dist/index.js";
+    const entry = typeof meta.module === "string" ? meta.module : typeof meta.main === "string" ? meta.main : "dist/index.js";
     const distRes = await fetch(`${UNPKG_BASE}/${fullName}@${version}/${entry.replace(/^\.?\/+/, "")}`, {
       signal: controller.signal,
     });
@@ -158,7 +153,7 @@ export async function checkPackageDrift({
 
   const published = await fetchPublishedSource({ packageBaseName });
   let distSource = published.source;
-  let publishedVersion = published.version;
+  const publishedVersion = published.version;
   let fallbackReason = null;
   if (distSource === null) {
     distSource = await readInstalledDistSource({ root, packageBaseName, installedRoot, distRelative });
@@ -210,7 +205,7 @@ export async function checkPackageDrift({
 export function isLocalVersionAhead(local, published) {
   if (typeof local !== "string" || typeof published !== "string") return false;
   const parse = (str) => {
-    const cleaned = str.split(/[-+]/)[0];
+    const [cleaned] = str.split(/[-+]/);
     const parts = cleaned.split(".").map((part) => Number.parseInt(part, 10));
     if (parts.length < 3) return null;
     if (parts.some((part) => !Number.isFinite(part))) return null;

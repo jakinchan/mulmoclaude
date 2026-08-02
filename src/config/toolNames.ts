@@ -110,6 +110,8 @@ const TOOL_NAMES_AGGREGATE = defineHostAggregate<string>(BUILT_IN_PLUGIN_METAS, 
 export const TOOL_NAMES_HOST_COLLISIONS: readonly HostPluginCollision[] = TOOL_NAMES_AGGREGATE.hostCollisions;
 export const TOOL_NAMES_INTRA_COLLISIONS: readonly IntraPluginCollision[] = TOOL_NAMES_AGGREGATE.intraCollisions;
 
+// Kept (#2692): the plugin half of this type is derived from META at compile
+// time, which no runtime check over the merged record can reproduce.
 export const TOOL_NAMES = TOOL_NAMES_AGGREGATE.merged as unknown as typeof HOST_TOOL_NAMES & PluginToolNamesMap<BuiltInPluginMetas>;
 
 export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES];
@@ -118,7 +120,7 @@ export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES];
  *  payload) needs to be narrowed to a known tool. */
 export function isToolName(value: unknown): value is ToolName {
   if (typeof value !== "string") return false;
-  return (Object.values(TOOL_NAMES) as readonly string[]).includes(value);
+  return Object.values(TOOL_NAMES).some((toolName) => toolName === value);
 }
 
 /** Array of all known tool names, in declaration order. */

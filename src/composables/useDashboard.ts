@@ -153,7 +153,7 @@ function reconcile(favoriteSlugs: string[]): Promise<void> {
     const favoriteSet = new Set(favoriteSlugs);
     const kept = tiles.value.filter((tile) => favoriteSet.has(tile.slug));
     const keptSlugs = new Set(kept.map((tile) => tile.slug));
-    const appended = favoriteSlugs.filter((slug) => !keptSlugs.has(slug)).map((slug) => ({ slug }) as DashboardTile);
+    const appended = favoriteSlugs.filter((slug) => !keptSlugs.has(slug)).map((slug): DashboardTile => ({ slug }));
     const next = [...kept, ...appended];
     const drifted = next.length !== tiles.value.length || next.some((tile, i) => tile.slug !== tiles.value[i]?.slug);
     if (drifted) await persist({ tiles: next, rowHeights: rowHeights.value }, snapshot());

@@ -274,6 +274,7 @@ import PageChatComposer from "../../components/PageChatComposer.vue";
 import { pluginBuiltinRoleIds, pluginEndpoints, pluginPageRoute } from "../api";
 import { useMarkdownDoc } from "@mulmoclaude/core/plugin-vue";
 import { formatUpdated, metaString, metaStringArray } from "./helpers";
+import { extractWikiData } from "./parseWikiResponse";
 import { apiPost } from "../../utils/api";
 import { WIKI_ACTION, readWikiRouteTarget, wikiActionFor } from "@mulmoclaude/core/wiki";
 import FilterChip from "../../components/FilterChip.vue";
@@ -457,7 +458,7 @@ async function callApi(body: Record<string, unknown>) {
   }
 }
 
-const { refresh, abort: abortFreshFetch } = useFreshPluginData<WikiData>({
+const { refresh, abort: abortFreshFetch } = useFreshPluginData<Partial<WikiData>>({
   // Slug-aware: when the view is currently showing a specific page,
   // fetch that page by slug; otherwise fetch the index. Reads the
   // slug via `currentSlug()` so both mount paths are covered —
@@ -469,7 +470,7 @@ const { refresh, abort: abortFreshFetch } = useFreshPluginData<WikiData>({
     const slug = action.value === "page" ? currentSlug() : null;
     return slug ? `${wikiEndpoints.base}?slug=${encodeURIComponent(slug)}` : wikiEndpoints.base;
   },
-  extract: (json) => (json as { data?: WikiData }).data ?? null,
+  extract: extractWikiData,
   apply: (data) => {
     // The endpoint only fetches the correct payload for index / page
     // views; for log / lint_report / page-edit it returns the bare index,
