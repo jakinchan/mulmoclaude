@@ -29,6 +29,7 @@ import path from "node:path";
 import { getCurrentToken } from "../../api/auth/token.js";
 import { errorMessage } from "../../utils/errors.js";
 import { makeUuid } from "../../utils/id.js";
+import { isRecord } from "../../utils/types.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { EVENT_TYPES } from "../../../src/types/events.js";
 import { WORKSPACE_DIRS } from "../../workspace/paths.js";
@@ -242,7 +243,8 @@ async function dispatchToPlugin(call: FakeToolCall, port: number, chatSessionId:
       const errBody = await response.text();
       return JSON.stringify({ error: `plugin ${call.toolName} returned ${response.status}: ${errBody.slice(0, 200)}` });
     }
-    const envelope = ((await response.json()) ?? {}) as PluginEnvelope;
+    const parsed: unknown = await response.json();
+    const envelope: PluginEnvelope = isRecord(parsed) ? parsed : {};
     if (envelope.data !== undefined) {
       // Query key is `session`, not `chatSessionId` — matches the
       // `getSessionQuery(req)` reader and what the MCP bridge's

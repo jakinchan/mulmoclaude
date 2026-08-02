@@ -13,16 +13,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { errorMessage } from "../utils/errors.js";
+import { hasStringProp } from "../utils/types.js";
 import { log } from "./logger/index.js";
 
 function readAppVersion(): string {
   const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json");
   try {
     const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
-    if (typeof parsed === "object" && parsed !== null && "version" in parsed) {
-      const { version } = parsed as { version: unknown };
-      if (typeof version === "string" && version.length > 0) return version;
-    }
+    if (hasStringProp(parsed, "version") && parsed.version.length > 0) return parsed.version;
     log.warn("appVersion", "package.json has no usable version field", { pkgPath });
   } catch (err) {
     log.warn("appVersion", "failed to read package.json", { pkgPath, error: errorMessage(err) });

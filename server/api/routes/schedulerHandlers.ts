@@ -11,6 +11,7 @@
 
 import type { ScheduledItem } from "./scheduler.js";
 import { makeId } from "../../utils/id.js";
+import { isRecord } from "../../utils/types.js";
 
 export interface SchedulerActionInput {
   title?: string;
@@ -44,14 +45,11 @@ export type SchedulerActionResult =
 // surfaces those as a "broken range" chip so the user/LLM gets
 // visible feedback instead of having the bad data silently erased.
 export function sanitizeProps(props: unknown): ScheduledItem["props"] {
-  if (typeof props !== "object" || props === null || Array.isArray(props)) {
-    return {};
-  }
-  const record = props as ScheduledItem["props"];
-  if (!("endDate" in record)) return record;
-  if (typeof record.endDate === "string") return record;
-  if (record.endDate === null) return record;
-  const next = { ...record };
+  if (!isRecord(props)) return {};
+  if (!("endDate" in props)) return props;
+  if (typeof props.endDate === "string") return props;
+  if (props.endDate === null) return props;
+  const next = { ...props };
   Reflect.deleteProperty(next, "endDate");
   return next;
 }
@@ -160,12 +158,11 @@ export function handleUpdate(items: ScheduledItem[], input: SchedulerActionInput
 // safe default (newly minted id, empty title, current timestamp)
 // rather than failing the whole replace.
 export function sanitizeItem(raw: unknown): ScheduledItem | null {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const obj = raw as Partial<ScheduledItem>;
-  const itemId = typeof obj.id === "string" && obj.id.length > 0 ? obj.id : makeId("sched");
-  const title = typeof obj.title === "string" ? obj.title : "";
-  const createdAt = typeof obj.createdAt === "number" && Number.isFinite(obj.createdAt) ? obj.createdAt : Date.now();
-  return { id: itemId, title, createdAt, props: sanitizeProps(obj.props) };
+  if (!isRecord(raw)) return null;
+  const itemId = typeof raw.id === "string" && raw.id.length > 0 ? raw.id : makeId("sched");
+  const title = typeof raw.title === "string" ? raw.title : "";
+  const createdAt = typeof raw.createdAt === "number" && Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now();
+  return { id: itemId, title, createdAt, props: sanitizeProps(raw.props) };
 }
 
 export function handleReplace(_items: ScheduledItem[], input: SchedulerActionInput): SchedulerActionResult {

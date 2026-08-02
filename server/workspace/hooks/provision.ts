@@ -29,6 +29,7 @@ import { writeFileAtomic } from "../../utils/files/atomic.js";
 import { workspacePath as defaultWorkspacePath } from "../workspace.js";
 import { log } from "../../system/logger/index.js";
 import { errorMessage } from "../../utils/errors.js";
+import { isRecord, isUnknownArray } from "../../utils/types.js";
 
 // The esbuild bundle is the source of truth for the dispatcher
 // script written into <workspace>/.claude/hooks/. Source TS is
@@ -83,17 +84,15 @@ interface HookCommandEntry {
 
 interface HookMatcher {
   matcher?: string;
-  hooks?: HookCommandEntry[];
+  /** `unknown`, not `HookCommandEntry[]`: this comes from the user's own
+   *  settings.json, so every level is re-checked where it is read. */
+  hooks?: unknown;
   [key: string]: unknown;
 }
 
-interface SettingsShape {
-  hooks?: {
-    PostToolUse?: HookMatcher[];
-    [key: string]: HookMatcher[] | undefined;
-  };
-  [key: string]: unknown;
-}
+/** The user's `.claude/settings.json`, as parsed. Nothing below the top level
+ *  is modelled — see `HookMatcher.hooks`. */
+type SettingsShape = Record<string, unknown>;
 
 export interface ProvisionOptions {
   workspaceRoot?: string;
@@ -143,13 +142,18 @@ async function mergeDispatcherIntoSettings(settingsPath: string): Promise<boolea
 function safeParse(raw: string): SettingsShape {
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as SettingsShape;
-    }
+    if (isRecord(parsed)) return parsed;
   } catch {
     // Corrupted settings get rebuilt with our entry only.
   }
   return {};
+}
+
+/** The `PostToolUse` entries we can reason about. A non-object entry could
+ *  never have carried one of our markers, and the empty-`hooks` filter below
+ *  dropped it anyway, so it is discarded here instead of one step later. */
+function matcherEntries(value: unknown): HookMatcher[] {
+  return isUnknownArray(value) ? value.filter(isRecord) : [];
 }
 
 // Pure helper exported for unit testing. Strip every MulmoClaude-
@@ -172,30 +176,27 @@ function safeParse(raw: string): SettingsShape {
 // must survive. The previous entry-level filter dropped the whole
 // object, silently deleting the user's hook.
 export function upsertDispatcherEntry(settings: SettingsShape): SettingsShape {
-  const hooks = settings.hooks ?? {};
-  const rawPostToolUse = hooks.PostToolUse;
-  const postToolUse = Array.isArray(rawPostToolUse) ? rawPostToolUse : [];
+  const hooks = isRecord(settings.hooks) ? settings.hooks : {};
 
-  const cleaned = postToolUse
+  const cleaned = matcherEntries(hooks.PostToolUse)
     .map(stripOwnedDescriptors)
     // Drop any entry whose `hooks` array is empty after stripping
     // — those were 100% ours and only existed to host our hook.
     // Keeping an empty `hooks` array would be a Claude Code
     // schema-violation noise file.
-    .filter((entry) => Array.isArray(entry.hooks) && entry.hooks.length > 0);
+    .filter((entry) => isUnknownArray(entry.hooks) && entry.hooks.length > 0);
 
+  const ownedDescriptor: HookCommandEntry = {
+    type: "command",
+    command: HOOK_COMMAND,
+    [OWNER_MARKER]: true,
+  };
   const desiredEntry: HookMatcher = {
     // Bash matcher is required so the skill-bridge delete branch
     // gets a chance to run. Write|Edit covers wiki-snapshot,
     // config-refresh, and skill-bridge write paths.
     matcher: "Write|Edit|Bash",
-    hooks: [
-      {
-        type: "command",
-        command: HOOK_COMMAND,
-        [OWNER_MARKER]: true,
-      },
-    ],
+    hooks: [ownedDescriptor],
   };
 
   return {
@@ -213,13 +214,14 @@ export function upsertDispatcherEntry(settings: SettingsShape): SettingsShape {
 // without a `hooks` array pass through unchanged — defensive
 // against future schema fields we don't yet model.
 function stripOwnedDescriptors(entry: HookMatcher): HookMatcher {
-  if (!Array.isArray(entry.hooks)) return entry;
+  if (!isUnknownArray(entry.hooks)) return entry;
   const nextHooks = entry.hooks.filter((hook) => !isOwnedDescriptor(hook));
   if (nextHooks.length === entry.hooks.length) return entry;
   return { ...entry, hooks: nextHooks };
 }
 
-function isOwnedDescriptor(hook: HookCommandEntry): boolean {
+function isOwnedDescriptor(hook: unknown): boolean {
+  if (!isRecord(hook)) return false;
   if (hook[OWNER_MARKER] === true) return true;
   return LEGACY_MARKERS.some((marker) => hook[marker] === true);
 }

@@ -1134,7 +1134,7 @@ function runPostTurnSideEffects(chatSessionId: string, requestStartedAt: number)
 // Read claudeSessionId from meta (primary) or jsonl (legacy fallback).
 async function readClaudeSessionIdFromSession(chatSessionId: string): Promise<string | undefined> {
   const meta = await readSessionMeta(chatSessionId);
-  if (meta?.claudeSessionId) return meta.claudeSessionId as string;
+  if (meta?.claudeSessionId) return meta.claudeSessionId;
   // Legacy scan: search jsonl lines backwards for a claudeSessionId event
   const jsonl = await readSessionJsonl(chatSessionId);
   if (!jsonl) return undefined;
