@@ -1,6 +1,6 @@
 {
   "name": "@receptron/task-scheduler",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Persistent task scheduler with catch-up — schedule recurring tasks, survive restarts, recover missed runs",
   "type": "module",
   "main": "./dist/index.js",

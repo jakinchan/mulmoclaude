@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/whatsapp",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "WhatsApp bridge for MulmoBridge — connect WhatsApp Business to MulmoClaude",
   "type": "module",
   "main": "./dist/index.js",

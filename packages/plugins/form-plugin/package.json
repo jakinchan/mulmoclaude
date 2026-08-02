@@ -1,6 +1,6 @@
 {
   "name": "@mulmoclaude/form-plugin",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Structured-form input plugin (presentForm) — shared gui-chat-protocol plugin for MulmoClaude and MulmoTerminal.",
   "type": "module",
   "main": "./dist/index.js",
