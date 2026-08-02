@@ -89,6 +89,11 @@ describe("readWikiRouteTarget", () => {
     assert.equal(readWikiRouteTarget(null), null);
     assert.equal(readWikiRouteTarget(undefined), null);
     assert.equal(readWikiRouteTarget("pages"), null);
+    // An array is `typeof "object"`, so it used to slip through the non-object
+    // gate and — having no `section` — resolve as the index route. Route params
+    // are a plain object; anything else is the "invalid state" null path.
+    assert.equal(readWikiRouteTarget([]), null, "array params are not route params");
+    assert.equal(readWikiRouteTarget(["pages", "onboarding"]), null, "a positional array is still not route params");
   });
 });
 
