@@ -14,7 +14,7 @@ import { listItems, promptPathsFor, readSkillTemplate, buildCollectionActionSeed
 import { publish as publishNotifier, clear as clearNotifier } from "../../notifier/index.js";
 import { log, requireFeedsHost, type AgentWorkerResult, type AgentWorkerRunner } from "./host.js";
 import { readFeedState, writeFeedState, type FeedState } from "./state.js";
-import type { AgentIngestSpec } from "../ingestTypes.js";
+import { AGENT_INGEST_KIND } from "../ingestTypes.js";
 import type { RefreshResult } from "./refreshResult.js";
 
 export type { AgentWorkerResult, AgentWorkerRunner } from "./host.js";
@@ -44,8 +44,8 @@ function result(slug: string, patch: Partial<RefreshResult>): RefreshResult {
 export async function refreshViaAgent(workspaceRoot: string, collection: LoadedCollection, opts?: { hidden?: boolean }): Promise<RefreshResult> {
   const hidden = opts?.hidden ?? true;
   const { slug } = collection;
-  const ingest = collection.schema.ingest as AgentIngestSpec | undefined;
-  if (!ingest || ingest.kind !== "agent") return result(slug, { errors: ["collection has no agent ingest config"] });
+  const { ingest } = collection.schema;
+  if (ingest?.kind !== AGENT_INGEST_KIND) return result(slug, { errors: ["collection has no agent ingest config"] });
   const workerRunner = workerRunnerOrNull();
   if (!workerRunner) return result(slug, { errors: ["agent ingest worker runner not configured"] });
 

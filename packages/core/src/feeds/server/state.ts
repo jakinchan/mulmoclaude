@@ -47,9 +47,17 @@ export function defaultFeedState(slug: string): FeedState {
   return { slug, lastFetchedAt: null, cursor: {}, consecutiveFailures: 0 };
 }
 
+/** The stored cursor, keeping only the string entries its type promises. A
+ *  hand-edited state file can hold anything; a non-string entry is unreadable
+ *  to every retriever, so carrying it forward would only re-persist junk. */
+function readCursor(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+}
+
 function normalizeState(slug: string, parsed: Record<string, unknown>): FeedState {
   const base = defaultFeedState(slug);
-  const cursor = parsed.cursor && typeof parsed.cursor === "object" ? (parsed.cursor as Record<string, string>) : base.cursor;
+  const cursor = parsed.cursor === undefined ? base.cursor : readCursor(parsed.cursor);
   return {
     slug,
     lastFetchedAt: typeof parsed.lastFetchedAt === "string" ? parsed.lastFetchedAt : base.lastFetchedAt,

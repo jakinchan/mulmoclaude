@@ -16,6 +16,7 @@
 // `CollectionSchemaZ`). Runtime imports here point only at `./schema`'s
 // consts, so the module graph stays acyclic: schemaZ → schema.
 
+import { isRecord, isUnknownArray } from "@mulmoclaude/common";
 import { z } from "zod";
 import { isSafeSlug } from "./ids";
 import { isSafeActionTemplatePath, isSafeCustomViewI18nPath, isSafeCustomViewPath } from "./templatePath";
@@ -1115,28 +1116,46 @@ function ownPrototypeKey(value: unknown): string | null {
   return null;
 }
 
-/** Dotted path of the first prototype-sensitive field name in the raw
- *  schema input — top-level `fields`, each table field's `of`, and each
- *  action's `params` (the three records that DEFINE names) — or null. */
-function prototypeFieldKeyPath(input: unknown): string | null {
-  if (input === null || typeof input !== "object") return null;
-  const schema = input as { fields?: unknown; actions?: unknown; collectionActions?: unknown };
-  const bad = ownPrototypeKey(schema.fields);
-  if (bad !== null) return `fields.${bad}`;
-  for (const [key, spec] of Object.entries(schema.fields ?? {})) {
-    const badSub = ownPrototypeKey((spec as { of?: unknown } | null)?.of);
-    if (badSub !== null) return `fields.${key}.of.${badSub}`;
-  }
+/** Own enumerable entries of an object (arrays keyed by index), none for
+ *  anything else — the raw input is unvalidated, so `fields` may be junk. */
+function ownEntries(value: unknown): [string, unknown][] {
+  if (isUnknownArray(value)) return value.map((entry, index): [string, unknown] => [String(index), entry]);
+  return isRecord(value) ? Object.entries(value) : [];
+}
+
+/** The name-defining sub-record a raw field spec (`of`) or action (`params`)
+ *  carries, or undefined when the holder isn't an object at all. */
+function nameDefiningSubRecord(holder: unknown, key: "of" | "params"): unknown {
+  return isRecord(holder) ? holder[key] : undefined;
+}
+
+/** Dotted path of the first prototype-sensitive `params` name across both
+ *  action lists, or null. */
+function prototypeActionParamPath(input: Record<string, unknown>): string | null {
   for (const [listName, list] of [
-    ["actions", schema.actions],
-    ["collectionActions", schema.collectionActions],
+    ["actions", input.actions],
+    ["collectionActions", input.collectionActions],
   ] as const) {
-    for (const action of Array.isArray(list) ? list : []) {
-      const badParam = ownPrototypeKey((action as { params?: unknown } | null)?.params);
+    for (const action of isUnknownArray(list) ? list : []) {
+      const badParam = ownPrototypeKey(nameDefiningSubRecord(action, "params"));
       if (badParam !== null) return `${listName}.params.${badParam}`;
     }
   }
   return null;
+}
+
+/** Dotted path of the first prototype-sensitive field name in the raw
+ *  schema input — top-level `fields`, each table field's `of`, and each
+ *  action's `params` (the three records that DEFINE names) — or null. */
+function prototypeFieldKeyPath(input: unknown): string | null {
+  if (!isRecord(input)) return null;
+  const bad = ownPrototypeKey(input.fields);
+  if (bad !== null) return `fields.${bad}`;
+  for (const [key, spec] of ownEntries(input.fields)) {
+    const badSub = ownPrototypeKey(nameDefiningSubRecord(spec, "of"));
+    if (badSub !== null) return `fields.${key}.of.${badSub}`;
+  }
+  return prototypeActionParamPath(input);
 }
 
 export const CollectionSchemaZ = z.preprocess((input, ctx) => {

@@ -255,20 +255,21 @@ export interface DaySlice {
  *  null when the span doesn't cover that day. */
 export function daySlice<T>(span: RecordSpan<T>, day: Ymd): DaySlice | null {
   if (!spanCoversDay(span, day)) return null;
-  const hasStart = span.startMin !== null;
-  const hasEnd = span.endMin !== null;
-  if (!hasStart && !hasEnd) {
+  // Destructured so the `!== null` tests narrow the clocks where they are used;
+  // reading them back off `span` each time would not.
+  const { startMin: spanStart, endMin: spanEnd } = span;
+  if (spanStart === null && spanEnd === null) {
     return { kind: "allDay", startMin: 0, endMin: MINUTES_PER_DAY, bleedsBefore: false, bleedsAfter: false };
   }
   const singleDay = compareYmd(span.start, span.end) === 0;
   const isStartDay = compareYmd(day, span.start) === 0;
   const isEndDay = compareYmd(day, span.end) === 0;
   // A point in time: a start clock with no end, all on one day.
-  if (singleDay && hasStart && !hasEnd) {
-    return { kind: "line", startMin: span.startMin as number, endMin: span.startMin as number, bleedsBefore: false, bleedsAfter: false };
+  if (singleDay && spanStart !== null && spanEnd === null) {
+    return { kind: "line", startMin: spanStart, endMin: spanStart, bleedsBefore: false, bleedsAfter: false };
   }
-  const startMin = isStartDay && hasStart ? (span.startMin as number) : 0;
-  const endMin = isEndDay && hasEnd ? (span.endMin as number) : MINUTES_PER_DAY;
+  const startMin = isStartDay && spanStart !== null ? spanStart : 0;
+  const endMin = isEndDay && spanEnd !== null ? spanEnd : MINUTES_PER_DAY;
   // Zero-length or inverted same-day range → degrade to a line.
   if (singleDay && endMin <= startMin) {
     return { kind: "line", startMin, endMin: startMin, bleedsBefore: false, bleedsAfter: false };
