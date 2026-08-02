@@ -410,8 +410,14 @@ function buildBatchEntries(items: readonly ParsedEntry[]): JournalEntry[] {
 // batch — invalidating from that point covers every later month a
 // single-entry call would have invalidated individually, while
 // collapsing the rebuild + publish work into one round.
-function earliestPeriodOf(entries: readonly JournalEntry[]): string {
-  return entries.map((entry) => periodFromDate(entry.date)).reduce((min, period) => (period < min ? period : min));
+// `first` is a separate parameter so the fold always has a seed: an
+// empty batch cannot reach here (addEntries rejects it), and the
+// signature keeps it that way.
+function earliestPeriodOf(first: JournalEntry, rest: readonly JournalEntry[]): string {
+  return rest.reduce((min, entry) => {
+    const period = periodFromDate(entry.date);
+    return period < min ? period : min;
+  }, periodFromDate(first.date));
 }
 
 export async function addEntries(input: { bookId?: string; entries: unknown }, workspaceRoot?: string): Promise<{ bookId: string; entries: JournalEntry[] }> {
@@ -429,7 +435,8 @@ export async function addEntries(input: { bookId?: string; entries: unknown }, w
   // batches are fully atomic; multi-period failure window is
   // narrowed to the rename phase only.
   await appendJournalBatch(bookId, built, workspaceRoot);
-  const earliestPeriod = earliestPeriodOf(built);
+  const [firstBuilt, ...restBuilt] = built;
+  const earliestPeriod = earliestPeriodOf(firstBuilt, restBuilt);
   // scheduleRebuild first (sync, sets pendingFromPeriod) so any
   // in-flight rebuild's `isInvalidatedDuringRebuild` check sees the
   // new pending mark before our invalidate races with its write.
