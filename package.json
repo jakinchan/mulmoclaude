@@ -102,7 +102,7 @@
     "@mulmocast/types": "^2.9.0",
     "@mulmochat-plugin/quiz": "^1.1.0",
     "@mulmochat-plugin/ui-image": "^0.4.1",
-    "@receptron/task-scheduler": "^1.0.1",
+    "@receptron/task-scheduler": "^1.0.2",
     "@types/dompurify": "^3.2.0",
     "codemirror": "^6.0.2",
     "cors": "^2.8.6",
