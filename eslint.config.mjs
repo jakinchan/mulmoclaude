@@ -757,6 +757,7 @@ export default [
   // `x?: T | undefined` accepts it, so the spelling this rule wants removed is
   // the one that says "absent and undefined mean the same thing here". Off
   // repo-wide rather than per-file — every tsconfig sets the flag.
+  // Turn it back on if the flag ever comes off.
   {
     rules: { "sonarjs/no-redundant-optional": "off" },
   },
