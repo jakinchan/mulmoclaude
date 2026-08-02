@@ -32,6 +32,8 @@
 // non-finite arithmetic). The caller renders `null` as em-dash in
 // the table cell + form display.
 
+import { isObj, isRecord, isUnknownArray } from "@mulmoclaude/common";
+
 export interface FormulaContext {
   /** The record being evaluated. For derived fields in the form,
    *  this is the live draft (text + table both converted via the
@@ -72,14 +74,18 @@ export function evaluateDerived(formula: string, ctx: FormulaContext): number | 
 
 // ─── Tokens ────────────────────────────────────────────────
 
-type TokenKind = "number" | "ident" | "(" | ")" | "+" | "-" | "*" | "/" | "[]" | ".";
+type PunctKind = "(" | ")" | "+" | "-" | "*" | "/" | "[]" | ".";
+type TokenKind = "number" | "ident" | PunctKind;
 
-interface Token {
-  kind: TokenKind;
-  value?: string | number;
+// Discriminated so a `number` token's payload is a number and an
+// `ident` token's payload is a string, with no reader having to assert it.
+type Token = { kind: "number"; value: number } | { kind: "ident"; value: string } | { kind: PunctKind };
+
+const SINGLE_CHAR_PUNCT: readonly PunctKind[] = ["(", ")", "+", "-", "*", "/", "."];
+
+function isSingleCharPunct(char: string): char is PunctKind {
+  return SINGLE_CHAR_PUNCT.some((punct) => punct === char);
 }
-
-const SINGLE_CHAR_PUNCT = new Set<TokenKind>(["(", ")", "+", "-", "*", "/", "."]);
 
 interface Cursor {
   input: string;
@@ -128,9 +134,9 @@ function consumePunct(cur: Cursor): Token | null {
     cur.index += 2;
     return { kind: "[]" };
   }
-  if (SINGLE_CHAR_PUNCT.has(char as TokenKind)) {
+  if (isSingleCharPunct(char)) {
     cur.index++;
-    return { kind: char as TokenKind };
+    return { kind: char };
   }
   return null;
 }
@@ -174,20 +180,37 @@ function isIdentChar(char: string): boolean {
 
 // ─── AST + Parser ───────────────────────────────────────────
 
+type AdditiveOperator = "+" | "-";
+type MultiplicativeOperator = "*" | "/";
+type BinaryOperator = AdditiveOperator | MultiplicativeOperator;
+
 type Node =
   | { kind: "num"; value: number }
   | { kind: "ident"; name: string }
   | { kind: "ref"; field: string; col: string }
-  | { kind: "binop"; operator: "+" | "-" | "*" | "/"; left: Node; right: Node }
+  | { kind: "binop"; operator: BinaryOperator; left: Node; right: Node }
   | { kind: "sum"; arg: SumArg };
+
+function matchAdditive(kind: TokenKind | undefined): AdditiveOperator | null {
+  return kind === "+" || kind === "-" ? kind : null;
+}
+
+function matchMultiplicative(kind: TokenKind | undefined): MultiplicativeOperator | null {
+  return kind === "*" || kind === "/" ? kind : null;
+}
+
+interface TableCol {
+  table: string;
+  col: string;
+}
 
 interface SumArg {
   // factors multiplied/divided together; each is a (tableName, colName) ref into a row.
-  factors: { table: string; col: string }[];
+  factors: TableCol[];
   /** Operators between factors: length = factors.length - 1; each
    *  is "*" or "/". For a single-factor sum (`sum(lineItems[].amount)`)
    *  this is empty. */
-  operators: ("*" | "/")[];
+  operators: MultiplicativeOperator[];
 }
 
 class Parser {
@@ -205,30 +228,46 @@ class Parser {
     if (!tok) throw new Error("unexpected end of input");
     return tok;
   }
-  private expect(kind: TokenKind): Token {
+  private expectPunct(kind: PunctKind): void {
     const tok = this.consume();
     if (tok.kind !== kind) throw new Error(`expected ${kind}, got ${tok.kind}`);
-    return tok;
+  }
+  private expectIdent(): string {
+    const tok = this.consume();
+    if (tok.kind !== "ident") throw new Error(`expected ident, got ${tok.kind}`);
+    return tok.value;
+  }
+  private takeOperator<Op extends BinaryOperator>(match: (kind: TokenKind | undefined) => Op | null): Op | null {
+    const operator = match(this.peek()?.kind);
+    if (operator) this.consume();
+    return operator;
+  }
+  /** Yields each operator of a chain, consuming it. Iteration keeps the caller's
+   *  stack depth constant — a formula is user input, so its length must not
+   *  decide whether we overflow. */
+  private *operatorRun<Op extends BinaryOperator>(match: (kind: TokenKind | undefined) => Op | null): Generator<Op> {
+    while (true) {
+      const operator = this.takeOperator(match);
+      if (!operator) return;
+      yield operator;
+    }
+  }
+
+  private parseChain<Op extends BinaryOperator>(match: (kind: TokenKind | undefined) => Op | null, parseOperand: () => Node): Node {
+    const left = parseOperand();
+    const rest: { operator: Op; right: Node }[] = [];
+    for (const operator of this.operatorRun(match)) {
+      rest.push({ operator, right: parseOperand() });
+    }
+    return rest.reduce<Node>((accumulated, { operator, right }) => ({ kind: "binop", operator, left: accumulated, right }), left);
   }
 
   parseExpr(): Node {
-    let left = this.parseTerm();
-    while (this.peek()?.kind === "+" || this.peek()?.kind === "-") {
-      const operator = this.consume().kind as "+" | "-";
-      const right = this.parseTerm();
-      left = { kind: "binop", operator, left, right };
-    }
-    return left;
+    return this.parseChain(matchAdditive, () => this.parseTerm());
   }
 
   private parseTerm(): Node {
-    let left = this.parseFactor();
-    while (this.peek()?.kind === "*" || this.peek()?.kind === "/") {
-      const operator = this.consume().kind as "*" | "/";
-      const right = this.parseFactor();
-      left = { kind: "binop", operator, left, right };
-    }
-    return left;
+    return this.parseChain(matchMultiplicative, () => this.parseFactor());
   }
 
   private parseFactor(): Node {
@@ -236,57 +275,54 @@ class Parser {
     if (!tok) throw new Error("unexpected end in factor");
     if (tok.kind === "number") {
       this.consume();
-      return { kind: "num", value: tok.value as number };
+      return { kind: "num", value: tok.value };
     }
     if (tok.kind === "(") {
       this.consume();
       const inner = this.parseExpr();
-      this.expect(")");
+      this.expectPunct(")");
       return inner;
     }
-    if (tok.kind === "ident") {
-      const name = (tok.value as string) ?? "";
-      // sum(...) — only function call we support
-      if (name === "sum" && this.tokens[this.cursor + 1]?.kind === "(") {
-        this.consume(); // ident
-        this.expect("(");
-        const arg = this.parseSumArg();
-        this.expect(")");
-        return { kind: "sum", arg };
-      }
-      this.consume(); // ident
-      // ref deref: `<field>.<col>` (e.g. ticker.price). The table-row
-      // form `<table>[].col` only appears inside sum(), so a `.`
-      // immediately after a top-level ident is unambiguously a ref
-      // dereference here.
-      if (this.peek()?.kind === ".") {
-        this.consume(); // '.'
-        const col = this.expect("ident");
-        return { kind: "ref", field: name, col: col.value as string };
-      }
-      return { kind: "ident", name };
-    }
+    if (tok.kind === "ident") return this.parseIdentFactor(tok.value);
     throw new Error(`unexpected token ${tok.kind} in factor`);
   }
 
+  private parseIdentFactor(name: string): Node {
+    // sum(...) — only function call we support
+    if (name === "sum" && this.tokens[this.cursor + 1]?.kind === "(") {
+      this.consume(); // ident
+      this.expectPunct("(");
+      const arg = this.parseSumArg();
+      this.expectPunct(")");
+      return { kind: "sum", arg };
+    }
+    this.consume(); // ident
+    // ref deref: `<field>.<col>` (e.g. ticker.price). The table-row
+    // form `<table>[].col` only appears inside sum(), so a `.`
+    // immediately after a top-level ident is unambiguously a ref
+    // dereference here.
+    if (this.peek()?.kind === ".") {
+      this.consume(); // '.'
+      return { kind: "ref", field: name, col: this.expectIdent() };
+    }
+    return { kind: "ident", name };
+  }
+
   private parseSumArg(): SumArg {
-    const factors: { table: string; col: string }[] = [];
-    const operators: ("*" | "/")[] = [];
-    factors.push(this.parseTableCol());
-    while (this.peek()?.kind === "*" || this.peek()?.kind === "/") {
-      const operator = this.consume().kind as "*" | "/";
+    const factors = [this.parseTableCol()];
+    const operators: MultiplicativeOperator[] = [];
+    for (const operator of this.operatorRun(matchMultiplicative)) {
       operators.push(operator);
       factors.push(this.parseTableCol());
     }
     return { factors, operators };
   }
 
-  private parseTableCol(): { table: string; col: string } {
-    const tableTok = this.expect("ident");
-    this.expect("[]");
-    this.expect(".");
-    const colTok = this.expect("ident");
-    return { table: tableTok.value as string, col: colTok.value as string };
+  private parseTableCol(): TableCol {
+    const table = this.expectIdent();
+    this.expectPunct("[]");
+    this.expectPunct(".");
+    return { table, col: this.expectIdent() };
   }
 }
 
@@ -318,7 +354,7 @@ function evaluate(node: Node, ctx: FormulaContext): number {
   throw new Error(`unknown node`);
 }
 
-function applyBinop(operator: "+" | "-" | "*" | "/", left: number, right: number): number {
+function applyBinop(operator: BinaryOperator, left: number, right: number): number {
   if (!Number.isFinite(left) || !Number.isFinite(right)) return Number.NaN;
   if (operator === "+") return left + right;
   if (operator === "-") return left - right;
@@ -329,29 +365,29 @@ function applyBinop(operator: "+" | "-" | "*" | "/", left: number, right: number
 }
 
 function evaluateSum(arg: SumArg, ctx: FormulaContext): number {
-  if (arg.factors.length === 0) return 0;
-  const tableName = arg.factors[0].table;
+  const first = arg.factors.at(0);
+  if (!first) return 0;
   // All factors must reference the SAME table (you can't multiply
   // a row from lineItems against a row from another table — the
   // semantics would be ambiguous). Reject mismatch.
-  for (const factor of arg.factors) {
-    if (factor.table !== tableName) return Number.NaN;
-  }
-  const rows = ctx.record[tableName];
-  if (!Array.isArray(rows)) return 0;
-  let total = 0;
-  for (const row of rows) {
-    if (!row || typeof row !== "object") continue;
-    let product = toFiniteNumber((row as Record<string, unknown>)[arg.factors[0].col]);
-    if (!Number.isFinite(product)) return Number.NaN;
-    for (let i = 1; i < arg.factors.length; i++) {
-      const value = toFiniteNumber((row as Record<string, unknown>)[arg.factors[i].col]);
-      if (!Number.isFinite(value)) return Number.NaN;
-      product = applyBinop(arg.operators[i - 1], product, value);
-    }
-    total += product;
-  }
-  return total;
+  if (arg.factors.some((factor) => factor.table !== first.table)) return Number.NaN;
+  const rows = ctx.record[first.table];
+  if (!isUnknownArray(rows)) return 0;
+  // A NaN from any row poisons the total, which the caller turns into null.
+  return rows.filter(isObj).reduce((total, row) => total + rowProduct(row, arg), 0);
+}
+
+function rowProduct(row: object, { factors, operators }: SumArg): number {
+  const first = factors.at(0);
+  if (!first) return Number.NaN;
+  return factors
+    .slice(1)
+    .reduce((product, factor, index) => applyBinop(operators[index], product, columnNumber(row, factor.col)), columnNumber(row, first.col));
+}
+
+function columnNumber(row: object, col: string): number {
+  // An array row has no named column, so it fails soft like any other bad value.
+  return isRecord(row) ? toFiniteNumber(row[col]) : Number.NaN;
 }
 
 function toFiniteNumber(value: unknown): number {
