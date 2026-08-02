@@ -21,15 +21,17 @@ import {
   where,
 } from "firebase/firestore";
 
+import { isRecord } from "@mulmoclaude/common";
+
 import { errorMessage } from "../../collection/core/errorMessage.js";
 import {
   Channel,
   Command,
   CommandHandler,
   CommandHandlers,
-  JsonObject,
   buildHostPresence,
   byCreatedAt,
+  coerceJsonObject,
   commandsCollection,
   hostDoc,
   isExpired,
@@ -50,7 +52,6 @@ export const DEFAULT_HEARTBEAT_MS = 60_000;
 // either way, so even a doomed retry ends in an escalation rather than a spin.
 const TRANSIENT_LISTEN_ERROR_CODES = new Set(["aborted", "cancelled", "deadline-exceeded", "internal", "resource-exhausted", "unauthenticated", "unavailable"]);
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const listenErrorCode = (error: unknown): string => (isRecord(error) && typeof error.code === "string" ? error.code : "");
 
 export const classifyListenerError = (error: unknown): "transient" | "fatal" =>
@@ -102,9 +103,11 @@ export interface HostRunnerOptions {
   expectedUndefined?: Record<string, readonly string[]>;
 }
 
-interface Claim {
+export interface Claim {
   method: string;
-  params: JsonObject;
+  // Still unproved JSON here: the doc is remote-written, so the walk that earns
+  // `JsonObject` runs at the handler boundary, outside the claim transaction.
+  params: Record<string, unknown>;
 }
 
 const noop = () => undefined;
@@ -113,19 +116,32 @@ const noop = () => undefined;
 const writeError = (ref: DocumentReference, code: string, message: string) =>
   updateDoc(ref, { status: "error", error: { code, message }, updatedAt: serverTimestamp() }).catch(noop);
 
+// What a queued command doc contributes to a claim, rebuilt from the two
+// members that were checked rather than asserted off a `DocumentData`.
+// `null` means "not ours to take" — the doc is gone or someone else moved it
+// out of `queued`.
+//
+// Anything else DEGRADES instead of bailing: a non-string method becomes "" so
+// the dispatch falls through to the unknown-method reply, and non-object params
+// become an empty set so the handler's own required-field check answers. Both
+// write an error back to the doc. Returning null for them instead would leave
+// the command claimed as `processing` with nothing ever written back — the one
+// outcome the remote cannot distinguish from a dead host.
+export const readClaim = (data: unknown): Claim | null => {
+  if (!isRecord(data) || data.status !== "queued") return null;
+  return { method: typeof data.method === "string" ? data.method : "", params: isRecord(data.params) ? data.params : {} };
+};
+
 // Atomically move a command queued -> processing so it is handled exactly once.
 // Returns the method/params to run, or null if another handler already took it.
 const claimCommand = (firestore: Firestore, ref: DocumentReference): Promise<Claim | null> =>
   runTransaction(firestore, async (txn) => {
-    // Cast kept (#2692): `params` must satisfy `JsonObject`, and the only
-    // honest guard for that is a deep JSON walk whose rejection path would
-    // leave a malformed doc stuck in `queued` instead of erroring back.
-    const data = (await txn.get(ref)).data() as Command | undefined;
-    if (!data || data.status !== "queued") {
+    const claim = readClaim((await txn.get(ref)).data());
+    if (!claim) {
       return null;
     }
     txn.update(ref, { status: "processing", updatedAt: serverTimestamp() });
-    return { method: data.method, params: data.params ?? {} };
+    return claim;
   });
 
 // Own-property lookup: a bare `handlers[method]` with a method name written by a
@@ -147,7 +163,10 @@ const reportStripped = (dropped: string[], claim: Claim, options: HostRunnerOpti
 
 const runHandler = async (ref: DocumentReference, claim: Claim, handler: CommandHandler, options: HostRunnerOptions): Promise<HostEvent> => {
   try {
-    const returned = await handler(claim.params);
+    // Inside the try on purpose: a params value JSON cannot carry throws
+    // naming its path, and that lands in the same `handler_error` reply the
+    // handler's own failures do, rather than stalling the command.
+    const returned = await handler(coerceJsonObject(claim.params));
     const dropped = undefinedPaths(returned);
     reportStripped(unexpectedPaths(dropped, options.expectedUndefined?.[claim.method]), claim, options);
     // The walk above already answered "is there anything to strip", so a clean
@@ -235,9 +254,14 @@ const dispatchAddedCommands = (ctx: RunnerContext, snapshot: QuerySnapshot): voi
   snapshot
     .docChanges()
     .filter((change) => change.type === "added")
-    // Cast kept (#2692): this doc rides verbatim into the host's `onExpire`
-    // callback, so rebuilding it from checked fields would silently drop
-    // whatever else the remote wrote.
+    // Cast kept (#2692). The runner itself reads only `createdAt`, `expiresAt`
+    // and `method` here, but the doc rides verbatim into the host's `onExpire`,
+    // whose published signature takes a whole `Command`. Rebuilding one would
+    // have to invent the members nothing on this path reads — `status`,
+    // `result`, `error`, `createdBy` — and hand a second host's cleanup
+    // callback values the document never carried, which is worse than the
+    // assertion. Removing it means narrowing `onExpire`'s parameter, a
+    // breaking change to a published contract MulmoTerminal also implements.
     .map((change) => ({ ref: change.doc.ref, command: change.doc.data() as Command }))
     .sort((left, right) => byCreatedAt(left.command, right.command))
     .forEach(({ ref, command }) => {

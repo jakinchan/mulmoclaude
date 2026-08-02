@@ -54,7 +54,7 @@ function whereFragment(cond: CollectionQueryWhere): { sql: string; params: CsvQu
   const column = quoteIdent(cond.field);
   const asText = `CAST(${column} AS VARCHAR)`;
   if (cond.op === "in") {
-    const values = cond.value as (string | number | boolean)[];
+    const values = arrayValue(cond);
     const textual = values.every((value) => typeof value === "string");
     const lhs = textual ? asText : column;
     return { sql: `${lhs} IN (${values.map(() => "?").join(", ")})`, params: values };
@@ -66,6 +66,17 @@ function whereFragment(cond: CollectionQueryWhere): { sql: string; params: CsvQu
   const operator = { eq: "=", ne: "<>", gt: ">", gte: ">=", lt: "<", lte: "<=" }[cond.op];
   const lhs = typeof cond.value === "string" && (cond.op === "eq" || cond.op === "ne") ? asText : column;
   return { sql: `${lhs} ${operator} ?`, params: [scalarValue(cond)] };
+}
+
+/** Mirror of `scalarValue` for the one op that takes a set: a scalar under
+ *  `in` also means the query skipped `CollectionQueryZ`. Left unchecked it
+ *  failed as `values.every is not a function`, naming neither the field nor
+ *  the op. */
+function arrayValue(cond: CollectionQueryWhere): CsvQueryParam[] {
+  if (!Array.isArray(cond.value)) {
+    throw new Error(`where condition on '${cond.field}' uses op 'in', which requires an array value, not a scalar`);
+  }
+  return cond.value;
 }
 
 /** `CollectionQueryZ` refines "`in` ⇔ array value", so an array reaching a

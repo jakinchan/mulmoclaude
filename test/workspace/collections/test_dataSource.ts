@@ -347,6 +347,21 @@ describe("query DSL (v2)", () => {
     assert.ok(sql.includes("LIMIT 1000"), "default result clamp applies");
   });
 
+  // Both directions of the "`in` ⇔ array" refinement, reached by compiling a
+  // query that never went through CollectionQueryZ. The scalar-under-`in` half
+  // used to fail as `values.every is not a function` (#2692) because the value
+  // was cast to an array rather than checked.
+  it("compileCsvQuery names the offending field when an unvalidated query pairs the wrong op with its value", () => {
+    assert.throws(
+      () => compileCsvQuery({ groupBy: ["a"], where: [{ field: "status", op: "in", value: "open" }] }, "id"),
+      /where condition on 'status' uses op 'in', which requires an array value, not a scalar/,
+    );
+    assert.throws(
+      () => compileCsvQuery({ groupBy: ["a"], where: [{ field: "status", op: "eq", value: ["open", "shut"] }] }, "id"),
+      /where condition on 'status' uses op 'eq', which requires a scalar value, not an array/,
+    );
+  });
+
   it("aggregates over the WHOLE file — beyond the list row cap — with group-by / where / orderBy", async () => {
     writeSkill("students", CSV_SCHEMA);
     const rows = Array.from(
