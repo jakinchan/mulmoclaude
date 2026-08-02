@@ -210,6 +210,13 @@ Three things to know before extending it:
 - **The spec cannot create its own calendar.** The app's grant is
   `calendar.events`, not the full `calendar` scope, so calendars are
   a human setup step. Only events are created and torn down.
+- **Nothing here may call a `calendars.*` endpoint.** The same missing
+  scope that blocks creating a calendar blocks `calendars.get`, which
+  is how a whole run died on 403 the first time it was tried (#2735) —
+  the spec was reaching for a calendar's timezone the way the engine
+  did. Both read it off `events.list` now (`getCalendarMeta`). If a
+  test needs something about a CALENDAR rather than its events, check
+  the method's scope list before adding the call.
 - **A missing optional variable skips exactly one test**, with a
   sentence naming what to set up. Never widen a skip to the whole
   describe — a silently skipped suite reads the same as a passing
