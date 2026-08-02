@@ -37,7 +37,7 @@
     "@mulmochat-plugin/ui-image": "^0.4.1",
     "@mulmoclaude/accounting-plugin": "^1.2.1",
     "@mulmoclaude/chart-plugin": "^1.0.4",
-    "@mulmoclaude/collection-plugin": "^1.2.2",
+    "@mulmoclaude/collection-plugin": "^1.2.3",
     "@mulmoclaude/common": "^1.1.1",
     "@mulmoclaude/core": "^1.13.0",
     "@mulmoclaude/form-plugin": "^1.0.2",
