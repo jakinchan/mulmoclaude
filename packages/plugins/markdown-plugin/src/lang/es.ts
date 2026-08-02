@@ -8,6 +8,7 @@ const es: Messages = {
   pdf: "PDF",
   pdfFailedShort: "⚠ Error de PDF",
   editSource: "Editar fuente Markdown",
+  livePreview: "Vista previa en vivo",
   saving: "Guardando...",
   applyChanges: "Aplicar cambios",
   cancel: "Cancelar",

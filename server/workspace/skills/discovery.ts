@@ -9,6 +9,7 @@ import { log } from "../../system/logger/index.js";
 import { parseSkillFrontmatter } from "./parser.js";
 import { SKILL_FILE, USER_SKILLS_DIR, projectSkillsDir } from "./paths.js";
 import type { Skill, SkillSource } from "./types.js";
+import { isErrorWithCode } from "../../utils/types.js";
 
 // One directory entry → a parsed Skill, or null when the entry is
 // not a valid skill (no SKILL.md, malformed frontmatter, I/O error).
@@ -41,8 +42,7 @@ async function readSkillDir(skillDir: string, name: string, source: SkillSource)
     // ENOENT = SKILL.md missing. Anything else is logged so a
     // permissions issue is findable; we still treat the slot as
     // "not a skill" rather than failing the whole list.
-    const error = err as { code?: string };
-    if (error.code !== "ENOENT") {
+    if (!isErrorWithCode(err) || err.code !== "ENOENT") {
       log.warn("skills", "failed to read SKILL.md, skipping", {
         name,
         path: skillPath,
@@ -64,8 +64,7 @@ export async function collectSkillsFromDir(root: string, source: SkillSource): P
   try {
     entries = await readdir(root);
   } catch (err) {
-    const error = err as { code?: string };
-    if (error.code === "ENOENT") return [];
+    if (isErrorWithCode(err) && err.code === "ENOENT") return [];
     log.warn("skills", "failed to list skills dir, returning empty", {
       root,
       error: String(err),

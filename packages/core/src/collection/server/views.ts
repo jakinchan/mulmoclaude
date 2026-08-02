@@ -27,6 +27,7 @@ import { getWorkspaceRoot, isPresetSlug, skillsStagingDir } from "./host";
 import { resolveTemplatePath, safeSlugName, SCHEMA_FILE } from "./paths";
 import type { IoOptions } from "./io";
 import type { LoadedCollection } from "./discoveredCollection";
+import { isErrorWithCode } from "@mulmoclaude/common";
 
 export type DeleteViewResult =
   | { kind: "ok"; viewId: string }
@@ -40,8 +41,8 @@ async function fileExists(target: string): Promise<boolean> {
     await stat(target);
     return true;
   } catch (err) {
-    const { code } = err as { code?: string };
-    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    if (!isErrorWithCode(err)) throw err;
+    if (err.code === "ENOENT" || err.code === "ENOTDIR") return false;
     throw err;
   }
 }
@@ -80,7 +81,7 @@ async function unlinkIfPresent(target: string): Promise<void> {
   try {
     await unlink(target);
   } catch (err) {
-    if ((err as { code?: string }).code !== "ENOENT") throw err;
+    if (!isErrorWithCode(err) || err.code !== "ENOENT") throw err;
   }
 }
 

@@ -93,14 +93,14 @@
       <div v-if="loadError" class="load-error-banner" role="alert">
         {{ t("pluginMarkdown.refreshFailed", { error: loadError }) }}
       </div>
-      <div class="markdown-content-wrapper">
+      <div ref="previewScrollRef" class="markdown-content-wrapper">
         <div class="p-4">
           <!-- Frontmatter properties panel (FileContentRenderer-style)
                — only rendered when the file has a `---\n...\n---`
                header. Lazy-on-write means most existing files don't
                have one yet (#895). -->
-          <div v-if="mdDoc.fields.length > 0" class="mb-3 rounded border border-gray-200 bg-gray-50 p-3 text-xs">
-            <div v-for="field in mdDoc.fields" :key="field.key" class="flex items-baseline gap-2 py-0.5">
+          <div v-if="previewDoc.fields.length > 0" class="mb-3 rounded border border-gray-200 bg-gray-50 p-3 text-xs">
+            <div v-for="field in previewDoc.fields" :key="field.key" class="flex items-baseline gap-2 py-0.5">
               <span class="font-semibold text-gray-600 shrink-0">{{ field.key }}:</span>
               <template v-if="Array.isArray(field.value)">
                 <span class="flex flex-wrap gap-1">
@@ -126,17 +126,31 @@
       </div>
 
       <div class="bottom-bar-wrapper">
-        <details ref="sourceDetails" class="markdown-source" @toggle="onDetailsToggle">
-          <summary>{{ t("pluginMarkdown.editSource") }}</summary>
-          <textarea v-model="editableMarkdown" class="markdown-editor" spellcheck="false"></textarea>
-          <div class="editor-actions">
-            <button class="apply-btn" :disabled="!hasChanges || saving" @click="applyMarkdown">
-              {{ saving ? t("pluginMarkdown.saving") : t("pluginMarkdown.applyChanges") }}
-            </button>
-            <button class="cancel-btn" @click="cancelEdit">{{ t("pluginMarkdown.cancel") }}</button>
-          </div>
-          <p v-if="saveError" class="save-error" role="alert">{{ t("pluginMarkdown.saveError", { error: saveError }) }}</p>
-        </details>
+        <!-- A plain div rather than <details>: a <summary> must be the first
+             child, which forces a header row above the textarea, and this panel
+             spends its one row on the toolbar UNDER the editor instead — where
+             Apply / Cancel already are. `editing` is the open state. -->
+        <div class="markdown-source">
+          <button v-if="!editing" class="source-toggle" @click="openEditor">{{ t("pluginMarkdown.editSource") }}</button>
+          <template v-else>
+            <textarea ref="editorRef" v-model="editableMarkdown" class="markdown-editor" spellcheck="false" @scroll="syncPreviewScroll"></textarea>
+            <div class="editor-actions">
+              <label class="live-toggle">
+                <input v-model="livePreview" type="checkbox" />
+                {{ t("pluginMarkdown.livePreview") }}
+              </label>
+              <!-- Grouped so `.editor-actions` still sees two children and its
+                   space-between keeps meaning what it does in the marp panel. -->
+              <div class="action-buttons">
+                <button class="apply-btn" :disabled="!hasChanges || saving" @click="applyMarkdown">
+                  {{ saving ? t("pluginMarkdown.saving") : t("pluginMarkdown.applyChanges") }}
+                </button>
+                <button class="cancel-btn" @click="cancelEdit">{{ t("pluginMarkdown.cancel") }}</button>
+              </div>
+            </div>
+            <p v-if="saveError" class="save-error" role="alert">{{ t("pluginMarkdown.saveError", { error: saveError }) }}</p>
+          </template>
+        </div>
         <button v-show="!editing" class="copy-btn" :title="copied ? t('pluginMarkdown.copiedLabel') : t('pluginMarkdown.copyLabel')" @click="copyText">
           <span class="material-icons">{{ copied ? "check" : "content_copy" }}</span>
         </button>
@@ -146,7 +160,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from "vue";
+import { computed, ref, watch, nextTick, onUnmounted } from "vue";
 import { useRuntime } from "gui-chat-protocol/vue";
 import { marked } from "marked";
 import { formatScalarField, sanitizeMarkdownHtml, useMarkdownDoc, useClipboardCopy, useFileWatch } from "@mulmoclaude/core/plugin-vue";
@@ -283,8 +297,8 @@ watch(fileVersion, (current, previous) => {
     pendingSelfSaves.value -= 1;
     return;
   }
-  if (sourceDetails.value?.open) {
-    sourceDetails.value.open = false;
+  if (editing.value) {
+    closeEditor();
   }
   // Drop split mode on remote write — same discard-and-reload policy
   // as the bottom <details> editor (#1647).
@@ -302,6 +316,73 @@ watch(fileVersion, (current, previous) => {
 const mdDoc = useMarkdownDoc(markdownContent);
 
 const marpMode = computed(() => isMarpDocument(mdDoc.value.meta));
+
+// Live preview (opt-in, per session): while the bottom <details> editor is
+// open, the viewer above renders the unsaved buffer instead of what is on
+// disk, so a change shows up without going through Apply. Off by default —
+// the panel is also used to read the saved source, and swapping the viewer
+// under someone who only opened it to look would be a surprise.
+const livePreview = ref(false);
+
+// Debounced mirror of `editableMarkdown`. Undebounced, every keystroke re-runs
+// marked + DOMPurify and re-renders every mermaid diagram in the document
+// (`useMermaidRenderer` watches `renderedHtml` and has no throttle of its own)
+// — unnoticeable on a short note, visibly janky on a long one with diagrams.
+const LIVE_PREVIEW_DEBOUNCE_MS = 200;
+const liveBuffer = ref("");
+let liveTimer: ReturnType<typeof setTimeout> | undefined;
+
+watch([editableMarkdown, livePreview, editing], ([text, live, open], previous) => {
+  clearTimeout(liveTimer);
+  if (!live || !open) return;
+  // Entering live mode (or reopening the editor) publishes at once: waiting out
+  // the debounce here would show a stale — on first use, empty — buffer for
+  // 200ms before the document appeared.
+  if (!previous || previous[1] !== live || previous[2] !== open) {
+    liveBuffer.value = text;
+    return;
+  }
+  liveTimer = setTimeout(() => {
+    liveBuffer.value = text;
+  }, LIVE_PREVIEW_DEBOUNCE_MS);
+});
+
+onUnmounted(() => clearTimeout(liveTimer));
+
+// What the viewer renders. Deliberately NOT what `marpMode` and the
+// task-checkbox walker read: those stay on `markdownContent`, so typing marp
+// frontmatter can't flip the whole branch (unmounting the editor mid-keystroke)
+// and a checkbox can never be toggled against a source that isn't on disk.
+const previewSource = computed(() => (livePreview.value && editing.value ? liveBuffer.value : markdownContent.value));
+const previewDoc = useMarkdownDoc(previewSource);
+
+// Scroll sync, live mode only: the viewer follows the textarea's scroll
+// fraction. Proportional rather than line-accurate — marked hands back no
+// source-line map, and a source line's height in the output is not fixed (one
+// line of fenced mermaid renders half a screen tall). So this keeps the region
+// being typed roughly on screen; it lands exactly only at the two ends.
+// One-way by design: driving it from both sides needs a re-entrancy guard, and
+// the editor is the side with the cursor in it.
+const previewScrollRef = ref<HTMLElement | null>(null);
+const editorRef = ref<HTMLTextAreaElement | null>(null);
+
+function syncPreviewScroll(): void {
+  if (!livePreview.value || !editing.value) return;
+  const editor = editorRef.value;
+  const preview = previewScrollRef.value;
+  if (!editor || !preview) return;
+  const editorRange = editor.scrollHeight - editor.clientHeight;
+  const previewRange = preview.scrollHeight - preview.clientHeight;
+  // Nothing to map when either side fits without scrolling — the division
+  // would be by zero, and there is no position to convey anyway.
+  if (editorRange <= 0 || previewRange <= 0) return;
+  preview.scrollTop = (editor.scrollTop / editorRange) * previewRange;
+}
+
+// Re-apply after each re-render and when live mode is switched on: new content
+// changes the viewer's scrollHeight, so the fraction that was right a keystroke
+// ago now points somewhere else.
+watch([liveBuffer, livePreview], () => void nextTick(syncPreviewScroll));
 
 function enterMarpSplitMode(): void {
   // Preserve any existing unsaved draft. The close (`close_fullscreen`)
@@ -361,7 +442,7 @@ const marpPdfFilename = computed(() => {
 });
 
 const renderedHtml = computed(() => {
-  if (!markdownContent.value) return "";
+  if (!previewSource.value) return "";
   // Rewrite workspace-relative image refs BEFORE marked parses them —
   // same approach as wiki/View.vue and FilesView.vue. Markdown files
   // under `markdowns/<year>/foo.md` typically use `../images/x.png`,
@@ -370,7 +451,7 @@ const renderedHtml = computed(() => {
   // references get rewritten.
   const raw = documentPathOf(props.selectedResult.data);
   const basePath = raw !== null ? documentDirOf(raw) : "";
-  const withImages = rewriteMarkdownImageRefs(mdDoc.value.body, basePath);
+  const withImages = rewriteMarkdownImageRefs(previewDoc.value.body, basePath);
   // Strip the `disabled=""` attribute marked puts on GFM task
   // checkboxes and tag them so `onMarkdownClick` can find them
   // (#775). Inline content (no file backing) gets the same
@@ -413,8 +494,28 @@ function onDetailsToggle(event: Event) {
   }
 }
 
+function openEditor(): void {
+  // The draft survives a close/reopen, so don't touch `editableMarkdown` here
+  // — only `closeEditor` (and Cancel, which is the same thing) discards it.
+  saveError.value = null;
+  editing.value = true;
+}
+
+// One teardown for both panels. The marp branch is still a <details>, and
+// poking `open` fires @toggle, which runs the reset — doing it here as well
+// would be the same work twice. The non-marp panel has no element to poke.
+function closeEditor(): void {
+  if (sourceDetails.value?.open) {
+    sourceDetails.value.open = false;
+    return;
+  }
+  editing.value = false;
+  editableMarkdown.value = markdownContent.value;
+  saveError.value = null;
+}
+
 function cancelEdit() {
-  if (sourceDetails.value) sourceDetails.value.open = false;
+  closeEditor();
 }
 
 async function copyText() {
@@ -480,7 +581,7 @@ async function applyMarkdown() {
   emit("updateResult", updatedResult);
 
   // Close the edit panel
-  if (sourceDetails.value) sourceDetails.value.open = false;
+  closeEditor();
 }
 
 // ── Inline task-list checkbox toggle (#775) ──────────────────────
@@ -618,10 +719,15 @@ watch(
   () => {
     // Reset split mode so navigating from one Marp doc to another
     // doesn't carry the editor pane across (split mode is a
-    // per-document opt-in; "状態の永続化: なし"). The bottom-bar
-    // <details> is already closed by `fetchMarkdownContent` via
-    // editableMarkdown resync (Codex review on PR #1658).
+    // per-document opt-in; "状態の永続化: なし").
     marpSplitMode.value = false;
+    // Same policy for the bottom panel: an editor left open would land the
+    // NEW document in edit mode, and with live preview on it would render
+    // the previous document's buffer until the debounce caught up. Closing
+    // is the whole reset — `editing` false, the draft resynced. (The old
+    // <details> was never closed here either; the comment that claimed
+    // `fetchMarkdownContent` did it was describing the buffer resync.)
+    closeEditor();
     // Drop any in-flight self-save expectation: `useFileChange`
     // rebinds to the new path and resets `version` to 0, so any
     // pubsub event we were waiting on for the *old* file will never
@@ -844,6 +950,40 @@ watch(
   color: #333;
 }
 
+/* Collapsed state of the non-marp panel: the same look the <summary> had, on a
+   button, because there is no <details> here to own it. */
+.source-toggle {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  padding: 0.5rem;
+  background: #e8e8e8;
+  border: none;
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 500;
+  color: #333;
+}
+
+.source-toggle:hover {
+  background: #d8d8d8;
+}
+
+.live-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 400;
+  color: #333;
+  cursor: pointer;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .markdown-source[open] summary {
   margin-bottom: 0.5rem;
 }
@@ -856,11 +996,16 @@ watch(
   width: 100%;
   height: 40vh;
   padding: 1rem;
-  background: #ffffff;
+  background: #333;
   border: 1px solid #ccc;
   border-radius: 4px;
-  color: #333;
-  font-family: "Courier New", "MS Gothic", "BIZ UDGothic", monospace;
+  color: #ffffff;
+  /* MulmoTerminal's xterm stack (TERMINAL_FONT_FAMILY_DEFAULT): Latin first, then the CJK tail
+     with Japanese ahead of the other locales so kanji don't get mainland glyph shapes. Restated
+     here rather than imported — the terminal's copy lives in another app. */
+  font-family:
+    "JetBrains Mono", "Fira Code", Menlo, Consolas, "Noto Sans Mono CJK JP", "Hiragino Sans", "BIZ UDGothic", "MS Gothic", IPAGothic, "Noto Sans Mono CJK KR",
+    "Malgun Gothic", "Noto Sans Mono CJK SC", "Microsoft YaHei", "Noto Sans Mono CJK TC", "Microsoft JhengHei", monospace;
   font-size: 0.9rem;
   resize: vertical;
   margin-bottom: 0.5rem;
@@ -906,6 +1051,7 @@ watch(
 
 .editor-actions {
   display: flex;
+  align-items: center;
   justify-content: space-between;
 }
 

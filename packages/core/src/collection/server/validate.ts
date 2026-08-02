@@ -15,6 +15,7 @@ import { storeFor } from "./store";
 import { firstRecordProblem, type RecordCheckTier } from "../core/recordZ";
 import type { LoadedCollection } from "./discoveredCollection";
 import type { CollectionItem, CollectionSchema } from "../core/schema";
+import { isErrorWithCode } from "@mulmoclaude/common";
 
 // The compiled record validators (and COMPUTED_TYPES, which moved next to
 // them) live in the isomorphic ../core/recordZ; re-exported here so the
@@ -47,8 +48,7 @@ async function listRecordFilenames(dataDir: string, workspaceRoot: string): Prom
   try {
     return await readdir(dataDir);
   } catch (err) {
-    const error = err as { code?: string };
-    if (error.code === "ENOENT") return []; // no dir yet = no records
+    if (isErrorWithCode(err) && err.code === "ENOENT") return []; // no dir yet = no records
     throw err; // surface permission / I/O faults instead of silently passing
   }
 }

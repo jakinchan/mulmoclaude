@@ -22,9 +22,8 @@ export function normalizeDashboard(input: unknown): DashboardTile[] {
   if (!Array.isArray(input)) return [];
   const out: DashboardTile[] = [];
   for (const raw of input) {
-    if (typeof raw !== "object" || raw === null) continue;
-    const candidate = raw as Record<string, unknown>;
-    const { slug, viewMode } = candidate;
+    if (!isRecord(raw)) continue;
+    const { slug, viewMode } = raw;
     if (typeof slug !== "string" || slug.length === 0) continue;
     if (out.some((existing) => existing.slug === slug)) continue;
     const tile: DashboardTile = { slug };
@@ -51,9 +50,9 @@ function normalizeHeightArray(input: unknown): number[] {
  *  so the 1- and 2-column views never share (and clobber) each other's
  *  row heights. Pure, no IO. */
 export function normalizeRowHeights(input: unknown): Record<string, number[]> {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  if (!isRecord(input)) return {};
   const out: Record<string, number[]> = {};
-  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+  for (const [key, value] of Object.entries(input)) {
     const columns = Number(key);
     if (!Number.isInteger(columns) || columns < 1) continue;
     const heights = normalizeHeightArray(value);

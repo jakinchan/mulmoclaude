@@ -371,13 +371,12 @@ interface RepoMetadataShape {
 }
 
 function isRepoMetadata(value: unknown): value is RepoMetadataShape {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  if (typeof record.url !== "string") return false;
-  if (typeof record.sha !== "string") return false;
-  if (typeof record.installedAt !== "string") return false;
-  if (record.subpath !== undefined && typeof record.subpath !== "string") return false;
-  if (record.ref !== undefined && typeof record.ref !== "string") return false;
+  if (!isRecord(value)) return false;
+  if (typeof value.url !== "string") return false;
+  if (typeof value.sha !== "string") return false;
+  if (typeof value.installedAt !== "string") return false;
+  if (value.subpath !== undefined && typeof value.subpath !== "string") return false;
+  if (value.ref !== undefined && typeof value.ref !== "string") return false;
   return true;
 }
 

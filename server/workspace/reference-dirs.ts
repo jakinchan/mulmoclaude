@@ -110,9 +110,8 @@ function hasTraversalSegment(inputPath: string): boolean {
 
 function validateEntry(raw: unknown): ReferenceDirEntry | null {
   if (!isRecord(raw)) return null;
-  const obj = raw as Record<string, unknown>;
 
-  const rawPath = typeof obj.hostPath === "string" ? obj.hostPath : "";
+  const rawPath = typeof raw.hostPath === "string" ? raw.hostPath : "";
   if (!rawPath) return null;
 
   const expanded = expandHome(rawPath);

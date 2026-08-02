@@ -23,9 +23,8 @@ export function normalizeShortcuts(input: unknown): Shortcut[] {
   if (!Array.isArray(input)) return [];
   const out: Shortcut[] = [];
   for (const raw of input) {
-    if (typeof raw !== "object" || raw === null) continue;
-    const candidate = raw as Record<string, unknown>;
-    const { kind, slug, title, icon } = candidate;
+    if (!isRecord(raw)) continue;
+    const { kind, slug, title, icon } = raw;
     if (typeof kind !== "string" || !KINDS.has(kind)) continue;
     if (typeof slug !== "string" || slug.length === 0) continue;
     const entry: Shortcut = {

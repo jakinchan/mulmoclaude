@@ -6,6 +6,7 @@
 // relay-client.ts.
 
 import type { ChatService } from "@mulmobridge/chat-service";
+import { isRecord } from "../utils/types.js";
 
 export interface RelayMessage {
   id: string;
@@ -50,15 +51,14 @@ export function buildExternalChatId(platform: string, chatId: string): string {
 }
 
 export function isRelayMessage(value: unknown): value is RelayMessage {
-  if (!value || typeof value !== "object") return false;
-  const obj = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
   return (
-    typeof obj.id === "string" &&
-    typeof obj.platform === "string" &&
-    typeof obj.chatId === "string" &&
-    typeof obj.text === "string" &&
-    obj.text !== "" &&
-    obj.chatId !== ""
+    typeof value.id === "string" &&
+    typeof value.platform === "string" &&
+    typeof value.chatId === "string" &&
+    typeof value.text === "string" &&
+    value.text !== "" &&
+    value.chatId !== ""
   );
 }
 

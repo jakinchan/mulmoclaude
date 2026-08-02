@@ -8,6 +8,7 @@ const ptBR: Messages = {
   pdf: "PDF",
   pdfFailedShort: "⚠ Falha no PDF",
   editSource: "Editar fonte Markdown",
+  livePreview: "Pré-visualização ao vivo",
   saving: "Salvando...",
   applyChanges: "Aplicar alterações",
   cancel: "Cancelar",

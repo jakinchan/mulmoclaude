@@ -53,10 +53,11 @@ export function parseTranslations(stdout: string): string[] {
   if (parsed.is_error) {
     throw new Error(`[translation] claude returned error: ${parsed.result ?? "unknown"}`);
   }
-  if (!isRecord(parsed.structured_output)) {
+  const output = parsed.structured_output;
+  if (!isRecord(output)) {
     throw new Error("[translation] structured_output missing or not an object");
   }
-  const { translations } = parsed.structured_output as Record<string, unknown>;
+  const { translations } = output;
   if (!Array.isArray(translations) || !translations.every((value): value is string => typeof value === "string")) {
     throw new Error("[translation] translations is not a string array");
   }
