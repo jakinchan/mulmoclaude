@@ -24,9 +24,9 @@
     "lint": "eslint src test"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260730.1",
+    "@cloudflare/workers-types": "^5.20260801.1",
     "typescript": "^6.0.3",
-    "wrangler": "^4.116.0"
+    "wrangler": "^4.118.0"
   },
   "engines": {
     "node": ">=20"
