@@ -719,10 +719,15 @@ watch(
   () => {
     // Reset split mode so navigating from one Marp doc to another
     // doesn't carry the editor pane across (split mode is a
-    // per-document opt-in; "状態の永続化: なし"). The bottom-bar
-    // <details> is already closed by `fetchMarkdownContent` via
-    // editableMarkdown resync (Codex review on PR #1658).
+    // per-document opt-in; "状態の永続化: なし").
     marpSplitMode.value = false;
+    // Same policy for the bottom panel: an editor left open would land the
+    // NEW document in edit mode, and with live preview on it would render
+    // the previous document's buffer until the debounce caught up. Closing
+    // is the whole reset — `editing` false, the draft resynced. (The old
+    // <details> was never closed here either; the comment that claimed
+    // `fetchMarkdownContent` did it was describing the buffer resync.)
+    closeEditor();
     // Drop any in-flight self-save expectation: `useFileChange`
     // rebinds to the new path and resets `version` to 0, so any
     // pubsub event we were waiting on for the *old* file will never
