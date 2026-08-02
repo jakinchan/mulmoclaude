@@ -16,8 +16,9 @@ const MAX_CALENDAR_LIST_PAGES = 40;
 // 2500 * 200 = 500k events, far beyond any real calendar's history.
 const EVENT_SYNC_PAGE_SIZE = 2500;
 const MAX_EVENT_SYNC_PAGES = 200;
-// `getCalendarMeta` reads the list envelope, never the events in it — one is
-// the smallest page Google accepts (0 is rejected).
+// `getCalendarMeta` reads the list envelope, never the events in it. Google's
+// accepted range for maxResults starts at 1, so this is the smallest page it
+// will serve.
 const CALENDAR_META_PAGE_SIZE = 1;
 // An expired/invalidated calendar syncToken.
 const HTTP_GONE = 410;

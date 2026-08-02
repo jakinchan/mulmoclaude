@@ -773,19 +773,20 @@ Two ways the link can be minted, and the tool picks automatically:
 - **Multiple client secrets** — the user has several `client_secret_*.json` in `~/.secrets/`;
   a stored refresh token pairs with exactly one OAuth client, so the choice is refused rather
   than guessed at. Ask them to keep one — or remove all of them to use the default flow.
-- **HTTP 403 from a Google API** — the API is not enabled for the Cloud project behind the
+- **403 "insufficient authentication scopes" pushing to a calendar not in the user's list** —
+  read the 403's BODY before the bullet below, which does not apply here: this one is about the
+  grant, not the Cloud project, so enabling an API changes nothing. On hosts predating the #2735
+  fix (`@mulmoclaude/core` 1.13.0 and earlier) the push asked `calendars.get` for that calendar's
+  timezone, and NONE of the four scopes this app requests grants that call, so it failed for every
+  account ever linked. **Re-linking does not help either** — consent grants the same four scopes.
+  Either update the host, or have the user **add the shared calendar to their own Google Calendar
+  list** (Other calendars → Subscribe), after which the push reads its timezone and role from the
+  list and never takes that path. A calendar the user has already added was never affected.
+- **HTTP 403 naming a Google API** — the API is not enabled for the Cloud project behind the
   client in use. With their own client, ask them to enable that API in the Cloud Console
   (APIs & Services → Library — the error names it: "Google Calendar API", "Google Tasks API",
   or "Google Drive API"), then retry — no re-link needed. On the default (broker) flow this
   should not happen; report it rather than sending the user to the Console.
-- **403 "insufficient authentication scopes" pushing to a calendar not in the user's list** — on
-  hosts predating the #2735 fix (`@mulmoclaude/core` 1.13.0 and earlier) the push asked
-  `calendars.get` for that calendar's timezone, and NONE of the four scopes this app requests
-  grants that call, so it failed for every account ever linked. **Re-linking does not help** —
-  consent grants the same four scopes. Either update the host, or have the user **add the shared
-  calendar to their own Google Calendar list** (Other calendars → Subscribe), after which the push
-  reads its timezone and role from the list and never takes that path. A calendar the user has
-  already added was never affected.
 - **Drive shows nothing / "I can't find the user's file"** — not an error. The app holds the
   `drive.file` scope, so it can only ever see files IT created; the user's wider Drive is
   invisible by design. Say so plainly instead of implying an empty Drive.
