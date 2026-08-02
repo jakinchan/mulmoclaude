@@ -412,6 +412,8 @@ function buildBatchEntries(items: readonly ParsedEntry[]): JournalEntry[] {
 // batch — invalidating from that point covers every later month a
 // single-entry call would have invalidated individually, while
 // collapsing the rebuild + publish work into one round.
+// Seedless `reduce` is safe here: the sole caller (addEntries) throws on an
+// empty batch, and parseBatchEntries returns one item per input entry.
 function earliestPeriodOf(entries: readonly JournalEntry[]): string {
   return entries.map((entry) => periodFromDate(entry.date)).reduce((min, period) => (period < min ? period : min));
 }

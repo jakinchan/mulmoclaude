@@ -45,6 +45,6 @@ export function projectItemFields(items: CollectionItem[], fields: readonly stri
  *  tests. `limit: 0` is a valid "count only" page. */
 export function pageFromFullRead(items: CollectionItem[], opts: ListOptions, primaryKey: string, truncated: boolean): ListPage {
   const offset = Math.max(0, opts.offset ?? 0);
-  const end = opts.limit === undefined ? undefined : offset + Math.max(0, opts.limit);
+  const end = opts.limit === undefined ? items.length : offset + Math.max(0, opts.limit);
   return { items: projectItemFields(items.slice(offset, end), opts.fields, primaryKey), total: items.length, truncated };
 }

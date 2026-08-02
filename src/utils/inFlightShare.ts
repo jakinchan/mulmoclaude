@@ -44,6 +44,7 @@ export function createInFlightShare(): InFlightShare {
       // can't wedge the key, and the map can't grow one entry per
       // session the user has ever visited.
       const started = ((): Promise<void> => {
+        // eslint-disable-next-line sonarjs/no-try-promise -- the `try` guards the SYNCHRONOUS throw before `task()` ever returns a promise; awaiting or `.catch()` here would defer the start to a microtask, which `isRunning` must not observe.
         try {
           return task();
         } catch (err) {

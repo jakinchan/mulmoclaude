@@ -346,8 +346,8 @@ export default [
       //     testid prefixes — controlled inputs, not attacker-supplied.
       //     27 warnings / 0 actionable.
       // The remaining rules (detect-eval-with-expression, detect-
-      // child-process, detect-possible-timing-attacks,
-      // detect-non-literal-require, detect-pseudoRandomBytes,
+      // child-process, detect-non-literal-require,
+      // detect-pseudoRandomBytes,
       // detect-buffer-noassert, detect-disable-mustache-escape,
       // detect-no-csrf-before-method-override, detect-bidi-characters,
       // detect-new-buffer) stay as warnings — tripwires for future
@@ -360,6 +360,11 @@ export default [
       // already has a `// eslint-disable-next-line` with a ReDoS-safety
       // rationale and a unit test pinning the bound.
       "security/detect-unsafe-regex": "error",
+      // `detect-possible-timing-attacks` graduates with it (#2736, 2026-08-02).
+      // Its one finding compared a monotonic render-generation counter, not a
+      // secret, and now carries a per-line disable saying so; measured at zero
+      // over `src server test e2e e2e-live packages`.
+      "security/detect-possible-timing-attacks": "error",
     },
     plugins: {
       prettier: prettierPlugin,
@@ -447,6 +452,11 @@ export default [
       "vue/no-useless-v-bind": "error",
       "vue/prefer-true-attribute-shorthand": "error",
       "vue/no-empty-component-block": "error",
+      // Same ratchet (#2736, 2026-08-02): the rule's single finding was an
+      // optional prop in a `withDefaults` component that already listed a
+      // default for every other prop, so the house style was unanimous and the
+      // `warn` guarded nothing. Zero findings across every SFC when promoted.
+      "vue/require-default-prop": "error",
       // The `as`-cast ban reaches `<script>` only: typescript-eslint's rules
       // never visit the TEMPLATE body, which `vue-eslint-parser` exposes as a
       // separate AST. `@change="…($event.target as HTMLInputElement).value"`
@@ -584,8 +594,15 @@ export default [
     rules: {
       // (1) `any` that survives no-explicit-any.
       "@typescript-eslint/no-unsafe-assignment": "warn",
-      "@typescript-eslint/no-unsafe-member-access": "warn",
-      "@typescript-eslint/no-unsafe-argument": "warn",
+      // Drained and ratcheted in #2736 (2026-08-02): both measured ZERO over
+      // `src server test e2e e2e-live packages` once their last finding was
+      // fixed. Read those counts only after `yarn build:packages` — with
+      // `packages/*/dist` missing, every `@mulmoclaude/*` import is an
+      // unresolved type and these two report ~2700 phantom findings. CI builds
+      // packages before both typecheck and lint, so the gate sees the real
+      // numbers.
+      "@typescript-eslint/no-unsafe-member-access": "error",
+      "@typescript-eslint/no-unsafe-argument": "error",
       "@typescript-eslint/no-unsafe-call": "warn",
       "@typescript-eslint/no-unsafe-return": "warn",
       // Zero findings today — on to keep it that way.
@@ -608,6 +625,32 @@ export default [
       "@typescript-eslint/await-thenable": "error",
       // Same backlog treatment for the sonarjs rules this block wakes.
       ...sonarTypeAwareRulesAsWarn,
+
+      // Eight of those woken rules had drained to 1-2 findings each, which is a
+      // `warn` guarding nothing. Every finding was triaged in #2736 (2026-08-02)
+      // and is now either fixed or carries a per-line disable naming what was
+      // checked, so each rule measured ZERO over `src server test e2e e2e-live
+      // packages` before promotion. Outside this block sonarjs's own preset
+      // already sets them to `error` (dormant with no TS program), so this only
+      // closes the gap on typed source — the code they actually run on.
+      //
+      // `sonarjs/reduce-initial-value` deliberately did NOT graduate. Both of its
+      // findings are seedless folds whose sole caller already returns/throws on an
+      // empty array, so seeding them bought an unreachable branch and a widened
+      // return type. Each site carries a comment naming its upstream guard; the
+      // rule stays a `warn` so a genuinely unguarded fold still surfaces.
+      //
+      // Also left at `warn`: `no-unsafe-assignment` (19 findings), and
+      // `no-unsafe-call` / `no-unsafe-return`, which are at zero but were not
+      // part of this drain — promote them in their own PR.
+      "sonarjs/deprecation": "error",
+      "sonarjs/argument-type": "error",
+      "sonarjs/no-selector-parameter": "error",
+      "sonarjs/no-undefined-argument": "error",
+      "sonarjs/concise-regex": "error",
+      "sonarjs/no-redundant-optional": "error",
+      "sonarjs/no-try-promise": "error",
+      "sonarjs/post-message": "error",
 
       // Three of those woken rules are off entirely rather than warned. Each
       // was checked against all of its findings in this repo, and none of them

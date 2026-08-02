@@ -91,10 +91,15 @@ var isOptionalRecord = (value) => value === void 0 || isRecord(value);
 function isHookPayload(value) {
   return isRecord(value) && isOptionalRecord(value.tool_input) && isOptionalRecord(value.tool_response);
 }
+function chunkToBuffer(chunk) {
+  if (typeof chunk === "string") return Buffer.from(chunk);
+  if (Buffer.isBuffer(chunk)) return chunk;
+  return Buffer.alloc(0);
+}
 async function readHookPayload() {
   const chunks = [];
   for await (const chunk of process.stdin) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    chunks.push(chunkToBuffer(chunk));
   }
   const raw = Buffer.concat(chunks).toString("utf-8");
   if (!raw.trim()) return null;

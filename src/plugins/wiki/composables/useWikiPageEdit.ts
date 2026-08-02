@@ -46,6 +46,7 @@ export function useWikiPageEdit(deps: WikiPageEditDeps): WikiPageEditState {
     deps.content.value = "";
 
     const result = await loadPageEdit(slug, stamp);
+    // eslint-disable-next-line security/detect-possible-timing-attacks -- `loadToken` is the monotonic render-generation counter declared above, not a secret; the comparison decides whether this load is still the current one.
     if (token !== loadToken) return;
     if (result.kind === "snapshot") {
       pageEditTs.value = result.ts;

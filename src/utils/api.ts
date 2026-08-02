@@ -234,8 +234,10 @@ export function apiDelete<T = unknown>(path: string, body?: unknown, extra: Omit
 
 export interface RawOptions {
   method?: string;
-  /** Accepts any value fetch accepts (string / Blob / FormData / …). */
-  body?: FetchBody;
+  /** Accepts any value fetch accepts (string / Blob / FormData / …).
+   *  `FetchBody` already includes `undefined`; `?` carries that, so the
+   *  member type only has to keep `null` (a body fetch does accept). */
+  body?: Exclude<FetchBody, undefined>;
   headers?: Record<string, string>;
   signal?: AbortSignal;
   query?: ApiQuery;
