@@ -40,6 +40,14 @@ async function callRoute<D>(route: ResolvedRoute, toolName: string, args: unknow
   return { ...result.data, toolName, uuid: makeUuid() };
 }
 
+/** The group is whatever the host installed at runtime, so a key declared
+ *  on `E` can still be absent from it. Name the scope + key instead of
+ *  letting it surface as "cannot read 'url' of undefined". */
+function requireEndpoint<T>(entry: T | undefined, scope: string, key: string): T {
+  if (entry === undefined) throw new Error(`Plugin endpoint "${key}" is not registered for scope "${scope}"`);
+  return entry;
+}
+
 /** Pass-through executor over a plugin-owned route.
  *
  *  The endpoint group is read inside the returned closure, not here —
@@ -50,12 +58,18 @@ async function callRoute<D>(route: ResolvedRoute, toolName: string, args: unknow
  *  matching the hand-written `async execute()` bodies this replaces —
  *  a sync throw would escape a caller's `.catch()`. */
 export function makeRouteExecute<E extends RouteGroup, D>(scope: string, routeKey: keyof E & string, toolName: string): PluginExecute<D> {
-  return async (_context, args) => callRoute<D>(pluginEndpoints<E>(scope)[routeKey], toolName, args);
+  return async (_context, args) => {
+    const route: ResolvedRoute | undefined = pluginEndpoints<E>(scope)[routeKey];
+    return callRoute<D>(requireEndpoint(route, scope, routeKey), toolName, args);
+  };
 }
 
 /** Pass-through executor over a host-shared group whose entries are
  *  bare URLs. `POST` because that is the only method those groups are
  *  reached with (`apiPost` is `apiCall` with `method: "POST"`). */
 export function makePostExecute<E extends UrlGroup, D>(scope: string, urlKey: keyof E & string, toolName: string): PluginExecute<D> {
-  return async (_context, args) => callRoute<D>({ method: "POST", url: pluginEndpoints<E>(scope)[urlKey] }, toolName, args);
+  return async (_context, args) => {
+    const url: string | undefined = pluginEndpoints<E>(scope)[urlKey];
+    return callRoute<D>({ method: "POST", url: requireEndpoint(url, scope, urlKey) }, toolName, args);
+  };
 }

@@ -13,7 +13,9 @@ const currentRoleId = ref<string>("");
 
 export function useCurrentRole(roles: Ref<Role[]> | ComputedRef<Role[]>): {
   currentRoleId: Ref<string>;
-  currentRole: ComputedRef<Role>;
+  // Undefined while the role list is still empty — the initial fetch is
+  // async, so callers must not assume a role is already selected.
+  currentRole: ComputedRef<Role | undefined>;
 } {
   // Seed once roles arrive (the initial fetch is async) and re-seed
   // if the chosen id disappears from the list (e.g. a custom role
@@ -21,9 +23,10 @@ export function useCurrentRole(roles: Ref<Role[]> | ComputedRef<Role[]>): {
   watch(
     roles,
     (next) => {
-      if (next.length === 0) return;
+      const [firstRole] = next;
+      if (!firstRole) return;
       const exists = next.some((role) => role.id === currentRoleId.value);
-      if (!exists) currentRoleId.value = next[0].id;
+      if (!exists) currentRoleId.value = firstRole.id;
     },
     { immediate: true },
   );

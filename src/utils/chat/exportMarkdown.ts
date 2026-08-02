@@ -101,7 +101,9 @@ function isTextResponse(result: ToolResultComplete): boolean {
 // previously slip past `matchFenceRun` and any `# heading` line
 // inside got mistakenly demoted (#1065 review).
 const FENCE_RUN_RE = /^ {0,3}(`{3,}|~{3,})/;
+// Keep the `{1,6}` bound in step with MAX_HEADING_DEPTH below.
 const ATX_HEADING_RE = /^(#{1,6})([ \t].*)$/;
+const MAX_HEADING_DEPTH = 6;
 
 interface OpenFence {
   char: "`" | "~";
@@ -113,9 +115,8 @@ interface OpenFence {
  *  length so the closing logic can apply GFM's rules (close fence
  *  must be the same char and at least as long as the open). */
 function matchFenceRun(line: string): OpenFence | null {
-  const match = FENCE_RUN_RE.exec(line);
-  if (!match) return null;
-  const [, run] = match;
+  const run = FENCE_RUN_RE.exec(line)?.[1];
+  if (run === undefined) return null;
   return { char: run.startsWith("`") ? "`" : "~", len: run.length };
 }
 
@@ -156,13 +157,12 @@ function demoteHeadings(markdown: string, levels: number): string {
       out.push(line);
       continue;
     }
-    const match = ATX_HEADING_RE.exec(line);
-    if (!match) {
+    const [, hashes, rest] = ATX_HEADING_RE.exec(line) ?? [];
+    if (hashes === undefined || rest === undefined) {
       out.push(line);
       continue;
     }
-    const [, hashes, rest] = match;
-    const newDepth = Math.min(6, hashes.length + levels);
+    const newDepth = Math.min(MAX_HEADING_DEPTH, hashes.length + levels);
     out.push(`${"#".repeat(newDepth)}${rest}`);
   }
   return out.join("\n");

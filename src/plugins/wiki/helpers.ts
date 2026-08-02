@@ -87,8 +87,9 @@ export function computeTagChips(entries: readonly { tags?: readonly string[] }[]
   const meaningful = [...computeTagCounts(entries).entries()]
     .filter(([, count]) => count > 1)
     .sort(([tagA, countA], [tagB, countB]) => countB - countA || tagA.localeCompare(tagB));
-  if (meaningful.length <= target) return meaningful;
-  const [, cutoff] = meaningful[target - 1];
+  const boundary = meaningful[target - 1];
+  if (meaningful.length <= target || !boundary) return meaningful;
+  const [, cutoff] = boundary;
   return meaningful.filter(([, count]) => count >= cutoff);
 }
 

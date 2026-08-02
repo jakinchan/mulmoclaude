@@ -62,7 +62,7 @@ export function renderUnifiedDiff(left: string, right: string, contextLines = 3)
 
   return ranges.map((range, idx) => {
     const hunkLines = lines.slice(range.start, range.end + 1);
-    const prevEnd = idx === 0 ? -1 : ranges[idx - 1].end;
+    const prevEnd = ranges[idx - 1]?.end ?? -1;
     const hiddenBefore = range.start - prevEnd - 1;
     const hiddenAfter = idx === ranges.length - 1 ? lines.length - 1 - range.end : 0;
     return { lines: hunkLines, hiddenBefore, hiddenAfter };

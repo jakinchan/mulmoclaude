@@ -1,24 +1,24 @@
 <template>
   <div class="flex-1 flex gap-1 items-center min-w-0">
-    <template v-for="i in 6" :key="i">
+    <template v-for="(session, slot) in tabSlots" :key="slot">
       <button
-        v-if="sessions[i - 1]"
+        v-if="session"
         class="relative flex-1 min-w-0 h-8 flex items-center justify-start gap-1 px-2 rounded overflow-hidden transition-colors"
-        :class="sessions[i - 1].id === currentSessionId ? 'border border-gray-300 bg-white shadow-sm' : 'hover:bg-gray-100'"
-        :title="tabTooltip(sessions[i - 1])"
-        :data-testid="`session-tab-${sessions[i - 1].id}`"
-        :aria-current="sessions[i - 1].id === currentSessionId ? 'page' : undefined"
-        @click="emit('loadSession', sessions[i - 1].id)"
+        :class="session.id === currentSessionId ? 'border border-gray-300 bg-white shadow-sm' : 'hover:bg-gray-100'"
+        :title="tabTooltip(session)"
+        :data-testid="`session-tab-${session.id}`"
+        :aria-current="session.id === currentSessionId ? 'page' : undefined"
+        @click="emit('loadSession', session.id)"
       >
         <!-- Role + origin glyph. Rendering lives in SessionRoleIcon
              so the SessionHistoryPanel picks up the same treatment. -->
-        <SessionRoleIcon :session="sessions[i - 1]" :roles="roles" />
-        <span class="text-xs text-gray-700 truncate min-w-0" :class="sessions[i - 1].hasUnread ? 'font-bold' : ''">{{ tabLabel(sessions[i - 1]) }}</span>
+        <SessionRoleIcon :session="session" :roles="roles" />
+        <span class="text-xs text-gray-700 truncate min-w-0" :class="session.hasUnread ? 'font-bold' : ''">{{ tabLabel(session) }}</span>
         <!-- Unread dot. Suppressed on the currently-selected session —
              which is `""` on non-chat pages, so the dot stays visible
              there. -->
         <span
-          v-if="sessions[i - 1].hasUnread && sessions[i - 1].id !== currentSessionId"
+          v-if="session.hasUnread && session.id !== currentSessionId"
           class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"
           :aria-label="t('sessionTabBar.unreadDot')"
         />
@@ -29,6 +29,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import type { Role } from "../config/roles";
 import type { SessionSummary } from "../types/session";
@@ -50,6 +51,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   loadSession: [id: string];
 }>();
+
+// Slots stay fixed so the row keeps a stable width — an absent session
+// renders as a spacer rather than letting the remaining tabs stretch.
+const TAB_SLOT_COUNT = 6;
+const tabSlots = computed(() => Array.from({ length: TAB_SLOT_COUNT }, (_, slot): SessionSummary | undefined => props.sessions[slot]));
 
 // Short label shown next to the role icon so users can tell
 // sessions apart at a glance. Prefers the indexer-generated

@@ -72,7 +72,7 @@ const selectedIndex = computed(() => {
 
 const selectedSummary = computed<SnapshotSummary | null>(() => {
   const idx = selectedIndex.value;
-  return idx === -1 ? null : snapshots.value[idx];
+  return idx === -1 ? null : (snapshots.value[idx] ?? null);
 });
 
 const previousSummary = computed<SnapshotSummary | null>(() => {

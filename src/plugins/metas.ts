@@ -132,7 +132,7 @@ export function buildPluginAggregate<V>(
       // plugin to claim it is reported as colliding with a plugin that does
       // not exist, and its entry is dropped.
       if (hasOwnKey(owner, key)) {
-        const priorPlugin = owner[key];
+        const priorPlugin = owner[key] ?? "";
         // Two distinct plugins claim the same key. Keep the first
         // entry; report the offender so diagnostics can warn.
         collisions.push({ dimension, key, plugins: [priorPlugin, meta.toolName] });

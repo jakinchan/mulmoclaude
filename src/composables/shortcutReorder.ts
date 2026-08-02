@@ -23,11 +23,13 @@ export type MoveDirection = "up" | "down";
  *  reference unchanged so the caller can skip a needless persist. Never
  *  mutates the input. */
 export function moveShortcut(list: Shortcut[], index: number, direction: MoveDirection): Shortcut[] {
-  if (index < 0 || index >= list.length) return list;
   const target = direction === "up" ? index - 1 : index + 1;
-  if (target < 0 || target >= list.length) return list;
+  const moved = list[index];
+  const displaced = list[target];
+  if (!moved || !displaced) return list;
   const next = [...list];
-  [next[index], next[target]] = [next[target], next[index]];
+  next[index] = displaced;
+  next[target] = moved;
   return next;
 }
 

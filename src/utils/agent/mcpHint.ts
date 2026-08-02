@@ -34,9 +34,8 @@ const MCP_TOOL_NAME_PATTERN = /^mcp__([A-Za-z0-9_-]+)__/;
 /** Returns a structured hint when `toolName` references an MCP
  *  server present in the catalog; `null` otherwise. */
 export function extractMcpHint(toolName: string): McpHint | null {
-  const match = MCP_TOOL_NAME_PATTERN.exec(toolName);
-  if (match === null) return null;
-  const [, server] = match;
+  const server = MCP_TOOL_NAME_PATTERN.exec(toolName)?.[1];
+  if (server === undefined) return null;
   const entry = findCatalogEntry(server);
   if (entry === null) return null;
   const requiredKeys = [...requiredKeysOf(entry)].sort();

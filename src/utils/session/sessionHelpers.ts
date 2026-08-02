@@ -133,9 +133,9 @@ export { SKILL_TOOL_NAME };
 /** In-place update a result that was re-emitted by a plugin view
  *  (e.g. after the user edits a chart config). */
 export function updateResult(session: ActiveSession, updatedResult: ToolResultComplete): void {
-  const index = session.toolResults.findIndex((result) => result.uuid === updatedResult.uuid);
-  if (index !== -1) {
-    Object.assign(session.toolResults[index], updatedResult);
+  const existing = session.toolResults.find((result) => result.uuid === updatedResult.uuid);
+  if (existing) {
+    Object.assign(existing, updatedResult);
   }
 }
 

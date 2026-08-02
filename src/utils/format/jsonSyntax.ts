@@ -54,31 +54,33 @@ export function tokenizeJson(raw: string): JsonToken[] {
   const tokens: JsonToken[] = [];
   let pos = 0;
   while (pos < raw.length) {
-    const token = nextToken(raw.slice(pos));
+    const slice = raw.slice(pos);
+    const token = nextToken(slice);
     if (!token) {
       // Unknown char (syntax error / stray bytes). Emit verbatim so
       // the user still sees it, then advance one character.
-      tokens.push({ type: "punct", value: raw[pos] });
+      tokens.push({ type: "punct", value: slice.slice(0, 1) });
       pos++;
       continue;
     }
     tokens.push(token);
     pos += token.value.length;
   }
-  markKeys(tokens);
-  return tokens;
+  return markKeys(tokens);
 }
 
+const isColon = (token: JsonToken | undefined): boolean => token?.type === "punct" && token.value === ":";
+
+// WS_RE is greedy, so a whitespace run is always a single token and one
+// step of lookahead is enough to skip it.
+const afterWhitespace = (tokens: JsonToken[], index: number): JsonToken | undefined => {
+  const next = tokens[index + 1];
+  return next?.type === "whitespace" ? tokens[index + 2] : next;
+};
+
 // A string that precedes ":" (skipping whitespace) is an object key.
-function markKeys(tokens: JsonToken[]): void {
-  for (let i = 0; i < tokens.length; i++) {
-    if (tokens[i].type !== "string") continue;
-    let j = i + 1;
-    while (j < tokens.length && tokens[j].type === "whitespace") j++;
-    if (j < tokens.length && tokens[j].type === "punct" && tokens[j].value === ":") {
-      tokens[i] = { type: "key", value: tokens[i].value };
-    }
-  }
+function markKeys(tokens: JsonToken[]): JsonToken[] {
+  return tokens.map((token, index) => (token.type === "string" && isColon(afterWhitespace(tokens, index)) ? { type: "key", value: token.value } : token));
 }
 
 // Pretty-print JSON with 2-space indentation, falling back to the raw
