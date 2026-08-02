@@ -170,13 +170,18 @@ export function createEdgarClient(deps: EdgarDeps): EdgarClient {
       };
     };
     const { recent } = data.filings;
-    const all: FilingSummary[] = recent.accessionNumber.map((_, idx) => ({
-      accessionNumber: recent.accessionNumber[idx],
-      form: recent.form[idx],
-      filingDate: recent.filingDate[idx],
-      reportDate: recent.reportDate[idx],
-      primaryDocument: recent.primaryDocument[idx],
-      primaryDocDescription: recent.primaryDocDescription[idx],
+    // `recent` is six PARALLEL arrays keyed by position, and nothing in
+    // the feed guarantees they are the same length. A short column would
+    // otherwise put `undefined` into a field declared `string`, and the
+    // `filing.form.toUpperCase()` filter below would throw on it.
+    const columnAt = (column: readonly string[], idx: number): string => column[idx] ?? "";
+    const all: FilingSummary[] = recent.accessionNumber.map((accessionNumber, idx) => ({
+      accessionNumber,
+      form: columnAt(recent.form, idx),
+      filingDate: columnAt(recent.filingDate, idx),
+      reportDate: columnAt(recent.reportDate, idx),
+      primaryDocument: columnAt(recent.primaryDocument, idx),
+      primaryDocDescription: columnAt(recent.primaryDocDescription, idx),
     }));
     const formTypes = opts.formTypes?.map((form) => form.toUpperCase());
     const filtered = formTypes ? all.filter((filing) => formTypes.includes(filing.form.toUpperCase())) : all;

@@ -69,33 +69,39 @@ function computeCurrentEarnings(accounts: readonly Account[], balanceByCode: Rea
   return earnings;
 }
 
+function buildBalanceSheetSection(
+  type: AccountType,
+  accounts: readonly Account[],
+  balanceByCode: ReadonlyMap<string, number>,
+  currentEarnings: number,
+): BalanceSheetSection {
+  const rows: BalanceSheetSection["rows"] = accounts
+    .filter((account) => account.type === type)
+    .map((account) => ({
+      accountCode: account.code,
+      accountName: account.name,
+      balance: naturalSign(type, balanceByCode.get(account.code) ?? 0),
+    }))
+    .filter((row) => Math.abs(row.balance) > ZERO_TOLERANCE);
+  if (type === "equity" && Math.abs(currentEarnings) > ZERO_TOLERANCE) {
+    rows.push({ accountCode: CURRENT_EARNINGS_ACCOUNT_CODE, accountName: "Current period earnings", balance: currentEarnings });
+  }
+  return { type, rows, total: rows.reduce((sum, row) => sum + row.balance, 0) };
+}
+
 export function buildBalanceSheet(input: { accounts: readonly Account[]; balances: readonly AccountBalance[]; asOf: string }): BalanceSheet {
   const balanceByCode = new Map(input.balances.map((row) => [row.accountCode, row.netDebit]));
   const currentEarnings = computeCurrentEarnings(input.accounts, balanceByCode);
-  const sections: BalanceSheetSection[] = [];
-  for (const type of ["asset", "liability", "equity"] as const) {
-    const rows: BalanceSheetSection["rows"] = [];
-    let total = 0;
-    for (const account of input.accounts) {
-      if (account.type !== type) continue;
-      const netDebit = balanceByCode.get(account.code) ?? 0;
-      const presented = naturalSign(type, netDebit);
-      if (Math.abs(presented) <= ZERO_TOLERANCE) continue;
-      rows.push({ accountCode: account.code, accountName: account.name, balance: presented });
-      total += presented;
-    }
-    if (type === "equity" && Math.abs(currentEarnings) > ZERO_TOLERANCE) {
-      rows.push({ accountCode: CURRENT_EARNINGS_ACCOUNT_CODE, accountName: "Current period earnings", balance: currentEarnings });
-      total += currentEarnings;
-    }
-    sections.push({ type, rows, total });
-  }
-  const assetTotal = sections[0].total;
-  const liabEquityTotal = sections[1].total + sections[2].total;
+  // Named rather than indexed out of an array so the accounting-equation
+  // arithmetic below can't silently read a section that isn't there.
+  const section = (type: AccountType) => buildBalanceSheetSection(type, input.accounts, balanceByCode, currentEarnings);
+  const assets = section("asset");
+  const liabilities = section("liability");
+  const equity = section("equity");
   return {
     asOf: input.asOf,
-    sections,
-    imbalance: assetTotal - liabEquityTotal,
+    sections: [assets, liabilities, equity],
+    imbalance: assets.total - (liabilities.total + equity.total),
   };
 }
 

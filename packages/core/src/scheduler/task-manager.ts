@@ -101,14 +101,25 @@ function isDue(now: Date, schedule: TaskSchedule, tickMs: number): boolean {
   }
 
   if (schedule.type === SCHEDULE_TYPES.daily) {
-    const [hours, minutes] = schedule.time.split(":").map(Number);
-    const targetMs = hours * ONE_HOUR_MS + minutes * ONE_MINUTE_MS;
+    const targetMs = dailyTargetMs(schedule.time);
+    if (targetMs === null) return false;
     const msSinceMidnight = now.getUTCHours() * ONE_HOUR_MS + now.getUTCMinutes() * ONE_MINUTE_MS + now.getUTCSeconds() * ONE_SECOND_MS;
     const rounded = Math.floor(msSinceMidnight / tickMs) * tickMs;
     return rounded === targetMs;
   }
 
   return false;
+}
+
+/** Milliseconds past UTC midnight for a `HH:MM` daily time, or null when the
+ *  string isn't that shape. `TaskSchedule.time` is a bare `string` on a
+ *  published package, so a host that skips its own validation must land on
+ *  "never due" rather than on a garbage firing time. */
+function dailyTargetMs(time: string): number | null {
+  const [hours, minutes] = time.split(":").map(Number);
+  if (hours === undefined || minutes === undefined) return null;
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * ONE_HOUR_MS + minutes * ONE_MINUTE_MS;
 }
 
 /** Split the due tasks into those that may run immediately and those gated

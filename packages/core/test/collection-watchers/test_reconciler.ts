@@ -108,10 +108,12 @@ test("reconcileItem publishes a bell for a pending record via the adapter", asyn
     await reconcileItem(asCollection("todo", SCHEMA, dataDir), "t1", { workspaceRoot: root });
     const all = await listAll();
     assert.equal(all.length, 1);
-    assert.equal(all[0].pluginPkg, "test-bells");
-    assert.equal(all[0].title, "Tasks: Pending task");
-    assert.equal(all[0].navigateTarget, "/x/todo/t1");
-    assert.equal(all[0].lifecycle, "action");
+    const [bell] = all;
+    assert.ok(bell);
+    assert.equal(bell.pluginPkg, "test-bells");
+    assert.equal(bell.title, "Tasks: Pending task");
+    assert.equal(bell.navigateTarget, "/x/todo/t1");
+    assert.equal(bell.lifecycle, "action");
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

@@ -75,9 +75,8 @@ export function bridgeTargetFromDataPath(workspaceRoot: string, filePath: string
   const staging = path.join(workspaceRoot, DATA_SKILLS_DIR);
   const rel = path.relative(staging, filePath);
   if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
-  const segments = rel.split(path.sep);
-  if (segments.length < 2) return null; // need at least `<slug>/<file>`
-  const [slug, ...relSegments] = segments;
+  const [slug, ...relSegments] = rel.split(path.sep);
+  if (!slug || relSegments.length === 0) return null; // need at least `<slug>/<file>`
   if (!SLUG_RE.test(slug)) return null;
   if (!isAllowlisted(relSegments)) return null;
   return { slug, relSegments };
@@ -88,7 +87,9 @@ export function bridgeTargetFromDataPath(workspaceRoot: string, filePath: string
 export function slugFromRmCommand(command: string): string | null {
   const match = RM_RE.exec(command);
   if (!match) return null;
-  const [, flags, slug] = match;
+  // Both groups are mandatory in RM_RE; the "" defaults fail both tests below,
+  // i.e. they land on the same `null` a non-matching command already gets.
+  const [, flags = "", slug = ""] = match;
   if (!RECURSIVE_FLAG_RE.test(flags)) return null;
   return SLUG_RE.test(slug) ? slug : null;
 }

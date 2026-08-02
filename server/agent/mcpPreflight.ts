@@ -70,8 +70,8 @@ export function findMissingRequiredEnv(entry: McpCatalogEntry, spec: McpServerSp
 function buildFieldToEnvKeyMap(templateEnv: Record<string, string>): Map<string, string> {
   const out = new Map<string, string>();
   for (const [envKey, value] of Object.entries(templateEnv)) {
-    const match = SINGLE_PLACEHOLDER.exec(value);
-    if (match) out.set(match[1], envKey);
+    const field = SINGLE_PLACEHOLDER.exec(value)?.[1];
+    if (field !== undefined) out.set(field, envKey);
   }
   return out;
 }

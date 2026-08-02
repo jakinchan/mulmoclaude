@@ -95,8 +95,7 @@ function parseTranscriptEntries(jsonlContent: string): TranscriptEntry[] {
 function selectMostRecent(entries: TranscriptEntry[], maxChars: number): { kept: TranscriptEntry[]; truncated: boolean } {
   const picked: TranscriptEntry[] = [];
   let size = 0;
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i];
+  for (const entry of [...entries].reverse()) {
     const entrySize = entry.source.length + entry.text.length + 3; // ": " + "\n"
     if (size + entrySize > maxChars) {
       return { kept: picked.reverse(), truncated: true };

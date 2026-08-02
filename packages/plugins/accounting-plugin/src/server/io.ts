@@ -288,6 +288,7 @@ export async function invalidateSnapshotsFrom(bookId: string, fromPeriod: string
     const match = /^(\d{4}-\d{2})\.json$/.exec(name);
     if (!match) continue;
     const [, period] = match;
+    if (period === undefined) continue;
     if (period >= fromPeriod) {
       await fsPromises.rm(path.join(snapshotsDir(bookId, workspaceRoot), name), { force: true });
       removed.push(period);

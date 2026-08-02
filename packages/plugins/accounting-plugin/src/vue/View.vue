@@ -253,10 +253,11 @@ function pickInitialBookId(): string | null {
   // first book in the list → null (empty workspace). The candidate
   // is validated against the live book list so a stale id from a
   // deleted book doesn't poison the View.
-  if (books.value.length === 0) return null;
+  const [firstBook] = books.value;
+  if (!firstBook) return null;
   const requested = initialPayload.value.bookId;
   if (requested && books.value.some((book) => book.id === requested)) return requested;
-  return books.value[0].id;
+  return firstBook.id;
 }
 
 async function refetchBooks(): Promise<void> {

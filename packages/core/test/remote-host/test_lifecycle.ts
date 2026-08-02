@@ -56,55 +56,62 @@ const makeHarness = (onExpire?: RemoteHostDeps["onExpire"]) => {
     onExpire,
   };
 
-  return { rh: createRemoteHost(deps), runners, signOutCount: () => signOutCount };
+  // A missing runner means the lifecycle under test never started one — fail there, not on a later property read.
+  const runnerAt = (index: number): FakeRunner => {
+    const runner = runners[index];
+    assert.ok(runner, `expected a runner at index ${index}, got ${runners.length}`);
+    return runner;
+  };
+
+  return { rh: createRemoteHost(deps), runners, runnerAt, signOutCount: () => signOutCount };
 };
 
 describe("createRemoteHost lifecycle", () => {
   it("connect starts a runner and reports connected + uid", async () => {
-    const { rh, runners } = makeHarness();
+    const { rh, runners, runnerAt } = makeHarness();
     const status = await rh.connect("t1");
     assert.deepEqual(status, { connected: true, uid: "uid-t1" });
     assert.equal(runners.length, 1);
-    assert.equal(runners[0].stopped, false);
-    assert.deepEqual(runners[0].channel, { uid: "uid-t1", hostId: HOST_ID });
+    assert.equal(runnerAt(0).stopped, false);
+    assert.deepEqual(runnerAt(0).channel, { uid: "uid-t1", hostId: HOST_ID });
   });
 
   it("failed reconnect is non-destructive: keeps the existing healthy session", async () => {
-    const { rh, runners } = makeHarness();
+    const { rh, runners, runnerAt } = makeHarness();
     await rh.connect("t1");
     await assert.rejects(rh.connect("bad"), /rejected credential/);
     // Old runner still running, no new runner, status unchanged.
     assert.equal(runners.length, 1);
-    assert.equal(runners[0].stopped, false);
+    assert.equal(runnerAt(0).stopped, false);
     assert.deepEqual(rh.status(), { connected: true, uid: "uid-t1" });
   });
 
   it("serializes overlapping connects: stops the old runner before starting the new", async () => {
-    const { rh, runners } = makeHarness();
+    const { rh, runners, runnerAt } = makeHarness();
     const [status1, status2] = await Promise.all([rh.connect("t1"), rh.connect("t2")]);
     assert.equal(runners.length, 2);
-    assert.equal(runners[0].stopped, true); // first runner torn down
-    assert.equal(runners[1].stopped, false); // second is the live one
+    assert.equal(runnerAt(0).stopped, true); // first runner torn down
+    assert.equal(runnerAt(1).stopped, false); // second is the live one
     assert.equal(status1.uid, "uid-t1");
     assert.deepEqual(status2, { connected: true, uid: "uid-t2" });
     assert.deepEqual(rh.status(), { connected: true, uid: "uid-t2" });
   });
 
   it("disconnect stops the runner and signs out", async () => {
-    const { rh, runners, signOutCount } = makeHarness();
+    const { rh, runnerAt, signOutCount } = makeHarness();
     await rh.connect("t1");
     const status = await rh.disconnect();
-    assert.equal(runners[0].stopped, true);
+    assert.equal(runnerAt(0).stopped, true);
     assert.equal(signOutCount(), 1);
     assert.deepEqual(status, { connected: false, uid: null });
   });
 
   it("reconciles status to disconnected when the listener dies fatally", async () => {
-    const { rh, runners } = makeHarness();
+    const { rh, runnerAt } = makeHarness();
     await rh.connect("t1");
     assert.equal(rh.status().connected, true);
     // Simulate hostRunner's fatal-listener path invoking onClosed.
-    runners[0].onClosed?.();
+    runnerAt(0).onClosed?.();
     assert.equal(rh.status().connected, false);
     // A fresh connect still works after a fatal death.
     await rh.connect("t2");
@@ -113,18 +120,18 @@ describe("createRemoteHost lifecycle", () => {
 
   it("threads deps.onExpire into the runner options", async () => {
     const onExpire = () => undefined;
-    const { rh, runners } = makeHarness(onExpire);
+    const { rh, runnerAt } = makeHarness(onExpire);
     await rh.connect("t1");
-    assert.equal(runners[0].onExpire, onExpire);
+    assert.equal(runnerAt(0).onExpire, onExpire);
   });
 
   it("onClosed from a superseded runner does not clear the current one", async () => {
-    const { rh, runners } = makeHarness();
+    const { rh, runnerAt } = makeHarness();
     await rh.connect("t1"); // runner 0
     await rh.connect("t2"); // runner 1 (runner 0 stopped)
-    runners[0].onClosed?.(); // stale callback from the superseded runner
+    runnerAt(0).onClosed?.(); // stale callback from the superseded runner
     assert.deepEqual(rh.status(), { connected: true, uid: "uid-t2" });
-    runners[1].onClosed?.(); // the live runner dies
+    runnerAt(1).onClosed?.(); // the live runner dies
     assert.equal(rh.status().connected, false);
   });
 });

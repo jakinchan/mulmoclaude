@@ -46,8 +46,8 @@ export function findMissingFiles(pageEntries: readonly WikiPageEntry[], fileSlug
 export function findBrokenLinksInPage(fileName: string, content: string, fileSlugs: ReadonlySet<string>): string[] {
   const issues: string[] = [];
   const matches = [...content.matchAll(WIKI_LINK_PATTERN)];
-  for (const match of matches) {
-    const { target } = parseWikiLink(match[1]);
+  for (const [, body = ""] of matches) {
+    const { target } = parseWikiLink(body);
     const linkSlug = wikiSlugify(target);
     // Empty target is its own diagnostic — `[[|display]]` or
     // `[[]]` slugifies to "" and would otherwise be flagged
@@ -55,11 +55,11 @@ export function findBrokenLinksInPage(fileName: string, content: string, fileSlu
     // bracket body in the report so the user can grep their pages
     // for the malformed link.
     if (linkSlug.length === 0) {
-      issues.push(`- **Broken link** in \`${fileName}\`: [[${match[1]}]] → empty target`);
+      issues.push(`- **Broken link** in \`${fileName}\`: [[${body}]] → empty target`);
       continue;
     }
     if (!fileSlugs.has(linkSlug)) {
-      issues.push(`- **Broken link** in \`${fileName}\`: [[${match[1]}]] → \`${linkSlug}.md\` not found`);
+      issues.push(`- **Broken link** in \`${fileName}\`: [[${body}]] → \`${linkSlug}.md\` not found`);
     }
   }
   return issues;

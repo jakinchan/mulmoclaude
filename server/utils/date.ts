@@ -41,6 +41,18 @@ export function isValidIsoDate(input: string): boolean {
   return isNumeric(input.slice(0, 4)) && isNumeric(input.slice(5, 7)) && isNumeric(input.slice(8, 10));
 }
 
+/**
+ * Split a `YYYY-MM-DD` string into its three segments, or `null` when it
+ * isn't one. Path builders need all three present — a missing segment would
+ * otherwise land in the tree as `undefined/undefined.md`.
+ */
+export function splitIsoDate(input: string): { year: string; month: string; day: string } | null {
+  if (!isValidIsoDate(input)) return null;
+  const [year, month, day] = input.split("-");
+  if (year === undefined || month === undefined || day === undefined) return null;
+  return { year, month, day };
+}
+
 function isNumeric(input: string): boolean {
   if (input.length === 0) return false;
   for (let index = 0; index < input.length; index++) {

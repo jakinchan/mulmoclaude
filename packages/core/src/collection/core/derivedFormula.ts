@@ -378,11 +378,17 @@ function evaluateSum(arg: SumArg, ctx: FormulaContext): number {
 }
 
 function rowProduct(row: object, { factors, operators }: SumArg): number {
-  const first = factors.at(0);
+  const [first, ...rest] = factors;
   if (!first) return Number.NaN;
-  return factors
-    .slice(1)
-    .reduce((product, factor, index) => applyBinop(operators[index], product, columnNumber(row, factor.col)), columnNumber(row, first.col));
+  return rest.reduce(
+    (product, factor, index) => {
+      // The parser pushes one operator per extra factor, so a gap here means a
+      // malformed SumArg — fail soft to NaN like every other bad value.
+      const operator = operators[index];
+      return operator ? applyBinop(operator, product, columnNumber(row, factor.col)) : Number.NaN;
+    },
+    columnNumber(row, first.col),
+  );
 }
 
 function columnNumber(row: object, col: string): number {

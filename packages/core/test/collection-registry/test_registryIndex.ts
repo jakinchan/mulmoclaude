@@ -44,6 +44,7 @@ describe("parseRegistryIndex", () => {
     assert.equal(result.index.registry, "receptron/mulmoclaude-collections");
     assert.equal(result.index.collections.length, 1);
     const [entry] = result.index.collections;
+    assert.ok(entry);
     assert.equal(entry.id, "isamu/movies");
     assert.equal(entry.fieldCount, 15);
     assert.deepEqual(entry.views, ["シネマ"]);
@@ -96,6 +97,7 @@ describe("parseRegistryIndex", () => {
     const result = parseRegistryIndex({ ...validIndex(), collections: [minimal] });
     assert.ok(result.ok);
     const [entry] = result.index.collections;
+    assert.ok(entry);
     assert.deepEqual(entry.tags, []);
     assert.deepEqual(entry.views, []);
     assert.equal(entry.hasSeed, false);
@@ -145,16 +147,20 @@ describe("parseRegistryIndex", () => {
   it("accepts zero and positive integer counts", () => {
     const result = parseRegistryIndex({ ...validIndex(), collections: [{ ...validEntry(), fieldCount: 0, seedCount: 42 }] });
     assert.ok(result.ok);
-    assert.equal(result.index.collections[0].fieldCount, 0);
-    assert.equal(result.index.collections[0].seedCount, 42);
+    const [entry] = result.index.collections;
+    assert.ok(entry);
+    assert.equal(entry.fieldCount, 0);
+    assert.equal(entry.seedCount, 42);
   });
 
   it("drops non-string members from tags/views", () => {
     const entry = { ...validEntry(), tags: ["ok", 1, null, "two"], views: [true, "v"] };
     const result = parseRegistryIndex({ ...validIndex(), collections: [entry] });
     assert.ok(result.ok);
-    assert.deepEqual(result.index.collections[0].tags, ["ok", "two"]);
-    assert.deepEqual(result.index.collections[0].views, ["v"]);
+    const [parsed] = result.index.collections;
+    assert.ok(parsed);
+    assert.deepEqual(parsed.tags, ["ok", "two"]);
+    assert.deepEqual(parsed.views, ["v"]);
   });
 
   it("stamps every entry with the registryName argument", () => {
@@ -162,6 +168,8 @@ describe("parseRegistryIndex", () => {
     // import / preview can later resolve the right rawBase via findRegistry.
     const result = parseRegistryIndexBase(validIndex(), "myorg");
     assert.ok(result.ok);
-    assert.equal(result.index.collections[0].registryName, "myorg");
+    const [entry] = result.index.collections;
+    assert.ok(entry);
+    assert.equal(entry.registryName, "myorg");
   });
 });

@@ -100,10 +100,10 @@ export function applyUpdate(tasks: PersistedUserTask[], taskId: string, patch: u
     return { kind: "error", error: "request body required" };
   }
   const index = tasks.findIndex((task) => task.id === taskId);
-  if (index === -1) {
+  const existing = tasks[index];
+  if (existing === undefined) {
     return { kind: "error", error: `task not found: ${taskId}` };
   }
-  const existing = tasks[index];
   const updated: PersistedUserTask = { ...existing };
   // patch is validated as non-null object above; spread into Record
   const patchRecord: Record<string, unknown> = { ...patch };

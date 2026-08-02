@@ -284,7 +284,9 @@ export { WORKSPACE_FILES };
 function toAbsolutePaths<T extends Record<string, string>>(relativePaths: T, root: string): { readonly [K in keyof T]: string } {
   const absolute: { -readonly [K in keyof T]: string } = { ...relativePaths };
   for (const key in absolute) {
-    absolute[key] = path.join(root, relativePaths[key]);
+    const relative = relativePaths[key];
+    if (relative === undefined) continue;
+    absolute[key] = path.join(root, relative);
   }
   return absolute;
 }

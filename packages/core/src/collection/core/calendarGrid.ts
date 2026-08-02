@@ -129,7 +129,8 @@ export function parseTimeRange(value: unknown): { startMin: number | null; endMi
   const minutesOf = (match: RegExpMatchArray): number | null => clockToMinutes(Number(match[1]), Number(match[2]));
   // No separator → a single point in time (start only).
   if (!RANGE_SEP_RE.test(text)) {
-    const startMin = minutesOf(tokens[0]);
+    const [firstToken] = tokens;
+    const startMin = firstToken ? minutesOf(firstToken) : null;
     return startMin === null ? null : { startMin, endMin: null };
   }
   // Separator present → assign each token to the side of the first separator.
@@ -291,34 +292,61 @@ export interface LaneAssignment {
   lanes: number;
 }
 
-export function assignLanes(blocks: readonly LaneSpan[]): LaneAssignment[] {
-  const order = [...blocks.keys()].sort((left, right) => blocks[left].startMin - blocks[right].startMin || blocks[left].endMin - blocks[right].endMin);
-  const result: LaneAssignment[] = blocks.map(() => ({ lane: 0, lanes: 1 }));
-  let cluster: number[] = [];
-  let clusterEnd = Number.NEGATIVE_INFINITY;
+/** One input block paired with its position in the caller's array, so lane
+ *  assignment can sort freely and still report back in input order. */
+interface PositionedSpan {
+  index: number;
+  span: LaneSpan;
+}
+
+function sortByStart(blocks: readonly LaneSpan[]): PositionedSpan[] {
+  return [...blocks.entries()]
+    .map(([index, span]) => ({ index, span }))
+    .sort((left, right) => left.span.startMin - right.span.startMin || left.span.endMin - right.span.endMin);
+}
+
+interface ClusterState {
+  /** Clusters already closed. */
+  done: PositionedSpan[][];
+  /** The cluster still accepting blocks. */
+  current: PositionedSpan[];
+  /** Latest end minute seen in `current` — the cutoff for the next block. */
+  end: number;
+}
+
+/** Cut the start-ordered blocks into overlap clusters: a new cluster begins at
+ *  the first block that starts at or after every earlier block has ended. */
+function splitClusters(ordered: readonly PositionedSpan[]): PositionedSpan[][] {
+  const initial: ClusterState = { done: [], current: [], end: Number.NEGATIVE_INFINITY };
+  const state = ordered.reduce<ClusterState>((acc, block) => {
+    const breaks = acc.current.length > 0 && block.span.startMin >= acc.end;
+    return {
+      done: breaks ? [...acc.done, acc.current] : acc.done,
+      current: breaks ? [block] : [...acc.current, block],
+      end: breaks ? block.span.endMin : Math.max(acc.end, block.span.endMin),
+    };
+  }, initial);
+  return state.current.length > 0 ? [...state.done, state.current] : state.done;
+}
+
+/** Greedy lane packing inside one cluster: reuse the first lane already free at
+ *  this block's start, else open a new one. Every member reports the cluster's
+ *  final lane count so a renderer can size each block to `1 / lanes`. */
+function packCluster(cluster: readonly PositionedSpan[]): [number, LaneAssignment][] {
   const laneEnds: number[] = [];
-  const flush = (): void => {
-    for (const index of cluster) result[index].lanes = laneEnds.length;
-    cluster = [];
-    laneEnds.length = 0;
-    clusterEnd = Number.NEGATIVE_INFINITY;
-  };
-  for (const index of order) {
-    const block = blocks[index];
-    if (cluster.length > 0 && block.startMin >= clusterEnd) flush();
-    let lane = laneEnds.findIndex((end) => end <= block.startMin);
-    if (lane === -1) {
-      lane = laneEnds.length;
-      laneEnds.push(block.endMin);
-    } else {
-      laneEnds[lane] = block.endMin;
-    }
-    result[index].lane = lane;
-    cluster.push(index);
-    clusterEnd = Math.max(clusterEnd, block.endMin);
-  }
-  flush();
-  return result;
+  const placed = cluster.map(({ index, span }) => {
+    const reusable = laneEnds.findIndex((end) => end <= span.startMin);
+    const lane = reusable === -1 ? laneEnds.length : reusable;
+    laneEnds[lane] = span.endMin;
+    return { index, lane };
+  });
+  return placed.map(({ index, lane }) => [index, { lane, lanes: laneEnds.length }]);
+}
+
+export function assignLanes(blocks: readonly LaneSpan[]): LaneAssignment[] {
+  const clusters = splitClusters(sortByStart(blocks));
+  const assignments = new Map<number, LaneAssignment>(clusters.flatMap(packCluster));
+  return blocks.map((_, index) => assignments.get(index) ?? { lane: 0, lanes: 1 });
 }
 
 /** Month label key inputs — returns the 1st of the month as a `Date` so the

@@ -32,7 +32,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="account in bsAccounts" :key="account.code" class="border-b border-gray-100">
+        <tr v-for="{ account, row } in accountRows" :key="account.code" class="border-b border-gray-100">
           <td class="py-1 px-2">
             <span class="font-mono text-[10px] text-gray-400 mr-2">{{ account.code }}</span>
             <span>{{ account.name }}</span>
@@ -40,7 +40,7 @@
           </td>
           <td class="py-1 px-2">
             <input
-              v-model.number="rows[account.code].debit"
+              v-model.number="row.debit"
               type="number"
               :step="step"
               min="0"
@@ -51,7 +51,7 @@
           </td>
           <td class="py-1 px-2">
             <input
-              v-model.number="rows[account.code].credit"
+              v-model.number="row.credit"
               type="number"
               :step="step"
               min="0"
@@ -129,12 +129,25 @@ function ensureRows(): void {
   }
 }
 
+// Pair each visible account with its row so the template never indexes
+// `rows`. The paired `row` is the reactive object itself, so `v-model`
+// still writes through; a missing row is skipped, matching the
+// `if (!row) continue` the rest of this file already uses.
+const accountRows = computed(() =>
+  bsAccounts.value.flatMap((account) => {
+    const row = rows.value[account.code];
+    return row ? [{ account, row }] : [];
+  }),
+);
+
 function onDebitInput(code: string): void {
   const row = rows.value[code];
+  if (!row) return;
   if (row.debit !== null && row.debit !== 0) row.credit = null;
 }
 function onCreditInput(code: string): void {
   const row = rows.value[code];
+  if (!row) return;
   if (row.credit !== null && row.credit !== 0) row.debit = null;
 }
 

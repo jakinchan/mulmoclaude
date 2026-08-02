@@ -129,8 +129,7 @@ function isMissingDraftValue(value: unknown): boolean {
 /** Label of the first required table sub-field empty in any row, else null. */
 function firstMissingTableSubField(field: FieldSpec, rows: TableRowDraft[] | undefined): string | null {
   if (field.type !== "table" || !rows) return null;
-  for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
-    const row = rows[rowIdx];
+  for (const [rowIdx, row] of rows.entries()) {
     for (const [subKey, subField] of Object.entries(field.of)) {
       if (!subField.required || subField.type === "boolean") continue;
       if (isMissingDraftValue(row.text[subKey])) return `${field.label} #${rowIdx + 1}: ${subField.label}`;

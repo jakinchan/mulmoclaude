@@ -67,6 +67,8 @@ const normalize = (text: string): string => text.toLowerCase().replace(/`/g, "")
 
 const sliceLines = (lines: string[], from: number, until: number): string => lines.slice(from, until).join("\n").trim();
 
+const HEADING_PATTERN = /^(#{1,3}) (.+)$/;
+
 /** All `#`–`###` headings, skipping fenced code blocks (a `# comment`
  *  inside an example must not become a section boundary). */
 function headingLines(lines: string[]): { index: number; level: number; heading: string }[] {
@@ -74,8 +76,11 @@ function headingLines(lines: string[]): { index: number; level: number; heading:
   let fenced = false;
   lines.forEach((line, index) => {
     if (line.trimStart().startsWith("```")) fenced = !fenced;
-    const match = fenced ? null : /^(#{1,3}) (.+)$/.exec(line);
-    if (match) found.push({ index, level: match[1].length, heading: match[2].trim() });
+    if (fenced) return;
+    const match = HEADING_PATTERN.exec(line);
+    if (!match) return;
+    const [, hashes = "", heading = ""] = match;
+    found.push({ index, level: hashes.length, heading: heading.trim() });
   });
   return found;
 }

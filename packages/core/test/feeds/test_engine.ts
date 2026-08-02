@@ -80,7 +80,9 @@ describe("refreshOne — keyed upsert", () => {
     const result = await refreshOne(root, feed);
     assert.equal(result.written, 0);
     assert.equal(result.errors.length, 1);
-    assert.match(result.errors[0], /no retriever/);
+    const [failure] = result.errors;
+    assert.ok(failure);
+    assert.match(failure, /no retriever/);
   });
 });
 
@@ -150,6 +152,7 @@ describe("refreshOne — local columns and unreadable records (#2696)", () => {
     assert.equal(second.errors.length, 0);
 
     const [stored] = await listItems(feed.dataDir, { workspaceRoot: root });
+    assert.ok(stored);
     assert.equal(stored.note, "read on the train", "the local column survived the refresh");
     assert.equal(stored.title, "A2", "the feed still won on the field it produces");
   });

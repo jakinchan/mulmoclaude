@@ -64,8 +64,9 @@ const GITHUB_HTTPS_RE = /^https:\/\/github\.com\/([A-Za-z0-9][A-Za-z0-9-]{0,38})
  *  scope. Returns `null` on any rejection. */
 export function parseGitHubHttpsUrl(url: string): ParsedGitHubUrl | null {
   const match = GITHUB_HTTPS_RE.exec(url);
-  if (!match) return null;
-  const [, owner, repoRaw] = match;
+  const owner = match?.[1];
+  const repoRaw = match?.[2];
+  if (owner === undefined || repoRaw === undefined) return null;
   // Strip a trailing `.git` if the regex's optional group missed it
   // (it's already handled in the regex, but be defensive).
   const repo = repoRaw.endsWith(".git") ? repoRaw.slice(0, -".git".length) : repoRaw;

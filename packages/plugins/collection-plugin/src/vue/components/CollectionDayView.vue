@@ -255,7 +255,9 @@ const timedEntries = computed<TimedEntry[]>(() => {
     timed.map((entry) => ({ startMin: entry.slice.startMin, endMin: Math.max(entry.slice.endMin, entry.slice.startMin + LANE_MIN_MINUTES) })),
   );
   return timed.map((entry, index) => {
-    const { lane, lanes: laneCount } = lanes[index];
+    // `assignLanes` returns one assignment per input, so the fallback is
+    // unreachable; it mirrors the default `assignLanes` uses internally.
+    const { lane, lanes: laneCount } = lanes[index] ?? { lane: 0, lanes: 1 };
     const widthPct = 100 / laneCount;
     const heightPx = entry.slice.kind === "line" ? LINE_PX : Math.max((entry.slice.endMin - entry.slice.startMin) * PX_PER_MIN, MIN_BLOCK_PX);
     return {

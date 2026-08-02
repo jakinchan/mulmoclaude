@@ -24,6 +24,8 @@ const isValidSlug = (raw: string): boolean => raw.length > 0 && raw.length <= 64
 const RECIPES_DIR = "recipes";
 const FRONTMATTER_OPEN = /^---\r?\n/;
 const FRONTMATTER_CLOSE = /(?:^|\r?\n)---\s*(?:\r?\n|$)/;
+const FRONTMATTER_ARRAY_ITEM = /^\s+-\s+(.*)$/;
+const FRONTMATTER_KEY_VALUE = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/;
 
 // Shared field shape for the `save` and `update` members — the two
 // carry an identical record body and differ only in `kind`.
@@ -83,35 +85,45 @@ function serialise(recipe: Recipe): string {
 // Tiny line-by-line frontmatter reader. We only use a handful of
 // keys, all scalar except `tags`, so a YAML library would be
 // overkill (and adds a dep the plugin doesn't otherwise need).
-function parseFrontmatter(raw: string): { meta: Record<string, string | string[]>; body: string } | null {
+type FrontmatterMeta = Record<string, string | string[]>;
+
+interface FrontmatterScan {
+  meta: FrontmatterMeta;
+  /** Key whose value is the `- item` list still being filled, if any. */
+  arrayKey: string | null;
+}
+
+function scanFrontmatterLine(scan: FrontmatterScan, line: string): FrontmatterScan {
+  const [, arrayItem] = FRONTMATTER_ARRAY_ITEM.exec(line) ?? [];
+  if (arrayItem !== undefined && scan.arrayKey !== null) {
+    const openList = scan.meta[scan.arrayKey];
+    if (Array.isArray(openList)) openList.push(unquote(arrayItem));
+    return scan;
+  }
+  // Both key/value groups are mandatory, so a matched line always has
+  // them; a line that matched nothing is not a `key: value` and is skipped.
+  const [, key, valueRaw] = FRONTMATTER_KEY_VALUE.exec(line) ?? [];
+  if (key === undefined || valueRaw === undefined) return scan;
+  if (valueRaw === "") {
+    scan.meta[key] = [];
+    return { meta: scan.meta, arrayKey: key };
+  }
+  scan.meta[key] = unquote(valueRaw);
+  return { meta: scan.meta, arrayKey: null };
+}
+
+function parseFrontmatter(raw: string): { meta: FrontmatterMeta; body: string } | null {
   if (!FRONTMATTER_OPEN.test(raw)) return null;
   const afterOpen = raw.replace(FRONTMATTER_OPEN, "");
   const closeMatch = FRONTMATTER_CLOSE.exec(afterOpen);
   if (!closeMatch || closeMatch.index === undefined) return null;
   const yamlText = afterOpen.slice(0, closeMatch.index);
   const body = afterOpen.slice(closeMatch.index + closeMatch[0].length);
-  const meta: Record<string, string | string[]> = {};
-  let currentArrayKey: string | null = null;
-  for (const line of yamlText.split(/\r?\n/)) {
-    if (line.length === 0) continue;
-    const arrayItem = line.match(/^\s+-\s+(.*)$/);
-    if (arrayItem && currentArrayKey) {
-      const arr = meta[currentArrayKey];
-      if (Array.isArray(arr)) arr.push(unquote(arrayItem[1]));
-      continue;
-    }
-    const kv = line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
-    if (!kv) continue;
-    const [, key, valueRaw] = kv;
-    if (valueRaw === "") {
-      meta[key] = [];
-      currentArrayKey = key;
-    } else {
-      meta[key] = unquote(valueRaw);
-      currentArrayKey = null;
-    }
-  }
-  return { meta, body };
+  const scanned = yamlText
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0)
+    .reduce(scanFrontmatterLine, { meta: {}, arrayKey: null });
+  return { meta: scanned.meta, body };
 }
 
 function unquote(value: string): string {

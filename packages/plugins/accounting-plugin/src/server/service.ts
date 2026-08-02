@@ -568,7 +568,7 @@ export async function setOpeningBalances(
 
 function endDateOfPeriod(period: ReportPeriod): string {
   if (period.kind === "month") {
-    const [year, month] = period.period.split("-").map((segment) => parseInt(segment, 10));
+    const [year = Number.NaN, month = Number.NaN] = period.period.split("-").map((segment) => parseInt(segment, 10));
     const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
     return `${period.period}-${String(last).padStart(2, "0")}`;
   }

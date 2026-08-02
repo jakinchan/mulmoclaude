@@ -44,7 +44,7 @@ export function renderWikiLinks(content: string): string {
         continue;
       }
     }
-    out.push(content[i]);
+    out.push(content.charAt(i));
     i++;
   }
   return out.join("");

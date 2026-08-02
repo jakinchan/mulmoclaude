@@ -60,7 +60,9 @@ function partitionForAttachment(attachmentRelativePath: string): string {
   const segments = attachmentRelativePath.split("/").filter(Boolean);
   // segments = [data, attachments, YYYY, MM, filename]
   if (segments.length < 5) return "";
-  return path.posix.join(segments[2], segments[3]);
+  const [, , year, month] = segments;
+  if (year === undefined || month === undefined) return "";
+  return path.posix.join(year, month);
 }
 
 /** Compute the absolute sidecar path for a saved attachment. */

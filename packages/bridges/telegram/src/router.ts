@@ -120,8 +120,10 @@ export function createMessageRouter(deps: RouterDeps): MessageRouter {
     const attachments: Attachment[] = [];
     let anyFailed = false;
 
-    if (Array.isArray(msg.photo) && msg.photo.length > 0) {
-      const largest = msg.photo[msg.photo.length - 1];
+    // Telegram lists photo sizes smallest-first, so the last entry is
+    // the highest resolution available.
+    const largest = Array.isArray(msg.photo) ? msg.photo[msg.photo.length - 1] : undefined;
+    if (largest) {
       try {
         const dataUrl = await api.downloadFile(largest.file_id, "image/jpeg");
         const parsed = parseDataUrl(dataUrl);

@@ -62,9 +62,9 @@ export function encodeCsvRecordId(rawKey: string): string {
  *  `encodeCsvRecordId` for encoded ids; anything else is already the raw
  *  value. Pure + exported for unit tests. */
 export function decodeCsvRecordId(itemId: string): string {
-  const match = ENCODED_ID_PATTERN.exec(itemId);
-  if (!match) return itemId;
-  return Buffer.from(match[1], "hex").toString("utf-8");
+  const hex = ENCODED_ID_PATTERN.exec(itemId)?.[1];
+  if (hex === undefined) return itemId;
+  return Buffer.from(hex, "hex").toString("utf-8");
 }
 
 /** Normalize one DuckDB JS value into a JSON-safe record value: BigInt →

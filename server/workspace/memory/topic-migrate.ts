@@ -210,7 +210,7 @@ function humaniseTopic(slug: string): string {
   // itself; the user can rename later in the file explorer.
   return slug
     .split("-")
-    .map((part) => (part.length > 0 ? part[0].toUpperCase() + part.slice(1) : part))
+    .map((part) => `${(part[0] ?? "").toUpperCase()}${part.slice(1)}`)
     .join(" ");
 }
 

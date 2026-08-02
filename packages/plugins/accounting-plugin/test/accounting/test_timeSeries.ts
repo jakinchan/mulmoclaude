@@ -14,6 +14,13 @@ const ACCOUNTS: Account[] = [
   { code: "5100", name: "Utilities", type: "expense" },
 ];
 
+/** Positional reads on the output under test — a short result is a failure of the function, not a case to branch on. */
+function elementAt<T>(items: readonly T[], index: number): T {
+  const item = items.at(index);
+  if (item === undefined) throw new Error(`expected an element at index ${index}, got ${items.length}`);
+  return item;
+}
+
 // ── bucketize ─────────────────────────────────────────────────────
 
 describe("bucketize — month granularity", () => {
@@ -24,14 +31,14 @@ describe("bucketize — month granularity", () => {
       ["2025-02", "2025-03", "2025-04"],
     );
     // First bucket extends to before `from`; last bucket extends past `to`.
-    assert.equal(buckets[0].from, "2025-02-01");
-    assert.equal(buckets[0].to, "2025-02-28");
-    assert.equal(buckets[2].from, "2025-04-01");
-    assert.equal(buckets[2].to, "2025-04-30");
+    assert.equal(elementAt(buckets, 0).from, "2025-02-01");
+    assert.equal(elementAt(buckets, 0).to, "2025-02-28");
+    assert.equal(elementAt(buckets, 2).from, "2025-04-01");
+    assert.equal(elementAt(buckets, 2).to, "2025-04-30");
   });
 
   it("handles February in a leap year", () => {
-    const [feb] = bucketize({ from: "2024-02-15", to: "2024-02-15", granularity: "month", fiscalYearEnd: 12 });
+    const feb = elementAt(bucketize({ from: "2024-02-15", to: "2024-02-15", granularity: "month", fiscalYearEnd: 12 }), 0);
     assert.equal(feb.to, "2024-02-29");
   });
 
@@ -46,7 +53,7 @@ describe("bucketize — month granularity", () => {
   it("returns a single bucket when from and to land in the same month", () => {
     const buckets = bucketize({ from: "2025-06-02", to: "2025-06-29", granularity: "month", fiscalYearEnd: 12 });
     assert.equal(buckets.length, 1);
-    assert.equal(buckets[0].label, "2025-06");
+    assert.equal(elementAt(buckets, 0).label, "2025-06");
   });
 
   it("returns [] when from > to", () => {
@@ -89,8 +96,8 @@ describe("bucketize — quarter granularity, fiscalYearEnd shifts", () => {
       buckets.map((bucket) => bucket.label),
       ["FY2026-Q1", "FY2026-Q2", "FY2026-Q3", "FY2026-Q4"],
     );
-    assert.equal(buckets[0].from, "2025-07-01");
-    assert.equal(buckets[3].to, "2026-06-30");
+    assert.equal(elementAt(buckets, 0).from, "2025-07-01");
+    assert.equal(elementAt(buckets, 3).to, "2026-06-30");
   });
 
   it("August-close books (month 8) — fiscal quarters start in September", () => {
@@ -105,7 +112,7 @@ describe("bucketize — quarter granularity, fiscalYearEnd shifts", () => {
   });
 
   it("August-close books (month 8) — year bucket spans Sep → Aug", () => {
-    const [bucket] = bucketize({ from: "2026-01-15", to: "2026-01-15", granularity: "year", fiscalYearEnd: 8 });
+    const bucket = elementAt(bucketize({ from: "2026-01-15", to: "2026-01-15", granularity: "year", fiscalYearEnd: 8 }), 0);
     assert.deepEqual({ label: bucket.label, from: bucket.from, to: bucket.to }, { label: "FY2026", from: "2025-09-01", to: "2026-08-31" });
   });
 
@@ -141,9 +148,9 @@ describe("bucketize — year granularity", () => {
   it("Q1 books — a request mid-FY returns one FY bucket whose boundaries echo the FY, not the input", () => {
     const buckets = bucketize({ from: "2025-09-01", to: "2025-12-31", granularity: "year", fiscalYearEnd: 3 });
     assert.equal(buckets.length, 1);
-    assert.equal(buckets[0].from, "2025-04-01");
-    assert.equal(buckets[0].to, "2026-03-31");
-    assert.equal(buckets[0].label, "FY2026");
+    assert.equal(elementAt(buckets, 0).from, "2025-04-01");
+    assert.equal(elementAt(buckets, 0).to, "2026-03-31");
+    assert.equal(elementAt(buckets, 0).label, "FY2026");
   });
 });
 
@@ -302,9 +309,11 @@ describe("buildTimeSeries — revenue / expense / netIncome", () => {
     });
     // Jan shows the original income; Feb shows the reversal cancelling
     // it. Sum across the series is zero.
-    assert.equal(points[0].value, 500);
-    assert.equal(points[1].value, -500);
-    assert.equal(points[0].value + points[1].value, 0);
+    const january = elementAt(points, 0);
+    const february = elementAt(points, 1);
+    assert.equal(january.value, 500);
+    assert.equal(february.value, -500);
+    assert.equal(january.value + february.value, 0);
   });
 });
 
@@ -386,6 +395,6 @@ describe("buildTimeSeries — accountBalance", () => {
       metric: "accountBalance",
       accountCode: "2000", // AP, liability
     });
-    assert.equal(points[0].value, 5000);
+    assert.equal(elementAt(points, 0).value, 5000);
   });
 });

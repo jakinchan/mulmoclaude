@@ -70,8 +70,8 @@ function stepFence(line: string, state: FenceState): boolean {
   const quoteMatch = line.match(BLOCKQUOTE_PREFIX);
   const content = quoteMatch ? line.slice(quoteMatch[0].length) : line;
   const fenceMatch = content.match(FENCE_LINE);
-  if (fenceMatch) {
-    const [, , marker] = fenceMatch;
+  const marker = fenceMatch?.[2];
+  if (fenceMatch && marker !== undefined) {
     if (!state.inFence) {
       // Openers may carry an info string after the marker
       // (e.g. "```ts"). We don't need to keep it — just enter
@@ -123,12 +123,10 @@ function flipMark(line: string, match: RegExpMatchArray): string {
  *  source-side n-th line.
  */
 export function findTaskLines(source: string): number[] {
-  const lines = source.split("\n");
   const fence: FenceState = { inFence: false, marker: null };
   const taskLines: number[] = [];
 
-  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-    const line = lines[lineIdx];
+  for (const [lineIdx, line] of source.split("\n").entries()) {
     if (stepFence(line, fence)) continue;
     if (TASK_LINE.test(line)) taskLines.push(lineIdx);
   }
@@ -155,13 +153,14 @@ export function findTaskLines(source: string): number[] {
  */
 export function toggleTaskAt(source: string, taskIndex: number): string | null {
   if (!Number.isInteger(taskIndex) || taskIndex < 0) return null;
-  const taskLines = findTaskLines(source);
-  if (taskIndex >= taskLines.length) return null;
-  const lineIdx = taskLines[taskIndex];
+  const lineIdx = findTaskLines(source)[taskIndex];
+  if (lineIdx === undefined) return null;
   const lines = source.split("\n");
-  const taskMatch = lines[lineIdx].match(TASK_LINE);
+  const line = lines[lineIdx];
+  if (line === undefined) return null;
+  const taskMatch = line.match(TASK_LINE);
   if (!taskMatch) return null;
-  lines[lineIdx] = flipMark(lines[lineIdx], taskMatch);
+  lines[lineIdx] = flipMark(line, taskMatch);
   return lines.join("\n");
 }
 

@@ -200,7 +200,10 @@ async function updateViaView(
   // (same as the page builder) so a record with large text/markdown fields can't
   // push the mutate result over the command-document cap — over budget, the field
   // stays a path (placeholder), never a doc-write failure.
-  const [item] = await deps.enrichItems(collection, [result.item]);
+  // `enrichItems` maps 1:1, so the default is unreachable; it keeps the write's
+  // own (un-enriched) record as the response rather than failing after a
+  // successful persist.
+  const [item = result.item] = await deps.enrichItems(collection, [result.item]);
   // Enrichment can inflate the base item (an `embed` attaches a whole target
   // record, a computed field a large payload). If the base JSON already exceeds
   // the doc budget, no thumbnail-skipping can save it — the write DID persist,

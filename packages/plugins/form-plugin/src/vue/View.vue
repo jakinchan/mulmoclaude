@@ -594,7 +594,7 @@ function handleSubmit(): void {
   if (fieldErrors.value.size > 0) {
     showErrorSummary.value = true;
     const [firstErrorFieldId] = Array.from(fieldErrors.value.keys());
-    focusField(firstErrorFieldId);
+    if (firstErrorFieldId !== undefined) focusField(firstErrorFieldId);
     return;
   }
 

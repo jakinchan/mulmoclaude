@@ -35,7 +35,15 @@ export const DEFAULT_FISCAL_YEAR_END: FiscalYearEnd = 12;
 
 /** Legacy calendar-quarter tokens → closing month, for books written
  *  before the field became a month number. */
-const LEGACY_QUARTER_MONTHS: Record<string, FiscalYearEnd> = { Q1: 3, Q2: 6, Q3: 9, Q4: 12 };
+// A Map rather than a plain record: the key is caller-supplied, and a
+// record lookup would resolve inherited prototype members ("constructor")
+// as if they were stored quarters.
+const LEGACY_QUARTER_MONTHS = new Map<string, FiscalYearEnd>([
+  ["Q1", 3],
+  ["Q2", 6],
+  ["Q3", 9],
+  ["Q4", 12],
+]);
 
 export function isFiscalYearEnd(value: unknown): value is FiscalYearEnd {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 12;
@@ -48,8 +56,8 @@ export function isFiscalYearEnd(value: unknown): value is FiscalYearEnd {
  *  with an older MulmoTerminal — never breaks the UI or a report. */
 export function resolveFiscalYearEnd(value: unknown): FiscalYearEnd {
   if (isFiscalYearEnd(value)) return value;
-  if (typeof value === "string" && Object.hasOwn(LEGACY_QUARTER_MONTHS, value)) return LEGACY_QUARTER_MONTHS[value];
-  return DEFAULT_FISCAL_YEAR_END;
+  const legacy = typeof value === "string" ? LEGACY_QUARTER_MONTHS.get(value) : undefined;
+  return legacy ?? DEFAULT_FISCAL_YEAR_END;
 }
 
 /** Last calendar month (1-12) of the fiscal year. The stored token IS

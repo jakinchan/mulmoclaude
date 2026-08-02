@@ -59,7 +59,7 @@ async function downloadLineImage(messageId: string): Promise<{ bytes: Buffer; mi
     // serves the original sender format (PNG, GIF, …). Trust the
     // Content-Type header so the photo-EXIF hook (#1222 PR-A) can
     // tell HEIC apart from JPEG and surface the right sidecar.
-    const mimeType = res.headers.get("content-type")?.split(";")[0].trim() || "image/jpeg";
+    const mimeType = res.headers.get("content-type")?.split(";")[0]?.trim() || "image/jpeg";
     const arrayBuffer = await res.arrayBuffer();
     return { bytes: Buffer.from(arrayBuffer), mimeType };
   } catch (err) {

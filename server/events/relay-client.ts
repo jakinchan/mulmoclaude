@@ -189,7 +189,7 @@ export function createResponseQueue(deps: ResponseQueueDeps): ResponseQueue {
     // leave it (plus the rest) queued for the next flush.
     while (responseQueue.length > 0) {
       const [response] = responseQueue;
-      if (!trySend(response)) break;
+      if (response === undefined || !trySend(response)) break;
       responseQueue.shift();
     }
   }

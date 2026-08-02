@@ -36,10 +36,12 @@ const unescapeDoubleQuote = (next: string): string => DOUBLE_QUOTE_ESCAPES[next]
 // degrades to "" — matching the host's js-yaml behavior.
 function parseDoubleQuoted(value: string): string | null {
   const out: string[] = [];
+  // `charAt` (not `value[i]`) so the scanner reads a plain `string`: every
+  // index below is in range, and an out-of-range read would be "" either way.
   for (let i = 1; i < value.length; i += 1) {
-    const char = value[i];
+    const char = value.charAt(i);
     if (char === "\\" && i + 1 < value.length) {
-      out.push(unescapeDoubleQuote(value[i + 1]));
+      out.push(unescapeDoubleQuote(value.charAt(i + 1)));
       i += 1;
       continue;
     }
@@ -54,7 +56,7 @@ function parseDoubleQuoted(value: string): string | null {
 function parseSingleQuoted(value: string): string | null {
   const out: string[] = [];
   for (let i = 1; i < value.length; i += 1) {
-    const char = value[i];
+    const char = value.charAt(i);
     if (char === "'") {
       if (value[i + 1] === "'") {
         out.push("'");
@@ -83,15 +85,18 @@ function stripPlainComment(value: string): string {
 export function parseSkillDescription(raw: string): string {
   const lines = raw.split(/\r?\n/);
   if (lines[0]?.trim() !== FENCE) return "";
-  for (let i = 1; i < lines.length; i += 1) {
-    const line = lines[i];
+  for (const line of lines.slice(1)) {
     if (line.trim() === FENCE) return ""; // end of envelope, key not found
     if (!line.startsWith(KEY)) continue;
-    const value = line.slice(KEY.length).trim();
-    if (value === "" || BLOCK_SCALAR_INDICATORS.has(value)) return "";
-    if (value.startsWith('"')) return parseDoubleQuoted(value) ?? "";
-    if (value.startsWith("'")) return parseSingleQuoted(value) ?? "";
-    return stripPlainComment(value).trim();
+    return resolveScalar(line.slice(KEY.length).trim());
   }
   return "";
+}
+
+/** Resolve the raw text after `description:` to its scalar value. */
+function resolveScalar(value: string): string {
+  if (value === "" || BLOCK_SCALAR_INDICATORS.has(value)) return "";
+  if (value.startsWith('"')) return parseDoubleQuoted(value) ?? "";
+  if (value.startsWith("'")) return parseSingleQuoted(value) ?? "";
+  return stripPlainComment(value).trim();
 }

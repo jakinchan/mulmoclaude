@@ -65,8 +65,10 @@ describe("remote-host reconnect (case A')", () => {
     const status = await host.reconnect("sessionA");
     assert.deepEqual(status, { connected: true, uid: "uid-sessionA" });
     assert.equal(liveRunners().length, 1);
-    assert.equal(liveRunners()[0].channel.uid, "uid-sessionA");
-    assert.equal(liveRunners()[0].channel.hostId, HOST_ID);
+    const [live] = liveRunners();
+    assert.ok(live);
+    assert.equal(live.channel.uid, "uid-sessionA");
+    assert.equal(live.channel.hostId, HOST_ID);
   });
 
   it("is non-destructive: a failed restore leaves the existing session running", async () => {
@@ -87,7 +89,9 @@ describe("remote-host reconnect (case A')", () => {
     await host.connect("tokenX");
     await host.reconnect("sessionB");
     assert.equal(liveRunners().length, 1);
-    assert.equal(liveRunners()[0].channel.uid, "uid-sessionB");
+    const [live] = liveRunners();
+    assert.ok(live);
+    assert.equal(live.channel.uid, "uid-sessionB");
   });
 
   it("rejects when no restore dependency is wired", async () => {

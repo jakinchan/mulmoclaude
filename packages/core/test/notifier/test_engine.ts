@@ -48,7 +48,9 @@ test("publish persists, emits, and is readable", async () => {
     assert.ok(id);
     const all = await listAll();
     assert.equal(all.length, 1);
-    assert.equal(all[0].title, "Hi");
+    const [bell] = all;
+    assert.ok(bell);
+    assert.equal(bell.title, "Hi");
     assert.deepEqual(
       events.map((event) => event.type),
       ["published"],
@@ -66,7 +68,9 @@ test("clear moves to history and emits cleared", async () => {
     assert.equal((await listAll()).length, 0);
     const history = await listHistory();
     assert.equal(history.length, 1);
-    assert.equal(history[0].terminalType, "cleared");
+    const [cleared] = history;
+    assert.ok(cleared);
+    assert.equal(cleared.terminalType, "cleared");
     assert.deepEqual(
       events.map((event) => event.type),
       ["published", "cleared"],
@@ -95,10 +99,14 @@ test("updateForPlugin refreshes in place and rejects invalid merges silently", a
   try {
     const { id } = await publish({ pluginPkg: "todo", severity: "nudge", title: "v1" });
     await updateForPlugin("todo", id, { title: "v2" });
-    assert.equal((await listAll())[0].title, "v2");
+    const [updated] = await listAll();
+    assert.ok(updated);
+    assert.equal(updated.title, "v2");
     // Empty title would violate validation → silent no-op (title stays v2).
     await updateForPlugin("todo", id, { title: "" });
-    assert.equal((await listAll())[0].title, "v2");
+    const [unchanged] = await listAll();
+    assert.ok(unchanged);
+    assert.equal(unchanged.title, "v2");
     assert.deepEqual(
       events.map((event) => event.type),
       ["published", "updated"],
@@ -144,8 +152,9 @@ test("cancel emits cancelled; concurrent publishes both persist", async () => {
     assert.notEqual(first.id, second.id);
     assert.equal((await listAll()).length, 2);
     await cancel(first.id);
-    const history = await listHistory();
-    assert.equal(history[0].terminalType, "cancelled");
+    const [cancelled] = await listHistory();
+    assert.ok(cancelled);
+    assert.equal(cancelled.terminalType, "cancelled");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

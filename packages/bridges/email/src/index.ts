@@ -172,8 +172,8 @@ function extractPlainBody(parsed: ParsedMail): string {
 }
 
 function parseIncoming(parsed: ParsedMail): Incoming | null {
-  const fromObj = parsed.from;
-  const senderAddress = fromObj && fromObj.value.length > 0 ? String(fromObj.value[0].address ?? "").toLowerCase() : "";
+  const [firstFrom] = parsed.from?.value ?? [];
+  const senderAddress = String(firstFrom?.address ?? "").toLowerCase();
   const subject = parsed.subject ?? "";
   const text = extractPlainBody(parsed);
   const messageId = parsed.messageId ?? "";

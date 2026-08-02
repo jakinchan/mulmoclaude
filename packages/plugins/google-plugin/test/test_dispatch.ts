@@ -53,7 +53,7 @@ const createRecorder = () => {
       return result;
     };
   const spyQueue = <R>(name: string, results: [R, ...R[]]) => {
-    const remaining = [...results];
+    const remaining: [R, ...R[]] = [...results];
     return async (...args: unknown[]): Promise<R> => {
       calls.push([name, ...args]);
       const [next] = remaining;

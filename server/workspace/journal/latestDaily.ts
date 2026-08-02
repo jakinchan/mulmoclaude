@@ -38,11 +38,10 @@ export async function findLatestDaily(workspaceRoot: string): Promise<LatestDail
     const months = await listSorted(path.join(dailyRoot, year), MONTH_RE);
     for (const month of months) {
       const days = await listSorted(path.join(dailyRoot, year, month), DAY_FILE_RE);
-      if (days.length === 0) continue;
       const [dayFile] = days;
-      const dayMatch = DAY_FILE_RE.exec(dayFile);
-      if (!dayMatch) continue;
-      const [, day] = dayMatch;
+      if (dayFile === undefined) continue;
+      const day = DAY_FILE_RE.exec(dayFile)?.[1];
+      if (day === undefined) continue;
       const relPath = path.posix.join("conversations", "summaries", DAILY_DIR, year, month, dayFile);
       return { path: relPath, isoDate: `${year}-${month}-${day}` };
     }

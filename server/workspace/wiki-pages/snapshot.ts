@@ -279,11 +279,11 @@ async function readSnapshotEntries(dir: string): Promise<SnapshotEntry[]> {
     // GET routes (codex review iter-2 #917).
     if (!dirent.isFile()) continue;
     const { name } = dirent;
-    const match = FILENAME_RE.exec(name);
-    if (!match?.groups) continue;
+    const filenameStamp = FILENAME_RE.exec(name)?.groups?.filenameStamp;
+    if (filenameStamp === undefined) continue;
     out.push({
       stamp: name.slice(0, -".md".length),
-      filenameStamp: match.groups.filenameStamp,
+      filenameStamp,
       fileName: name,
     });
   }

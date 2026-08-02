@@ -43,7 +43,9 @@ import type { AccountBalance, JournalEntry } from "../shared/types.js";
 function previousPeriod(period: string): string {
   // YYYY-MM → previous YYYY-MM. December rolls back to the previous
   // year's December.
-  const [year, month] = period.split("-").map((segment) => parseInt(segment, 10));
+  // A malformed period already yields NaN for a non-numeric segment, so
+  // a missing segment degrades the same way instead of throwing here.
+  const [year = Number.NaN, month = Number.NaN] = period.split("-").map((segment) => parseInt(segment, 10));
   if (month === 1) return `${(year - 1).toString().padStart(4, "0")}-12`;
   return `${year.toString().padStart(4, "0")}-${(month - 1).toString().padStart(2, "0")}`;
 }
@@ -73,8 +75,8 @@ export async function getOrBuildSnapshot(bookId: string, period: string, workspa
 
   // Earliest journal month determines where the recursion stops.
   // If the book has no journal at all, return an empty snapshot.
-  const periods = await listJournalPeriods(bookId, workspaceRoot);
-  if (periods.length === 0 || period < periods[0]) {
+  const [earliestPeriod] = await listJournalPeriods(bookId, workspaceRoot);
+  if (earliestPeriod === undefined || period < earliestPeriod) {
     return buildEmptySnapshot(bookId, period, workspaceRoot);
   }
 
@@ -84,7 +86,7 @@ export async function getOrBuildSnapshot(bookId: string, period: string, workspa
   // Get the prior month's closing snapshot — recurse, which will
   // either hit cache or build the chain back to the start.
   let priorBalances: readonly AccountBalance[] = [];
-  if (period > periods[0]) {
+  if (period > earliestPeriod) {
     const prior = previousPeriod(period);
     const priorSnap = await getOrBuildSnapshot(bookId, prior, workspaceRoot);
     priorBalances = priorSnap.balances;

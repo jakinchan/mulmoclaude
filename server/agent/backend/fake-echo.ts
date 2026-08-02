@@ -100,9 +100,9 @@ async function defaultResponse(input: AgentInput): Promise<FakeResponse> {
   // arguments (e.g. the collection Chat button seeds
   // `/<slug> <message>`). Only the skill name drives the seeded
   // reply — any args are for the real LLM and are ignored here.
-  const slashMatch = input.message.trim().match(/^\/([a-z0-9][a-z0-9-]*)(?:\s|$)/i);
-  if (slashMatch) {
-    const skillReply = await replyFromSeededSkill(input.workspacePath, slashMatch[1]);
+  const skillName = input.message.trim().match(/^\/([a-z0-9][a-z0-9-]*)(?:\s|$)/i)?.[1];
+  if (skillName !== undefined) {
+    const skillReply = await replyFromSeededSkill(input.workspacePath, skillName);
     if (skillReply !== null) return { text: skillReply };
   }
 
@@ -293,8 +293,8 @@ async function replyFromSeededSkill(workspacePath: string, slug: string): Promis
   }
   // Line-by-line scan to avoid backtracking surprises.
   for (const line of body.split(/\r?\n/)) {
-    const match = line.match(/respond with this exact line(?: and nothing else)?:\s*(.+)/i);
-    if (match) return match[1].trim();
+    const exactLine = line.match(/respond with this exact line(?: and nothing else)?:\s*(.+)/i)?.[1];
+    if (exactLine !== undefined) return exactLine.trim();
   }
   return null;
 }

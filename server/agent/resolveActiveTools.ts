@@ -15,7 +15,10 @@
 export function resolveActiveTools<T>(names: readonly string[], all: Record<string, T>): T[] {
   const resolved: T[] = [];
   for (const name of names) {
-    if (Object.hasOwn(all, name)) resolved.push(all[name]);
+    if (!Object.hasOwn(all, name)) continue;
+    // An own key whose value is absent counts as a miss too.
+    const tool = all[name];
+    if (tool !== undefined) resolved.push(tool);
   }
   return resolved;
 }

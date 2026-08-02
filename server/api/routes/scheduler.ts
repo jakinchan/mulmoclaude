@@ -131,12 +131,13 @@ async function handleDeleteTask(input: Record<string, unknown>, res: Response): 
   const taskId = typeof input.id === "string" ? input.id : "";
   const tasks = loadUserTasks();
   const idx = tasks.findIndex((task) => task.id === taskId);
-  if (idx === -1) {
+  const removed = tasks[idx];
+  if (removed === undefined) {
     log.warn("scheduler", "task action: deleteTask not found", { taskId });
     notFound(res, `task not found: ${taskId}`);
     return;
   }
-  const { name } = tasks[idx];
+  const { name } = removed;
   tasks.splice(idx, 1);
   await saveUserTasks(tasks);
   await refreshUserTasks();

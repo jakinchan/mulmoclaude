@@ -31,9 +31,9 @@ export function snakeToLowerCamel(snake: string): string {
     .toLowerCase()
     .split("_")
     .filter((segment) => segment.length > 0);
-  if (parts.length === 0) return "";
   const [head, ...rest] = parts;
-  return head + rest.map((part) => part[0].toUpperCase() + part.slice(1)).join("");
+  if (head === undefined) return "";
+  return head + rest.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
 }
 
 interface PrefixClaim {

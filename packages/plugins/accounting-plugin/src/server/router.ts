@@ -257,11 +257,11 @@ const MESSAGE_BUILDERS: Record<string, MessageBuilder> = {
   },
   [ACCOUNTING_ACTIONS.addEntries]: (fields) => {
     const entries = (isUnknownArray(fields.entries) ? fields.entries : []).map(describeEntry);
-    if (entries.length === 0) return "Posted 0 journal entries.";
-    if (entries.length === 1) {
-      const [entry] = entries;
-      const idFragment = entry.id ? ` (id: ${entry.id})` : "";
-      return `Posted a journal entry on ${entry.date ?? "the requested date"}${idFragment}.`;
+    const [firstEntry, ...furtherEntries] = entries;
+    if (!firstEntry) return "Posted 0 journal entries.";
+    if (furtherEntries.length === 0) {
+      const idFragment = firstEntry.id ? ` (id: ${firstEntry.id})` : "";
+      return `Posted a journal entry on ${firstEntry.date ?? "the requested date"}${idFragment}.`;
     }
     // Surface every id so the LLM can later voidEntry any one of
     // them without a follow-up getJournalEntries round-trip.
@@ -302,22 +302,24 @@ const MESSAGE_BUILDERS: Record<string, MessageBuilder> = {
   },
 };
 
+/** Read a record entry under a user/LLM-controlled key. The
+ *  `Object.hasOwn` gate is load-bearing: a bare `record[key]` resolves
+ *  inherited prototype members, so a crafted action ("constructor",
+ *  "toString") would dispatch to an unexpected target instead of
+ *  reading as absent. */
+function ownEntry<T>(record: Record<string, T>, key: string): T | undefined {
+  return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
 function previewMessage(action: string, fields: Record<string, unknown>): string {
-  // `Object.hasOwn` guard so a user-controlled `action` (e.g.
-  // "constructor" / "toString") can't dispatch to an inherited
-  // prototype method — own-property check before the dynamic call.
-  const head = Object.hasOwn(MESSAGE_BUILDERS, action) ? MESSAGE_BUILDERS[action](fields) : undefined;
+  const head = ownEntry(MESSAGE_BUILDERS, action)?.(fields);
   return head ? `${head} ${VIEW_VISIBLE_TRAILER}` : VIEW_VISIBLE_TRAILER;
 }
 
 async function dispatch(body: AccountingActionBody): Promise<unknown> {
   const { action, ...rest } = body;
-  // Own-property check (not just truthiness) before the dynamic call:
-  // `ACTION_HANDLERS[action]` would otherwise resolve inherited
-  // prototype methods (`toString`, `constructor`, …) for a crafted
-  // `action`, dispatching to an unexpected target.
-  if (!Object.hasOwn(ACTION_HANDLERS, action)) throw new AccountingError(400, `unknown action ${JSON.stringify(action)}`);
-  const handler = ACTION_HANDLERS[action];
+  const handler = ownEntry(ACTION_HANDLERS, action);
+  if (!handler) throw new AccountingError(400, `unknown action ${JSON.stringify(action)}`);
   // Stamp the dispatch verb onto the response so the MCP bridge's
   // spread `{ toolName, uuid, ...result }` surfaces it as
   // `ToolResult.action`. The sidebar reads this to label cards as

@@ -220,7 +220,9 @@ describe("generation tracker — edge-triggered publish + snapshot", () => {
 
     ops.publishGeneration(undefined, "beatImage", "stories/x.json", "3", true); // last finish — published
     assert.equal(events.length, 2);
-    assert.equal(events[1].done, true);
+    const [, lastEvent] = events;
+    assert.ok(lastEvent);
+    assert.equal(lastEvent.done, true);
     assert.equal(ops.pendingGenerations("stories/x.json").length, 0);
   });
 

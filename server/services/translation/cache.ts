@@ -50,7 +50,7 @@ export function mergeTranslations(dict: DictionaryFile, lang: string, fresh: Rea
   for (const [source, translated] of fresh) {
     // `next[source]` would return `Object.prototype` when source is
     // `"__proto__"`; `Object.hasOwn` keeps us in own-property territory.
-    const existing = Object.hasOwn(next, source) ? next[source] : {};
+    const existing = (Object.hasOwn(next, source) ? next[source] : undefined) ?? {};
     // `lang` is regex-validated upstream (`^[a-z]{2}(?:-[A-Z]{2})?$`)
     // so it cannot be `__proto__` / `constructor` / `prototype`; the
     // outer assignment by user-supplied `source` is the only unsafe

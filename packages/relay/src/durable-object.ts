@@ -19,6 +19,8 @@ import "./webhooks/teams.js";
 
 const MAX_QUEUE_SIZE = 1000;
 const QUEUE_KEY_PREFIX = "q:";
+/** RFC 6455 "normal closure" status code. */
+const WS_NORMAL_CLOSURE = 1000;
 
 export class RelayDurableObject implements DurableObject {
   private state: DurableObjectState;
@@ -33,17 +35,17 @@ export class RelayDurableObject implements DurableObject {
    *  hibernation. Filters out CLOSING/CLOSED sockets and closes
    *  any extras from reconnect races. */
   private getSocket(): WebSocket | null {
-    const sockets = this.state.getWebSockets().filter((socket) => socket.readyState === WebSocket.READY_STATE_OPEN);
-    if (sockets.length === 0) return null;
+    const [live, ...duplicates] = this.state.getWebSockets().filter((socket) => socket.readyState === WebSocket.READY_STATE_OPEN);
+    if (live === undefined) return null;
     // Enforce single connection: close extras from reconnect races
-    for (let i = 1; i < sockets.length; i++) {
+    for (const duplicate of duplicates) {
       try {
-        sockets[i].close(1000, "duplicate connection");
+        duplicate.close(WS_NORMAL_CLOSURE, "duplicate connection");
       } catch {
         /* already closing */
       }
     }
-    return sockets[0];
+    return live;
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -75,7 +77,7 @@ export class RelayDurableObject implements DurableObject {
 
     for (const existing of this.state.getWebSockets()) {
       try {
-        existing.close(1000, "replaced by new connection");
+        existing.close(WS_NORMAL_CLOSURE, "replaced by new connection");
       } catch {
         /* already closed */
       }

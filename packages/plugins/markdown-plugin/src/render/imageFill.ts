@@ -97,11 +97,12 @@ export interface FillImagePlaceholdersDeps {
  *  input order in the results. */
 async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
-  let cursor = 0;
+  // One shared iterator IS the work queue: each runner pulls the next
+  // entry, so no runner can hand `worker` an index past the end.
+  const pending = items.entries();
   const runners = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
-    while (cursor < items.length) {
-      const index = cursor++;
-      results[index] = await worker(items[index], index);
+    for (const [index, item] of pending) {
+      results[index] = await worker(item, index);
     }
   });
   await Promise.all(runners);
@@ -121,8 +122,11 @@ export async function fillImagePlaceholders(
 
   const total = matches.length;
   const results = await mapWithConcurrency(matches, deps.concurrency ?? 4, async (match, index) => {
-    const alt = match[1];
-    const title = match[2] !== undefined ? unescapeTitle(match[2]) : undefined;
+    // Group 1 is mandatory in IMAGE_PLACEHOLDER, so it always
+    // participates and the `""` default is unreachable; group 2 is
+    // optional and genuinely absent for a plain image.
+    const [, alt = "", rawTitle] = match;
+    const title = rawTitle !== undefined ? unescapeTitle(rawTitle) : undefined;
     // Plain image: the alt IS the prompt. Directive image: the prompt is the
     // title. A directive alt WITHOUT a title carries no prompt → skip
     // generation (the contract requires the title for directive images), rather
@@ -138,9 +142,12 @@ export async function fillImagePlaceholders(
   // duplicate identical ones) gets its own result. Avoids the
   // quadratic re-scan + first-occurrence collision of a per-item
   // `filled.replace(full, …)` loop (Sourcery).
-  let cursor = 0;
-  const filled = markdown.replace(IMAGE_PLACEHOLDER, () => {
-    const result = results[cursor++];
+  const pending = results[Symbol.iterator]();
+  const filled = markdown.replace(IMAGE_PLACEHOLDER, (placeholder) => {
+    const { value: result } = pending.next();
+    // Unreachable — `results` holds one entry per match. Leaving the
+    // placeholder untouched is the safest degradation if it ever isn't.
+    if (!result) return placeholder;
     // Keep the alt (prompt for plain, directive for Marp) in the output; the
     // null-fallback marker shows the generation prompt, not the directive.
     return buildImagePlaceholderReplacement(result.alt, result.ref, result.prompt);

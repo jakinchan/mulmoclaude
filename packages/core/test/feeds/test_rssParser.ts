@@ -26,7 +26,9 @@ describe("parseFeed — raw item exposure", () => {
     assert.equal(feed.kind, "rss");
     assert.equal(feed.title, "Remarkable People");
     assert.equal(feed.items.length, 1);
-    const [{ raw }] = feed.items;
+    const [episode] = feed.items;
+    assert.ok(episode);
+    const { raw } = episode;
     assert.equal(raw.title, "Episode 342");
     assert.equal(raw.link, "https://example.com/ep/342");
     assert.equal(raw.pubDate, "Wed, 03 Jun 2026 12:00:00 GMT");
@@ -37,8 +39,9 @@ describe("parseFeed — raw item exposure", () => {
   it("preserves attribute (@_) and text-node shapes for the projector", () => {
     const feed = parseFeed(PODCAST);
     assert.ok(feed);
-    const [{ raw }] = feed.items;
-    const { enclosure, guid } = raw as { enclosure: Record<string, unknown>; guid: Record<string, unknown> };
+    const [episode] = feed.items;
+    assert.ok(episode);
+    const { enclosure, guid } = episode.raw as { enclosure: Record<string, unknown>; guid: Record<string, unknown> };
     assert.equal(enclosure["@_url"], "https://cdn.example.com/342.mp3");
     // <guid> has an attribute, so it parses to a text node (unwrapped later).
     assert.equal(guid["#text"], "abc-123");
@@ -50,6 +53,8 @@ describe("parseFeed — raw item exposure", () => {
       <item><title>Keep</title></item></channel></rss>`);
     assert.ok(feed);
     assert.equal(feed.items.length, 1);
-    assert.equal(feed.items[0].raw.title, "Keep");
+    const [kept] = feed.items;
+    assert.ok(kept);
+    assert.equal(kept.raw.title, "Keep");
   });
 });

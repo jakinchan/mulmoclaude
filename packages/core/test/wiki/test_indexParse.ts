@@ -123,9 +123,11 @@ describe("parseIndexEntries — bullet formats", () => {
     // "Missing file" diagnostic downstream).
     const entries = parseIndexEntries("- [[keith-rabois-ai-pm-end|キース・ラボイス]] — first");
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].slug, "keith-rabois-ai-pm-end", "slug must come from the target half");
-    assert.equal(entries[0].title, "キース・ラボイス", "title must come from the display half");
-    assert.equal(entries[0].description, "first");
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.equal(entry.slug, "keith-rabois-ai-pm-end", "slug must come from the target half");
+    assert.equal(entry.title, "キース・ラボイス", "title must come from the display half");
+    assert.equal(entry.description, "first");
   });
 
   it("prefers slug from href when title is non-ASCII", () => {
@@ -135,7 +137,9 @@ describe("parseIndexEntries — bullet formats", () => {
     // empty.
     const entries = parseIndexEntries("- [さくらインターネット](pages/sakura-net.md) — note");
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].slug, "sakura-net");
-    assert.equal(entries[0].title, "さくらインターネット");
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.equal(entry.slug, "sakura-net");
+    assert.equal(entry.title, "さくらインターネット");
   });
 });

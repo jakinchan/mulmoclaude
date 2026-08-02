@@ -35,7 +35,7 @@ function parseSegment(segment: string, tokens: PathToken[]): void {
   if (name.length > 0) tokens.push({ kind: "key", key: name });
   if (bracketStart === -1) return;
   for (const match of segment.slice(bracketStart).matchAll(BRACKET_RE)) {
-    const [, inner] = match;
+    const [, inner = ""] = match;
     if (inner.length > 0) tokens.push({ kind: "index", index: Number(inner) });
   }
 }

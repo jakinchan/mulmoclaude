@@ -26,9 +26,12 @@ function isAlnum(char: string): boolean {
 }
 
 function isValidSegment(seg: string): boolean {
-  if (seg.length === 0) return false;
-  if (!isAlnum(seg[0])) return false;
-  if (!isAlnum(seg[seg.length - 1])) return false;
+  const [firstChar] = seg;
+  const lastChar = seg.at(-1);
+  // Both are absent only for the empty string, which is never a valid segment.
+  if (firstChar === undefined || lastChar === undefined) return false;
+  if (!isAlnum(firstChar)) return false;
+  if (!isAlnum(lastChar)) return false;
   for (const char of seg) {
     if (!isSegmentChar(char)) return false;
   }

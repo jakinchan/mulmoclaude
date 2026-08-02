@@ -57,14 +57,15 @@ export function resolveHtmlFileRequestPath(workspaceRoot: string, reqPath: strin
   if (decoded === null || decoded.length < 2) return null;
   const [scope, ...rest] = decoded;
   if (scope !== HTML_FILE_SCOPE_WORKSPACE && scope !== HTML_FILE_SCOPE_ABSOLUTE) return null;
-  if (rest.length === 0) return null;
+  const [firstRest] = rest;
+  if (firstRest === undefined) return null;
   if (rest.some((segment) => segment === "" || segment === "." || segment === ".." || segment.startsWith(".") || segment.includes("\0"))) {
     return null;
   }
   if (scope === HTML_FILE_SCOPE_WORKSPACE) return path.resolve(workspaceRoot, ...rest);
   // `abs/C:/proj/page.html` — the drive letter arrives as its own segment, so
   // rejoin it before resolving; everything else is rooted at `/`.
-  const candidate = WINDOWS_DRIVE_ONLY_RE.test(rest[0]) ? rest.join("/") : `/${rest.join("/")}`;
+  const candidate = WINDOWS_DRIVE_ONLY_RE.test(firstRest) ? rest.join("/") : `/${rest.join("/")}`;
   // Only THIS platform's `path` can say whether that is really absolute: on
   // POSIX, `path.resolve("C:/proj/page.html")` would land under the process cwd
   // rather than at any drive, silently serving the wrong file. Refuse instead.

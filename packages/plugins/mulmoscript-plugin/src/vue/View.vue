@@ -502,7 +502,7 @@ function stopPlayingAudio() {
 function openLightbox(index: number) {
   stopPlayingAudio();
   lightbox.value = {
-    src: renderedImages[index],
+    src: renderedImages[index] ?? "",
     text: effectiveBeat(index).text,
     index,
   };
@@ -790,7 +790,9 @@ function isValidBeat(index: number): boolean {
 async function updateBeat(index: number) {
   let beat: Beat;
   try {
-    beat = JSON.parse(sourceText[index]);
+    // An absent slot parses as invalid JSON, landing on the same
+    // `invalidJson` branch a genuinely malformed edit would.
+    beat = JSON.parse(sourceText[index] ?? "");
   } catch (err) {
     beatSaveErrors[index] = { kind: "invalidJson", error: errorMessage(err) };
     return;
@@ -1004,7 +1006,7 @@ function openCharacterLightbox(key: string) {
   // outside the play loop (#1073).
   stopAllPlayback();
   lightbox.value = {
-    src: charImages[key],
+    src: charImages[key] ?? "",
     text: key,
     index: -1,
     isCharacter: true,

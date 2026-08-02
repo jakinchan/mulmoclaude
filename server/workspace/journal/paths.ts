@@ -1,6 +1,6 @@
 import path from "node:path";
 import { WORKSPACE_DIRS } from "../paths.js";
-import { isValidIsoDate } from "../../utils/date.js";
+import { splitIsoDate } from "../../utils/date.js";
 import { slugify as slugifyCanonical } from "../../utils/slug.js";
 
 export const SUMMARIES_DIR = WORKSPACE_DIRS.summaries;
@@ -16,11 +16,11 @@ export function summariesRoot(workspaceRoot: string): string {
 
 export function dailyPathFor(workspaceRoot: string, isoDate: string): string {
   // Throw at the boundary so a typo doesn't produce "undefined/undefined.md".
-  if (!isValidIsoDate(isoDate)) {
+  const parts = splitIsoDate(isoDate);
+  if (parts === null) {
     throw new Error(`[journal] dailyPathFor: expected YYYY-MM-DD, got "${isoDate}"`);
   }
-  const [year, month, day] = isoDate.split("-");
-  return path.join(summariesRoot(workspaceRoot), DAILY_DIR, year, month, `${day}.md`);
+  return path.join(summariesRoot(workspaceRoot), DAILY_DIR, parts.year, parts.month, `${parts.day}.md`);
 }
 
 export function topicPathFor(workspaceRoot: string, slug: string): string {
