@@ -99,8 +99,8 @@ registerMetaWebhookVerification(app, { rateLimit: webhookRateLimit, verifyToken,
 
 // Webhook events (POST) — signature-verified + rate-limited
 app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
-  const signature = req.headers["x-hub-signature-256"] as string;
-  const rawBody = req.body as string;
+  const signature = typeof req.headers["x-hub-signature-256"] === "string" ? req.headers["x-hub-signature-256"] : "";
+  const rawBody = typeof req.body === "string" ? req.body : "";
 
   if (!signature || !verifyMetaHmacSignature(rawBody, signature, appSecret)) {
     console.warn("[whatsapp] webhook signature verification failed");
