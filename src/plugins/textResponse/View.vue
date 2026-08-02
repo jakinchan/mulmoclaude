@@ -284,7 +284,10 @@ function openLinksInNewTab(event: MouseEvent): void {
   // Internal workspace-path links (rendered by marked from agent
   // Markdown): route to the appropriate view instead of letting them
   // navigate the SPA to a non-existent session route.
-  const target = event.target as HTMLElement;
+  const { target } = event;
+  // Element, not HTMLElement: an inline <svg> inside a link is a real
+  // click target and must still resolve to its anchor.
+  if (!(target instanceof Element)) return;
   const anchor = target.closest("a");
   if (!anchor) return;
   const href = anchor.getAttribute("href");
@@ -301,7 +304,8 @@ const { zipDownloading, zipFailed, downloadZip: rawDownloadZip } = useMarkdownZi
 const editing = ref(false);
 
 function onDetailsToggle(event: Event) {
-  editing.value = (event.target as HTMLDetailsElement).open;
+  const details = event.target;
+  if (details instanceof HTMLDetailsElement) editing.value = details.open;
 }
 
 onMounted(() => {

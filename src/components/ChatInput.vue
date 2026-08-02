@@ -423,7 +423,8 @@ function openFilePicker(): void {
 }
 
 function onFilePicked(event: Event): void {
-  const input = event.target as HTMLInputElement;
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) return;
   const files = input.files ? Array.from(input.files) : [];
   if (files.length > 0) addFiles(files);
   input.value = "";

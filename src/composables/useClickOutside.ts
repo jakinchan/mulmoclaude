@@ -6,6 +6,7 @@
 
 import type { Ref } from "vue";
 import { isClickOutside } from "../utils/dom/clickOutside";
+import { eventTargetNode } from "../utils/dom/eventTarget";
 
 interface UseClickOutsideOptions {
   isOpen: Ref<boolean>;
@@ -18,7 +19,7 @@ export function useClickOutside(opts: UseClickOutsideOptions): {
 } {
   function handler(event: MouseEvent): void {
     if (!opts.isOpen.value) return;
-    if (isClickOutside(event.target as Node | null, opts.buttonRef.value, opts.popupRef.value)) {
+    if (isClickOutside(eventTargetNode(event), opts.buttonRef.value, opts.popupRef.value)) {
       opts.isOpen.value = false;
     }
   }

@@ -168,15 +168,18 @@ async function renderFavicon(color: string, isRunning: boolean, hasNotification:
   return canvas.toDataURL("image/png");
 }
 
+function iconLinkElement(): HTMLLinkElement {
+  const existing = document.querySelector("link[rel='icon']");
+  if (existing instanceof HTMLLinkElement) return existing;
+  const link = document.createElement("link");
+  link.rel = "icon";
+  document.head.appendChild(link);
+  return link;
+}
+
 function applyFavicon(dataUrl: string): void {
   if (!dataUrl) return;
-  let link = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
-  if (!link) {
-    link = document.createElement("link");
-    link.rel = "icon";
-    link.type = "image/png";
-    document.head.appendChild(link);
-  }
+  const link = iconLinkElement();
   link.type = "image/png";
   link.href = dataUrl;
 }

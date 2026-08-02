@@ -388,13 +388,14 @@ function isInstalled(serverId: string): boolean {
 }
 
 function onCatalogToggle(entry: McpCatalogEntry, event: Event): void {
-  const { checked } = event.target as HTMLInputElement;
-  if (checked) {
+  const checkbox = event.target;
+  if (!(checkbox instanceof HTMLInputElement)) return;
+  if (checkbox.checked) {
     if (entry.configSchema.length > 0) {
       openConfigForm(entry);
       // Visually un-check until the form is submitted; install is gated
       // on the form's required-field validation.
-      (event.target as HTMLInputElement).checked = false;
+      checkbox.checked = false;
       return;
     }
     emit("add", { id: entry.id, spec: { ...entry.spec, enabled: true } });
@@ -677,7 +678,8 @@ function hasPendingDraft(): boolean {
 defineExpose({ flushDraft, hasPendingDraft });
 
 function onToggleEnabled(index: number, event: Event): void {
-  const target = event.target as HTMLInputElement;
+  const { target } = event;
+  if (!(target instanceof HTMLInputElement)) return;
   const entry = props.servers[index];
   if (!entry) return;
   emit("update", index, {
@@ -691,7 +693,8 @@ function onToggleEnabled(index: number, event: Event): void {
 // server (it runs on the host behind a stdio↔HTTP gateway). The
 // adjacent label spells out the risk; this only persists the flag.
 function onToggleHostExec(index: number, event: Event): void {
-  const target = event.target as HTMLInputElement;
+  const { target } = event;
+  if (!(target instanceof HTMLInputElement)) return;
   const entry = props.servers[index];
   if (!entry || entry.spec.type !== "stdio") return;
   emit("update", index, {
