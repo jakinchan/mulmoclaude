@@ -594,17 +594,17 @@ export default [
     rules: {
       // (1) `any` that survives no-explicit-any.
       "@typescript-eslint/no-unsafe-assignment": "warn",
-      // Drained and ratcheted in #2736 (2026-08-02): both measured ZERO over
+      // Drained and ratcheted in #2736 (2026-08-02): all four measured ZERO over
       // `src server test e2e e2e-live packages` once their last finding was
       // fixed. Read those counts only after `yarn build:packages` — with
       // `packages/*/dist` missing, every `@mulmoclaude/*` import is an
-      // unresolved type and these two report ~2700 phantom findings. CI builds
+      // unresolved type and these report ~2700 phantom findings. CI builds
       // packages before both typecheck and lint, so the gate sees the real
       // numbers.
       "@typescript-eslint/no-unsafe-member-access": "error",
       "@typescript-eslint/no-unsafe-argument": "error",
-      "@typescript-eslint/no-unsafe-call": "warn",
-      "@typescript-eslint/no-unsafe-return": "warn",
+      "@typescript-eslint/no-unsafe-call": "error",
+      "@typescript-eslint/no-unsafe-return": "error",
       // Zero findings today — on to keep it that way.
       "@typescript-eslint/no-unsafe-enum-comparison": "warn",
       "@typescript-eslint/no-unsafe-declaration-merging": "warn",
@@ -640,9 +640,10 @@ export default [
       // return type. Each site carries a comment naming its upstream guard; the
       // rule stays a `warn` so a genuinely unguarded fold still surfaces.
       //
-      // Also left at `warn`: `no-unsafe-assignment` (19 findings), and
-      // `no-unsafe-call` / `no-unsafe-return`, which are at zero but were not
-      // part of this drain — promote them in their own PR.
+      // Still at `warn`: `no-unsafe-assignment`, the only one of the five with a
+      // backlog left (19 findings). `no-unsafe-call` / `no-unsafe-return` were
+      // the "promote them in their own PR" case named here and have since
+      // graduated alongside the other two.
       "sonarjs/deprecation": "error",
       "sonarjs/argument-type": "error",
       "sonarjs/no-selector-parameter": "error",
