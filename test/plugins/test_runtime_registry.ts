@@ -40,8 +40,10 @@ describe("runtime-registry", () => {
     const result = registerRuntimePlugins(new Set(["builtin"]), [fakePlugin("@x/a", "1.0.0", "builtin")]);
     assert.equal(result.registered.length, 0);
     assert.equal(result.collisions.length, 1);
-    assert.equal(result.collisions[0].reason, "static");
-    assert.equal(result.collisions[0].existingTool, "builtin");
+    const [collision] = result.collisions;
+    assert.ok(collision);
+    assert.equal(collision.reason, "static");
+    assert.equal(collision.existingTool, "builtin");
   });
 
   it("static set must include MCP tool names too — `notify` collision skipped", () => {
@@ -53,8 +55,10 @@ describe("runtime-registry", () => {
     const result = registerRuntimePlugins(staticSet, [fakePlugin("@x/notify-clone", "1.0.0", "notify")]);
     assert.equal(result.registered.length, 0);
     assert.equal(result.collisions.length, 1);
-    assert.equal(result.collisions[0].reason, "static");
-    assert.equal(result.collisions[0].existingTool, "notify");
+    const [collision] = result.collisions;
+    assert.ok(collision);
+    assert.equal(collision.reason, "static");
+    assert.equal(collision.existingTool, "notify");
   });
 
   it("runtime-vs-runtime collision: first-loaded wins, second skipped with reason=runtime", () => {
@@ -62,10 +66,14 @@ describe("runtime-registry", () => {
     const second = fakePlugin("@y/b", "1.0.0", "shared");
     const result = registerRuntimePlugins(new Set(), [first, second]);
     assert.equal(result.registered.length, 1);
-    assert.equal(result.registered[0].name, "@x/a");
+    const [registered] = result.registered;
+    assert.ok(registered);
+    assert.equal(registered.name, "@x/a");
     assert.equal(result.collisions.length, 1);
-    assert.equal(result.collisions[0].reason, "runtime");
-    assert.equal(result.collisions[0].plugin.name, "@y/b");
+    const [collision] = result.collisions;
+    assert.ok(collision);
+    assert.equal(collision.reason, "runtime");
+    assert.equal(collision.plugin.name, "@y/b");
   });
 
   it("getRuntimePluginByToolName resolves registered tool names", () => {

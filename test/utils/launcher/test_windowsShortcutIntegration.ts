@@ -67,6 +67,8 @@ describe("createWindowsShortcut (Windows)", () => {
         "Write-Output $link.Arguments",
       ].join("\n");
       const [target, args] = powershell(script).split(/\r?\n/);
+      assert.ok(target !== undefined, "WScript.Shell returned no TargetPath line");
+      assert.ok(args !== undefined, "WScript.Shell returned no Arguments line");
 
       assert.match(target, /wscript\.exe$/i, "a console window would appear if this were node.exe or cmd.exe");
       assert.match(args, /launch\.vbs"$/, "the stub path must stay quoted — %LOCALAPPDATA% contains the account name");

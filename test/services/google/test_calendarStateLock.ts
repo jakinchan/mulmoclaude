@@ -92,7 +92,9 @@ describe("withCalendarStateLock (#2679 cross-process read-modify-write)", () => 
         order.push(`${name}:end`);
       };
       await Promise.all([withCalendarStateLock(lock, mutation("a"), fastClock()), withCalendarStateLock(lock, mutation("b"), fastClock())]);
-      const [first] = order[0].split(":");
+      const [firstEntry] = order;
+      assert.ok(firstEntry);
+      const [first] = firstEntry.split(":");
       assert.deepEqual(order, [`${first}:start`, `${first}:end`, ...order.slice(2)]);
       assert.equal(order.length, 4);
     });

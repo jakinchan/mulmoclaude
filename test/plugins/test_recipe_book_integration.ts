@@ -132,7 +132,9 @@ describe("Recipe Book plugin — end-to-end through the loader", () => {
     assert.equal(res.ok, true);
     assert.equal(res.recipe?.slug, "stuffed-peppers");
     assert.equal(published.length, 1);
-    assert.equal(published[0].channel, `plugin:${PKG_NAME}:changed`);
+    const [saveEvent] = published;
+    assert.ok(saveEvent);
+    assert.equal(saveEvent.channel, `plugin:${PKG_NAME}:changed`);
 
     // 3. Read returns the full recipe with all frontmatter + body
     res = (await plugin.execute({}, { kind: "read", slug: "stuffed-peppers" })) as RecipeResult;
@@ -151,9 +153,12 @@ describe("Recipe Book plugin — end-to-end through the loader", () => {
 
     // 4. List returns one summary (body / prep / cook stripped)
     res = (await plugin.execute({}, { kind: "list" })) as RecipeResult;
-    assert.equal(res.recipes?.length, 1);
-    assert.equal(res.recipes?.[0].slug, "stuffed-peppers");
-    assert.equal(res.recipes?.[0].servings, 4);
+    assert.ok(res.recipes);
+    assert.equal(res.recipes.length, 1);
+    const [summary] = res.recipes;
+    assert.ok(summary);
+    assert.equal(summary.slug, "stuffed-peppers");
+    assert.equal(summary.servings, 4);
 
     // 5. Read on missing slug → not_found
     res = (await plugin.execute({}, { kind: "read", slug: "ghost" })) as RecipeResult;

@@ -92,10 +92,12 @@ describe("runSmoke — fail-fast ordering", () => {
     });
     assert.equal(result.ok, false);
     assert.equal(result.stages.length, 1);
-    assert.equal(result.stages[0].name, "deps");
+    const [depsStage] = result.stages;
+    assert.ok(depsStage);
+    assert.equal(depsStage.name, "deps");
     assert.equal(driftCalls, 0, "drift must not run when deps failed");
     assert.equal(tarballSpy.callCount(), 0, "tarball must not run when deps failed");
-    assert.deepEqual(result.stages[0].details.missing, ["mammoth", "puppeteer"]);
+    assert.deepEqual(depsStage.details.missing, ["mammoth", "puppeteer"]);
   });
 
   it("stops after drift fails — tarball never runs", async () => {
@@ -110,9 +112,11 @@ describe("runSmoke — fail-fast ordering", () => {
     });
     assert.equal(result.ok, false);
     assert.equal(result.stages.length, 2);
-    assert.equal(result.stages[1].name, "drift");
+    const [, driftStage] = result.stages;
+    assert.ok(driftStage);
+    assert.equal(driftStage.name, "drift");
     assert.equal(tarballSpy.callCount(), 0, "tarball must not run when drift failed");
-    assert.deepEqual(result.stages[1].details.drifted, ["protocol"]);
+    assert.deepEqual(driftStage.details.drifted, ["protocol"]);
   });
 
   it("reports tarball failure with the lastError from the smoke result", async () => {
@@ -123,8 +127,10 @@ describe("runSmoke — fail-fast ordering", () => {
     });
     assert.equal(result.ok, false);
     assert.equal(result.stages.length, 3);
-    assert.equal(result.stages[2].name, "tarball");
-    assert.match(result.stages[2].summary, /ECONNREFUSED/);
+    const [, , tarballStage] = result.stages;
+    assert.ok(tarballStage);
+    assert.equal(tarballStage.name, "tarball");
+    assert.match(tarballStage.summary, /ECONNREFUSED/);
   });
 });
 

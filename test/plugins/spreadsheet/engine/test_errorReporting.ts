@@ -7,6 +7,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine, type SheetData, type CalculatedSheet } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 const calc = (sheet: SheetData, all?: SheetData[]): CalculatedSheet => new SpreadsheetEngine().calculate(sheet, all ?? [sheet]);
 
@@ -14,7 +15,7 @@ const calc = (sheet: SheetData, all?: SheetData[]): CalculatedSheet => new Sprea
 function cellAndError(sheet: SheetData, row: number, col: number, all?: SheetData[]) {
   const result = calc(sheet, all);
   const entry = result.errors.find((err) => err.cell.row === row && err.cell.col === col);
-  return { value: result.data[row][col], errorType: entry?.type };
+  return { value: cellAt(result.data, row, col), errorType: entry?.type };
 }
 
 describe("#2359 typed error reporting", () => {
@@ -65,7 +66,7 @@ describe("#2359 typed error reporting", () => {
   it("a failed formula never lands in the cell as a bare string", () => {
     const formulas = ["=1/0", "=UNKNOWNFN(A1)", '=IFS(A1>0, "yes", "orphan")'];
     for (const formula of formulas) {
-      const [[value]] = calc({ name: "S", data: [[{ v: formula }]] }).data;
+      const value = cellAt(calc({ name: "S", data: [[{ v: formula }]] }).data, 0, 0);
       assert.equal(typeof value === "string" && value.startsWith("#"), true, `${formula} → ${JSON.stringify(value)} should be an # error value`);
     }
   });
@@ -88,13 +89,13 @@ describe("#2359 success paths are preserved", () => {
   });
 
   it("valid SUM and arithmetic are unaffected", () => {
-    assert.equal(calc({ name: "S", data: [[{ v: 1 }, { v: "=SUM(A1:A3)" }], [{ v: 2 }], [{ v: 3 }]] }).data[0][1], 6);
-    assert.equal(calc({ name: "S", data: [[{ v: 2 }], [{ v: 3 }], [{ v: "=A1+A2" }]] }).data[2][0], 5);
+    assert.equal(cellAt(calc({ name: "S", data: [[{ v: 1 }, { v: "=SUM(A1:A3)" }], [{ v: 2 }], [{ v: 3 }]] }).data, 0, 1), 6);
+    assert.equal(cellAt(calc({ name: "S", data: [[{ v: 2 }], [{ v: 3 }], [{ v: "=A1+A2" }]] }).data, 2, 0), 5);
   });
 
   it("a valid cross-sheet reference still resolves", () => {
     const data: SheetData = { name: "Data", data: [[{ v: 100 }]] };
     const summary: SheetData = { name: "Summary", data: [[{ v: "=Data!A1*2" }]] };
-    assert.equal(calc(summary, [data, summary]).data[0][0], 200);
+    assert.equal(cellAt(calc(summary, [data, summary]).data, 0, 0), 200);
   });
 });

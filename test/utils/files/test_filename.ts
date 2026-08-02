@@ -81,6 +81,8 @@ describe("buildPdfFilename", () => {
     const expectedDates = new Set([formatLocalDate(before), formatLocalDate(after)]);
     const match = /^x-(\d{4}-\d{2}-\d{2})\.pdf$/.exec(filename);
     assert.ok(match, `filename did not match expected shape: ${filename}`);
-    assert.ok(expectedDates.has(match[1]), `unexpected date in filename: ${filename}`);
+    const [, datePart] = match;
+    assert.ok(datePart !== undefined, `filename did not capture a date: ${filename}`);
+    assert.ok(expectedDates.has(datePart), `unexpected date in filename: ${filename}`);
   });
 });

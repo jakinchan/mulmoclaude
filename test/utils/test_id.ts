@@ -49,6 +49,7 @@ describe("makeId", () => {
   it("ends with 6 hex characters", () => {
     const generatedId = makeId("test");
     const [, , hex] = generatedId.split("_");
+    assert.ok(hex !== undefined, `id has no hex segment: ${generatedId}`);
     assert.equal(hex.length, 6);
     assert.match(hex, /^[0-9a-f]{6}$/);
   });

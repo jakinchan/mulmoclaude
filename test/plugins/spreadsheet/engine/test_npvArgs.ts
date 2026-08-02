@@ -9,6 +9,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 const closeTo = (actual: number, expected: number, eps = 0.01): boolean => Math.abs(actual - expected) <= eps;
 
@@ -21,7 +22,7 @@ describe("NPV — sequential periods across mixed range and scalar arguments", (
       name: "S",
       data: [[{ v: 100 }, { v: 400 }, { v: "=NPV(0.1, A1:A3, B1)" }], [{ v: 200 }], [{ v: 300 }]],
     };
-    const result = new SpreadsheetEngine().calculate(sheet).data[0][2] as number;
+    const result = cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 2) as number;
     assert.ok(closeTo(result, 754.7967), `NPV mixed args = ${result}, expected ~754.80 (sequential)`);
   });
 
@@ -31,7 +32,7 @@ describe("NPV — sequential periods across mixed range and scalar arguments", (
       name: "S",
       data: [[{ v: 100 }, { v: "=NPV(0.1, A1:A3)" }], [{ v: 200 }], [{ v: 300 }]],
     };
-    const result = new SpreadsheetEngine().calculate(sheet).data[0][1] as number;
+    const result = cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1) as number;
     assert.ok(closeTo(result, 481.5928), `NPV single range = ${result}, expected ~481.59`);
   });
 });

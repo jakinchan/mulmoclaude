@@ -34,6 +34,7 @@ describe("renderNodeMissingText", () => {
     LAUNCHER_LOCALES.forEach((locale) => {
       const [title, second] = renderNodeMissingText(locale).split("\n");
       assert.equal(title, launcherMessages(locale).nodeMissing.title, locale);
+      assert.ok(second !== undefined, `${locale}: the text has no second line at all`);
       assert.ok(second.length > 0, `${locale}: blank second line would open the alert with an empty paragraph`);
     });
   });

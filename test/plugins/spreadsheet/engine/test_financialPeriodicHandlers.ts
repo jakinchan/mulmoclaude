@@ -6,10 +6,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 const evalA1 = (formula: string): unknown => {
   const sheet: SheetData = { name: "S", data: [[{ v: formula }]] };
-  return new SpreadsheetEngine().calculate(sheet).data[0][0];
+  return cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 0);
 };
 
 const closeTo = (actual: unknown, expected: number, eps = 0.01): boolean => typeof actual === "number" && Math.abs(actual - expected) <= eps;

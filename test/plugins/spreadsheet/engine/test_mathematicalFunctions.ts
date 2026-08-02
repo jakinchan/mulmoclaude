@@ -21,6 +21,7 @@ import {
 } from "../../../../src/plugins/spreadsheet/engine/math-ops.ts";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
 import { DIV_ZERO_ERROR, NUM_ERROR } from "../../../../src/plugins/spreadsheet/engine/spreadsheet-errors.ts";
+import { cellAt } from "./cellAccess.ts";
 
 const closeTo = (actual: number, expected: number, eps = 1e-9): boolean => Math.abs(actual - expected) <= eps;
 
@@ -135,7 +136,8 @@ describe("logWithBase — number and base domain", () => {
 });
 
 describe("the handlers surface the errors end-to-end", () => {
-  const evalFormula = (formula: string): unknown => new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: formula }]] } satisfies SheetData).data[0][0];
+  const evalFormula = (formula: string): unknown =>
+    cellAt(new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: formula }]] } satisfies SheetData).data, 0, 0);
 
   it("displays the Excel error codes through the engine", () => {
     assert.equal(evalFormula("=FLOOR(-2.5, 2)"), "#NUM!");

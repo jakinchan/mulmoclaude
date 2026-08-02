@@ -17,6 +17,14 @@ function makeFakeMarp(): { themeSet: FakeThemeSet } {
   };
 }
 
+// Every CSS assertion below inspects the first registered theme; narrow it
+// once here so a missing registration fails loudly instead of at each site.
+function firstThemeCss(marp: { themeSet: FakeThemeSet }): string {
+  const [css] = marp.themeSet.calls;
+  assert.ok(css, "no theme was registered");
+  return css;
+}
+
 describe("applyCustomMarpSize — pass-through cases", () => {
   it("returns the input unchanged when there is no frontmatter", () => {
     const marp = makeFakeMarp();
@@ -60,8 +68,8 @@ describe("applyCustomMarpSize — numeric WxH", () => {
     const source = "---\nmarp: true\nsize: 1080x1920\n---\n# slide";
     const out = applyCustomMarpSize(marp, source);
     assert.equal(marp.themeSet.calls.length, 1);
-    assert.match(marp.themeSet.calls[0], /@theme mc_size_default_1080x1920/);
-    assert.match(marp.themeSet.calls[0], /section \{ width: 1080px; height: 1920px;/);
+    assert.match(firstThemeCss(marp), /@theme mc_size_default_1080x1920/);
+    assert.match(firstThemeCss(marp), /section \{ width: 1080px; height: 1920px;/);
     assert.match(out, /theme: mc_size_default_1080x1920/);
     assert.doesNotMatch(out, /^size:/m);
   });
@@ -78,7 +86,7 @@ describe("applyCustomMarpSize — numeric WxH", () => {
     const marp = makeFakeMarp();
     const source = "---\nmarp: true\ntheme: gaia\nsize: 1080x1920\n---\n# x";
     const out = applyCustomMarpSize(marp, source);
-    assert.match(marp.themeSet.calls[0], /@import "gaia"/);
+    assert.match(firstThemeCss(marp), /@import "gaia"/);
     assert.match(out, /theme: mc_size_gaia_1080x1920/);
   });
 
@@ -125,7 +133,7 @@ describe("applyCustomMarpSize — aspect-ratio presets", () => {
     const marp = makeFakeMarp();
     const source = "---\nmarp: true\nsize: 9:16\n---\n# x";
     const out = applyCustomMarpSize(marp, source);
-    assert.match(marp.themeSet.calls[0], /width: 1080px; height: 1920px/);
+    assert.match(firstThemeCss(marp), /width: 1080px; height: 1920px/);
     assert.match(out, /theme: mc_size_default_1080x1920/);
   });
 
@@ -133,7 +141,7 @@ describe("applyCustomMarpSize — aspect-ratio presets", () => {
     const marp = makeFakeMarp();
     const source = "---\nmarp: true\nsize: 16:10\n---\n# x";
     const out = applyCustomMarpSize(marp, source);
-    assert.match(marp.themeSet.calls[0], /width: 1280px; height: 800px/);
+    assert.match(firstThemeCss(marp), /width: 1280px; height: 800px/);
     assert.match(out, /theme: mc_size_default_1280x800/);
   });
 
@@ -141,7 +149,7 @@ describe("applyCustomMarpSize — aspect-ratio presets", () => {
     const marp = makeFakeMarp();
     const source = "---\nmarp: true\nsize: 1:1\n---\n# x";
     applyCustomMarpSize(marp, source);
-    assert.match(marp.themeSet.calls[0], /width: 1080px; height: 1080px/);
+    assert.match(firstThemeCss(marp), /width: 1080px; height: 1080px/);
   });
 });
 
@@ -158,8 +166,8 @@ describe("applyCustomMarpSize — theme injection guard", () => {
     assert.equal(marp.themeSet.calls.length, 1);
     // The composed CSS must NOT carry the attacker's payload — the
     // unsafe theme should have been collapsed back to "default".
-    assert.doesNotMatch(marp.themeSet.calls[0], /evil\.example\.com/);
-    assert.match(marp.themeSet.calls[0], /@import "default"/);
+    assert.doesNotMatch(firstThemeCss(marp), /evil\.example\.com/);
+    assert.match(firstThemeCss(marp), /@import "default"/);
     assert.match(out, /theme: mc_size_default_1080x1920/);
   });
 
@@ -167,7 +175,7 @@ describe("applyCustomMarpSize — theme injection guard", () => {
     const marp = makeFakeMarp();
     const source = `---\nmarp: true\ntheme: gaia_2\nsize: 1080x1920\n---\n# x`;
     applyCustomMarpSize(marp, source);
-    assert.match(marp.themeSet.calls[0], /@import "gaia_2"/);
+    assert.match(firstThemeCss(marp), /@import "gaia_2"/);
   });
 
   it("rejects theme names with whitespace, dots, or other CSS-relevant chars", () => {

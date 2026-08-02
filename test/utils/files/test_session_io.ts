@@ -160,8 +160,11 @@ describe("appendSessionLine", () => {
     assert.ok(raw);
     const lines = raw.split("\n").filter(Boolean);
     assert.equal(lines.length, 2);
-    assert.deepEqual(JSON.parse(lines[0]), { a: 1 });
-    assert.deepEqual(JSON.parse(lines[1]), { b: 2 });
+    const [firstLine, secondLine] = lines;
+    assert.ok(firstLine);
+    assert.ok(secondLine);
+    assert.deepEqual(JSON.parse(firstLine), { a: 1 });
+    assert.deepEqual(JSON.parse(secondLine), { b: 2 });
   });
 
   it("normalizes missing trailing newline", async () => {

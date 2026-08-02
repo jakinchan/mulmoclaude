@@ -86,7 +86,9 @@ describe("auditLauncherSync — invariant 1: root ↔ launcher common dep", () =
       const findings = await sync.auditLauncherSync({ root });
       const mismatches = findings.filter((finding) => finding.kind === "root-launcher-mismatch");
       assert.equal(mismatches.length, 1);
-      assert.match(mismatches[0].message, /gui-chat-protocol.*root=0\.4\.0.*launcher=\^0\.3\.0/);
+      const [mismatch] = mismatches;
+      assert.ok(mismatch);
+      assert.match(mismatch.message, /gui-chat-protocol.*root=0\.4\.0.*launcher=\^0\.3\.0/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -118,7 +120,9 @@ describe("auditLauncherSync — invariant 2: workspace source vs launcher range"
       const findings = await sync.auditLauncherSync({ root });
       const drifts = findings.filter((finding) => finding.kind === "workspace-source-drift");
       assert.equal(drifts.length, 1);
-      assert.match(drifts[0].message, /form-plugin.*0\.1\.4.*\^0\.2\.0/);
+      const [drift] = drifts;
+      assert.ok(drift);
+      assert.match(drift.message, /form-plugin.*0\.1\.4.*\^0\.2\.0/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -147,7 +151,9 @@ describe("auditLauncherSync — invariant 3: plugin peer dep vs launcher pin (#1
       const findings = await sync.auditLauncherSync({ root });
       const violations = findings.filter((finding) => finding.kind === "peer-dep-violation");
       assert.equal(violations.length, 1);
-      assert.match(violations[0].message, /form-plugin.*gui-chat-protocol.*\^0\.3\.0.*0\.4\.0/);
+      const [violation] = violations;
+      assert.ok(violation);
+      assert.match(violation.message, /form-plugin.*gui-chat-protocol.*\^0\.3\.0.*0\.4\.0/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -213,7 +219,9 @@ describe("auditLauncherSync — invariant 4: workspace-source strict lockstep", 
       const findings = await sync.auditLauncherSync({ root });
       const lockstep = findings.filter((finding) => finding.kind === "workspace-lockstep");
       assert.equal(lockstep.length, 1);
-      assert.match(lockstep[0].message, /foo-plugin.*0\.1\.5.*\^0\.1\.4/);
+      const [lockstepFinding] = lockstep;
+      assert.ok(lockstepFinding);
+      assert.match(lockstepFinding.message, /foo-plugin.*0\.1\.5.*\^0\.1\.4/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -261,7 +269,9 @@ describe("auditLauncherSync — invariant 5: gui-chat-protocol peer dep lockstep
       const findings = await sync.auditLauncherSync({ root });
       const lockstep = findings.filter((finding) => finding.kind === "peer-dep-lockstep");
       assert.equal(lockstep.length, 1);
-      assert.match(lockstep[0].message, /foo-plugin.*gui-chat-protocol.*\^1\.4\.0.*1\.5\.0/);
+      const [lockstepFinding] = lockstep;
+      assert.ok(lockstepFinding);
+      assert.match(lockstepFinding.message, /foo-plugin.*gui-chat-protocol.*\^1\.4\.0.*1\.5\.0/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

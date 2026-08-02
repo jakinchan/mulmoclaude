@@ -10,18 +10,25 @@ function session(sessionId: string, isBookmarked?: boolean): SessionSummary {
 describe("applyBookmarkFlag", () => {
   it("sets isBookmarked=true on the matching session", () => {
     const result = applyBookmarkFlag([session("a"), session("b")], "b", true);
-    assert.equal(result[1].isBookmarked, true);
+    const [, matched] = result;
+    assert.ok(matched);
+    assert.equal(matched.isBookmarked, true);
   });
 
   it("sets isBookmarked=false on the matching session", () => {
     const result = applyBookmarkFlag([session("a", true)], "a", false);
-    assert.equal(result[0].isBookmarked, false);
+    const [matched] = result;
+    assert.ok(matched);
+    assert.equal(matched.isBookmarked, false);
   });
 
   it("leaves non-matching sessions unchanged", () => {
     const result = applyBookmarkFlag([session("a", true), session("b", false)], "b", true);
-    assert.equal(result[0].isBookmarked, true);
-    assert.equal(result[1].isBookmarked, true);
+    const [untouched, matched] = result;
+    assert.ok(untouched);
+    assert.ok(matched);
+    assert.equal(untouched.isBookmarked, true);
+    assert.equal(matched.isBookmarked, true);
   });
 
   it("returns an all-unchanged copy when no id matches", () => {

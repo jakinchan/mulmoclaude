@@ -49,13 +49,16 @@ describe("useDirChildrenCache", () => {
 
     const stale = cache.loadDirChildren("a");
     const fresh = cache.reloadDirChildren("a");
+    const [staleCall, freshCall] = calls;
+    assert.ok(staleCall);
+    assert.ok(freshCall);
 
-    calls[0].resolve(jsonResponse(200, dirNode("a", [fileChild("stale")])));
+    staleCall.resolve(jsonResponse(200, dirNode("a", [fileChild("stale")])));
     await stale;
     assert.equal(cache.childrenByPath.value.get("a"), null);
     assert.equal(cache.treeError.value, null);
 
-    calls[1].resolve(jsonResponse(200, dirNode("a", [fileChild("fresh")])));
+    freshCall.resolve(jsonResponse(200, dirNode("a", [fileChild("fresh")])));
     await fresh;
     assert.deepEqual(cache.childrenByPath.value.get("a"), [fileChild("fresh")]);
   });
@@ -66,12 +69,15 @@ describe("useDirChildrenCache", () => {
 
     const stale = cache.loadDirChildren("dirA");
     const reload = cache.reloadRoot();
+    const [staleCall, reloadCall] = calls;
+    assert.ok(staleCall);
+    assert.ok(reloadCall);
 
-    calls[0].resolve(jsonResponse(200, dirNode("dirA", [fileChild("old")])));
+    staleCall.resolve(jsonResponse(200, dirNode("dirA", [fileChild("old")])));
     await stale;
     assert.equal(cache.childrenByPath.value.has("dirA"), false);
 
-    calls[1].resolve(jsonResponse(200, dirNode("", [fileChild("root")])));
+    reloadCall.resolve(jsonResponse(200, dirNode("", [fileChild("root")])));
     await reload;
     assert.deepEqual(cache.childrenByPath.value.get(""), [fileChild("root")]);
     assert.equal(cache.rootNode.value?.path, "");

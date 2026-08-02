@@ -8,10 +8,11 @@ import assert from "node:assert/strict";
 import { takeMid, parseValueText } from "../../../../src/plugins/spreadsheet/engine/functions/text.ts";
 import { VALUE_ERROR } from "../../../../src/plugins/spreadsheet/engine/spreadsheet-errors.ts";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 const evaluate = (formula: string, cell: string | number = "Hello"): unknown => {
   const sheet: SheetData = { name: "S", data: [[{ v: cell }, { v: formula }]] };
-  return new SpreadsheetEngine().calculate(sheet).data[0][1];
+  return cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1);
 };
 
 describe("takeMid — bounds", () => {

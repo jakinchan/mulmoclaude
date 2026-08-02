@@ -8,10 +8,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { rowAt } from "./cellAccess.ts";
 
 const engine = new SpreadsheetEngine();
 
-const calcRow = (target: SheetData, all: SheetData[], row = 0) => engine.calculate(target, all).data[row];
+const calcRow = (target: SheetData, all: SheetData[], row = 0) => rowAt(engine.calculate(target, all).data, row);
 
 describe("cross-sheet date reference (#2332 regression)", () => {
   const data: SheetData = { name: "Data", data: [[{ v: "03/04/2025" }]] };

@@ -128,7 +128,9 @@ describe("useChatScroll — streaming auto-scroll", () => {
 
     // Sanity: the session accumulated the full message in place.
     assert.equal(session.toolResults.length, 1);
-    assert.equal(session.toolResults[0].message, "Hello world!");
+    const [accumulated] = session.toolResults;
+    assert.ok(accumulated);
+    assert.equal(accumulated.message, "Hello world!");
   });
 
   it("does not scroll when isRunning is the only change and no results", async () => {
@@ -220,7 +222,9 @@ describe("useChatScroll — sticky bottom (#2179)", () => {
 
     assert.equal(writes.length, writesWhenScrolledUp, "streaming must not scroll while the reader is scrolled up");
     // The stream itself still lands — only the viewport is left alone.
-    assert.equal(session.toolResults[0].message, "Hello world!");
+    const [accumulated] = session.toolResults;
+    assert.ok(accumulated);
+    assert.equal(accumulated.message, "Hello world!");
   });
 
   it("resumes following when the reader returns to the bottom", async () => {

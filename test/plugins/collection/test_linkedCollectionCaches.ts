@@ -82,7 +82,9 @@ describe("fetchLinkedCaches", () => {
     const snap = await fetchLinkedCaches(linkedTargets(refAndEmbedSchema), fetchDetail, () => "cur", "cur");
     assert.ok(snap);
     assert.deepEqual(snap.refCache.people, { a: "Alice", b: "Bob" });
-    assert.deepEqual(Object.keys(snap.refRecordCache.people).sort(), ["a", "b"]);
+    const peopleRecords = snap.refRecordCache.people;
+    assert.ok(peopleRecords);
+    assert.deepEqual(Object.keys(peopleRecords).sort(), ["a", "b"]);
     // profiles is embed-only, so it lands in embedCache but never refCache.
     assert.equal(snap.refCache.profiles, undefined);
     assert.equal(snap.embedCache.profiles?.items.length, 1);

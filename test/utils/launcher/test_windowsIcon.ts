@@ -57,14 +57,18 @@ describe("packIco", () => {
     assert.equal(entries.length, images.length);
     entries.forEach((entry, i) => {
       const slice = ico.subarray(entry.offset, entry.offset + entry.byteLength);
-      assert.deepEqual(slice, images[i].png, `entry ${i} does not point at its own bytes`);
+      const image = images[i];
+      assert.ok(image, `entry ${i} has no source image`);
+      assert.deepEqual(slice, image.png, `entry ${i} does not point at its own bytes`);
     });
   });
 
   it("spells 256 as 0 — the dimension fields are single bytes", () => {
     const { entries } = parseIco(packIco([{ size: 256, png: fakePng(0x01, 20) }]));
-    assert.equal(entries[0].width, 0);
-    assert.equal(entries[0].height, 0);
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.equal(entry.width, 0);
+    assert.equal(entry.height, 0);
   });
 
   it("leaves no gap or overlap between images", () => {

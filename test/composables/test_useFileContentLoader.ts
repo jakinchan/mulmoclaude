@@ -64,7 +64,9 @@ describe("useFileContentLoader", () => {
     assert.equal(loader.contentLoading.value, true);
     assert.equal(loader.content.value, null);
     assert.equal(loader.contentError.value, null);
-    calls[1].resolve(jsonResponse(200, textPayload("b.txt", "fresh")));
+    const [, freshCall] = calls;
+    assert.ok(freshCall);
+    freshCall.resolve(jsonResponse(200, textPayload("b.txt", "fresh")));
     await fresh;
     assert.deepEqual(loader.content.value, textPayload("b.txt", "fresh"));
     assert.equal(loader.contentLoading.value, false);

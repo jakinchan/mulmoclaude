@@ -49,6 +49,14 @@ function makeTable(rowsAndCols: number[][]): {
   };
 }
 
+function cellOf(rows: ReturnType<typeof makeRow>[], rowIndex: number, colIndex: number): ReturnType<typeof makeCell> {
+  const row = rows[rowIndex];
+  assert.ok(row, `mock table has no row ${rowIndex}`);
+  const cell = row.cells[colIndex];
+  assert.ok(cell, `mock row ${rowIndex} has no cell ${colIndex}`);
+  return cell;
+}
+
 // Build a HighlightableContainer with the given querySelector /
 // querySelectorAll responses. Arrays are already iterable so we can
 // return them directly.
@@ -70,8 +78,8 @@ describe("highlightCell", () => {
   it("adds className to the correct cell", () => {
     const { table, rows } = makeTable([[1, 2, 3]]);
     highlightCell(table, { row: 0, col: 1 }, "cell-editing");
-    assert.ok(rows[0].cells[1].classes.has("cell-editing"));
-    assert.ok(!rows[0].cells[0].classes.has("cell-editing"));
+    assert.ok(cellOf(rows, 0, 1).classes.has("cell-editing"));
+    assert.ok(!cellOf(rows, 0, 0).classes.has("cell-editing"));
   });
 
   it("is a no-op for a null table", () => {
@@ -81,14 +89,14 @@ describe("highlightCell", () => {
   it("is a no-op when row is out of range", () => {
     const { table, rows } = makeTable([[1]]);
     highlightCell(table, { row: 5, col: 0 }, "x");
-    assert.equal(rows[0].cells[0].classes.size, 0);
+    assert.equal(cellOf(rows, 0, 0).classes.size, 0);
   });
 
   it("is a no-op when col is out of range", () => {
     const { table, rows } = makeTable([[1, 2]]);
     highlightCell(table, { row: 0, col: 99 }, "x");
-    assert.equal(rows[0].cells[0].classes.size, 0);
-    assert.equal(rows[0].cells[1].classes.size, 0);
+    assert.equal(cellOf(rows, 0, 0).classes.size, 0);
+    assert.equal(cellOf(rows, 0, 1).classes.size, 0);
   });
 });
 
@@ -130,8 +138,8 @@ describe("applyCellHighlights", () => {
       onQuerySelector: (sel) => (sel === "#spreadsheet-table" ? table : null),
     });
     applyCellHighlights(container, { row: 0, col: 1 }, [{ row: 1, col: 2 }]);
-    assert.ok(rows[0].cells[1].classes.has("cell-editing"));
-    assert.ok(rows[1].cells[2].classes.has("cell-referenced"));
+    assert.ok(cellOf(rows, 0, 1).classes.has("cell-editing"));
+    assert.ok(cellOf(rows, 1, 2).classes.has("cell-referenced"));
   });
 
   it("no-op when container is null", () => {
@@ -149,7 +157,7 @@ describe("applyCellHighlights", () => {
       onQuerySelector: () => table,
     });
     applyCellHighlights(container, null, [{ row: 0, col: 1 }]);
-    assert.ok(!rows[0].cells[0].classes.has("cell-editing"));
-    assert.ok(rows[0].cells[1].classes.has("cell-referenced"));
+    assert.ok(!cellOf(rows, 0, 0).classes.has("cell-editing"));
+    assert.ok(cellOf(rows, 0, 1).classes.has("cell-referenced"));
   });
 });

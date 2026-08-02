@@ -15,14 +15,16 @@ describe("renderUnifiedDiff", () => {
     const right = "a\nB\nc\n";
     const hunks = renderUnifiedDiff(left, right, 3);
     assert.equal(hunks.length, 1);
-    const kinds = hunks[0].lines.map((line) => line.kind);
+    const [hunk] = hunks;
+    assert.ok(hunk);
+    const kinds = hunk.lines.map((line) => line.kind);
     // Whole file fits inside ±3 context, so we see all three "rows":
     // del+add for the changed line, surrounded by context.
     assert.ok(kinds.includes("del"));
     assert.ok(kinds.includes("add"));
     assert.ok(kinds.includes("context"));
-    assert.equal(hunks[0].hiddenBefore, 0);
-    assert.equal(hunks[0].hiddenAfter, 0);
+    assert.equal(hunk.hiddenBefore, 0);
+    assert.equal(hunk.hiddenAfter, 0);
   });
 
   it("collapses long unchanged runs at the head and tail of the file", () => {
@@ -33,15 +35,17 @@ describe("renderUnifiedDiff", () => {
 
     const hunks = renderUnifiedDiff(left, right, 3);
     assert.equal(hunks.length, 1, "single change → single hunk");
+    const [hunk] = hunks;
+    assert.ok(hunk);
     // The hunk shows ±3 context lines around the change.
-    const kinds = hunks[0].lines.map((line) => line.kind);
+    const kinds = hunk.lines.map((line) => line.kind);
     assert.equal(kinds.filter((kind) => kind === "del").length, 1);
     assert.equal(kinds.filter((kind) => kind === "add").length, 1);
     assert.equal(kinds.filter((kind) => kind === "context").length, 6, "3 above + 3 below");
 
     // Everything outside the ±3 window is hidden.
-    assert.equal(hunks[0].hiddenBefore, 17, "20 head lines minus the 3 surfaced as context");
-    assert.equal(hunks[0].hiddenAfter, 17, "20 tail lines minus the 3 surfaced as context");
+    assert.equal(hunk.hiddenBefore, 17, "20 head lines minus the 3 surfaced as context");
+    assert.equal(hunk.hiddenAfter, 17, "20 tail lines minus the 3 surfaced as context");
   });
 
   it("merges two nearby changes into one hunk when context windows overlap", () => {
@@ -54,8 +58,10 @@ describe("renderUnifiedDiff", () => {
     // windows reach into each other → single merged hunk.
     const hunks = renderUnifiedDiff(left, `${rightLines.join("\n")}\n`, 3);
     assert.equal(hunks.length, 1);
-    const adds = hunks[0].lines.filter((line) => line.kind === "add");
-    const dels = hunks[0].lines.filter((line) => line.kind === "del");
+    const [hunk] = hunks;
+    assert.ok(hunk);
+    const adds = hunk.lines.filter((line) => line.kind === "add");
+    const dels = hunk.lines.filter((line) => line.kind === "del");
     assert.equal(adds.length, 2);
     assert.equal(dels.length, 2);
   });
@@ -77,7 +83,9 @@ describe("renderUnifiedDiff", () => {
     }
     // Gap between hunks (20 - 6 unchanged from each window = 14)
     // shows up as the second hunk's `hiddenBefore`.
-    assert.ok(hunks[1].hiddenBefore > 0);
+    const [, secondHunk] = hunks;
+    assert.ok(secondHunk);
+    assert.ok(secondHunk.hiddenBefore > 0);
   });
 
   it("respects a custom context size", () => {
@@ -87,24 +95,32 @@ describe("renderUnifiedDiff", () => {
     rightLines[10] = "TEN";
     const hunks0 = renderUnifiedDiff(left, `${rightLines.join("\n")}\n`, 0);
     const hunks5 = renderUnifiedDiff(left, `${rightLines.join("\n")}\n`, 5);
+    const [hunk0] = hunks0;
+    const [hunk5] = hunks5;
+    assert.ok(hunk0);
+    assert.ok(hunk5);
     // 0 context = only the changed lines surface.
-    assert.equal(hunks0[0].lines.filter((line) => line.kind === "context").length, 0);
+    assert.equal(hunk0.lines.filter((line) => line.kind === "context").length, 0);
     // 5 context = 5 above + 5 below.
-    assert.equal(hunks5[0].lines.filter((line) => line.kind === "context").length, 10);
+    assert.equal(hunk5.lines.filter((line) => line.kind === "context").length, 10);
   });
 
   it("handles pure-add and pure-delete (one side is empty)", () => {
     const addOnly = renderUnifiedDiff("", "x\ny\n", 3);
     assert.equal(addOnly.length, 1);
+    const [addHunk] = addOnly;
+    assert.ok(addHunk);
     assert.equal(
-      addOnly[0].lines.every((line) => line.kind === "add"),
+      addHunk.lines.every((line) => line.kind === "add"),
       true,
     );
 
     const delOnly = renderUnifiedDiff("x\ny\n", "", 3);
     assert.equal(delOnly.length, 1);
+    const [delHunk] = delOnly;
+    assert.ok(delHunk);
     assert.equal(
-      delOnly[0].lines.every((line) => line.kind === "del"),
+      delHunk.lines.every((line) => line.kind === "del"),
       true,
     );
   });

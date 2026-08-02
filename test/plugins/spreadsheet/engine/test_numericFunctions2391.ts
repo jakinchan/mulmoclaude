@@ -5,6 +5,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 // Column A holds `colA` (one value per row); `formula` goes in a row below it so a
 // range like A1:A3 never overlaps the formula cell.
@@ -12,7 +13,7 @@ const evalWithColumnA = (formula: string, colA: (string | number)[] = []): unkno
   const data: { v: string | number }[][] = colA.map((value) => [{ v: value }]);
   data.push([{ v: formula }]);
   const result = new SpreadsheetEngine().calculate({ name: "S", data } as SheetData);
-  return result.data[data.length - 1][0];
+  return cellAt(result.data, data.length - 1, 0);
 };
 
 describe("ABS / SIGN — scalar coercion (#2391)", () => {

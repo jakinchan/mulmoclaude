@@ -231,6 +231,7 @@ describe("packWorkspaceOverrides", () => {
     const packedDirs: string[] = [];
     const runCommandImpl = async (_cmd: string, args: string[]) => {
       const [, dir] = args; // ["pack", <dir>, "--ignore-scripts", ...]
+      assert.ok(dir, `expected a pack directory in args: ${args.join(" ")}`);
       packedDirs.push(dir);
       const base = dir.split("/").pop();
       return { code: 0, timedOut: false, stdout: JSON.stringify([{ filename: `${base}-1.0.0.tgz` }]), stderr: "" };

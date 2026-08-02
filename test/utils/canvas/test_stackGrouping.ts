@@ -39,13 +39,15 @@ describe("buildStackDisplayItems", () => {
       { uuid: "c", group: "g1" },
     ]);
     assert.equal(items.length, 1);
-    assert.equal(items[0].isGroup, true);
+    const [card] = items;
+    assert.ok(card);
+    assert.equal(card.isGroup, true);
     assert.deepEqual(
-      items[0].members.map((member) => member.uuid),
+      card.members.map((member) => member.uuid),
       ["a", "b", "c"],
     );
-    assert.equal(items[0].head.uuid, "c", "head is the latest member");
-    assert.equal(items[0].key, "group:g1");
+    assert.equal(card.head.uuid, "c", "head is the latest member");
+    assert.equal(card.key, "group:g1");
   });
 
   it("merges NON-contiguous same-group results at the first occurrence (Codex #1504)", () => {
@@ -59,14 +61,17 @@ describe("buildStackDisplayItems", () => {
       { uuid: "c", group: "g1" },
     ]);
     assert.equal(items.length, 2, "C merges into the existing g1 card, not a new one");
-    assert.equal(items[0].key, "group:g1");
+    const [groupCard, bCard] = items;
+    assert.ok(groupCard);
+    assert.ok(bCard);
+    assert.equal(groupCard.key, "group:g1");
     assert.deepEqual(
-      items[0].members.map((member) => member.uuid),
+      groupCard.members.map((member) => member.uuid),
       ["a", "c"],
     );
-    assert.equal(items[0].head.uuid, "c", "head follows the latest call");
-    assert.equal(items[1].head.uuid, "b");
-    assert.equal(items[1].isGroup, false);
+    assert.equal(groupCard.head.uuid, "c", "head follows the latest call");
+    assert.equal(bCard.head.uuid, "b");
+    assert.equal(bCard.isGroup, false);
   });
 
   it("keeps distinct groups as distinct cards in first-occurrence order", () => {
@@ -81,12 +86,15 @@ describe("buildStackDisplayItems", () => {
       items.map((item) => item.key),
       ["group:g1", "group:g2"],
     );
+    const [g1Card, g2Card] = items;
+    assert.ok(g1Card);
+    assert.ok(g2Card);
     assert.deepEqual(
-      items[0].members.map((member) => member.uuid),
+      g1Card.members.map((member) => member.uuid),
       ["a", "c"],
     );
     assert.deepEqual(
-      items[1].members.map((member) => member.uuid),
+      g2Card.members.map((member) => member.uuid),
       ["b", "d"],
     );
   });
@@ -94,8 +102,10 @@ describe("buildStackDisplayItems", () => {
   it("treats a lone grouped result as a (single-member) group card", () => {
     const items = build([{ uuid: "a", group: "g1" }]);
     assert.equal(items.length, 1);
-    assert.equal(items[0].isGroup, true);
-    assert.equal(items[0].members.length, 1);
+    const [card] = items;
+    assert.ok(card);
+    assert.equal(card.isGroup, true);
+    assert.equal(card.members.length, 1);
   });
 });
 

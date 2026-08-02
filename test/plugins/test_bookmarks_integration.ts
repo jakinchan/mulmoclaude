@@ -108,19 +108,25 @@ describe("Bookmarks plugin — end-to-end through the loader", () => {
     if (!res.bookmark) throw new Error("add must return a bookmark");
     assert.equal(res.bookmark.url, "https://example.com/");
     assert.equal(published.length, 1, "add must publish exactly one changed event");
-    assert.equal(published[0].channel, `plugin:${PKG_NAME}:changed`);
+    const [addEvent] = published;
+    assert.ok(addEvent);
+    assert.equal(addEvent.channel, `plugin:${PKG_NAME}:changed`);
 
     // 3. List returns the bookmark.
     res = (await plugin.execute({}, { kind: "list" })) as BookmarkResult;
     assert.equal(res.bookmarks?.length, 1);
     if (!res.bookmarks) throw new Error("list must return bookmarks array");
-    const [{ id }] = res.bookmarks;
+    const [listed] = res.bookmarks;
+    assert.ok(listed);
+    const { id } = listed;
 
     // 4. Remove the bookmark — should publish "changed" again.
     res = (await plugin.execute({}, { kind: "remove", id })) as BookmarkResult;
     assert.deepEqual(res, { ok: true });
     assert.equal(published.length, 2);
-    assert.equal(published[1].channel, `plugin:${PKG_NAME}:changed`);
+    const [, removeEvent] = published;
+    assert.ok(removeEvent);
+    assert.equal(removeEvent.channel, `plugin:${PKG_NAME}:changed`);
 
     // 5. List again — back to empty.
     res = (await plugin.execute({}, { kind: "list" })) as BookmarkResult;
@@ -172,7 +178,9 @@ describe("Bookmarks plugin — end-to-end through the loader", () => {
     assert.deepEqual(res, { ok: true });
 
     assert.equal(published.length, 1);
-    assert.equal(published[0].channel, `plugin:${PKG_NAME}:prefs-changed`);
+    const [prefsEvent] = published;
+    assert.ok(prefsEvent);
+    assert.equal(prefsEvent.channel, `plugin:${PKG_NAME}:prefs-changed`);
 
     // The prefs file should land under the config root, NOT data.
     const sanitisedSeg = encodeURIComponent(PKG_NAME);

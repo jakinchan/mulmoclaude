@@ -42,6 +42,14 @@ function getHeader(call: MockCall, name: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+// Every test below drives a single request, so the captured call must be
+// there — a missing one is a failure, not something to read past.
+function firstCall(): MockCall {
+  const [call] = calls;
+  assert.ok(call, "expected the api module to have issued a fetch");
+  return call;
+}
+
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -66,7 +74,7 @@ describe("apiCall — happy path", () => {
   it("POST serializes body as JSON and sets Content-Type", async () => {
     nextResponse = jsonResponse(200, { ok: true });
     await apiPost("/api/thing", { a: 1, b: "two" });
-    const [call] = calls;
+    const call = firstCall();
     assert.equal(call.init?.method, "POST");
     assert.equal(getHeader(call, "Content-Type"), "application/json");
     assert.equal(call.init?.body, JSON.stringify({ a: 1, b: "two" }));
@@ -75,14 +83,15 @@ describe("apiCall — happy path", () => {
   it("PUT forwards the method", async () => {
     nextResponse = jsonResponse(200, {});
     await apiPut("/api/thing", { x: 1 });
-    assert.equal(calls[0].init?.method, "PUT");
+    assert.equal(firstCall().init?.method, "PUT");
   });
 
   it("DELETE accepts an optional body", async () => {
     nextResponse = jsonResponse(200, {});
     await apiDelete("/api/thing/1");
-    assert.equal(calls[0].init?.method, "DELETE");
-    assert.equal(calls[0].init?.body, undefined);
+    const call = firstCall();
+    assert.equal(call.init?.method, "DELETE");
+    assert.equal(call.init?.body, undefined);
   });
 });
 
@@ -148,35 +157,36 @@ describe("apiCall — query and headers", () => {
   it("appends a query string from the query object", async () => {
     nextResponse = jsonResponse(200, {});
     await apiGet("/api/search", { q: "hello", limit: 10 });
-    assert.match(calls[0].url, /\/api\/search\?/);
-    assert.match(calls[0].url, /q=hello/);
-    assert.match(calls[0].url, /limit=10/);
+    const { url } = firstCall();
+    assert.match(url, /\/api\/search\?/);
+    assert.match(url, /q=hello/);
+    assert.match(url, /limit=10/);
   });
 
   it("drops undefined query values", async () => {
     nextResponse = jsonResponse(200, {});
     await apiGet("/api/search", { q: "x", missing: undefined });
-    assert.doesNotMatch(calls[0].url, /missing=/);
+    assert.doesNotMatch(firstCall().url, /missing=/);
   });
 
   it("percent-encodes query values", async () => {
     nextResponse = jsonResponse(200, {});
     await apiGet("/api/search", { q: "a b&c" });
-    assert.match(calls[0].url, /q=a%20b%26c/);
+    assert.match(firstCall().url, /q=a%20b%26c/);
   });
 
   it("includes the bearer token when set", async () => {
     setAuthToken("secret123");
     nextResponse = jsonResponse(200, {});
     await apiGet("/api/thing");
-    assert.equal(getHeader(calls[0], "Authorization"), "Bearer secret123");
+    assert.equal(getHeader(firstCall(), "Authorization"), "Bearer secret123");
   });
 
   it("omits Authorization when no token set", async () => {
     setAuthToken(null);
     nextResponse = jsonResponse(200, {});
     await apiGet("/api/thing");
-    assert.equal(getHeader(calls[0], "Authorization"), undefined);
+    assert.equal(getHeader(firstCall(), "Authorization"), undefined);
   });
 
   it("caller-provided headers survive", async () => {
@@ -185,7 +195,7 @@ describe("apiCall — query and headers", () => {
       method: "GET",
       headers: { "X-Custom": "1" },
     });
-    assert.equal(getHeader(calls[0], "X-Custom"), "1");
+    assert.equal(getHeader(firstCall(), "X-Custom"), "1");
   });
 });
 

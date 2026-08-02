@@ -674,7 +674,9 @@ describe("syncCalendarForCollection (#2427 manual refresh)", () => {
       loadGroups: () => Promise.resolve(groupByCalendar([collectionOn("my-schedule", "work"), collectionOn("team", "work"), collectionOn("private", "home")])),
     });
     const outcome = await syncCalendarForCollection("my-schedule", "/ws", fake);
-    assert.deepEqual([...fake.ranWith[0].keys()], ["work"]);
+    const [ranGroups] = fake.ranWith;
+    assert.ok(ranGroups);
+    assert.deepEqual([...ranGroups.keys()], ["work"]);
     assert.deepEqual(outcome.kind === "synced" ? outcome.results.map((entry) => entry.slug).sort() : [], ["my-schedule", "team"]);
   });
 });
