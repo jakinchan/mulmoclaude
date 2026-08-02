@@ -96,12 +96,12 @@ export function findRepairTarget(src: string): string | null {
 interface ElLike {
   tagName: string;
   dataset: { imageRepairTried?: string };
-  src?: string;
-  srcset?: string;
-  getAttribute?: (name: string) => string | null;
-  setAttribute?: (name: string, value: string) => void;
-  closest?: (selector: string) => ElLike | null;
-  querySelectorAll?: (selector: string) => Iterable<ElLike>;
+  src?: string | undefined;
+  srcset?: string | undefined;
+  getAttribute?: ((name: string) => string | null) | undefined;
+  setAttribute?: ((name: string, value: string) => void) | undefined;
+  closest?: ((selector: string) => ElLike | null) | undefined;
+  querySelectorAll?: ((selector: string) => Iterable<ElLike>) | undefined;
 }
 
 // Runtime resolver: pull the artifacts/images path tail out of either

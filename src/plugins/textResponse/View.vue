@@ -161,7 +161,7 @@ const props = withDefaults(
     // edited source and handle persistence themselves.
     editableSource?: string | undefined;
   }>(),
-  { editable: true },
+  { editable: true, editableSource: undefined },
 );
 const emit = defineEmits<{
   updateResult: [result: ToolResult];

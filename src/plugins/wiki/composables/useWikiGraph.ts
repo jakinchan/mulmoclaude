@@ -1,6 +1,6 @@
 import { computed, ref, type ComputedRef, type Ref } from "vue";
 import { WIKI_ACTION, incomingLinks, type WikiGraph, type WikiGraphNode } from "@mulmoclaude/core/wiki";
-import type { WikiData } from "../index";
+import type { WikiDataPatch } from "../index";
 import { apiPost } from "../../../utils/api";
 import { shouldLazyLoadGraph } from "../helpers";
 
@@ -15,7 +15,7 @@ export interface WikiGraphState {
   graphData: Ref<WikiGraph | null>;
   graphError: Ref<string | null>;
   loadGraph: () => Promise<void>;
-  syncGraphFromResult: (data: Partial<WikiData> | undefined) => void;
+  syncGraphFromResult: (data: WikiDataPatch | undefined) => void;
   linkedReferences: ComputedRef<WikiGraphNode[]>;
 }
 
@@ -39,7 +39,7 @@ export function useWikiGraph(deps: WikiGraphDeps): WikiGraphState {
 
   // Graph tab response carries the link graph directly. On a page view, lazily
   // fetch the graph once so the "Linked references" panel has data.
-  function syncGraphFromResult(data: Partial<WikiData> | undefined): void {
+  function syncGraphFromResult(data: WikiDataPatch | undefined): void {
     if (data?.graph) {
       // Clear any stale error from an earlier failed loadGraph so a fresh graph
       // payload isn't hidden behind the error banner.

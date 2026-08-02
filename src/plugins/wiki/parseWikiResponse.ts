@@ -3,7 +3,7 @@
 // each one is rebuilt from a checked value rather than asserted.
 
 import { isRecord, isStringArray, isUnknownArray } from "../../utils/types";
-import type { WikiData, WikiPageEntry } from "./index";
+import type { WikiDataPatch, WikiPageEntry } from "./index";
 
 const parsePageEntry = (value: unknown): WikiPageEntry | null => {
   if (!isRecord(value)) return null;
@@ -31,7 +31,7 @@ const isOptionalBoolean = (value: unknown): value is boolean | undefined => valu
  *  (null), because `useFreshPluginData` skips `apply` on null and the view
  *  keeps the state it already had. Only a genuinely ABSENT field is left
  *  `undefined`, which is what the views' own `?? default` is there for. */
-export const extractWikiData = (json: unknown): Partial<WikiData> | null => {
+export const extractWikiData = (json: unknown): WikiDataPatch | null => {
   if (!isRecord(json) || !isRecord(json.data)) return null;
   const { action, title, content, pageEntries, pageExists } = json.data;
   if (!isOptionalString(action) || !isOptionalString(title) || !isOptionalString(content) || !isOptionalBoolean(pageExists)) return null;
