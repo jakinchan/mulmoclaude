@@ -40,13 +40,12 @@ export function defaultState(): JournalState {
 // Forgiving toward partial / hand-edited input — fill defaults instead of throwing.
 export function parseState(raw: unknown): JournalState {
   if (!isRecord(raw)) return defaultState();
-  const obj = raw as Record<string, unknown>;
 
   // Log the version-mismatch reset (#799 PR1) so postmortems can tell
   // it apart from a missing-file first run.
-  if (obj.version !== JOURNAL_STATE_VERSION) {
+  if (raw.version !== JOURNAL_STATE_VERSION) {
     log.info("journal", "state schema version mismatch — resetting", {
-      from: obj.version,
+      from: raw.version,
       to: JOURNAL_STATE_VERSION,
     });
     return defaultState();
@@ -55,22 +54,22 @@ export function parseState(raw: unknown): JournalState {
   const fallback = defaultState();
   return {
     version: JOURNAL_STATE_VERSION,
-    lastDailyRunAt: typeof obj.lastDailyRunAt === "string" ? obj.lastDailyRunAt : null,
-    lastOptimizationRunAt: typeof obj.lastOptimizationRunAt === "string" ? obj.lastOptimizationRunAt : null,
-    dailyIntervalHours: typeof obj.dailyIntervalHours === "number" && obj.dailyIntervalHours > 0 ? obj.dailyIntervalHours : fallback.dailyIntervalHours,
+    lastDailyRunAt: typeof raw.lastDailyRunAt === "string" ? raw.lastDailyRunAt : null,
+    lastOptimizationRunAt: typeof raw.lastOptimizationRunAt === "string" ? raw.lastOptimizationRunAt : null,
+    dailyIntervalHours: typeof raw.dailyIntervalHours === "number" && raw.dailyIntervalHours > 0 ? raw.dailyIntervalHours : fallback.dailyIntervalHours,
     optimizationIntervalDays:
-      typeof obj.optimizationIntervalDays === "number" && obj.optimizationIntervalDays > 0 ? obj.optimizationIntervalDays : fallback.optimizationIntervalDays,
-    processedSessions: parseProcessedSessions(obj.processedSessions),
-    knownTopics: Array.isArray(obj.knownTopics) ? obj.knownTopics.filter((topic): topic is string => typeof topic === "string") : [],
+      typeof raw.optimizationIntervalDays === "number" && raw.optimizationIntervalDays > 0 ? raw.optimizationIntervalDays : fallback.optimizationIntervalDays,
+    processedSessions: parseProcessedSessions(raw.processedSessions),
+    knownTopics: Array.isArray(raw.knownTopics) ? raw.knownTopics.filter((topic): topic is string => typeof topic === "string") : [],
   };
 }
 
 function parseProcessedSessions(raw: unknown): Record<string, ProcessedSessionRecord> {
   if (!isRecord(raw)) return {};
   const out: Record<string, ProcessedSessionRecord> = {};
-  for (const [sessionId, rec] of Object.entries(raw as Record<string, unknown>)) {
+  for (const [sessionId, rec] of Object.entries(raw)) {
     if (!isRecord(rec)) continue;
-    const mtime = (rec as Record<string, unknown>).lastMtimeMs;
+    const mtime = rec.lastMtimeMs;
     if (typeof mtime === "number" && mtime >= 0) {
       out[sessionId] = { lastMtimeMs: mtime };
     }

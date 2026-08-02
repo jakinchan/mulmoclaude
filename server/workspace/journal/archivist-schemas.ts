@@ -206,35 +206,31 @@ export { extractJsonObject, findBalancedBraceBlock } from "../../utils/json.js";
 
 export function isDailyArchivistOutput(value: unknown): value is DailyArchivistOutput {
   if (!isRecord(value)) return false;
-  const recordValue = value as Record<string, unknown>;
-  if (typeof recordValue.dailySummaryMarkdown !== "string") return false;
-  if (!Array.isArray(recordValue.topicUpdates)) return false;
-  return recordValue.topicUpdates.every(isTopicUpdate);
+  if (typeof value.dailySummaryMarkdown !== "string") return false;
+  if (!Array.isArray(value.topicUpdates)) return false;
+  return value.topicUpdates.every(isTopicUpdate);
 }
 
 function isTopicUpdate(value: unknown): value is TopicUpdate {
   if (!isRecord(value)) return false;
-  const recordValue = value as Record<string, unknown>;
-  if (typeof recordValue.slug !== "string") return false;
-  if (typeof recordValue.content !== "string") return false;
-  return recordValue.action === "create" || recordValue.action === "append" || recordValue.action === "rewrite";
+  if (typeof value.slug !== "string") return false;
+  if (typeof value.content !== "string") return false;
+  return value.action === "create" || value.action === "append" || value.action === "rewrite";
 }
 
 export function isOptimizationOutput(value: unknown): value is OptimizationOutput {
   if (!isRecord(value)) return false;
-  const recordValue = value as Record<string, unknown>;
-  if (!Array.isArray(recordValue.merges)) return false;
-  if (!Array.isArray(recordValue.archives)) return false;
-  if (!recordValue.merges.every(isTopicMerge)) return false;
-  return recordValue.archives.every((archiveSlug: unknown) => typeof archiveSlug === "string");
+  if (!Array.isArray(value.merges)) return false;
+  if (!Array.isArray(value.archives)) return false;
+  if (!value.merges.every(isTopicMerge)) return false;
+  return value.archives.every((archiveSlug: unknown) => typeof archiveSlug === "string");
 }
 
 function isTopicMerge(value: unknown): value is TopicMerge {
   if (!isRecord(value)) return false;
-  const recordValue = value as Record<string, unknown>;
-  if (!Array.isArray(recordValue.from)) return false;
-  if (!recordValue.from.every((fromSlug: unknown) => typeof fromSlug === "string")) return false;
-  if (typeof recordValue.into !== "string") return false;
-  if (typeof recordValue.newContent !== "string") return false;
+  if (!Array.isArray(value.from)) return false;
+  if (!value.from.every((fromSlug: unknown) => typeof fromSlug === "string")) return false;
+  if (typeof value.into !== "string") return false;
+  if (typeof value.newContent !== "string") return false;
   return true;
 }

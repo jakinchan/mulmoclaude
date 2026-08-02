@@ -11,6 +11,7 @@
 // audited: every entry is a potential supply-chain surface.
 
 import { SANDBOXED_VIEW_CDN_ALLOWLIST } from "@mulmoclaude/core/remote-view";
+import { isRecord } from "../types";
 
 export const HTML_PREVIEW_CSP_ALLOWED_CDNS: readonly string[] = SANDBOXED_VIEW_CDN_ALLOWLIST;
 
@@ -42,11 +43,10 @@ function isPlainHttpsHost(value: string): boolean {
 }
 
 export function sanitizeCspExtra(raw: unknown): CspExtraHosts {
-  if (raw === null || typeof raw !== "object") return {};
-  const record = raw as Record<string, unknown>;
+  if (!isRecord(raw)) return {};
   const out: CspExtraHosts = {};
   for (const directive of CSP_EXTENDABLE_DIRECTIVES) {
-    const value = record[directive];
+    const value = raw[directive];
     if (!Array.isArray(value)) continue;
     const hosts = value.map((host) => (typeof host === "string" ? host.trim() : "")).filter(isPlainHttpsHost);
     if (hosts.length > 0) out[directive] = [...new Set(hosts)];

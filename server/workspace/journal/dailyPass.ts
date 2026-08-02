@@ -549,7 +549,7 @@ function parseJsonlLine(line: string): Record<string, unknown> | null {
   if (!isRecord(parsed)) {
     return null;
   }
-  return parsed as Record<string, unknown>;
+  return parsed;
 }
 
 function isMetadataEntry(entry: Record<string, unknown>): boolean {
@@ -601,6 +601,7 @@ export function parseEntry(entry: Record<string, unknown>): ParsedEntry | null {
 export function entryToExcerpt(entry: Record<string, unknown>): SessionEventExcerpt | null {
   const source = typeof entry.source === "string" ? entry.source : "unknown";
   const type = typeof entry.type === "string" ? entry.type : "unknown";
+  const { result } = entry;
 
   if (type === EVENT_TYPES.text && typeof entry.message === "string") {
     return {
@@ -609,12 +610,10 @@ export function entryToExcerpt(entry: Record<string, unknown>): SessionEventExce
       content: truncate(entry.message, MAX_EVENT_CONTENT_CHARS),
     };
   }
-  // typeof null === "object", so isRecord must reject null before accessing resultRecord.toolName below.
-  if (type === EVENT_TYPES.toolResult && isRecord(entry.result)) {
-    const resultRecord = entry.result as Record<string, unknown>;
-    const toolName = typeof resultRecord.toolName === "string" ? resultRecord.toolName : "tool";
-    const label =
-      (typeof resultRecord.title === "string" && resultRecord.title) || (typeof resultRecord.message === "string" && resultRecord.message) || "(no message)";
+  // typeof null === "object", so isRecord must reject null before accessing result.toolName below.
+  if (type === EVENT_TYPES.toolResult && isRecord(result)) {
+    const toolName = typeof result.toolName === "string" ? result.toolName : "tool";
+    const label = (typeof result.title === "string" && result.title) || (typeof result.message === "string" && result.message) || "(no message)";
     return {
       source,
       type,
@@ -629,20 +628,18 @@ export function extractArtifactPaths(entry: Record<string, unknown>): string[] {
   if (entry.type !== "tool_result") return [];
   const { result } = entry;
   if (!isRecord(result)) return [];
-  const resultRecord = result as Record<string, unknown>;
-  const { data } = resultRecord;
+  const { data } = result;
   if (!isRecord(data)) return [];
-  const dataRecord = data as Record<string, unknown>;
   const paths: string[] = [];
 
   // presentMulmoScript / presentHtml expose filePath directly.
-  if (typeof dataRecord.filePath === "string" && dataRecord.filePath.length > 0) {
-    paths.push(dataRecord.filePath);
+  if (typeof data.filePath === "string" && data.filePath.length > 0) {
+    paths.push(data.filePath);
   }
 
   // manageWiki only surfaces pageName; synthesise the path from the wiki/pages/<pageName>.md convention.
-  if (resultRecord.toolName === "manageWiki" && typeof dataRecord.pageName === "string") {
-    paths.push(`wiki/pages/${dataRecord.pageName}.md`);
+  if (result.toolName === "manageWiki" && typeof data.pageName === "string") {
+    paths.push(`wiki/pages/${data.pageName}.md`);
   }
 
   return paths.filter(isSafeWorkspacePath);

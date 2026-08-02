@@ -5,6 +5,7 @@
 import path from "node:path";
 import { WORKSPACE_DIRS, workspacePath } from "../../workspace/paths.js";
 import { loadJsonFile, writeJsonAtomic } from "./json.js";
+import { isRecord, isStringRecord } from "../types.js";
 import { emptyDictionary } from "../../services/translation/cache.js";
 import type { DictionaryFile } from "../../services/translation/types.js";
 
@@ -23,16 +24,8 @@ export function dictionaryPath(namespace: string, workspaceRoot?: string): strin
 // `dict.sentences[sentence]` and turn every request for the namespace
 // into a 500 until the file was repaired.
 function isValidDictionary(value: unknown): value is DictionaryFile {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const { sentences } = value as { sentences?: unknown };
-  if (typeof sentences !== "object" || sentences === null || Array.isArray(sentences)) return false;
-  for (const inner of Object.values(sentences)) {
-    if (typeof inner !== "object" || inner === null || Array.isArray(inner)) return false;
-    for (const translated of Object.values(inner as Record<string, unknown>)) {
-      if (typeof translated !== "string") return false;
-    }
-  }
-  return true;
+  if (!isRecord(value) || !isRecord(value.sentences)) return false;
+  return Object.values(value.sentences).every(isStringRecord);
 }
 
 export function loadDictionary(namespace: string, workspaceRoot?: string): DictionaryFile {

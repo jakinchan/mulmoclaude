@@ -26,6 +26,7 @@ import path from "node:path";
 
 import { loadPluginFromCacheDir, type LoaderDeps, type RuntimePlugin } from "./runtime-loader.js";
 import { log } from "../system/logger/index.js";
+import { isRecord } from "../utils/types.js";
 
 const LOG_PREFIX = "plugins/dev";
 
@@ -83,7 +84,7 @@ export async function validateDevPluginPath(absPath: string): Promise<DevPluginV
   try {
     const raw = await readFile(pkgPath, "utf-8");
     const parsed: unknown = JSON.parse(raw);
-    name = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>).name : undefined;
+    name = isRecord(parsed) ? parsed.name : undefined;
   } catch (err) {
     return { ok: false, reason: `package.json unreadable at ${pkgPath}: ${String(err)}` };
   }
