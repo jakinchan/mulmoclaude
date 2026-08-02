@@ -12,7 +12,7 @@
 // the message but cannot send replies back.
 
 import { chunkText } from "@mulmobridge/client/text";
-import { isRecord } from "@mulmoclaude/common";
+import { hasStringProp, isRecord } from "@mulmoclaude/common";
 import { PLATFORMS, type RelayMessage, type Env } from "../types.js";
 import { registerPlatform, CONNECTION_MODES, type PlatformPlugin } from "../platform.js";
 import { ONE_HOUR_MS, ONE_HOUR_S, TEN_SECONDS_MS, FIFTEEN_SECONDS_MS } from "../time.js";
@@ -29,15 +29,20 @@ const MAX_CHAT_TEXT = 4000;
 
 // ── JWKS cache ──────────────────────────────────────────────────
 
+// Only the fields the guard below actually proves — the JWKS entry reaches crypto.subtle verbatim, extra fields (`alg`, `use`) included.
 interface JwkKey {
   kid: string;
   kty: string;
   n: string;
   e: string;
-  alg?: string;
 }
 let cachedKeys: JwkKey[] = [];
 let cacheExpiresAt = 0;
+
+// Every field of JwkKey is checked here, so nothing is asserted; `e` and `kty`
+// are what crypto.subtle needs to build an RSA public key.
+export const isJwk = (key: unknown): key is JwkKey =>
+  hasStringProp(key, "kid") && hasStringProp(key, "kty") && hasStringProp(key, "n") && hasStringProp(key, "e");
 
 async function getJwks(): Promise<JwkKey[]> {
   if (Date.now() < cacheExpiresAt && cachedKeys.length > 0) return cachedKeys;
@@ -45,8 +50,6 @@ async function getJwks(): Promise<JwkKey[]> {
   if (!res.ok) return cachedKeys;
   const data: { keys?: unknown[] } = await res.json();
   if (!Array.isArray(data.keys)) return cachedKeys;
-  const isJwk = (key: unknown): key is JwkKey =>
-    typeof key === "object" && key !== null && typeof (key as JwkKey).kid === "string" && typeof (key as JwkKey).n === "string";
   cachedKeys = data.keys.filter(isJwk);
   cacheExpiresAt = Date.now() + JWKS_CACHE_TTL_MS;
   return cachedKeys;
@@ -104,7 +107,7 @@ interface ServiceAccount {
 
 function parseServiceAccount(raw: string): ServiceAccount | null {
   try {
-    const parsed = JSON.parse(raw) as unknown;
+    const parsed: unknown = JSON.parse(raw);
     if (!isRecord(parsed) || typeof parsed.client_email !== "string" || typeof parsed.private_key !== "string") return null;
     return { client_email: parsed.client_email, private_key: parsed.private_key };
   } catch {
@@ -132,6 +135,15 @@ async function makeServiceAccountJwt(account: ServiceAccount): Promise<string> {
   return `${header}.${claims}.${sig}`;
 }
 
+// OAuth can answer 200 with an error body; asserting the shape instead of
+// checking it would send the literal string "Bearer undefined" to the Chat API.
+export function readAccessToken(data: unknown, status: number): string {
+  if (!hasStringProp(data, "access_token") || !data.access_token) {
+    throw new Error(`Google token exchange returned no access_token (${GOOGLE_TOKEN_URL}, status ${status})`);
+  }
+  return data.access_token;
+}
+
 async function getGoogleAccessToken(account: ServiceAccount): Promise<string> {
   const jwt = await makeServiceAccountJwt(account);
   const res = await fetch(GOOGLE_TOKEN_URL, {
@@ -141,8 +153,7 @@ async function getGoogleAccessToken(account: ServiceAccount): Promise<string> {
     signal: AbortSignal.timeout(TEN_SECONDS_MS),
   });
   if (!res.ok) throw new Error(`Google token exchange failed: ${res.status}`);
-  const data = (await res.json()) as { access_token: string };
-  return data.access_token;
+  return readAccessToken(await res.json(), res.status);
 }
 
 // ── Plugin ──────────────────────────────────────────────────────

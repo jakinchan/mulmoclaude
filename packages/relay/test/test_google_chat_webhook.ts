@@ -9,7 +9,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { validateGoogleChatClaims } from "../src/webhooks/google-chat.js";
+import { isJwk, readAccessToken, validateGoogleChatClaims } from "../src/webhooks/google-chat.js";
 
 const GOOGLE_CHAT_ISSUER = "chat@system.gserviceaccount.com";
 const PROJECT_NUMBER = "123456789012";
@@ -60,4 +60,63 @@ describe("validateGoogleChatClaims", () => {
   it("rejects when exp claim is null (fail-closed)", () => {
     assert.equal(validateGoogleChatClaims(basePayload({ exp: null }), PROJECT_NUMBER, NOW_SEC), false);
   });
+});
+
+function baseJwk(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return { kid: "abc123", kty: "RSA", n: "0vx7ag...", e: "AQAB", alg: "RS256", ...overrides };
+}
+
+describe("isJwk", () => {
+  it("accepts a well-formed RSA JWKS entry", () => {
+    assert.equal(isJwk(baseJwk()), true);
+  });
+
+  it("accepts an entry carrying extra fields", () => {
+    assert.equal(isJwk(baseJwk({ use: "sig" })), true);
+  });
+
+  for (const field of ["kid", "kty", "n", "e"]) {
+    it(`rejects an entry missing ${field}`, () => {
+      const key = Object.fromEntries(Object.entries(baseJwk()).filter(([name]) => name !== field));
+      assert.equal(isJwk(key), false);
+    });
+
+    it(`rejects an entry whose ${field} is not a string`, () => {
+      assert.equal(isJwk(baseJwk({ [field]: 42 })), false);
+    });
+  }
+
+  for (const [label, value] of [
+    ["null", null],
+    ["undefined", undefined],
+    ["an array", [baseJwk()]],
+    ["a string", "not a jwk"],
+    ["a number", 7],
+  ] as const) {
+    it(`rejects ${label}`, () => {
+      assert.equal(isJwk(value), false);
+    });
+  }
+});
+
+describe("readAccessToken", () => {
+  it("returns the token from a well-formed response", () => {
+    assert.equal(readAccessToken({ access_token: "ya29.abc", expires_in: 3599 }, 200), "ya29.abc");
+  });
+
+  it("throws on an OAuth error body served with a 2xx status", () => {
+    assert.throws(() => readAccessToken({ error: "invalid_grant" }, 200), /no access_token.*status 200/s);
+  });
+
+  for (const [label, data] of [
+    ["an empty token", { access_token: "" }],
+    ["a non-string token", { access_token: 12345 }],
+    ["a null body", null],
+    ["an array body", []],
+    ["a string body", "ya29.abc"],
+  ] as const) {
+    it(`throws on ${label}`, () => {
+      assert.throws(() => readAccessToken(data, 200), /no access_token/);
+    });
+  }
 });

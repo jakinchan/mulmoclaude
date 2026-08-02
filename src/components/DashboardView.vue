@@ -125,7 +125,7 @@ function modesFor(slug: string): CollectionViewMode[] {
  *  the first available mode (table). */
 function effectiveView(tile: DashboardTile): CollectionViewMode {
   const modes = modesFor(tile.slug);
-  return tile.viewMode && modes.includes(tile.viewMode as CollectionViewMode) ? (tile.viewMode as CollectionViewMode) : (modes[0] ?? "table");
+  return modes.find((mode) => mode === tile.viewMode) ?? modes[0] ?? "table";
 }
 
 const BUILTIN_LABEL_KEYS: Record<string, string> = {
@@ -143,8 +143,9 @@ function modeLabel(slug: string, mode: CollectionViewMode): string {
 }
 
 function onPickView(slug: string, event: Event): void {
-  const { value } = event.target as HTMLSelectElement;
-  void setViewMode(slug, value);
+  const { target } = event;
+  if (!(target instanceof HTMLSelectElement)) return;
+  void setViewMode(slug, target.value);
 }
 
 function openFull(slug: string): void {
@@ -158,6 +159,21 @@ function openFull(slug: string): void {
 // double-click does (the requested pointer UX).
 function onTitleActivate(event: MouseEvent, slug: string): void {
   if (event.detail === 0) openFull(slug);
+}
+
+// The element a drag started on, with the pointer captured to it. Capture
+// routes every subsequent move/up to the handle even when the cursor passes
+// over an embedded view (incl. iframes), which is what made the drag drop
+// events and feel unstable.
+function captureDragHandle(event: PointerEvent): HTMLElement | null {
+  const { currentTarget } = event;
+  if (!(currentTarget instanceof HTMLElement)) return null;
+  try {
+    currentTarget.setPointerCapture(event.pointerId);
+  } catch {
+    // Pointer capture unsupported — fall back to plain window listeners.
+  }
+  return currentTarget;
 }
 
 // ── Drag-to-reorder via pointer events. Native HTML5 DnD conflicted with
@@ -211,12 +227,8 @@ function onReorderEnd(): void {
 }
 
 function onReorderStart(index: number, event: PointerEvent): void {
-  const handle = event.currentTarget as HTMLElement;
-  try {
-    handle.setPointerCapture(event.pointerId);
-  } catch {
-    // Pointer capture unsupported — fall back to plain window listeners.
-  }
+  const handle = captureDragHandle(event);
+  if (!handle) return;
   reorder = { startIndex: index, handle, pointerId: event.pointerId };
   dragIndex.value = index;
   isReordering.value = true;
@@ -331,15 +343,8 @@ function onResizeEnd(): void {
 }
 
 function onResizeStart(index: number, event: PointerEvent): void {
-  const handle = event.currentTarget as HTMLElement;
-  // Pointer capture routes every subsequent move/up to the handle even
-  // when the cursor passes over the embedded view (incl. iframes), which
-  // is what made the drag drop events and feel unstable.
-  try {
-    handle.setPointerCapture(event.pointerId);
-  } catch {
-    // Pointer capture unsupported — fall back to plain window listeners.
-  }
+  const handle = captureDragHandle(event);
+  if (!handle) return;
   resize = { cols: columns.value, row: rowOf(index), startY: event.clientY, startHeight: rowHeight(index), handle, pointerId: event.pointerId };
   isResizing.value = true;
   window.addEventListener("pointermove", onResizeMove);
