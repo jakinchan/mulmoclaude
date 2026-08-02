@@ -8,6 +8,7 @@ const fr: Messages = {
   pdf: "PDF",
   pdfFailedShort: "⚠ Échec PDF",
   editSource: "Modifier la source Markdown",
+  livePreview: "Aperçu en direct",
   saving: "Enregistrement...",
   applyChanges: "Appliquer les modifications",
   cancel: "Annuler",

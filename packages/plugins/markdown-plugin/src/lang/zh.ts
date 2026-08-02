@@ -8,6 +8,7 @@ const zh: Messages = {
   pdf: "PDF",
   pdfFailedShort: "⚠ PDF 失败",
   editSource: "编辑 Markdown 源",
+  livePreview: "实时预览",
   saving: "保存中...",
   applyChanges: "应用更改",
   cancel: "取消",
