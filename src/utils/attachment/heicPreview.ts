@@ -58,6 +58,9 @@ export async function buildHeicPreviewDataUrl(file: File): Promise<string | null
     // frame for the preview; the full sequence still ships as-is to
     // the upload endpoint via the untouched `dataUrl`.
     const jpegBlob = Array.isArray(converted) ? converted[0] : converted;
+    // A frameless result has no preview to show; the original file still
+    // uploads via the untouched `dataUrl`.
+    if (!jpegBlob) return null;
     return await blobToDataUrl(jpegBlob);
   } catch {
     return null;

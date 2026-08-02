@@ -17,8 +17,7 @@ const SLASH_QUERY_RE = /^\/(\S*)$/;
 
 /** Returns the query after `/` when the input is a bare `/token`, else null. */
 export function parseSlashQuery(value: string): string | null {
-  const match = SLASH_QUERY_RE.exec(value);
-  return match ? match[1] : null;
+  return SLASH_QUERY_RE.exec(value)?.[1] ?? null;
 }
 
 /** Case-insensitive prefix match on skill name (empty query matches all). */

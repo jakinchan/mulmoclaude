@@ -2,7 +2,7 @@
  * Lookup and Reference Functions
  */
 
-import { functionRegistry, toNumber, parseCriteria, type FunctionHandler, type FunctionContext } from "../registry";
+import { functionRegistry, requiredArg, toNumber, parseCriteria, type FunctionHandler, type FunctionContext } from "../registry";
 import { indexToColumn } from "../parser";
 import { parseRangeBounds, resolveIndexTarget, resolveTableOffset } from "../formulaRefs";
 import { isApproximateMatch } from "./lookup-math";
@@ -19,6 +19,20 @@ const columnValues = (context: FunctionContext, sheetPrefix: string, colStr: str
 const rowValues = (context: FunctionContext, sheetPrefix: string, row: number, startCol: number, endCol: number): CellValue[] =>
   inclusiveRange(startCol, endCol).map((c) => context.getCellValue(`${sheetPrefix}${indexToColumn(c)}${row}`));
 
+/** The index of the LAST value that satisfies `matches`, or -1. Array.findIndex
+ *  only walks forward, and XLOOKUP's `searchMode: -1` searches from the end. */
+const findLastMatchIndex = (values: CellValue[], matches: (value: CellValue) => boolean): number =>
+  values.reduce<number>((found, value, index) => (matches(value) ? index : found), -1);
+
+/** The index of the last value in a SORTED list before `keepGoing` stops
+ *  holding, or -1 when the very first value already fails. The list is assumed
+ *  sorted (as Excel's approximate match requires), so the first failure ends the
+ *  run. */
+const lastIndexWhile = (values: CellValue[], keepGoing: (value: CellValue) => boolean): number => {
+  const stop = values.findIndex((value) => !keepGoing(value));
+  return (stop === -1 ? values.length : stop) - 1;
+};
+
 // Helper to find match index
 const findMatchIndex = (
   lookupValue: CellValue,
@@ -33,73 +47,31 @@ const findMatchIndex = (
 
   // Exact match
   if (matchType === 0) {
-    // Handle wildcards for strings if it's an exact match request
-    if (typeof lookupValue === "string" && (lookupValue.includes("*") || lookupValue.includes("?"))) {
-      const criteriaFn = parseCriteria(lookupValue);
-
-      if (searchMode === 1) {
-        return lookupArray.findIndex((item) => criteriaFn(item));
-      } else {
-        for (let i = lookupArray.length - 1; i >= 0; i--) {
-          if (criteriaFn(lookupArray[i])) return i;
-        }
-        return -1;
-      }
-    }
-
-    if (searchMode === 1) {
-      return lookupArray.findIndex((item) => item == lookupValue); // Loose equality for "10" == 10
-    } else {
-      for (let i = lookupArray.length - 1; i >= 0; i--) {
-        if (lookupArray[i] == lookupValue) return i;
-      }
-      return -1;
-    }
+    // Handle wildcards for strings if it's an exact match request.
+    // Loose equality otherwise, for "10" == 10.
+    const usesWildcards = typeof lookupValue === "string" && (lookupValue.includes("*") || lookupValue.includes("?"));
+    const isMatch = usesWildcards ? parseCriteria(lookupValue) : (item: CellValue) => item == lookupValue;
+    return searchMode === 1 ? lookupArray.findIndex(isMatch) : findLastMatchIndex(lookupArray, isMatch);
   }
 
   // Approximate match (requires sorted array)
   // We'll assume the user knows what they are doing regarding sorting, as per Excel behavior
 
-  if (matchType === 1) {
-    // Less than or equal to
-    // Array must be sorted ascending
-    let bestIdx = -1;
-    for (let i = 0; i < lookupArray.length; i++) {
-      const item = lookupArray[i];
-      if (compare(item, lookupValue) <= 0) {
-        bestIdx = i;
-      } else {
-        // Since it's sorted ascending, once we exceed, we can stop
-        break;
-      }
-    }
-    return bestIdx;
-  }
+  // Less than or equal to, over an array sorted ascending: once we exceed, stop.
+  if (matchType === 1) return lastIndexWhile(lookupArray, (item) => compare(item, lookupValue) <= 0);
 
-  if (matchType === -1) {
-    // Greater than or equal to
-    // Array must be sorted descending
-    let bestIdx = -1;
-    for (let i = 0; i < lookupArray.length; i++) {
-      const item = lookupArray[i];
-      if (compare(item, lookupValue) >= 0) {
-        bestIdx = i;
-      } else {
-        break;
-      }
-    }
-    return bestIdx;
-  }
+  // Greater than or equal to, over an array sorted descending.
+  if (matchType === -1) return lastIndexWhile(lookupArray, (item) => compare(item, lookupValue) >= 0);
 
   return -1;
 };
 
 const vlookupHandler: FunctionHandler = (args, context) => {
-  const lookupValue = context.evaluateFormula(args[0]);
-  const bounds = parseRangeBounds(args[1]);
+  const lookupValue = context.evaluateFormula(requiredArg(context, args, 0));
+  const bounds = parseRangeBounds(requiredArg(context, args, 1));
   if (!bounds) throw new Error("Invalid table array range");
-  const colIndexNum = toNumber(context.evaluateFormula(args[2]));
-  const rangeLookup = args.length === 4 ? context.evaluateFormula(args[3]) : true;
+  const colIndexNum = toNumber(context.evaluateFormula(requiredArg(context, args, 2)));
+  const rangeLookup = args.length === 4 ? context.evaluateFormula(requiredArg(context, args, 3)) : true;
   const matchType = isApproximateMatch(rangeLookup) ? 1 : 0;
 
   // Excel rejects a col_index_num past the table's width; reading on regardless
@@ -120,11 +92,11 @@ const vlookupHandler: FunctionHandler = (args, context) => {
 };
 
 const hlookupHandler: FunctionHandler = (args, context) => {
-  const lookupValue = context.evaluateFormula(args[0]);
-  const bounds = parseRangeBounds(args[1]);
+  const lookupValue = context.evaluateFormula(requiredArg(context, args, 0));
+  const bounds = parseRangeBounds(requiredArg(context, args, 1));
   if (!bounds) throw new Error("Invalid range format");
-  const rowIndexNum = toNumber(context.evaluateFormula(args[2]));
-  const rangeLookup = args.length === 4 ? context.evaluateFormula(args[3]) : true;
+  const rowIndexNum = toNumber(context.evaluateFormula(requiredArg(context, args, 2)));
+  const rangeLookup = args.length === 4 ? context.evaluateFormula(requiredArg(context, args, 3)) : true;
   const matchType = isApproximateMatch(rangeLookup) ? 1 : 0;
 
   const rowOffset = resolveTableOffset(rowIndexNum, bounds.endRow - bounds.startRow + 1);
@@ -140,9 +112,9 @@ const hlookupHandler: FunctionHandler = (args, context) => {
 };
 
 const matchHandler: FunctionHandler = (args, context) => {
-  const lookupValue = context.evaluateFormula(args[0]);
-  const lookupArrayRange = args[1];
-  const matchType = args.length === 3 ? toNumber(context.evaluateFormula(args[2])) : 1;
+  const lookupValue = context.evaluateFormula(requiredArg(context, args, 0));
+  const lookupArrayRange = requiredArg(context, args, 1);
+  const matchType = args.length === 3 ? toNumber(context.evaluateFormula(requiredArg(context, args, 2))) : 1;
 
   const lookupArray = context.getRangeValues(lookupArrayRange);
 
@@ -152,10 +124,10 @@ const matchHandler: FunctionHandler = (args, context) => {
 };
 
 const indexHandler: FunctionHandler = (args, context) => {
-  const bounds = parseRangeBounds(args[0]);
+  const bounds = parseRangeBounds(requiredArg(context, args, 0));
   if (!bounds) throw new Error("Invalid range format");
-  const rowNum = toNumber(context.evaluateFormula(args[1]));
-  const colNum = args.length >= 3 ? toNumber(context.evaluateFormula(args[2])) : 1; // Default to 1 if omitted (for 1D arrays)
+  const rowNum = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
+  const colNum = args.length >= 3 ? toNumber(context.evaluateFormula(requiredArg(context, args, 2))) : 1; // Default to 1 if omitted (for 1D arrays)
 
   const target = resolveIndexTarget(bounds, rowNum, colNum);
   if (!target) return REF_ERROR;
@@ -163,12 +135,12 @@ const indexHandler: FunctionHandler = (args, context) => {
 };
 
 const xlookupHandler: FunctionHandler = (args, context) => {
-  const lookupValue = context.evaluateFormula(args[0]);
-  const lookupArrayRange = args[1];
-  const returnArrayRange = args[2];
-  const ifNotFound = args.length >= 4 ? context.evaluateFormula(args[3]) : NA_ERROR;
-  const matchMode = args.length >= 5 ? toNumber(context.evaluateFormula(args[4])) : 0;
-  const searchMode = args.length >= 6 ? toNumber(context.evaluateFormula(args[5])) : 1;
+  const lookupValue = context.evaluateFormula(requiredArg(context, args, 0));
+  const lookupArrayRange = requiredArg(context, args, 1);
+  const returnArrayRange = requiredArg(context, args, 2);
+  const ifNotFound = args.length >= 4 ? context.evaluateFormula(requiredArg(context, args, 3)) : NA_ERROR;
+  const matchMode = args.length >= 5 ? toNumber(context.evaluateFormula(requiredArg(context, args, 4))) : 0;
+  const searchMode = args.length >= 6 ? toNumber(context.evaluateFormula(requiredArg(context, args, 5))) : 1;
 
   const lookupArray = context.getRangeValues(lookupArrayRange);
   const returnArray = context.getRangeValues(returnArrayRange);
@@ -220,11 +192,10 @@ const xlookupHandler: FunctionHandler = (args, context) => {
 
   if (matchIdx === -1) return ifNotFound;
 
-  if (matchIdx >= 0 && matchIdx < returnArray.length) {
-    return returnArray[matchIdx];
-  }
-
-  return NA_ERROR;
+  // A match past the end of the return range has nothing to return — the two
+  // ranges are independent arguments and need not be the same length.
+  const found = returnArray[matchIdx];
+  return found === undefined ? NA_ERROR : found;
 };
 
 // Register functions

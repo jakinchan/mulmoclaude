@@ -2,7 +2,7 @@
  * Mathematical Functions
  */
 
-import { functionRegistry, toNumber, type FunctionHandler } from "../registry";
+import { functionRegistry, requiredArg, toNumber, type FunctionHandler } from "../registry";
 import {
   roundTo,
   roundUpTo,
@@ -20,94 +20,94 @@ import { toScalarNumber } from "../numericCoercion";
 import { isSpreadsheetErrorValue } from "../spreadsheet-errors";
 
 const roundHandler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
-  const digits = toNumber(context.evaluateFormula(args[1]));
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const digits = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
   return roundTo(number, digits);
 };
 
 const roundupHandler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
-  const digits = toNumber(context.evaluateFormula(args[1]));
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const digits = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
   return roundUpTo(number, digits);
 };
 
 const rounddownHandler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
-  const digits = toNumber(context.evaluateFormula(args[1]));
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const digits = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
   return roundDownTo(number, digits);
 };
 
 const floorHandler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
-  const significance = toNumber(context.evaluateFormula(args[1]));
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const significance = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
   return floorToSignificance(number, significance);
 };
 
 const ceilingHandler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
-  const significance = toNumber(context.evaluateFormula(args[1]));
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const significance = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
   return ceilingToSignificance(number, significance);
 };
 
 const absHandler: FunctionHandler = (args, context) => {
-  const number = toScalarNumber(context.evaluateFormula(args[0]));
+  const number = toScalarNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   return isSpreadsheetErrorValue(number) ? number : Math.abs(number);
 };
 
 const powerHandler: FunctionHandler = (args, context) => {
-  const base = toNumber(context.evaluateFormula(args[0]));
-  const exponent = toNumber(context.evaluateFormula(args[1]));
+  const base = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const exponent = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
   return power(base, exponent);
 };
 
 const sqrtHandler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   return safeSqrt(number);
 };
 
 const modHandler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
-  const divisor = toNumber(context.evaluateFormula(args[1]));
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const divisor = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
   return modulo(number, divisor);
 };
 
 const intHandler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   return Math.floor(number);
 };
 
 const truncHandler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
-  const digits = args.length === 2 ? toNumber(context.evaluateFormula(args[1])) : 0;
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const digits = args.length === 2 ? toNumber(context.evaluateFormula(requiredArg(context, args, 1))) : 0;
   const multiplier = Math.pow(10, digits);
   return Math.trunc(number * multiplier) / multiplier;
 };
 
 const signHandler: FunctionHandler = (args, context) => {
-  const number = toScalarNumber(context.evaluateFormula(args[0]));
+  const number = toScalarNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   return isSpreadsheetErrorValue(number) ? number : Math.sign(number);
 };
 
 const piHandler: FunctionHandler = () => Math.PI;
 
 const expHandler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   return Math.exp(number);
 };
 
 const lnHandler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   return safeLog(number);
 };
 
 const logHandler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
-  const base = args.length === 2 ? toNumber(context.evaluateFormula(args[1])) : 10;
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const base = args.length === 2 ? toNumber(context.evaluateFormula(requiredArg(context, args, 1))) : 10;
   return logWithBase(number, base);
 };
 
 const log10Handler: FunctionHandler = (args, context) => {
-  const number = toNumber(context.evaluateFormula(args[0]));
+  const number = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   return safeLog10(number);
 };
 

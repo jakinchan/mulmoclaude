@@ -4,7 +4,7 @@
  * January 1, 1900 is serial number 1.
  */
 
-import { functionRegistry, toNumber, toString, type FunctionHandler } from "../registry";
+import { functionRegistry, requiredArg, toNumber, toString, type FunctionHandler } from "../registry";
 import { computeDatedif } from "../datedif";
 import { dateToSerial, serialToDate } from "../date-utils";
 
@@ -25,9 +25,9 @@ const todayHandler: FunctionHandler = () => {
 };
 
 const dateHandler: FunctionHandler = (args, context) => {
-  const year = toNumber(context.evaluateFormula(args[0]));
-  const month = toNumber(context.evaluateFormula(args[1]));
-  const day = toNumber(context.evaluateFormula(args[2]));
+  const year = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const month = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
+  const day = toNumber(context.evaluateFormula(requiredArg(context, args, 2)));
 
   // JS Date constructor handles overflow (e.g. month 13 becomes Jan of next year)
   // Month is 0-indexed in JS, 1-indexed in Excel
@@ -36,9 +36,9 @@ const dateHandler: FunctionHandler = (args, context) => {
 };
 
 const timeHandler: FunctionHandler = (args, context) => {
-  const hour = toNumber(context.evaluateFormula(args[0]));
-  const minute = toNumber(context.evaluateFormula(args[1]));
-  const second = toNumber(context.evaluateFormula(args[2]));
+  const hour = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const minute = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
+  const second = toNumber(context.evaluateFormula(requiredArg(context, args, 2)));
 
   // Time is a fraction of a day
   // 1 hour = 1/24
@@ -53,25 +53,25 @@ const timeHandler: FunctionHandler = (args, context) => {
 };
 
 const yearHandler: FunctionHandler = (args, context) => {
-  const serial = toNumber(context.evaluateFormula(args[0]));
+  const serial = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   const date = serialToDate(serial);
   return date.getUTCFullYear();
 };
 
 const monthHandler: FunctionHandler = (args, context) => {
-  const serial = toNumber(context.evaluateFormula(args[0]));
+  const serial = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   const date = serialToDate(serial);
   return date.getUTCMonth() + 1; // 1-indexed
 };
 
 const dayHandler: FunctionHandler = (args, context) => {
-  const serial = toNumber(context.evaluateFormula(args[0]));
+  const serial = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   const date = serialToDate(serial);
   return date.getUTCDate();
 };
 
 const hourHandler: FunctionHandler = (args, context) => {
-  const serial = toNumber(context.evaluateFormula(args[0]));
+  const serial = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   // Get fractional part
   const timePart = serial - Math.floor(serial);
   const totalSeconds = Math.round(timePart * 86400);
@@ -79,23 +79,23 @@ const hourHandler: FunctionHandler = (args, context) => {
 };
 
 const minuteHandler: FunctionHandler = (args, context) => {
-  const serial = toNumber(context.evaluateFormula(args[0]));
+  const serial = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   const timePart = serial - Math.floor(serial);
   const totalSeconds = Math.round(timePart * 86400);
   return Math.floor((totalSeconds % 3600) / 60);
 };
 
 const secondHandler: FunctionHandler = (args, context) => {
-  const serial = toNumber(context.evaluateFormula(args[0]));
+  const serial = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   const timePart = serial - Math.floor(serial);
   const totalSeconds = Math.round(timePart * 86400);
   return totalSeconds % 60;
 };
 
 const datedifHandler: FunctionHandler = (args, context) => {
-  const startSerial = toNumber(context.evaluateFormula(args[0]));
-  const endSerial = toNumber(context.evaluateFormula(args[1]));
-  const unit = toString(context.evaluateFormula(args[2]));
+  const startSerial = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const endSerial = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
+  const unit = toString(context.evaluateFormula(requiredArg(context, args, 2)));
 
   return computeDatedif(startSerial, endSerial, unit);
 };

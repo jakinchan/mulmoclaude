@@ -47,6 +47,28 @@ function decodeAndPunchOutWhite(): Promise<HTMLCanvasElement> {
   });
 }
 
+const RGBA_STRIDE = 4;
+const OPAQUE_ALPHA = 255;
+
+/** Near-white fades to transparent so the logo reads on any tab
+ *  background; anything darker than the feather floor keeps the alpha
+ *  it already has. */
+function alphaForMinChannel(minChannel: number, currentAlpha: number): number {
+  if (minChannel >= WHITE_TO_ALPHA_THRESHOLD) return 0;
+  if (minChannel < FEATHER_LOW) return currentAlpha;
+  const ratio = (minChannel - FEATHER_LOW) / (WHITE_TO_ALPHA_THRESHOLD - FEATHER_LOW);
+  return Math.round(OPAQUE_ALPHA * (1 - ratio));
+}
+
+function punchOutWhite(pixels: Uint8ClampedArray): void {
+  for (let offset = 0; offset < pixels.length; offset += RGBA_STRIDE) {
+    // An RGBA buffer is always a whole number of 4-byte pixels, so these
+    // reads are in range; the defaults leave a truncated tail untouched.
+    const minChannel = Math.min(pixels[offset] ?? 0, pixels[offset + 1] ?? 0, pixels[offset + 2] ?? 0);
+    pixels[offset + 3] = alphaForMinChannel(minChannel, pixels[offset + 3] ?? OPAQUE_ALPHA);
+  }
+}
+
 function buildTransparentLogoCanvas(img: HTMLImageElement): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth;
@@ -55,19 +77,7 @@ function buildTransparentLogoCanvas(img: HTMLImageElement): HTMLCanvasElement {
   if (!ctx) throw new Error("2d context unavailable");
   ctx.drawImage(img, 0, 0);
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const pixels = imageData.data;
-  for (let i = 0; i < pixels.length; i += 4) {
-    const red = pixels[i];
-    const green = pixels[i + 1];
-    const blue = pixels[i + 2];
-    const minChannel = Math.min(red, green, blue);
-    if (minChannel >= WHITE_TO_ALPHA_THRESHOLD) {
-      pixels[i + 3] = 0;
-    } else if (minChannel >= FEATHER_LOW) {
-      const ratio = (minChannel - FEATHER_LOW) / (WHITE_TO_ALPHA_THRESHOLD - FEATHER_LOW);
-      pixels[i + 3] = Math.round(255 * (1 - ratio));
-    }
-  }
+  punchOutWhite(imageData.data);
   ctx.putImageData(imageData, 0, 0);
   return canvas;
 }

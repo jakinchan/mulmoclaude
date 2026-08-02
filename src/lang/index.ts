@@ -49,7 +49,7 @@ export function resolveLocale(tag: string): Locale | null {
   for (const supported of SUPPORTED_LOCALES) {
     if (supported.toLowerCase() === lower) return supported;
   }
-  const [primary] = lower.split("-");
+  const [primary = lower] = lower.split("-");
   if (isSupportedLocale(primary)) return primary;
   return SUPPORTED_LOCALES.find((locale) => locale.toLowerCase().startsWith(`${primary}-`)) ?? null;
 }

@@ -92,6 +92,7 @@ export function reconcileSyntheticCollection(session: ActiveSession, incoming: T
   const idx = session.toolResults.findIndex((candidate) => isSyntheticCollection(candidate) && collectionSlugOf(candidate) === slug);
   if (idx < 0) return;
   const [removed] = session.toolResults.splice(idx, 1);
+  if (!removed) return;
   session.resultTimestamps.delete(removed.uuid);
   // The placeholder held the canvas selection; clear it so the real result's
   // insert (applyToolResultToSession) re-selects and the canvas doesn't blink

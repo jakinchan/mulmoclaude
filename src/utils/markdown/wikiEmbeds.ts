@@ -94,15 +94,15 @@ export const wikiEmbedExtension: MarkedExtension = {
         return idx === -1 ? undefined : idx;
       },
       tokenizer(src: string): WikiEmbedToken | undefined {
-        const match = TOKEN_PATTERN.exec(src);
-        if (!match) return undefined;
-        const prefix = match[1].toLowerCase();
-        const embedId = match[2].trim();
+        const [raw, rawPrefix, rawId] = TOKEN_PATTERN.exec(src) ?? [];
+        if (raw === undefined || rawPrefix === undefined || rawId === undefined) return undefined;
+        const prefix = rawPrefix.toLowerCase();
+        const embedId = rawId.trim();
         if (embedId.length === 0) return undefined;
         if (!handlers.has(prefix)) return undefined;
         return {
           type: "wikiEmbed",
-          raw: match[0],
+          raw,
           prefix,
           id: embedId,
         };

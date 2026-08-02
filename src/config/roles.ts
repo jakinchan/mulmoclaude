@@ -26,8 +26,10 @@ import { ALL_TOOL_NAMES, TOOL_NAMES } from "./toolNames";
 // emits names that are loaded right now, so the lenient parse
 // doesn't weaken create-time validation.
 // Destructured into head + tail because `z.enum` needs a non-empty tuple,
-// which a `readonly ToolName[]` alone cannot express.
-const [firstToolName, ...otherToolNames] = ALL_TOOL_NAMES;
+// which a `readonly ToolName[]` alone cannot express. `textResponse` is the
+// first host literal, so the default is the head `ALL_TOOL_NAMES` already
+// carries — it only exists to keep the tuple provably non-empty.
+const [firstToolName = TOOL_NAMES.textResponse, ...otherToolNames] = ALL_TOOL_NAMES;
 const toolNameEnum = z.enum([firstToolName, ...otherToolNames]);
 const availablePluginsSchema = z
   .union([z.array(z.string()), z.array(toolNameEnum)])
@@ -45,7 +47,9 @@ export const RoleSchema = z.object({
 
 export type Role = z.infer<typeof RoleSchema>;
 
-export const ROLES: Role[] = [
+// Non-empty tuple, not `Role[]`: every "no role selected yet" path falls back
+// to `ROLES[0]`, and that fallback has to be a Role rather than `Role | undefined`.
+export const ROLES: [Role, ...Role[]] = [
   {
     id: "general",
     name: "General",

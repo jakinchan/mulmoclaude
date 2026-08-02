@@ -115,7 +115,7 @@ const hasCached = (path: string): boolean => Object.prototype.hasOwnProperty.cal
 const cachedSource = computed(() => {
   const path = filePath.value;
   if (!path || !hasCached(path)) return null;
-  return sourceCache.value[path];
+  return sourceCache.value[path] ?? null;
 });
 const hasChanges = computed(() => cachedSource.value !== null && editableSvg.value !== cachedSource.value);
 
@@ -126,7 +126,7 @@ let fetchSeq = 0;
 async function fetchSource(): Promise<string | null> {
   const path = filePath.value;
   if (!path) return null;
-  if (hasCached(path)) return sourceCache.value[path];
+  if (hasCached(path)) return sourceCache.value[path] ?? null;
   const seq = ++fetchSeq;
   sourceLoading.value = true;
   sourceError.value = null;

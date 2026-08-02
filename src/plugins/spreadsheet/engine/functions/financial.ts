@@ -2,7 +2,7 @@
  * Financial Functions
  */
 
-import { functionRegistry, toNumber, type FunctionContext, type FunctionHandler } from "../registry";
+import { functionRegistry, requiredArg, toNumber, type FunctionContext, type FunctionHandler } from "../registry";
 import { computeFv, computePmt, computeIpmt, computePpmt, computePv, computeNper, computeRate, computeNpv, computeIrr } from "../financial-math";
 
 /**
@@ -16,11 +16,11 @@ import { computeFv, computePmt, computeIpmt, computePpmt, computePv, computeNper
  * - type: 0 = end of period, 1 = beginning of period (optional, default 0)
  */
 const fvHandler: FunctionHandler = (args, context) => {
-  const rate = toNumber(context.evaluateFormula(args[0]));
-  const nper = toNumber(context.evaluateFormula(args[1]));
-  const pmt = toNumber(context.evaluateFormula(args[2]));
-  const pv = args.length >= 4 ? toNumber(context.evaluateFormula(args[3])) : 0;
-  const type = args.length >= 5 ? toNumber(context.evaluateFormula(args[4])) : 0;
+  const rate = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const nper = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
+  const pmt = toNumber(context.evaluateFormula(requiredArg(context, args, 2)));
+  const pv = args.length >= 4 ? toNumber(context.evaluateFormula(requiredArg(context, args, 3))) : 0;
+  const type = args.length >= 5 ? toNumber(context.evaluateFormula(requiredArg(context, args, 4))) : 0;
 
   return computeFv(rate, nper, pmt, pv, type);
 };
@@ -31,11 +31,11 @@ const fvHandler: FunctionHandler = (args, context) => {
  * PV(rate, nper, pmt, [fv], [type])
  */
 const pvHandler: FunctionHandler = (args, context) => {
-  const rate = toNumber(context.evaluateFormula(args[0]));
-  const nper = toNumber(context.evaluateFormula(args[1]));
-  const pmt = toNumber(context.evaluateFormula(args[2]));
-  const fv = args.length >= 4 ? toNumber(context.evaluateFormula(args[3])) : 0;
-  const type = args.length >= 5 ? toNumber(context.evaluateFormula(args[4])) : 0;
+  const rate = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const nper = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
+  const pmt = toNumber(context.evaluateFormula(requiredArg(context, args, 2)));
+  const fv = args.length >= 4 ? toNumber(context.evaluateFormula(requiredArg(context, args, 3))) : 0;
+  const type = args.length >= 5 ? toNumber(context.evaluateFormula(requiredArg(context, args, 4))) : 0;
 
   return computePv(rate, nper, pmt, fv, type);
 };
@@ -46,11 +46,11 @@ const pvHandler: FunctionHandler = (args, context) => {
  * PMT(rate, nper, pv, [fv], [type])
  */
 const pmtHandler: FunctionHandler = (args, context) => {
-  const rate = toNumber(context.evaluateFormula(args[0]));
-  const nper = toNumber(context.evaluateFormula(args[1]));
-  const pv = toNumber(context.evaluateFormula(args[2]));
-  const fv = args.length >= 4 ? toNumber(context.evaluateFormula(args[3])) : 0;
-  const type = args.length >= 5 ? toNumber(context.evaluateFormula(args[4])) : 0;
+  const rate = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const nper = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
+  const pv = toNumber(context.evaluateFormula(requiredArg(context, args, 2)));
+  const fv = args.length >= 4 ? toNumber(context.evaluateFormula(requiredArg(context, args, 3))) : 0;
+  const type = args.length >= 5 ? toNumber(context.evaluateFormula(requiredArg(context, args, 4))) : 0;
 
   return computePmt(rate, nper, pv, fv, type);
 };
@@ -61,11 +61,11 @@ const pmtHandler: FunctionHandler = (args, context) => {
  * NPER(rate, pmt, pv, [fv], [type])
  */
 const nperHandler: FunctionHandler = (args, context) => {
-  const rate = toNumber(context.evaluateFormula(args[0]));
-  const pmt = toNumber(context.evaluateFormula(args[1]));
-  const pv = toNumber(context.evaluateFormula(args[2]));
-  const fv = args.length >= 4 ? toNumber(context.evaluateFormula(args[3])) : 0;
-  const type = args.length >= 5 ? toNumber(context.evaluateFormula(args[4])) : 0;
+  const rate = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const pmt = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
+  const pv = toNumber(context.evaluateFormula(requiredArg(context, args, 2)));
+  const fv = args.length >= 4 ? toNumber(context.evaluateFormula(requiredArg(context, args, 3))) : 0;
+  const type = args.length >= 5 ? toNumber(context.evaluateFormula(requiredArg(context, args, 4))) : 0;
 
   return computeNper(rate, pmt, pv, fv, type);
 };
@@ -77,12 +77,12 @@ const nperHandler: FunctionHandler = (args, context) => {
  * Uses Newton-Raphson method for iteration
  */
 const rateHandler: FunctionHandler = (args, context) => {
-  const nper = toNumber(context.evaluateFormula(args[0]));
-  const pmt = toNumber(context.evaluateFormula(args[1]));
-  const pv = toNumber(context.evaluateFormula(args[2]));
-  const fv = args.length >= 4 ? toNumber(context.evaluateFormula(args[3])) : 0;
-  const type = args.length >= 5 ? toNumber(context.evaluateFormula(args[4])) : 0;
-  const guess = args.length >= 6 ? toNumber(context.evaluateFormula(args[5])) : 0.1;
+  const nper = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+  const pmt = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
+  const pv = toNumber(context.evaluateFormula(requiredArg(context, args, 2)));
+  const fv = args.length >= 4 ? toNumber(context.evaluateFormula(requiredArg(context, args, 3))) : 0;
+  const type = args.length >= 5 ? toNumber(context.evaluateFormula(requiredArg(context, args, 4))) : 0;
+  const guess = args.length >= 6 ? toNumber(context.evaluateFormula(requiredArg(context, args, 5))) : 0.1;
 
   return computeRate(nper, pmt, pv, fv, type, guess);
 };
@@ -95,12 +95,12 @@ type PeriodicComponent = (rate: number, per: number, nper: number, pv: number, f
 const makePeriodicComponentHandler =
   (compute: PeriodicComponent): FunctionHandler =>
   (args, context) => {
-    const rate = toNumber(context.evaluateFormula(args[0]));
-    const per = toNumber(context.evaluateFormula(args[1]));
-    const nper = toNumber(context.evaluateFormula(args[2]));
-    const pv = toNumber(context.evaluateFormula(args[3]));
-    const fv = args.length >= 5 ? toNumber(context.evaluateFormula(args[4])) : 0;
-    const type = args.length >= 6 ? toNumber(context.evaluateFormula(args[5])) : 0;
+    const rate = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
+    const per = toNumber(context.evaluateFormula(requiredArg(context, args, 1)));
+    const nper = toNumber(context.evaluateFormula(requiredArg(context, args, 2)));
+    const pv = toNumber(context.evaluateFormula(requiredArg(context, args, 3)));
+    const fv = args.length >= 5 ? toNumber(context.evaluateFormula(requiredArg(context, args, 4))) : 0;
+    const type = args.length >= 6 ? toNumber(context.evaluateFormula(requiredArg(context, args, 5))) : 0;
 
     return compute(rate, per, nper, pv, fv, type);
   };
@@ -132,7 +132,7 @@ const collectCashFlows = (valueArgs: string[], context: FunctionContext): number
   valueArgs.flatMap((arg) => (arg.includes(":") ? context.getRangeValues(arg) : [context.evaluateFormula(arg)]).map(toNumber));
 
 const npvHandler: FunctionHandler = (args, context) => {
-  const rate = toNumber(context.evaluateFormula(args[0]));
+  const rate = toNumber(context.evaluateFormula(requiredArg(context, args, 0)));
   return computeNpv(rate, collectCashFlows(args.slice(1), context));
 };
 
@@ -143,8 +143,8 @@ const npvHandler: FunctionHandler = (args, context) => {
  * Uses Newton-Raphson method for iteration
  */
 const irrHandler: FunctionHandler = (args, context) => {
-  const values = context.getRangeValues(args[0]).map(toNumber);
-  const guess = args.length === 2 ? toNumber(context.evaluateFormula(args[1])) : 0.1;
+  const values = context.getRangeValues(requiredArg(context, args, 0)).map(toNumber);
+  const guess = args.length === 2 ? toNumber(context.evaluateFormula(requiredArg(context, args, 1))) : 0.1;
 
   if (values.length === 0) {
     throw new Error("IRR requires at least one value");

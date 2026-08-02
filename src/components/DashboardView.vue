@@ -222,6 +222,7 @@ function onReorderEnd(): void {
   if (target === null || target === startIndex) return;
   const next = [...tiles.value];
   const [moved] = next.splice(startIndex, 1);
+  if (!moved) return;
   next.splice(target, 0, moved);
   void setTiles(next);
 }

@@ -13,7 +13,9 @@ export function saveBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url));
 }
 
+const DISPOSITION_FILENAME_RE = /filename="?([^";]+)"?/;
+
 export function filenameFromDisposition(header: string | null, fallback: string): string {
-  const match = header ? /filename="?([^";]+)"?/.exec(header) : null;
-  return match ? match[1] : fallback;
+  if (!header) return fallback;
+  return DISPOSITION_FILENAME_RE.exec(header)?.[1] ?? fallback;
 }

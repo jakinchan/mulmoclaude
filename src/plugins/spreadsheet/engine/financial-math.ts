@@ -86,17 +86,23 @@ export function computeNpv(rate: number, cashflows: number[]): number {
   return cashflows.reduce((npv, value, index) => npv + value / Math.pow(1 + rate, index + 1), 0);
 }
 
+/** The present value of `values` (element 0 at period 0) discounted at `rate`,
+ *  together with its derivative — the pair one Newton-Raphson step needs. */
+function discountedSeries(values: number[], rate: number): { npv: number; dnpv: number } {
+  return values.reduce(
+    (totals, value, period) => {
+      const factor = Math.pow(1 + rate, period);
+      return { npv: totals.npv + value / factor, dnpv: totals.dnpv - (period * value) / (factor * (1 + rate)) };
+    },
+    { npv: 0, dnpv: 0 },
+  );
+}
+
 /** Internal rate of return of `values` (element 0 at period 0), via Newton-Raphson. */
 export function computeIrr(values: number[], guess: number): number | SpreadsheetError {
   let rate = guess;
   for (let i = 0; i < NEWTON_MAX_ITERATIONS; i++) {
-    let npv = 0;
-    let dnpv = 0;
-    for (let j = 0; j < values.length; j++) {
-      const factor = Math.pow(1 + rate, j);
-      npv += values[j] / factor;
-      dnpv -= (j * values[j]) / (factor * (1 + rate));
-    }
+    const { npv, dnpv } = discountedSeries(values, rate);
     if (Math.abs(npv) < NEWTON_TOLERANCE) return rate;
     // A flat derivative leaves nowhere to step: the series has no root here.
     if (Math.abs(dnpv) < NEWTON_TOLERANCE) return NUM_ERROR;

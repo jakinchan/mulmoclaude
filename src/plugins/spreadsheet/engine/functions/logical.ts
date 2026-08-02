@@ -3,16 +3,16 @@
  */
 
 import { evaluateConditionValues, readOperand, renderConditionOperand } from "../condition";
-import { findCellRefs } from "../evaluator";
-import { functionRegistry, type FunctionHandler } from "../registry";
+import { findCellRefs, substituteCellRefs } from "../evaluator";
+import { functionRegistry, requiredArg, type FunctionHandler } from "../registry";
 import { isErrorResult, isSpreadsheetErrorValue, NA_ERROR } from "../spreadsheet-errors";
 import { coerceToBoolean } from "../coerce-boolean";
 import type { CellValue } from "../types";
 
 const ifHandler: FunctionHandler = (args, context) => {
-  const condition = args[0];
-  const trueValue = args[1];
-  const falseValue = args[2];
+  const condition = requiredArg(context, args, 0);
+  const trueValue = requiredArg(context, args, 1);
+  const falseValue = requiredArg(context, args, 2);
 
   // Evaluate condition - use evaluateFormula to handle nested functions like MONTH()
   const conditionValue = context.evaluateFormula(condition);
@@ -53,12 +53,12 @@ const orHandler: FunctionHandler = (args, context) => {
 };
 
 const notHandler: FunctionHandler = (args, context) => {
-  return !coerceToBoolean(context.evaluateFormula(args[0]));
+  return !coerceToBoolean(context.evaluateFormula(requiredArg(context, args, 0)));
 };
 
 const iferrorHandler: FunctionHandler = (args, context) => {
   try {
-    const result = context.evaluateFormula(args[0]);
+    const result = context.evaluateFormula(requiredArg(context, args, 0));
     // Catches NaN/∞ and the formula error VALUES functions return (a math domain
     // miss like SQRT(-1) → #NUM!), so IFERROR(SQRT(-1), 0) is 0. Text that
     // merely spells an error is not an error value, so it passes through
@@ -66,20 +66,20 @@ const iferrorHandler: FunctionHandler = (args, context) => {
     // (IFERROR(CONCAT("#N","UM!"), 42)) — the computed case is why errors carry
     // provenance at all (#2451).
     if (isErrorResult(result)) {
-      return context.evaluateFormula(args[1]);
+      return context.evaluateFormula(requiredArg(context, args, 1));
     }
     return result;
   } catch {
     // If evaluation throws an error, return the fallback value
-    return context.evaluateFormula(args[1]);
+    return context.evaluateFormula(requiredArg(context, args, 1));
   }
 };
 
 const ifnaHandler: FunctionHandler = (args, context) => {
-  const result = context.evaluateFormula(args[0]);
+  const result = context.evaluateFormula(requiredArg(context, args, 0));
   const isNotAvailable = isSpreadsheetErrorValue(result) && result.code === NA_ERROR.code;
   if (result === null || result === undefined || isNotAvailable) {
-    return context.evaluateFormula(args[1]);
+    return context.evaluateFormula(requiredArg(context, args, 1));
   }
   return result;
 };
@@ -91,8 +91,8 @@ const ifsHandler: FunctionHandler = (args, context) => {
 
   // Iterate through condition-value pairs
   for (let i = 0; i < args.length; i += 2) {
-    const condition = args[i];
-    const value = args[i + 1];
+    const condition = requiredArg(context, args, i);
+    const value = requiredArg(context, args, i + 1);
 
     // Substitute references by POSITION (back to front), skipping any that sit
     // inside a quoted string literal: `IFS(A1="B2", …)` must compare A1 to the
@@ -100,13 +100,7 @@ const ifsHandler: FunctionHandler = (args, context) => {
     // skips literals and matches absolute / sheet-qualified refs, so this also
     // avoids the earlier regex double-escaping. renderConditionOperand quotes a
     // text cell so its own operators are not re-parsed as comparisons.
-    let condExpr = condition;
-    const cellRefs = findCellRefs(condition);
-    for (let index = cellRefs.length - 1; index >= 0; index--) {
-      const { ref, start } = cellRefs[index];
-      const rendered = renderConditionOperand(context.getCellValue(ref));
-      condExpr = condExpr.slice(0, start) + rendered + condExpr.slice(start + ref.length);
-    }
+    const condExpr = substituteCellRefs(condition, findCellRefs(condition), (ref) => renderConditionOperand(context.getCellValue(ref)));
 
     // Parsed, not executed. This used to call `eval` on `condExpr`, which is
     // the substituted text — so a cell containing `globalThis.x = 1` ran as

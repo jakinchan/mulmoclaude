@@ -136,9 +136,9 @@ export function persistRepoCollapsed(state: ReadonlySet<string>): void {
  * a row the user can't see) or when there are no active skills.
  */
 export function pickInitialSelection(skillList: readonly SkillIdentity[], collapsed: ReadonlySet<SkillSectionKey>): string | null {
-  if (skillList.length === 0) return null;
   if (collapsed.has("active")) return null;
-  return skillList[0].name;
+  const [first] = skillList;
+  return first?.name ?? null;
 }
 
 /**
@@ -170,7 +170,7 @@ export function nextSelectionAfterDelete(
   const remaining = previousList.filter((skill) => skill.name !== deletedName);
   if (deletedIndex === -1 || remaining.length === 0) return null;
   const neighbourIndex = Math.min(deletedIndex, remaining.length - 1);
-  return remaining[neighbourIndex].name;
+  return remaining[neighbourIndex]?.name ?? null;
 }
 
 // Catalog provenance for a browsable entry (#1335 preset / #1383
@@ -252,11 +252,12 @@ export function groupEntriesByRepo<Entry extends { repoId?: string; slug: string
   }));
 }
 
+const GITHUB_OWNER_REPO_RE = /github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/;
+
 /** `https://github.com/owner/repo` → `owner/repo`; falls back to the
  *  repoId when the URL is unparseable. */
 export function repoLabel(repo: { url: string; repoId: string }): string {
-  const match = /github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(repo.url);
-  return match ? match[1] : repo.repoId;
+  return GITHUB_OWNER_REPO_RE.exec(repo.url)?.[1] ?? repo.repoId;
 }
 
 // Provenance badge for a sidebar row: icon + colour + the i18n title

@@ -84,9 +84,9 @@ export function classifyWorkspacePath(href: string): WorkspaceLinkTarget | null 
   if (!normalized) return null;
 
   // Wiki page: data/wiki/pages/<slug>.md
-  const wikiMatch = normalized.match(WIKI_PAGE_PATTERN);
-  if (wikiMatch) {
-    return { kind: "wiki", slug: wikiMatch[1] };
+  const wikiSlug = normalized.match(WIKI_PAGE_PATTERN)?.[1];
+  if (wikiSlug !== undefined) {
+    return { kind: "wiki", slug: wikiSlug };
   }
 
   // Chat session log: conversations/chat/<id>.jsonl
@@ -113,7 +113,7 @@ export function classifyWorkspacePath(href: string): WorkspaceLinkTarget | null 
   // non-leading segment looks like it has a file extension, the
   // path is treated as a file, not a route. Slugs don't normally
   // carry dots; file extensions almost always do.
-  const [firstSegment, ...restSegments] = normalized.split("/");
+  const [firstSegment = "", ...restSegments] = normalized.split("/");
   if ((SPA_ROUTE_NAMES.has(firstSegment) || LEGACY_SPA_ROUTE_ALIASES.has(firstSegment)) && !restSegments.some(looksLikeFileSegment)) {
     // Preserve the query string (e.g. `?selected=<id>`) so deep
     // links like `/collections/mc-invoice?selected=INV-2026-0001`
