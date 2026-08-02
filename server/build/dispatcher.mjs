@@ -81,7 +81,16 @@ async function serverLog(namespace, message, options = {}) {
   await safePost(req, LOG_TIMEOUT_MS);
 }
 
+// ../mulmoclaude3/packages/common/dist/index.js
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // server/workspace/hooks/shared/stdin.ts
+var isOptionalRecord = (value) => value === void 0 || isRecord(value);
+function isHookPayload(value) {
+  return isRecord(value) && isOptionalRecord(value.tool_input) && isOptionalRecord(value.tool_response);
+}
 async function readHookPayload() {
   const chunks = [];
   for await (const chunk of process.stdin) {
@@ -90,7 +99,8 @@ async function readHookPayload() {
   const raw = Buffer.concat(chunks).toString("utf-8");
   if (!raw.trim()) return null;
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return isHookPayload(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -126,7 +136,7 @@ async function handleConfigRefresh(payload) {
   await safePost(req);
 }
 
-// packages/core/dist/templatePath-k_WNbL_Q.js
+// ../mulmoclaude3/packages/core/dist/templatePath-k_WNbL_Q.js
 var TEMPLATES_PREFIX = "templates/";
 function isSafeTemplatePath(value) {
   if (value.length === 0 || value.includes("\\") || value.startsWith("/")) return false;
@@ -136,7 +146,7 @@ function isSafeActionTemplatePath(value) {
   return value.startsWith(TEMPLATES_PREFIX) && isSafeTemplatePath(value);
 }
 
-// packages/core/dist/skill-bridge/index.js
+// ../mulmoclaude3/packages/core/dist/skill-bridge/index.js
 import { mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
 import path3 from "node:path";
 var DATA_SKILLS_DIR = path3.join("data", "skills");
@@ -201,12 +211,12 @@ function mirrorSkillDelete(workspaceRoot2, slug) {
   return { dest };
 }
 
-// packages/core/dist/dist-HC-r8qQi.js
-function isRecord(value) {
+// ../mulmoclaude3/packages/core/dist/dist-HC-r8qQi.js
+function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function hasStringProp(value, key) {
-  return isRecord(value) && typeof value[key] === "string";
+  return isRecord2(value) && typeof value[key] === "string";
 }
 function errorMessage(err, fallback) {
   if (err instanceof Error) return err.message;
@@ -269,7 +279,7 @@ async function handleSkillBridge(payload) {
 // server/workspace/hooks/handlers/wikiSnapshot.ts
 import path5 from "node:path";
 
-// packages/core/dist/slug-CdN-pQX1.js
+// ../mulmoclaude3/packages/core/dist/slug-CdN-pQX1.js
 function isSafeSlug(slug) {
   if (slug.length === 0) return false;
   if (slug === "." || slug === "..") return false;
@@ -278,7 +288,7 @@ function isSafeSlug(slug) {
   return true;
 }
 
-// packages/core/dist/wiki/paths.js
+// ../mulmoclaude3/packages/core/dist/wiki/paths.js
 import path4 from "node:path";
 function wikiSlugFromAbsPath(absPath, pagesDir) {
   const rel = path4.relative(pagesDir, absPath);

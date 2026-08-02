@@ -9,6 +9,7 @@
 // Deliberately minimal: the legacy `sources` tree carries richer backoff
 // state, but the engine starts simple and grows on real need.
 
+import { isRecord } from "@mulmoclaude/common";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { CollectionSource } from "../../collection/index.js";
@@ -46,7 +47,7 @@ export function defaultFeedState(slug: string): FeedState {
   return { slug, lastFetchedAt: null, cursor: {}, consecutiveFailures: 0 };
 }
 
-function normalizeState(slug: string, parsed: Partial<FeedState>): FeedState {
+function normalizeState(slug: string, parsed: Record<string, unknown>): FeedState {
   const base = defaultFeedState(slug);
   const cursor = parsed.cursor && typeof parsed.cursor === "object" ? (parsed.cursor as Record<string, string>) : base.cursor;
   return {
@@ -64,7 +65,10 @@ export async function readFeedState(workspaceRoot: string, target: StateTarget):
   const { slug } = target;
   try {
     const raw = await readFile(stateFilePath(target, workspaceRoot), "utf-8");
-    return normalizeState(slug, JSON.parse(raw) as Partial<FeedState>);
+    const parsed: unknown = JSON.parse(raw);
+    // A non-object state file has no fields to read, so it normalises to the
+    // same default `normalizeState` would produce from an empty record.
+    return normalizeState(slug, isRecord(parsed) ? parsed : {});
   } catch (err) {
     const error = err as { code?: string };
     if (error.code !== "ENOENT") {

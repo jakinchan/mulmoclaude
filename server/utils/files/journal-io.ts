@@ -9,10 +9,12 @@ import { summariesRoot, dailyPathFor, topicPathFor, TOPICS_DIR, INDEX_FILE, STAT
 
 const root = (rootOverride?: string) => rootOverride ?? workspacePath;
 
-export async function readJournalState<T>(fallback: T, rootOverride?: string): Promise<T> {
+// Returns whatever the state file holds; `parseState` in
+// `workspace/journal/state.ts` is what turns it into a `JournalState`.
+export async function readJournalState(fallback: unknown, rootOverride?: string): Promise<unknown> {
   const filePath = path.join(summariesRoot(root(rootOverride)), STATE_FILE);
   try {
-    return JSON.parse(await fsp.readFile(filePath, "utf-8")) as T;
+    return JSON.parse(await fsp.readFile(filePath, "utf-8"));
   } catch (err) {
     if (isEnoent(err)) return fallback;
     log.error("journal-io", "readJournalState failed", { error: String(err) });

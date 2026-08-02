@@ -19,6 +19,7 @@
 // Custom-view HTML is staging-only for project collections (never mirrored —
 // rendering is host-side), so only the canonical base's copy is unlinked.
 
+import { isRecord, isUnknownArray } from "@mulmoclaude/common";
 import { readFile, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "../../files/atomic.js";
@@ -90,9 +91,13 @@ async function unlinkIfPresent(target: string): Promise<void> {
 async function removeViewFromSchemas(collection: LoadedCollection, viewId: string, workspaceRoot: string, safeSlug: string): Promise<void> {
   const base = await canonicalBase(collection, workspaceRoot, safeSlug);
   const canonical = path.join(base, SCHEMA_FILE);
-  const parsed = JSON.parse(await readFile(canonical, "utf-8")) as { views?: { id?: unknown }[] };
-  if (Array.isArray(parsed.views)) parsed.views = parsed.views.filter((entry) => entry?.id !== viewId);
-  const serialized = `${JSON.stringify(parsed, null, 2)}\n`;
+  const parsed: unknown = JSON.parse(await readFile(canonical, "utf-8"));
+  // Anything that isn't an object with a `views` array is written back
+  // byte-identical — this function only ever removes one entry, so a schema
+  // it can't recognise must survive the round-trip untouched.
+  const next =
+    isRecord(parsed) && isUnknownArray(parsed.views) ? { ...parsed, views: parsed.views.filter((entry) => !isRecord(entry) || entry.id !== viewId) } : parsed;
+  const serialized = `${JSON.stringify(next, null, 2)}\n`;
   for (const target of await schemaWriteTargets(collection, workspaceRoot, safeSlug)) {
     await writeFileAtomic(target, serialized);
   }

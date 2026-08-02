@@ -39,13 +39,28 @@ import { PRESET_PLUGINS, type PresetPlugin } from "./preset-list.js";
 import { resolvePresetRoot } from "./resolvePresetRoot.js";
 import { loadPluginFromCacheDir, type LoaderDeps, type RuntimePlugin } from "./runtime-loader.js";
 import { log } from "../system/logger/index.js";
+import { isRecord } from "../utils/types.js";
 
 export { resolvePresetRoot };
 
 const LOG_PREFIX = "plugins/preset";
 
-interface PackageJsonShape {
-  version?: string;
+/** The preset's declared version, or null when the package.json is
+ *  unreadable / malformed / versionless — a broken preset is skipped, never
+ *  fatal. */
+function readPresetVersion(pkgJsonPath: string, packageName: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
+    const version = isRecord(parsed) ? parsed.version : undefined;
+    if (typeof version !== "string" || version.length === 0) {
+      log.warn(LOG_PREFIX, "preset package has no version", { packageName });
+      return null;
+    }
+    return version;
+  } catch (err) {
+    log.warn(LOG_PREFIX, "preset package.json read/parse failed", { packageName, error: String(err) });
+    return null;
+  }
 }
 
 async function loadOnePreset(entry: PresetPlugin, deps: LoaderDeps = {}): Promise<RuntimePlugin | null> {
@@ -61,19 +76,8 @@ async function loadOnePreset(entry: PresetPlugin, deps: LoaderDeps = {}): Promis
     }
     return null;
   }
-  const pkgJsonPath = path.join(cachePath, "package.json");
-  let pkg: PackageJsonShape;
-  try {
-    pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as PackageJsonShape;
-  } catch (err) {
-    log.warn(LOG_PREFIX, "preset package.json read/parse failed", { packageName, error: String(err) });
-    return null;
-  }
-  const { version } = pkg;
-  if (typeof version !== "string" || version.length === 0) {
-    log.warn(LOG_PREFIX, "preset package has no version", { packageName });
-    return null;
-  }
+  const version = readPresetVersion(path.join(cachePath, "package.json"), packageName);
+  if (version === null) return null;
   return loadPluginFromCacheDir(packageName, version, cachePath, deps);
 }
 

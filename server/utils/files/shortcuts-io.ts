@@ -6,6 +6,7 @@ import path from "node:path";
 import { WORKSPACE_FILES, workspacePath } from "../../workspace/paths.js";
 import { writeFileAtomic } from "./atomic.js";
 import { readTextSafe } from "./safe.js";
+import { isRecord } from "../types.js";
 import { SHORTCUT_KINDS, sameShortcut, type Shortcut, type ShortcutsFile } from "../../../src/types/shortcuts.js";
 
 const KINDS = new Set<string>(SHORTCUT_KINDS);
@@ -45,8 +46,8 @@ export async function readShortcuts(workspaceRoot?: string): Promise<Shortcut[]>
   const text = await readTextSafe(shortcutsFilePath(workspaceRoot));
   if (text === null) return [];
   try {
-    const parsed = JSON.parse(text) as Partial<ShortcutsFile>;
-    return normalizeShortcuts(parsed?.shortcuts);
+    const parsed: unknown = JSON.parse(text);
+    return normalizeShortcuts(isRecord(parsed) ? parsed.shortcuts : undefined);
   } catch {
     return [];
   }

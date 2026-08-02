@@ -95,7 +95,7 @@ export function isOptimizationDue(state: JournalState, nowMs: number): boolean {
 }
 
 export async function readState(workspaceRoot: string): Promise<JournalState> {
-  const raw = await readJournalStateRaw<unknown>(null, workspaceRoot);
+  const raw = await readJournalStateRaw(null, workspaceRoot);
   return parseState(raw);
 }
 

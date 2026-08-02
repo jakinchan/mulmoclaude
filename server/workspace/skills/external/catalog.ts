@@ -21,7 +21,7 @@ import { WORKSPACE_DIRS } from "../../paths.js";
 import { parseSkillFrontmatter } from "../parser.js";
 import { log } from "../../../system/logger/index.js";
 import { deriveActiveId, isSafeRepoId, safeSkillFolder } from "./id.js";
-import { listInstalledRepos, type InstalledRepo } from "./install.js";
+import { listInstalledRepos, readSourceUrl, type InstalledRepo } from "./install.js";
 
 const SOURCE_METADATA_FILE = ".source.json";
 
@@ -168,34 +168,23 @@ interface ResolvedSource {
   url: string;
 }
 
-async function readRepoMetadata(repoDir: string): Promise<{ url: string } | null> {
-  try {
-    const raw = await readFile(path.join(repoDir, SOURCE_METADATA_FILE), "utf-8");
-    const parsed = JSON.parse(raw) as { url?: unknown };
-    if (typeof parsed.url !== "string") return null;
-    return { url: parsed.url };
-  } catch {
-    return null;
-  }
-}
-
 async function resolveSource(repoIdRaw: string, skillFolderRaw: string, workspaceRoot: string): Promise<ResolvedSource | null> {
   if (!isSafeRepoId(repoIdRaw)) return null;
   const repoId = path.basename(repoIdRaw);
   if (repoId !== repoIdRaw) return null;
   const repoDir = path.join(externalRoot(workspaceRoot), repoId);
   if (!(await isDirectory(repoDir))) return null;
-  const meta = await readRepoMetadata(repoDir);
-  if (!meta) return null;
+  const url = await readSourceUrl(path.join(repoDir, SOURCE_METADATA_FILE));
+  if (url === null) return null;
   if (skillFolderRaw === ".") {
     if (!(await isFile(path.join(repoDir, "SKILL.md")))) return null;
-    return { repoId, skillFolder: ".", sourceDir: repoDir, url: meta.url };
+    return { repoId, skillFolder: ".", sourceDir: repoDir, url };
   }
   const skillFolder = safeFolderName(skillFolderRaw);
   if (skillFolder === null) return null;
   const sourceDir = path.join(repoDir, skillFolder);
   if (!(await isDirectory(sourceDir))) return null;
-  return { repoId, skillFolder, sourceDir, url: meta.url };
+  return { repoId, skillFolder, sourceDir, url };
 }
 
 // Resolve a catalog source, or classify why it failed: a bad-shape id

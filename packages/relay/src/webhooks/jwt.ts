@@ -6,6 +6,8 @@
 // validation and JWKS fetch/cache — only the parse and the crypto.subtle
 // signature check live here.
 
+import { isRecord } from "@mulmoclaude/common";
+
 export interface ParsedJwt {
   header: Record<string, unknown>;
   payload: Record<string, unknown>;
@@ -34,13 +36,21 @@ export function b64UrlDecode(str: string): Uint8Array {
   return Uint8Array.from(atob(padded), (chr) => chr.charCodeAt(0));
 }
 
+function decodeSegment(segment: string): unknown {
+  return JSON.parse(new TextDecoder().decode(b64UrlDecode(segment)));
+}
+
 // null means "not a well-formed JWT" — callers treat that as a rejection.
 export function parseJwt(token: string): ParsedJwt | null {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   try {
-    const header = JSON.parse(new TextDecoder().decode(b64UrlDecode(parts[0]))) as Record<string, unknown>;
-    const payload = JSON.parse(new TextDecoder().decode(b64UrlDecode(parts[1]))) as Record<string, unknown>;
+    const header = decodeSegment(parts[0]);
+    const payload = decodeSegment(parts[1]);
+    // RFC 7519 requires both segments to be JSON objects. A scalar or array
+    // would read as "every claim absent" in the per-platform validators —
+    // a rejection either way, just a later and less obvious one.
+    if (!isRecord(header) || !isRecord(payload)) return null;
     return { header, payload, signInput: `${parts[0]}.${parts[1]}`, sig: b64UrlDecode(parts[2]) };
   } catch {
     return null;
