@@ -9,13 +9,12 @@
 // Deliberately minimal: the legacy `sources` tree carries richer backoff
 // state, but the engine starts simple and grows on real need.
 
-import { isRecord } from "@mulmoclaude/common";
+import { isErrorWithCode, isRecord } from "@mulmoclaude/common";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { CollectionSource } from "../../collection/index.js";
 import { log, requireFeedsHost } from "./host.js";
 import { feedStatePath, ingestStatePath } from "../paths.js";
-import { isErrorWithCode } from "@mulmoclaude/common";
 
 /** Minimal shape needed to locate a collection's state file. `LoadedCollection`
  *  satisfies it. */

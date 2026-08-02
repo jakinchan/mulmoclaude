@@ -19,7 +19,7 @@
 // Custom-view HTML is staging-only for project collections (never mirrored —
 // rendering is host-side), so only the canonical base's copy is unlinked.
 
-import { isRecord, isUnknownArray } from "@mulmoclaude/common";
+import { isErrorWithCode, isRecord, isUnknownArray } from "@mulmoclaude/common";
 import { readFile, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "../../files/atomic.js";
@@ -27,7 +27,6 @@ import { getWorkspaceRoot, isPresetSlug, skillsStagingDir } from "./host";
 import { resolveTemplatePath, safeSlugName, SCHEMA_FILE } from "./paths";
 import type { IoOptions } from "./io";
 import type { LoadedCollection } from "./discoveredCollection";
-import { isErrorWithCode } from "@mulmoclaude/common";
 
 export type DeleteViewResult =
   | { kind: "ok"; viewId: string }
