@@ -56,7 +56,7 @@ export const lastBackendError: Ref<string | null> = ref(null);
  *  "AbortError"`). Normal flow — must NOT flip `backendReachable`. */
 function isAbortError(err: unknown): boolean {
   if (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "AbortError") return true;
-  return typeof err === "object" && err !== null && "name" in err && (err as { name: unknown }).name === "AbortError";
+  return hasStringProp(err, "name") && err.name === "AbortError";
 }
 
 // ── Auth token (populated by bootstrap; consumed by every call) ─────

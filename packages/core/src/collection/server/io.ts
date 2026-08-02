@@ -10,6 +10,7 @@ import { getWorkspaceRoot, log, publishCollectionChange } from "./host";
 import { writeFileAtomic } from "../../files/atomic.js";
 import { isContainedInRoot, itemFilePath, safeRecordId } from "./paths";
 import type { CollectionItem, CollectionSchema } from "../core/schema";
+import { isErrorWithCode } from "@mulmoclaude/common";
 
 export interface IoOptions {
   /** Override the workspace root for containment checks. Default:
@@ -83,8 +84,7 @@ export async function listItems(dataDir: string, opts: IoOptions = {}): Promise<
   try {
     entries = await readdir(dataDir);
   } catch (err) {
-    const error = err as { code?: string };
-    if (error.code === "ENOENT") return [];
+    if (isErrorWithCode(err) && err.code === "ENOENT") return [];
     throw err;
   }
   const results: CollectionItem[] = [];
@@ -116,8 +116,7 @@ export async function readItem(dataDir: string, itemId: string, opts: IoOptions 
   try {
     return parseRecordJson(await readFile(filePath, "utf-8"));
   } catch (err) {
-    const error = err as { code?: string };
-    if (error.code === "ENOENT") return null;
+    if (isErrorWithCode(err) && err.code === "ENOENT") return null;
     throw err;
   }
 }
@@ -195,8 +194,7 @@ export async function writeItem(dataDir: string, itemId: string, item: Collectio
     try {
       handle = await open(filePath, "wx");
     } catch (err) {
-      const error = err as { code?: string };
-      if (error.code === "EEXIST") return { kind: "conflict", itemId: safeId };
+      if (isErrorWithCode(err) && err.code === "EEXIST") return { kind: "conflict", itemId: safeId };
       throw err;
     }
     try {
@@ -227,8 +225,7 @@ export async function deleteItem(dataDir: string, itemId: string, opts: IoOption
     if (opts.slug) publishCollectionChange({ slug: opts.slug, ids: [safeId], op: "delete" });
     return { kind: "ok", itemId: safeId };
   } catch (err) {
-    const error = err as { code?: string };
-    if (error.code === "ENOENT") return { kind: "not-found", itemId: safeId };
+    if (isErrorWithCode(err) && err.code === "ENOENT") return { kind: "not-found", itemId: safeId };
     throw err;
   }
 }

@@ -15,6 +15,7 @@ import { isRegularFile, type IoOptions } from "./io";
 import { resolveTemplatePath, safeSlugName } from "./paths";
 import type { CollectionItem, CollectionSchema } from "../core/schema";
 import type { LoadedCollection } from "./discoveredCollection";
+import { isErrorWithCode } from "@mulmoclaude/common";
 
 /** The shape `readSourceAwareFile` (and its public callers
  *  `readCustomViewHtml` / `readCustomViewI18n`) need from a loaded collection:
@@ -62,8 +63,8 @@ async function readSourceAwareFile(collection: SourceAwareReadTarget, relPath: s
       // permission denial / disk error must propagate — silently falling back
       // would mask a real failure as a stale-from-other-base success or a
       // misleading 404 (CodeRabbit review on #1836).
-      const { code } = err as { code?: string };
-      if (code !== "ENOENT" && code !== "ENOTDIR") throw err;
+      if (!isErrorWithCode(err)) throw err;
+      if (err.code !== "ENOENT" && err.code !== "ENOTDIR") throw err;
     }
   }
   return null;
