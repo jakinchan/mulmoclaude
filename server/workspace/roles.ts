@@ -41,11 +41,7 @@ export function loadAllRoles(): Role[] {
 }
 
 export function getRole(roleId: string): Role {
-  const [fallback] = BUILTIN_ROLES;
-  // `BUILTIN_ROLES` is a non-empty literal; an empty one means the role config
-  // failed to load, which no caller can meaningfully recover from.
-  if (fallback === undefined) throw new Error("[roles] no built-in roles are defined");
-  return loadAllRoles().find((role) => role.id === roleId) ?? fallback;
+  return loadAllRoles().find((role) => role.id === roleId) ?? BUILTIN_ROLES[0];
 }
 
 function isRoleFileName(fileName: string): boolean {
