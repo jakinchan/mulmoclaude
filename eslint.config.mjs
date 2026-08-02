@@ -626,7 +626,7 @@ export default [
       // Same backlog treatment for the sonarjs rules this block wakes.
       ...sonarTypeAwareRulesAsWarn,
 
-      // Nine of those woken rules had drained to 1-2 findings each, which is a
+      // Eight of those woken rules had drained to 1-2 findings each, which is a
       // `warn` guarding nothing. Every finding was triaged in #2736 (2026-08-02)
       // and is now either fixed or carries a per-line disable naming what was
       // checked, so each rule measured ZERO over `src server test e2e e2e-live
@@ -634,10 +634,15 @@ export default [
       // already sets them to `error` (dormant with no TS program), so this only
       // closes the gap on typed source — the code they actually run on.
       //
-      // Left at `warn` deliberately: `no-unsafe-assignment` (19 findings), and
+      // `sonarjs/reduce-initial-value` deliberately did NOT graduate. Both of its
+      // findings are seedless folds whose sole caller already returns/throws on an
+      // empty array, so seeding them bought an unreachable branch and a widened
+      // return type. Each site carries a comment naming its upstream guard; the
+      // rule stays a `warn` so a genuinely unguarded fold still surfaces.
+      //
+      // Also left at `warn`: `no-unsafe-assignment` (19 findings), and
       // `no-unsafe-call` / `no-unsafe-return`, which are at zero but were not
       // part of this drain — promote them in their own PR.
-      "sonarjs/reduce-initial-value": "error",
       "sonarjs/deprecation": "error",
       "sonarjs/argument-type": "error",
       "sonarjs/no-selector-parameter": "error",

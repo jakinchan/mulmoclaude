@@ -11,14 +11,11 @@ import { matchesWhere } from "./where";
 import type { CollectionFieldSpec, CollectionItem, CollectionSchema, DynamicIconSource, DynamicIconSpec } from "./schema";
 
 /** The record with the greatest `String(record[field])` (localeCompare) —
- *  ties keep the first-seen record (stable left-to-right `reduce`), an
- *  empty pool yields `null` (same "no source record" signal callers already
- *  handle). */
-function latestByField(pool: CollectionItem[], field: string): CollectionItem | null {
-  return pool.reduce<CollectionItem | null>(
-    (latest, candidate) => (latest !== null && fieldText(candidate[field]).localeCompare(fieldText(latest[field])) <= 0 ? latest : candidate),
-    null,
-  );
+ *  ties keep the first-seen record (stable left-to-right `reduce`). */
+// Seedless `reduce` is safe here: the sole caller (selectDynamicRecord) returns
+// on `pool.length === 0` before this line, so an empty pool never arrives.
+function latestByField(pool: CollectionItem[], field: string): CollectionItem {
+  return pool.reduce((latest, candidate) => (fieldText(candidate[field]).localeCompare(fieldText(latest[field])) > 0 ? candidate : latest));
 }
 
 /** Reduce `records` to the one record that decides the effective icon, per
