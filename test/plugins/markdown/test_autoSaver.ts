@@ -121,6 +121,71 @@ describe("createAutoSaver", () => {
     assert.deepEqual(writes, ["first"], "the queued write must not reach disk after cancel");
   });
 
+  it("keeps saving after a write fails", async () => {
+    // A rejected write used to leave the internal chain rejected, so every
+    // later `.then` was skipped and auto save was dead for the session.
+    const writes: string[] = [];
+    const saver = createAutoSaver<string | null>({
+      delayMs: DELAY_MS,
+      isWanted: () => true,
+      write: (text) => {
+        writes.push(text);
+        return writes.length === 1 ? Promise.reject(new Error("disk on fire")) : Promise.resolve();
+      },
+    });
+
+    saver.schedule("fails", "doc.md");
+    await tick();
+    await saver.settled();
+
+    saver.schedule("succeeds", "doc.md");
+    await tick();
+    await saver.settled();
+
+    assert.deepEqual(writes, ["fails", "succeeds"]);
+  });
+
+  it("settled() waits for a write still inside the debounce window", async () => {
+    // Without the debounce phase folded in, `settled()` resolved immediately
+    // for a scheduled-but-not-yet-queued write — teardown could run first.
+    const writes: string[] = [];
+    const saver = createAutoSaver<string | null>({
+      delayMs: DELAY_MS,
+      isWanted: () => true,
+      write: (text) => {
+        writes.push(text);
+        return Promise.resolve();
+      },
+    });
+
+    saver.schedule("not queued yet", "doc.md");
+    await saver.settled();
+
+    assert.deepEqual(writes, ["not queued yet"]);
+  });
+
+  it("settled() resolves for a cancelled debounce rather than hanging", async () => {
+    const writes: string[] = [];
+    const saver = createAutoSaver<string | null>({
+      delayMs: DELAY_MS,
+      isWanted: () => true,
+      write: (text) => {
+        writes.push(text);
+        return Promise.resolve();
+      },
+    });
+
+    saver.schedule("dropped", "doc.md");
+    saver.cancel();
+    // The cancelled debounce still has to release its waiter — the race is what
+    // catches a hang, since an unresolved `settled()` would otherwise sit here
+    // until the test runner's timeout.
+    const outcome = await Promise.race([saver.settled().then(() => "settled"), tick(50).then(() => "hung")]);
+
+    assert.equal(outcome, "settled");
+    assert.deepEqual(writes, []);
+  });
+
   it("does not write a queued buffer into a different document", async () => {
     // Same shape, but the user switches documents rather than cancelling: the
     // buffer belongs to `first.md` and must not be written to `second.md`.

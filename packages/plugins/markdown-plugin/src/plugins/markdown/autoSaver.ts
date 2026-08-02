@@ -16,7 +16,9 @@ export interface AutoSaverOptions<TTarget> {
   delayMs: number;
   /** Whether the write is still wanted, for the target it was queued against. */
   isWanted: (target: TTarget) => boolean;
-  /** Performs the write. Rejections are the caller's business, not ours. */
+  /** Performs the write. A rejection is isolated — it fails that write only,
+   *  and the queue carries on. Reporting it is this callback's job (the editor
+   *  raises its own save-error banner and retries on the next keystroke). */
   write: (text: string, target: TTarget) => Promise<unknown>;
 }
 
@@ -26,28 +28,60 @@ export interface AutoSaver<TTarget> {
   /** Drop a write still waiting out the debounce. Chained writes are not
    *  cancellable — `isWanted` is what stops those. */
   cancel: () => void;
-  /** Resolves once every queued write has settled. For teardown and tests. */
+  /** Resolves once nothing is outstanding — including a write still waiting out
+   *  the debounce, which has not reached the chain yet. For teardown and tests.
+   *  Never rejects; a failing write is the `write` callback's to report. */
   settled: () => Promise<unknown>;
 }
 
 export function createAutoSaver<TTarget>(options: AutoSaverOptions<TTarget>): AutoSaver<TTarget> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let chain: Promise<unknown> = Promise.resolve();
+  // Resolves when the current debounce has either queued its write or been
+  // dropped. Without it `settled()` would report "nothing outstanding" for a
+  // write that is merely still waiting out `delayMs`.
+  let debounced: Promise<void> = Promise.resolve();
+  let endDebounce = (): void => {};
+
+  // A rejected write must not poison the queue: once `chain` is rejected, every
+  // later `.then(run)` is skipped and auto save is dead for the rest of the
+  // session. Each write is isolated instead.
+  function enqueue(text: string, target: TTarget): void {
+    const run = async (): Promise<void> => {
+      if (!options.isWanted(target)) return;
+      try {
+        await options.write(text, target);
+      } catch {
+        // Isolated on purpose — see `write` in AutoSaverOptions.
+      }
+    };
+    chain = chain.then(run, run);
+  }
 
   return {
     schedule(text, target) {
+      // Replacing a pending debounce releases it: nothing will ever be queued
+      // for that one, so a `settled()` waiting on it must not hang.
+      endDebounce();
       clearTimeout(timer);
+      debounced = new Promise<void>((resolve) => {
+        endDebounce = resolve;
+      });
       timer = setTimeout(() => {
         timer = undefined;
-        chain = chain.then(() => (options.isWanted(target) ? options.write(text, target) : undefined));
+        enqueue(text, target);
+        endDebounce();
       }, options.delayMs);
     },
     cancel() {
       clearTimeout(timer);
       timer = undefined;
+      endDebounce();
     },
     settled() {
-      return chain;
+      // `chain` is read after the debounce resolves — by then it includes the
+      // write that debounce just queued.
+      return debounced.then(() => chain);
     },
   };
 }
