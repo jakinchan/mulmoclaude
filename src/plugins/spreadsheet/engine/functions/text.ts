@@ -2,7 +2,7 @@
  * Text Functions
  */
 
-import { functionRegistry, toString, type FunctionHandler } from "../registry";
+import { functionRegistry, requiredArg, toString, type FunctionHandler } from "../registry";
 import { VALUE_ERROR, isSpreadsheetErrorValue, type SpreadsheetError } from "../spreadsheet-errors";
 import { formatWithPattern } from "../textFormat";
 
@@ -16,7 +16,10 @@ const isWordCharacter = (char: string): boolean => /[\p{L}\p{M}]/u.test(char);
 // boundaries include "'" and "-", which a space-only split misses.
 export const toProperCase = (text: string): string => {
   const chars = Array.from(text);
-  const cased = chars.map((char, index) => (index === 0 || !isWordCharacter(chars[index - 1]) ? char.toUpperCase() : char.toLowerCase()));
+  const cased = chars.map((char, index) => {
+    const previous = chars[index - 1];
+    return previous === undefined || !isWordCharacter(previous) ? char.toUpperCase() : char.toLowerCase();
+  });
   return cased.join("");
 };
 
@@ -71,15 +74,15 @@ const concatenateHandler: FunctionHandler = (args, context) => {
 const concatHandler: FunctionHandler = concatenateHandler; // Alias
 
 const leftHandler: FunctionHandler = (args, context) => {
-  const text = toString(context.evaluateFormula(args[0]));
-  const numChars = args.length === 2 ? Number(context.evaluateFormula(args[1])) : 1;
+  const text = toString(context.evaluateFormula(requiredArg(context, args, 0)));
+  const numChars = args.length === 2 ? Number(context.evaluateFormula(requiredArg(context, args, 1))) : 1;
 
   return takeLeft(text, numChars);
 };
 
 const rightHandler: FunctionHandler = (args, context) => {
-  const text = toString(context.evaluateFormula(args[0]));
-  const numChars = args.length === 2 ? Number(context.evaluateFormula(args[1])) : 1;
+  const text = toString(context.evaluateFormula(requiredArg(context, args, 0)));
+  const numChars = args.length === 2 ? Number(context.evaluateFormula(requiredArg(context, args, 1))) : 1;
 
   return takeRight(text, numChars);
 };
@@ -97,53 +100,53 @@ export const takeMid = (text: string, start: number, count: number): string | Sp
 };
 
 const midHandler: FunctionHandler = (args, context) => {
-  const text = toString(context.evaluateFormula(args[0]));
-  const start = Number(context.evaluateFormula(args[1]));
-  const numChars = Number(context.evaluateFormula(args[2]));
+  const text = toString(context.evaluateFormula(requiredArg(context, args, 0)));
+  const start = Number(context.evaluateFormula(requiredArg(context, args, 1)));
+  const numChars = Number(context.evaluateFormula(requiredArg(context, args, 2)));
 
   return takeMid(text, start, numChars);
 };
 
 const lenHandler: FunctionHandler = (args, context) => {
-  const text = toString(context.evaluateFormula(args[0]));
+  const text = toString(context.evaluateFormula(requiredArg(context, args, 0)));
   return text.length;
 };
 
 const upperHandler: FunctionHandler = (args, context) => {
-  const text = toString(context.evaluateFormula(args[0]));
+  const text = toString(context.evaluateFormula(requiredArg(context, args, 0)));
   return text.toUpperCase();
 };
 
 const lowerHandler: FunctionHandler = (args, context) => {
-  const text = toString(context.evaluateFormula(args[0]));
+  const text = toString(context.evaluateFormula(requiredArg(context, args, 0)));
   return text.toLowerCase();
 };
 
 const properHandler: FunctionHandler = (args, context) => {
-  const text = toString(context.evaluateFormula(args[0]));
+  const text = toString(context.evaluateFormula(requiredArg(context, args, 0)));
   return toProperCase(text);
 };
 
 const trimHandler: FunctionHandler = (args, context) => {
-  const text = toString(context.evaluateFormula(args[0]));
+  const text = toString(context.evaluateFormula(requiredArg(context, args, 0)));
   // Trim leading/trailing spaces and replace multiple spaces with single space
   return text.trim().replace(/\s+/g, " ");
 };
 
 const substituteHandler: FunctionHandler = (args, context) => {
-  const text = toString(context.evaluateFormula(args[0]));
-  const oldText = toString(context.evaluateFormula(args[1]));
-  const newText = toString(context.evaluateFormula(args[2]));
-  const instance = args.length === 4 ? Number(context.evaluateFormula(args[3])) : undefined;
+  const text = toString(context.evaluateFormula(requiredArg(context, args, 0)));
+  const oldText = toString(context.evaluateFormula(requiredArg(context, args, 1)));
+  const newText = toString(context.evaluateFormula(requiredArg(context, args, 2)));
+  const instance = args.length === 4 ? Number(context.evaluateFormula(requiredArg(context, args, 3))) : undefined;
 
   return substituteText(text, oldText, newText, instance);
 };
 
 const replaceHandler: FunctionHandler = (args, context) => {
-  const oldText = toString(context.evaluateFormula(args[0]));
-  const startPos = Number(context.evaluateFormula(args[1])) - 1; // 1-indexed to 0-indexed
-  const numChars = Number(context.evaluateFormula(args[2]));
-  const newText = toString(context.evaluateFormula(args[3]));
+  const oldText = toString(context.evaluateFormula(requiredArg(context, args, 0)));
+  const startPos = Number(context.evaluateFormula(requiredArg(context, args, 1))) - 1; // 1-indexed to 0-indexed
+  const numChars = Number(context.evaluateFormula(requiredArg(context, args, 2)));
+  const newText = toString(context.evaluateFormula(requiredArg(context, args, 3)));
 
   return oldText.substring(0, startPos) + newText + oldText.substring(startPos + numChars);
 };
@@ -158,17 +161,17 @@ export const locateSubstring = (find: string, within: string, start: number, opt
 };
 
 const findHandler: FunctionHandler = (args, context) => {
-  const findText = toString(context.evaluateFormula(args[0]));
-  const withinText = toString(context.evaluateFormula(args[1]));
-  const startPos = args.length === 3 ? Number(context.evaluateFormula(args[2])) - 1 : 0;
+  const findText = toString(context.evaluateFormula(requiredArg(context, args, 0)));
+  const withinText = toString(context.evaluateFormula(requiredArg(context, args, 1)));
+  const startPos = args.length === 3 ? Number(context.evaluateFormula(requiredArg(context, args, 2))) - 1 : 0;
 
   return locateSubstring(findText, withinText, startPos, { caseInsensitive: false });
 };
 
 const searchHandler: FunctionHandler = (args, context) => {
-  const findText = toString(context.evaluateFormula(args[0]));
-  const withinText = toString(context.evaluateFormula(args[1]));
-  const startPos = args.length === 3 ? Number(context.evaluateFormula(args[2])) - 1 : 0;
+  const findText = toString(context.evaluateFormula(requiredArg(context, args, 0)));
+  const withinText = toString(context.evaluateFormula(requiredArg(context, args, 1)));
+  const startPos = args.length === 3 ? Number(context.evaluateFormula(requiredArg(context, args, 2))) - 1 : 0;
 
   return locateSubstring(findText, withinText, startPos, { caseInsensitive: true });
 };
@@ -178,8 +181,8 @@ const searchHandler: FunctionHandler = (args, context) => {
 const stripSurroundingQuotes = (text: string): string => text.replace(/^["']/, "").replace(/["']$/, "");
 
 const textHandler: FunctionHandler = (args, context) => {
-  const value = context.evaluateFormula(args[0]);
-  const format = stripSurroundingQuotes(toString(context.evaluateFormula(args[1])));
+  const value = context.evaluateFormula(requiredArg(context, args, 0));
+  const format = stripSurroundingQuotes(toString(context.evaluateFormula(requiredArg(context, args, 1))));
   if (typeof value !== "number") return toString(value);
   return formatWithPattern(value, format) ?? toString(value);
 };
@@ -215,12 +218,12 @@ export const parseValueText = (raw: string): number | SpreadsheetError => {
 };
 
 const valueHandler: FunctionHandler = (args, context) => {
-  return parseValueText(toString(context.evaluateFormula(args[0])));
+  return parseValueText(toString(context.evaluateFormula(requiredArg(context, args, 0))));
 };
 
 const exactHandler: FunctionHandler = (args, context) => {
-  const text1 = toString(context.evaluateFormula(args[0]));
-  const text2 = toString(context.evaluateFormula(args[1]));
+  const text1 = toString(context.evaluateFormula(requiredArg(context, args, 0)));
+  const text2 = toString(context.evaluateFormula(requiredArg(context, args, 1)));
 
   return text1 === text2;
 };

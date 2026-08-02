@@ -35,22 +35,39 @@ export function stripFormulaPrefix(formula: string): string {
   return formula.startsWith("=") ? formula.slice(1) : formula;
 }
 
+const A1_REGEX = /^([A-Z]+)(\d+)$/;
+
+// One `A1` token as its column index (0-based) and its row NUMBER as written
+// (1-based). The single place a column letter + row digit pair is read, so the
+// range and single-cell parsers below cannot drift apart.
+function parseA1Token(token: string): { col: number; rowNumber: number } | null {
+  const [, column, row] = token.match(A1_REGEX) ?? [];
+  if (column === undefined || row === undefined) return null;
+  return { col: columnToIndex(column), rowNumber: parseInt(row, 10) };
+}
+
+// The two endpoints of an `A1:B3` range, or null for anything that is not
+// exactly two `A1` tokens joined by one colon.
+function parseRangeEndpoints(body: string): { start: { col: number; rowNumber: number }; end: { col: number; rowNumber: number } } | null {
+  const [startToken, endToken, ...extra] = body.split(":");
+  if (startToken === undefined || endToken === undefined || extra.length > 0) return null;
+  const start = parseA1Token(startToken);
+  const end = parseA1Token(endToken);
+  return start && end ? { start, end } : null;
+}
+
 // Expand a single range token (`A1:B3`, `$A$1:$C$5`) into every
 // coordinate the range covers. Returns an empty array for malformed
 // input so callers never have to handle exceptions; the worst case
 // is "we silently ignored a weird-looking substring," which matches
 // the original inline behaviour.
 export function expandRange(rangeStr: string): CellCoord[] {
-  const cleanRange = rangeStr.replace(/\$/g, "");
-  const match = cleanRange.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
-  if (!match) return [];
-  const startCol = columnToIndex(match[1]);
-  const startRow = parseInt(match[2], 10) - 1;
-  const endCol = columnToIndex(match[3]);
-  const endRow = parseInt(match[4], 10) - 1;
+  const endpoints = parseRangeEndpoints(rangeStr.replace(/\$/g, ""));
+  if (!endpoints) return [];
+  const { start, end } = endpoints;
   const cells: CellCoord[] = [];
-  for (let row = startRow; row <= endRow; row++) {
-    for (let col = startCol; col <= endCol; col++) {
+  for (let row = start.rowNumber - 1; row <= end.rowNumber - 1; row++) {
+    for (let col = start.col; col <= end.col; col++) {
       cells.push({ row, col });
     }
   }
@@ -78,13 +95,8 @@ export function expandRangeOrCell(ref: string): CellCoord[] | null {
 // caller's loop flat (the engine-layer `parseCellRef` throws, which
 // is fine for the evaluator but wrong for a best-effort scanner).
 export function parseSingleCellRef(refStr: string): CellCoord | null {
-  const cleanRef = refStr.replace(/\$/g, "");
-  const match = cleanRef.match(/^([A-Z]+)(\d+)$/);
-  if (!match) return null;
-  return {
-    col: columnToIndex(match[1]),
-    row: parseInt(match[2], 10) - 1,
-  };
+  const parsed = parseA1Token(refStr.replace(/\$/g, ""));
+  return parsed ? { col: parsed.col, row: parsed.rowNumber - 1 } : null;
 }
 
 // Numeric bounds of a `A2:C10` range, with any `Sheet1!` / `'My Sheet'!`
@@ -109,15 +121,10 @@ export function parseRangeBounds(range: string): RangeBounds | null {
   const bang = range.lastIndexOf("!");
   const sheetPrefix = bang >= 0 ? range.slice(0, bang + 1) : "";
   const body = bang >= 0 ? range.slice(bang + 1) : range;
-  const match = body.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
-  if (!match) return null;
-  return {
-    sheetPrefix,
-    startCol: columnToIndex(match[1]),
-    startRow: parseInt(match[2], 10),
-    endCol: columnToIndex(match[3]),
-    endRow: parseInt(match[4], 10),
-  };
+  const endpoints = parseRangeEndpoints(body);
+  if (!endpoints) return null;
+  const { start, end } = endpoints;
+  return { sheetPrefix, startCol: start.col, startRow: start.rowNumber, endCol: end.col, endRow: end.rowNumber };
 }
 
 // Excel's `0` row/column index selects the entire row/column. This scalar engine

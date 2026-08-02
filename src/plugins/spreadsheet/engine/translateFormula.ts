@@ -29,16 +29,16 @@ function toggleQuote(openQuote: string, char: string): string {
  *  string literal untouched. A quote toggles the "inside a literal" state only
  *  when it is not backslash-escaped. */
 export function replaceConcatOperator(expr: string): string {
+  const chars = expr.split("");
   const out: string[] = [];
   let openQuote = "";
-  for (let index = 0; index < expr.length; index++) {
-    const char = expr[index];
-    const escaped = index > 0 && expr[index - 1] === "\\";
+  chars.forEach((char, index) => {
+    const escaped = index > 0 && chars[index - 1] === "\\";
     if (!escaped && (char === '"' || char === "'")) {
       openQuote = toggleQuote(openQuote, char);
     }
     out.push(char === "&" && openQuote === "" ? "+" : char);
-  }
+  });
   return out.join("");
 }
 
