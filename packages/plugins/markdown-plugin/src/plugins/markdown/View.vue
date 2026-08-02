@@ -856,11 +856,16 @@ watch(
   width: 100%;
   height: 40vh;
   padding: 1rem;
-  background: #ffffff;
+  background: #333;
   border: 1px solid #ccc;
   border-radius: 4px;
-  color: #333;
-  font-family: "Courier New", "MS Gothic", "BIZ UDGothic", monospace;
+  color: #ffffff;
+  /* MulmoTerminal's xterm stack (TERMINAL_FONT_FAMILY_DEFAULT): Latin first, then the CJK tail
+     with Japanese ahead of the other locales so kanji don't get mainland glyph shapes. Restated
+     here rather than imported — the terminal's copy lives in another app. */
+  font-family:
+    "JetBrains Mono", "Fira Code", Menlo, Consolas, "Noto Sans Mono CJK JP", "Hiragino Sans", "BIZ UDGothic", "MS Gothic", IPAGothic, "Noto Sans Mono CJK KR",
+    "Malgun Gothic", "Noto Sans Mono CJK SC", "Microsoft YaHei", "Noto Sans Mono CJK TC", "Microsoft JhengHei", monospace;
   font-size: 0.9rem;
   resize: vertical;
   margin-bottom: 0.5rem;
