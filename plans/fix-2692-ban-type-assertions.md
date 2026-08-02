@@ -58,7 +58,43 @@ early.
 - [x] `server/api/routes/plugins.ts` (#2705) · `server/events/session-store/index.ts` (#2706)
 - [x] `server/workspace/photo-locations/list.ts` (#2701) · `server/plugins/runtime.ts` (#2698)
 - [x] `src/plugins/scope.ts` + chart / markdown / presentHtml (#2710) — 15 in one go
+- [x] the four META aggregators — `toolNames` / `pubsubChannels` / `apiRoutes` /
+      `server/workspace/paths.ts` — 8 → **0** (see "The aggregator bridge" below)
 - [ ] 368 casts / 188 files remaining (re-measured 2026-08-02, after #2698)
+
+### The aggregator bridge — one claim, checked by tests
+
+The four host aggregators each ended with the same
+`AGGREGATE.merged as unknown as typeof HOST_X & PluginXMap<BuiltInPluginMetas>`.
+Four files casting one call is the "suspect the callee" shape below:
+`defineHostAggregate` returned `Record<string, V>` and every caller re-declared
+what it should have been.
+
+It now takes the host record type and the plugin map as type arguments
+(`defineHostAggregate<V, Host, PluginContributions>`), so `merged` is
+`Host & PluginContributions` and all four call sites are cast-free.
+
+What could NOT be removed, and why it is one line instead of four: the plugin
+half is genuinely unprovable. `buildPluginAggregate` walks
+`readonly PluginMeta[]`, which has already widened every plugin's literal keys
+to `string`, so no expression built from that loop can carry them back — and
+the merge must not `throw` on a collision (it degrades to "host wins" on
+purpose, so one buggy plugin can't brick boot). The single remaining claim sits
+in `defineHostAggregate` with that reasoning attached.
+
+Two tests in `test/plugins/test_meta_aggregation.ts` now check it, so the claim
+is verified rather than trusted:
+
+- **runtime** — every META contribution actually appears in the live merged
+  record. Falsified by shadowing `accountingBooks` with a host key: fails with
+  `AssertionError: WORKSPACE_DIRS.accountingBooks`.
+- **compile time** — `Exact<…>` assertions pin the literals. Falsified by
+  widening `TOOL_NAMES.textResponse` to `string`: `yarn typecheck:test` fails
+  with `TS2322` on the assertion line.
+
+Widening is the failure mode nothing else would catch: a literal is assignable
+to `string`, so every call site keeps compiling while `WORKSPACE_PATHS.<key>`
+lookups and `role.availablePlugins` typo-checking quietly stop working.
 
 ### Two shapes worth copying
 

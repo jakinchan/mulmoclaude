@@ -195,7 +195,7 @@
         class="h-8 px-2 rounded border border-slate-200 bg-white text-xs font-semibold text-slate-600 focus:outline-none focus:border-indigo-500 cursor-pointer"
         :aria-label="t('collectionsView.calendarFieldLabel')"
         data-testid="collection-calendar-field"
-        @change="emit('update:anchorField', ($event.target as HTMLSelectElement).value)"
+        @change="onAnchorFieldChange"
       >
         <option v-for="key in dateFields" :key="key" :value="key">{{ collection?.schema.fields[key]?.label ?? key }}</option>
       </select>
@@ -206,7 +206,7 @@
         class="h-8 px-2 rounded border border-slate-200 bg-white text-xs font-semibold text-slate-600 focus:outline-none focus:border-indigo-500 cursor-pointer"
         :aria-label="t('collectionsView.kanbanFieldLabel')"
         data-testid="collection-kanban-field"
-        @change="emit('update:groupField', ($event.target as HTMLSelectElement).value)"
+        @change="onGroupFieldChange"
       >
         <option v-for="key in enumFields" :key="key" :value="key">{{ collection?.schema.fields[key]?.label ?? key }}</option>
       </select>
@@ -312,6 +312,16 @@ function flagChipTitle(chip: FlagChip): string {
   if (mode === "hide") return t("collectionsView.flagFilterHide", { label: chip.label });
   if (mode === "only") return t("collectionsView.flagFilterOnly", { label: chip.label });
   return t("collectionsView.flagFilterAll", { label: chip.label });
+}
+
+function onAnchorFieldChange(event: Event): void {
+  const { target } = event;
+  if (target instanceof HTMLSelectElement) emit("update:anchorField", target.value);
+}
+
+function onGroupFieldChange(event: Event): void {
+  const { target } = event;
+  if (target instanceof HTMLSelectElement) emit("update:groupField", target.value);
 }
 
 /** "+" click: open the target chooser, or skip the one-item menu and seed

@@ -187,20 +187,23 @@ export function filterPluginKeys<V>(
 // runtime half to one call so a new dimension (e.g. featureFlags) is
 // one line at the call site, not five copy-pastes.
 //
-// The TYPE-LEVEL mapped shape stays at the call site — each
-// aggregator's literal-preserving type (`PluginWorkspaceDirsMap`,
-// `PluginApiRoutesMap`, …) is dimension-specific and would lose
-// fidelity if collapsed into a generic helper. The runtime helper
-// returns `Record<string, V>` and the call site narrows it.
+// Each aggregator's literal-preserving plugin type
+// (`PluginWorkspaceDirsMap`, `PluginApiRoutesMap`, …) is
+// dimension-specific and still declared at the call site, but it is
+// passed IN as the `PluginContributions` type argument rather than
+// asserted onto the result afterwards. That keeps the host half of
+// `merged` type-checked by the compiler (it is a spread of the
+// caller's own `hostRecord`) and leaves exactly one place — the
+// `cleaned` narrowing below — where the plugin half is claimed.
 
-export interface HostAggregateOptions<V> {
+export interface HostAggregateOptions<V, Host extends Readonly<Record<string, V>> = Readonly<Record<string, V>>> {
   /** Aggregator label used in `HostPluginCollision.label` (e.g.
    *  `"TOOL_NAMES"`, `"API_ROUTES"`). */
   readonly label: string;
   /** Host-owned record. Plugin keys that collide with these are
    *  dropped from the merge (host wins) and reported in
    *  `hostCollisions`. */
-  readonly hostRecord: Readonly<Record<string, V>>;
+  readonly hostRecord: Host;
   /** Per-plugin extractor — returns the contribution this plugin
    *  makes to this dimension, or `undefined` to skip. */
   readonly extract: (meta: PluginMeta) => Readonly<Record<string, V>> | undefined;
@@ -217,10 +220,10 @@ export interface HostAggregateOptions<V> {
   readonly additionalReservedKeys?: ReadonlySet<string>;
 }
 
-export interface HostAggregate<V> {
+export interface HostAggregate<Merged> {
   /** Merged record: host fields plus every plugin contribution that
    *  survived collision filtering. */
-  readonly merged: Record<string, V>;
+  readonly merged: Merged;
   /** Plugin keys dropped because a host record claimed the same
    *  key. */
   readonly hostCollisions: readonly HostPluginCollision[];
@@ -230,17 +233,33 @@ export interface HostAggregate<V> {
 }
 
 /** Run the standard "build per-plugin aggregate, drop host
- *  collisions, spread into host record" pipeline in one call. The
- *  caller still owns the literal-preserving type cast on `merged`. */
-export function defineHostAggregate<V>(metas: readonly PluginMeta[], opts: HostAggregateOptions<V>): HostAggregate<V> {
+ *  collisions, spread into host record" pipeline in one call.
+ *  `Host` is the caller's own record type, so the host half of
+ *  `merged` is proved by the compiler; `PluginContributions` is the
+ *  literal-preserving shape the caller derives from
+ *  `BUILT_IN_PLUGIN_METAS`. */
+export function defineHostAggregate<
+  V,
+  Host extends Readonly<Record<string, V>> = Readonly<Record<string, V>>,
+  PluginContributions extends object = Readonly<Record<string, V>>,
+>(metas: readonly PluginMeta[], opts: HostAggregateOptions<V, Host>): HostAggregate<Host & PluginContributions> {
   const { aggregate, owner, collisions } = buildPluginAggregate(metas, opts.extract, opts.dimension);
   const reserved = new Set<string>(Object.keys(opts.hostRecord));
   if (opts.additionalReservedKeys) {
     for (const key of opts.additionalReservedKeys) reserved.add(key);
   }
   const { cleaned, dropped } = filterPluginKeys(opts.label, reserved, aggregate, owner);
+  // The single point in the aggregator pipeline where the plugin half is
+  // claimed rather than proved. `buildPluginAggregate` loops over
+  // `readonly PluginMeta[]`, which has already widened every plugin's literal
+  // keys to `string`, so no expression built from that loop can carry them
+  // back — `PluginContributions` is the caller's compile-time derivation of
+  // the same keys. `test/plugins/test_meta_aggregation.ts` checks the claim
+  // against every live aggregator, so a key the type promises but the merge
+  // drops fails a test instead of surfacing as `undefined` at a call site.
+  const pluginContributions = cleaned as PluginContributions;
   return {
-    merged: { ...opts.hostRecord, ...cleaned },
+    merged: { ...opts.hostRecord, ...pluginContributions },
     hostCollisions: dropped,
     intraCollisions: collisions,
   };

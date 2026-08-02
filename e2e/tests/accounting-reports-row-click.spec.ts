@@ -13,6 +13,9 @@
 //   3. Balance Sheet's Period dropdown ("This month / Last month /
 //      Last quarter / Last year") snaps the `<input type=month>` to
 //      the chosen shortcut.
+//   4. The shared DateRangePicker (P&L / Ledger / Journal) — its
+//      shortcut <select> and its from/to <input type=date>s each
+//      write the range the report reads.
 
 import { test, expect, type Page } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
@@ -157,6 +160,54 @@ test.describe("Balance Sheet — row click and period shortcuts", () => {
     expect(lastYear).toMatch(/^\d{4}-12$/);
     // Last year must be strictly older than this month.
     expect(lastYear < thisMonth).toBe(true);
+  });
+});
+
+test.describe("Date range picker — shortcut and manual from/to", () => {
+  // Every assertion here reads the SHORTCUT select or the from/to inputs,
+  // all three of which are `:value`-bound to the parent's range. A handler
+  // that never emitted would leave the control showing whatever the user
+  // just typed or picked, so only a value that CHANGED (or fell back to the
+  // blank "custom" sentinel) proves the event reached the parent.
+  test("the shortcut dropdown and the from/to inputs each drive the shared range", async ({ page }) => {
+    const SEED_BOOK_ID = "book-daterange";
+    await setupSession(page, {
+      books: [{ id: SEED_BOOK_ID, name: "Range Book", withEmptyOpening: true }],
+      envelope: { bookId: SEED_BOOK_ID, initialTab: "profitLoss" },
+    });
+
+    await page.goto(`/chat/${SESSION_ID}`);
+    await expect(page.getByTestId("accounting-profit-loss")).toBeVisible();
+
+    const shortcut = page.getByTestId("accounting-daterange-shortcut");
+    const fromInput = page.getByTestId("accounting-daterange-from");
+    const toInput = page.getByTestId("accounting-daterange-to");
+
+    // P&L opens on the current fiscal year, so the picker starts on a preset.
+    await expect(shortcut).toHaveValue("currentYear");
+    const currentYearFrom = await fromInput.inputValue();
+    expect(currentYearFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    // Shortcut → range: from/to only move if the select's handler emitted.
+    await shortcut.selectOption("previousYear");
+    await expect(shortcut).toHaveValue("previousYear");
+    await expect(fromInput).not.toHaveValue(currentYearFrom);
+
+    // Manual `from` → range. The 2019 dates can't collide with a preset
+    // computed from the system clock, so the select must land on the blank
+    // "custom" sentinel.
+    await fromInput.fill("2019-06-01");
+    await expect(shortcut).toHaveValue("");
+    await expect(fromInput).toHaveValue("2019-06-01");
+
+    // Back to a preset, then the same round trip through `to` — the two
+    // inputs have separate handlers, so one working proves nothing about
+    // the other.
+    await shortcut.selectOption("previousYear");
+    await expect(shortcut).toHaveValue("previousYear");
+    await toInput.fill("2019-06-30");
+    await expect(shortcut).toHaveValue("");
+    await expect(toInput).toHaveValue("2019-06-30");
   });
 });
 
