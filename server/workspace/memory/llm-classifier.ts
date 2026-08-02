@@ -15,7 +15,7 @@
 // is one-time and small — keep the request shape simple.
 
 import type { MemoryClassification, MemoryCandidate, MemoryClassifier } from "./migrate.js";
-import { isMemoryType, type MemoryType } from "./types.js";
+import { isMemoryType } from "./types.js";
 import { extractFirstObject, stripFenceAndWhitespace } from "./llm-json.js";
 
 import { ClaudeCliNotFoundError, type Summarize } from "../journal/archivist-cli.js";
@@ -91,7 +91,7 @@ export function parseClassifierVerdict(raw: string): MemoryClassification | null
     return null;
   }
   if (!isRecord(parsed)) return null;
-  const { type, description } = parsed as { type?: unknown; description?: unknown };
+  const { type, description } = parsed;
   if (!isMemoryType(type)) return null;
   const desc = typeof description === "string" ? description.trim() : "";
   // The description is optional from the spec's perspective —
@@ -100,7 +100,7 @@ export function parseClassifierVerdict(raw: string): MemoryClassification | null
   // Cap matches the prompt's `<=100 chars>` declaration so persisted
   // entries never exceed the schema the classifier was told to follow
   // (#1061 review).
-  return desc.length > 0 ? { type: type as MemoryType, description: oneLine(desc).slice(0, 100) } : { type: type as MemoryType };
+  return desc.length > 0 ? { type, description: oneLine(desc).slice(0, 100) } : { type };
 }
 
 function oneLine(text: string): string {

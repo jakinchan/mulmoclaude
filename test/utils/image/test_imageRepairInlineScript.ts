@@ -15,11 +15,11 @@ import {
 interface MockElement {
   tagName: string;
   dataset: { imageRepairTried?: string };
-  src?: string;
-  srcset?: string;
+  src?: string | undefined;
+  srcset?: string | undefined;
   attrs: Record<string, string | undefined>;
   children: MockElement[]; // simple "shadow tree" for the picture/audio/video case
-  parentPicture?: MockElement;
+  parentPicture?: MockElement | undefined;
   getAttribute: (name: string) => string | null;
   setAttribute: (name: string, value: string) => void;
   closest: (selector: string) => MockElement | null;
@@ -189,31 +189,31 @@ describe("injectImageRepairScript", () => {
 describe("repairImageErrorTarget — runtime behavior", () => {
   it("rewrites <img>.src when the URL carries a recognisable artifacts/images segment", () => {
     const img = makeElement("IMG", { src: "/wrong/prefix/artifacts/images/2026/05/foo.png" });
-    repairImageErrorTarget(img as unknown as EventTarget, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
+    repairImageErrorTarget(img, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
     assert.equal(img.src, "/artifacts/images/2026/05/foo.png");
     assert.equal(img.dataset.imageRepairTried, "1");
   });
 
   it("rewrites the encoded form via decodeURIComponent (issue #1102)", () => {
     const img = makeElement("IMG", { src: "/api/files/raw?path=artifacts%2Fimages%2F2026%2F05%2Ffoo.png" });
-    repairImageErrorTarget(img as unknown as EventTarget, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
+    repairImageErrorTarget(img, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
     assert.equal(img.src, "/artifacts/images/2026/05/foo.png");
   });
 
   it("is a one-shot per element — second invocation is a no-op", () => {
     const img = makeElement("IMG", { src: "/wrong/artifacts/images/foo.png" });
-    repairImageErrorTarget(img as unknown as EventTarget, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
+    repairImageErrorTarget(img, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
     assert.equal(img.src, "/artifacts/images/foo.png");
     // Even if a follow-up rewrite would change the path again, the
     // dataset flag stops it.
     img.src = "/wrong/again/artifacts/images/bar.png";
-    repairImageErrorTarget(img as unknown as EventTarget, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
+    repairImageErrorTarget(img, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
     assert.equal(img.src, "/wrong/again/artifacts/images/bar.png");
   });
 
   it("leaves <img>.src alone when no pattern matches", () => {
     const img = makeElement("IMG", { src: "/some/other/path.png" });
-    repairImageErrorTarget(img as unknown as EventTarget, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
+    repairImageErrorTarget(img, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
     assert.equal(img.src, "/some/other/path.png");
     assert.equal(img.dataset.imageRepairTried, undefined);
   });
@@ -224,7 +224,7 @@ describe("repairImageErrorTarget — runtime behavior", () => {
 
   it("rewrites a <source> element via getAttribute / setAttribute", () => {
     const src = makeElement("SOURCE", { attrs: { src: "/wrong/artifacts/images/x.webp" } });
-    repairImageErrorTarget(src as unknown as EventTarget, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
+    repairImageErrorTarget(src, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
     assert.equal(src.attrs.src, "/artifacts/images/x.webp");
     assert.equal(src.dataset.imageRepairTried, "1");
   });
@@ -233,7 +233,7 @@ describe("repairImageErrorTarget — runtime behavior", () => {
     const src = makeElement("SOURCE", {
       srcset: "/wrong/artifacts/images/a.png 1x, /wrong/artifacts/images/b.png 2x, /unrelated.png 3x",
     });
-    repairImageErrorTarget(src as unknown as EventTarget, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
+    repairImageErrorTarget(src, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
     assert.equal(src.srcset, "/artifacts/images/a.png 1x, /artifacts/images/b.png 2x, /unrelated.png 3x");
     assert.equal(src.dataset.imageRepairTried, "1");
   });
@@ -245,7 +245,7 @@ describe("repairImageErrorTarget — runtime behavior", () => {
     const picture = makeElement("PICTURE", { children: [sourceA, sourceB, img] });
     img.parentPicture = picture;
 
-    repairImageErrorTarget(img as unknown as EventTarget, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
+    repairImageErrorTarget(img, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
 
     assert.equal(img.src, "/artifacts/images/main.png");
     assert.equal(sourceA.attrs.src, "/artifacts/images/a.webp");
@@ -257,7 +257,7 @@ describe("repairImageErrorTarget — runtime behavior", () => {
     const sourceB = makeElement("SOURCE", { attrs: { src: "/wrong/artifacts/images/b.ogg" } });
     const audio = makeElement("AUDIO", { children: [sourceA, sourceB] });
 
-    repairImageErrorTarget(audio as unknown as EventTarget, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
+    repairImageErrorTarget(audio, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
 
     assert.equal(sourceA.attrs.src, "/artifacts/images/a.mp3");
     assert.equal(sourceB.attrs.src, "/artifacts/images/b.ogg");
@@ -268,14 +268,14 @@ describe("repairImageErrorTarget — runtime behavior", () => {
     // throw URIError. The handler must swallow that and leave src alone,
     // not crash the iframe.
     const img = makeElement("IMG", { src: "/api/files/raw?path=artifacts%2Fimages%2F%E0%A4" });
-    repairImageErrorTarget(img as unknown as EventTarget, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
+    repairImageErrorTarget(img, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
     assert.equal(img.src, "/api/files/raw?path=artifacts%2Fimages%2F%E0%A4");
     assert.equal(img.dataset.imageRepairTried, undefined);
   });
 
   it("ignores tags outside the IMG/SOURCE/AUDIO/VIDEO whitelist", () => {
     const div = makeElement("DIV", { src: "/wrong/artifacts/images/foo.png" });
-    repairImageErrorTarget(div as unknown as EventTarget, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
+    repairImageErrorTarget(div, IMAGE_REPAIR_PATTERN, IMAGE_REPAIR_PATTERN_ENCODED);
     assert.equal(div.src, "/wrong/artifacts/images/foo.png");
     assert.equal(div.dataset.imageRepairTried, undefined);
   });

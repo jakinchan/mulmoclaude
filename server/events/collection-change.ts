@@ -37,7 +37,9 @@ type SetPublisher = (publish: ((payload: CollectionChangePayload) => void) | nul
 /** The package's publisher setter, or null when the installed package predates
  *  it (see the module header on why this is feature-detected, not imported). */
 function resolveSetPublisher(): SetPublisher | null {
-  const candidate = (collectionPlugin as { setCollectionChangePublisher?: SetPublisher }).setCollectionChangePublisher;
+  // Typed from the workspace source, which always has the export; the runtime
+  // check is what covers an older installed package (see the module header).
+  const candidate = collectionPlugin.setCollectionChangePublisher;
   return typeof candidate === "function" ? candidate : null;
 }
 
@@ -50,7 +52,13 @@ export function initCollectionChangePublisher(instance: IPubSub): void {
     return;
   }
   setPublisher((payload: CollectionChangePayload) => {
-    const channelPayload: CollectionChannelPayload = { slug: payload.slug, ids: payload.ids, op: payload.op };
+    // Only the keys the change actually carried — this payload rides the
+    // pub/sub channel out to browser subscribers.
+    const channelPayload: CollectionChannelPayload = {
+      slug: payload.slug,
+      ...(payload.ids !== undefined ? { ids: payload.ids } : {}),
+      ...(payload.op !== undefined ? { op: payload.op } : {}),
+    };
     try {
       instance.publish(collectionChannel(payload.slug), channelPayload);
     } catch (err) {

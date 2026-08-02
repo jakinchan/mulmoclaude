@@ -10,9 +10,9 @@ import type { TranslateBatchFn, TranslateResponse } from "../../services/transla
 
 export interface TranslationRouteDeps {
   /** Override for tests — defaults to the live workspace root. */
-  workspaceRoot?: string;
+  workspaceRoot?: string | undefined;
   /** Override for tests — defaults to the production claude-CLI backend. */
-  translateBatch?: TranslateBatchFn;
+  translateBatch?: TranslateBatchFn | undefined;
 }
 
 interface TranslateErrorBody {

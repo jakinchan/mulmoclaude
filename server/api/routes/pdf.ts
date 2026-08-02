@@ -76,7 +76,7 @@ export interface InlineImagesOptions {
    *  workspace boundary is enforced anyway by `resolveWithinRoot`,
    *  but rejecting up-front gives a clearer log line than a
    *  silently-broken image. */
-  sourceDir?: string;
+  sourceDir?: string | undefined;
 }
 
 // Tag scanning + attribute iteration live in the shared helper
@@ -318,20 +318,20 @@ export interface RenderMarkdownPdfOptions {
   markdown: string;
   /** Render via Marp (one page per slide) instead of the `marked`
    *  pipeline. `format` / `stripFrontmatter` are ignored in Marp mode. */
-  marp?: boolean;
+  marp?: boolean | undefined;
   /** Workspace-relative source dir for resolving relative `<img>` refs. */
-  baseDir?: string;
-  format?: "Letter" | "A4";
-  stripFrontmatter?: boolean;
+  baseDir?: string | undefined;
+  format?: "Letter" | "A4" | undefined;
+  stripFrontmatter?: boolean | undefined;
 }
 
 export interface RenderMarkdownHtmlOptions {
   markdown: string;
   /** Render via Marp (slide deck) instead of the `marked` pipeline. */
-  marp?: boolean;
+  marp?: boolean | undefined;
   /** Workspace-relative source dir for resolving relative `<img>` refs. */
-  baseDir?: string;
-  stripFrontmatter?: boolean;
+  baseDir?: string | undefined;
+  stripFrontmatter?: boolean | undefined;
 }
 
 /** Markdown (or a Marp deck) → a self-contained HTML string: CSS inlined
@@ -385,7 +385,7 @@ interface PdfMarkdownBody {
    *  resolving workspace-relative `<img src>` references; `format`
    *  and `stripFrontmatter` are ignored (Marp owns paging + already
    *  consumes its own frontmatter directives). */
-  marp?: boolean;
+  marp?: boolean | undefined;
 }
 
 router.post(API_ROUTES.pdf.markdown, async (req: Request<object, unknown, PdfMarkdownBody>, res: Response) => {

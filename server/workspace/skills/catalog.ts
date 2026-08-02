@@ -49,7 +49,7 @@ export type CatalogSource = "preset" | "external";
 export const CATALOG_SOURCES: readonly CatalogSource[] = ["preset", "external"] as const;
 
 export function isCatalogSource(value: unknown): value is CatalogSource {
-  return typeof value === "string" && (CATALOG_SOURCES as readonly string[]).includes(value);
+  return CATALOG_SOURCES.some((source) => source === value);
 }
 
 export interface CatalogEntry {
@@ -87,7 +87,7 @@ function catalogDirForSource(source: "preset", workspaceRoot: string): string {
     return path.join(workspaceRoot, WORKSPACE_DIRS.skillsCatalogPreset);
   }
   const exhaustive: never = source;
-  throw new Error(`unknown catalog source: ${exhaustive as string}`);
+  throw new Error(`unknown catalog source: ${String(exhaustive)}`);
 }
 
 function activeDir(workspaceRoot: string): string {

@@ -2,13 +2,7 @@
   <div class="w-72 flex-shrink-0 border-r border-gray-200 overflow-y-auto p-2 bg-gray-50">
     <div class="flex flex-wrap justify-end items-center gap-x-3 gap-y-1 pb-1 text-xs">
       <label class="flex items-center gap-1 text-gray-500 cursor-pointer select-none" :title="t('fileTreePane.showSystemFilesTitle')">
-        <input
-          type="checkbox"
-          class="h-3.5 w-3.5"
-          data-testid="file-tree-show-system-toggle"
-          :checked="showHiddenSystem"
-          @change="(e) => emit('update:showHiddenSystem', (e.target as HTMLInputElement).checked)"
-        />
+        <input type="checkbox" class="h-3.5 w-3.5" data-testid="file-tree-show-system-toggle" :checked="showHiddenSystem" @change="onShowHiddenSystemChange" />
         {{ t("fileTreePane.showSystemFiles") }}
       </label>
       <div class="flex items-center gap-2">
@@ -107,6 +101,11 @@ const emit = defineEmits<{
   createFile: [args: { folder: string; filename: string; resolve: (ok: boolean, error?: string) => void }];
   uploadFiles: [args: { folder: string; files: File[] }];
 }>();
+
+function onShowHiddenSystemChange(event: Event): void {
+  const { target } = event;
+  if (target instanceof HTMLInputElement) emit("update:showHiddenSystem", target.checked);
+}
 
 // Installed once for the whole tree: without it, a file released just
 // outside a folder row makes the browser navigate away from the app.

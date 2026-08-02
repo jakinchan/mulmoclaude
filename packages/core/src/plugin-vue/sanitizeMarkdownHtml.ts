@@ -24,6 +24,13 @@ import DOMPurify from "dompurify";
 // without losing real-world coverage.
 const ALLOWED_IFRAME_SRC = /^https:\/\/www\.youtube-nocookie\.com\/embed\/[A-Za-z0-9_-]{11}$/;
 
+// `nodeType`, not `instanceof Element`: this package is also consumed outside a
+// browser (the Node + jsdom test harness installs `window`/`document` but not
+// the DOM constructors), where the bare `Element` global is a ReferenceError.
+// nodeType 1 is the DOM standard's own element discriminant.
+const ELEMENT_NODE = 1;
+const isElementNode = (node: Node): node is Element => node.nodeType === ELEMENT_NODE;
+
 let hookInstalled = false;
 
 function ensureHook(): void {
@@ -31,8 +38,8 @@ function ensureHook(): void {
   hookInstalled = true;
   DOMPurify.addHook("uponSanitizeElement", (node, data) => {
     if (data.tagName !== "iframe") return;
-    const src = (node as Element).getAttribute("src") ?? "";
-    if (!ALLOWED_IFRAME_SRC.test(src)) {
+    const src = isElementNode(node) ? node.getAttribute("src") : null;
+    if (src === null || !ALLOWED_IFRAME_SRC.test(src)) {
       // Drop the iframe entirely — keeps the surrounding markdown, removes the
       // unsafe element.
       node.parentNode?.removeChild(node);
@@ -49,10 +56,12 @@ const SANITIZE_CONFIG = {
  *  normally strip; additionally permits the one YouTube-embed iframe shape. */
 export function sanitizeMarkdownHtml(html: string): string {
   ensureHook();
-  // DOMPurify's typed return is `string | TrustedHTML` depending on config
-  // flags; `RETURN_TRUSTED_TYPE` is never enabled here, so it is always a
-  // string. The double cast is the documented way to narrow through the union.
-  return DOMPurify.sanitize(html, SANITIZE_CONFIG) as unknown as string;
+  // `SANITIZE_CONFIG` is deliberately left un-annotated: every DOMPurify
+  // overload that returns something other than a string requires an explicit
+  // flag (`RETURN_TRUSTED_TYPE` / `RETURN_DOM` / `RETURN_DOM_FRAGMENT` /
+  // `IN_PLACE`), so keeping the literal type is what makes adding one a compile
+  // error here instead of a silent change of return shape.
+  return DOMPurify.sanitize(html, SANITIZE_CONFIG);
 }
 
 /** Test seam — undoes the global DOMPurify hook so an isolated test can verify

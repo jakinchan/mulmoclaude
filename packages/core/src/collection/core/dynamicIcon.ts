@@ -12,6 +12,8 @@ import type { CollectionFieldSpec, CollectionItem, CollectionSchema, DynamicIcon
 
 /** The record with the greatest `String(record[field])` (localeCompare) —
  *  ties keep the first-seen record (stable left-to-right `reduce`). */
+// Seedless `reduce` is safe here: the sole caller (selectDynamicRecord) returns
+// on `pool.length === 0` before this line, so an empty pool never arrives.
 function latestByField(pool: CollectionItem[], field: string): CollectionItem {
   return pool.reduce((latest, candidate) => (fieldText(candidate[field]).localeCompare(fieldText(latest[field])) > 0 ? candidate : latest));
 }

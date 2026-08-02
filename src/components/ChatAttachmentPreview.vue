@@ -32,7 +32,7 @@ const props = defineProps<{
    *  (HEIC / HEIF). Populated by `ChatInput`'s pick pipeline when
    *  needed. If left undefined for an unrenderable MIME the chip
    *  drops back to the file-icon variant. */
-  previewDataUrl?: string;
+  previewDataUrl?: string | undefined;
   filename: string;
   mime: string;
 }>();

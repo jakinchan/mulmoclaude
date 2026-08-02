@@ -434,7 +434,7 @@ describe("makePluginRuntime — scoped fetch body", () => {
   // The body assertion is against what actually arrived on the wire,
   // not against our own construction of it.
   async function postBodyHex(body?: string | Uint8Array): Promise<string> {
-    const response = await makeTestRuntime("@example/foo").fetch(echo.url, { method: "POST", body });
+    const response = await makeTestRuntime("@example/foo").fetch(echo.url, { method: "POST", ...(body !== undefined ? { body } : {}) });
     // Name the status before parsing, so an echo-server fault reads as a
     // fault rather than as "the body arrived wrong".
     assert.ok(response.ok, `echo server returned HTTP ${response.status}`);

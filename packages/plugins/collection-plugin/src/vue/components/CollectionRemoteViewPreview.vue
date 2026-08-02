@@ -40,7 +40,6 @@ import type { CollectionCustomView } from "@mulmoclaude/core/collection";
 import {
   handleRemoteViewMessage,
   REMOTE_VIEW_MAX_BYTES,
-  type RemoteViewItem,
   type RemoteViewMutateRequest,
   type RemoteViewMutateResult,
   type RemoteViewPage,
@@ -144,7 +143,7 @@ async function onMutate(request: RemoteViewMutateRequest): Promise<RemoteViewMut
   if (!binding.mutateRemoteView) throw new Error("mutateRemoteView is not wired on this host");
   const resp = await binding.mutateRemoteView(props.slug, props.view.id, request);
   if (!resp.ok) throw new Error(resp.error);
-  return resp.data.op === "update" ? { item: resp.data.item as RemoteViewItem } : { id: resp.data.id };
+  return resp.data.op === "update" ? { item: resp.data.item } : { id: resp.data.id };
 }
 
 function onWindowMessage(event: MessageEvent): void {

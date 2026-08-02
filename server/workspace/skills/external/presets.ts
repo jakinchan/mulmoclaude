@@ -16,7 +16,7 @@ export interface ExternalPresetSuggestion {
   /** Optional subpath if the repo bundles multiple skills under a
    *  common dir (Anthropic's `skills/<name>/` layout). Omitted for
    *  single-skill repos that ship `SKILL.md` at the root. */
-  subpath?: string;
+  subpath?: string | undefined;
   /** User-facing repo name. Free-form; UI may show it as the
    *  collapsible section heading. */
   displayName: string;

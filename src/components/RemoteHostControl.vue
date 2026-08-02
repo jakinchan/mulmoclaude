@@ -86,6 +86,7 @@ import { useI18n } from "vue-i18n";
 import { renderSVG } from "uqr";
 
 import { useRemoteHost } from "../composables/useRemoteHost";
+import { eventTargetNode } from "../utils/dom/eventTarget";
 
 const { t } = useI18n();
 const { status, error, busy, connect, disconnect, refreshStatus, startWatching, stopWatching } = useRemoteHost();
@@ -116,7 +117,7 @@ const onDisconnect = async () => {
 
 const onDocumentClick = (event: MouseEvent) => {
   if (!open.value) return;
-  const target = event.target as Node | null;
+  const target = eventTargetNode(event);
   if (rootRef.value && target && !rootRef.value.contains(target)) open.value = false;
 };
 

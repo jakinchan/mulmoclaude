@@ -16,6 +16,10 @@ const MAX_CALENDAR_LIST_PAGES = 40;
 // 2500 * 200 = 500k events, far beyond any real calendar's history.
 const EVENT_SYNC_PAGE_SIZE = 2500;
 const MAX_EVENT_SYNC_PAGES = 200;
+// `getCalendarMeta` reads the list envelope, never the events in it. Google's
+// accepted range for maxResults starts at 1, so this is the smallest page it
+// will serve.
+const CALENDAR_META_PAGE_SIZE = 1;
 // An expired/invalidated calendar syncToken.
 const HTTP_GONE = 410;
 const HTTP_NOT_FOUND = 404;
@@ -58,50 +62,50 @@ export type CalendarEventSpan = { startDateTime: string; endDateTime: string } |
 
 export type CalendarEventInput = {
   summary: string;
-  description?: string;
-  location?: string;
+  description?: string | undefined;
+  location?: string | undefined;
   /** Calendar to create the event on; defaults to the user's primary. */
-  calendarId?: string;
+  calendarId?: string | undefined;
   /** Event colour (Google event palette id "1".."11"); omit to inherit the calendar's colour. */
-  colorId?: string;
+  colorId?: string | undefined;
   /** Caller-chosen event id. Google requires base32hex (`0-9a-v`), 5-1024 chars,
    *  and answers 409 when it is already taken. A collection push sets this so a
    *  locally-created record keeps its own record id as the event id, instead of
    *  being re-keyed to Google's after the fact — a re-key that is missed leaves
    *  a duplicate record on the next pull. */
-  eventId?: string;
+  eventId?: string | undefined;
 } & CalendarEventSpan;
 
 export interface UpdateCalendarEventInput {
   eventId: string;
-  summary?: string;
-  startDateTime?: string;
-  endDateTime?: string;
+  summary?: string | undefined;
+  startDateTime?: string | undefined;
+  endDateTime?: string | undefined;
   /** Structured span; wins over the flat pair when both are present. */
-  start?: CalendarEventTime;
-  end?: CalendarEventTime;
+  start?: CalendarEventTime | undefined;
+  end?: CalendarEventTime | undefined;
   /** `""` clears the description; omit to leave it untouched. */
-  description?: string;
+  description?: string | undefined;
   /** `""` clears the location; omit to leave it untouched. */
-  location?: string;
-  calendarId?: string;
-  colorId?: string;
+  location?: string | undefined;
+  calendarId?: string | undefined;
+  colorId?: string | undefined;
   /** Etag of the version this edit was computed against. Sent as `If-Match`, so
    *  Google answers 412 rather than letting the PATCH clobber a change that
    *  landed after the caller read the event. Omit for an unconditional write. */
-  ifMatch?: string;
+  ifMatch?: string | undefined;
 }
 
 export interface DeleteCalendarEventInput {
   eventId: string;
-  calendarId?: string;
+  calendarId?: string | undefined;
 }
 
 export interface ListEventsInput {
-  timeMin?: string;
-  maxResults?: number;
+  timeMin?: string | undefined;
+  maxResults?: number | undefined;
   /** Calendar to read; defaults to the user's primary. */
-  calendarId?: string;
+  calendarId?: string | undefined;
 }
 
 export interface CalendarEventSummary {
@@ -297,11 +301,11 @@ export async function listCalendarEvents(accessToken: string, input: ListEventsI
 
 export interface SyncEventsInput {
   /** Calendar to sync; defaults to the user's primary. */
-  calendarId?: string;
+  calendarId?: string | undefined;
   /** Token from the previous sync. Omit for a full sync. */
-  syncToken?: string;
+  syncToken?: string | undefined;
   /** Page size for the underlying list calls. */
-  maxResults?: number;
+  maxResults?: number | undefined;
 }
 
 export interface CalendarSyncResult {
@@ -309,7 +313,7 @@ export interface CalendarSyncResult {
    *  arrive here too, as `status: "cancelled"`. */
   events: CalendarEventSummary[];
   /** Token to pass to the NEXT sync. Absent only if Google omitted it. */
-  nextSyncToken?: string;
+  nextSyncToken?: string | undefined;
   /** The stored token had expired (410) — the caller must drop it and re-sync
    *  from scratch; no events are returned in that case. */
   fullResyncRequired: boolean;
@@ -367,7 +371,7 @@ export async function syncCalendarEvents(accessToken: string, input: SyncEventsI
 
 export interface CalendarListPage {
   items: unknown[];
-  nextPageToken?: string;
+  nextPageToken?: string | undefined;
 }
 
 /** Pagination loop for CalendarList.list, extracted so it can be tested without
@@ -387,22 +391,41 @@ export async function collectCalendarPages(
   return calendars;
 }
 
+/** What a calendar absent from the user's list can still tell about itself. */
+export interface CalendarMeta {
+  /** IANA zone (`Asia/Tokyo`), `""` when Google omits it. */
+  timeZone: string;
+  /** `owner` / `writer` / `reader` / `freeBusyReader`, `""` when unreported. */
+  accessRole: string;
+}
+
+export const toCalendarMeta = (value: unknown): CalendarMeta => {
+  const record = asRecord(value);
+  return { timeZone: stringField(record, "timeZone"), accessRole: stringField(record, "accessRole") };
+};
+
+/** One calendar's zone and the caller's role on it, read by id rather than
+ *  looked up in the user's list.
+ *
+ *  `calendarList` only holds calendars the user has ADDED; a calendar shared
+ *  with them can be readable and writable by id without appearing there, and a
+ *  push still needs its zone to send an offset-less `dateTime`.
+ *
+ *  Deliberately `events.list` and NOT `calendars.get`: the latter takes only
+ *  full-calendar scopes (`calendar`, `calendar.readonly`, `calendar.calendars*`)
+ *  and this app asks for none of them, so it answers 403 for every account it
+ *  links (#2735). The events list carries the same `timeZone` — plus the
+ *  `accessRole` the calendar resource does not have — under `calendar.events`,
+ *  which the push already holds because it writes with it. Only the envelope is
+ *  read; the one event asked for is the smallest page Google will serve. */
+export async function getCalendarMeta(accessToken: string, calendarId: string | undefined): Promise<CalendarMeta> {
+  const params = new URLSearchParams({ maxResults: String(CALENDAR_META_PAGE_SIZE) });
+  return toCalendarMeta(await googleRequest(CALENDAR_API_LABEL, accessToken, `${eventsUrl(calendarId)}?${params.toString()}`));
+}
+
 /** The calendars the user has added/subscribed to (primary + secondary +
  *  shared), each with its id, name and colour, following pagination. Needs the
  *  calendar-list read scope (GOOGLE_CALENDARLIST_SCOPE). */
-/** One calendar's own resource, addressed by id rather than looked up in the
- *  user's list.
- *
- *  `calendarList` only holds calendars the user has ADDED; a calendar shared
- *  with them can be readable and writable by id without appearing there. This is
- *  how a push learns such a calendar's `timeZone`. Note the resource carries no
- *  `accessRole` — that is a calendarList property — so reachability here says
- *  nothing about writability. */
-export async function getCalendar(accessToken: string, calendarId: string | undefined): Promise<CalendarSummary> {
-  const url = `${CALENDAR_BASE_URL}/calendars/${encodeURIComponent(canonicalCalendarId(calendarId))}`;
-  return toCalendarSummary(await googleRequest(CALENDAR_API_LABEL, accessToken, url));
-}
-
 export async function listCalendars(accessToken: string): Promise<CalendarSummary[]> {
   return collectCalendarPages(async (pageToken) => {
     const params = new URLSearchParams({ maxResults: String(CALENDAR_LIST_PAGE_SIZE) });

@@ -63,7 +63,7 @@ export interface ChatSocketDeps {
   logger: Logger;
   /** Current bearer token the handshake must carry. Null means
    *  bootstrap in progress — reject everything. Omit to disable. */
-  tokenProvider?: () => string | null;
+  tokenProvider?: (() => string | null) | undefined;
 }
 
 export interface ChatSocketHandle {
@@ -94,7 +94,7 @@ type ParsedMessage =
       ok: true;
       externalChatId: string;
       text: string;
-      attachments?: Attachment[];
+      attachments?: Attachment[] | undefined;
     }
   | { ok: false; error: string };
 

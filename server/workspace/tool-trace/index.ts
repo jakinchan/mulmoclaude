@@ -37,10 +37,10 @@ export interface RecordToolEventDeps {
   chatSessionId: string;
   resultsFilePath: string;
   argsCache: ArgsCache;
-  now?: () => Date;
+  now?: (() => Date) | undefined;
   // Test hooks.
-  appendLine?: (filePath: string, line: string) => Promise<void>;
-  saveSearch?: typeof writeSearchResult;
+  appendLine?: ((filePath: string, line: string) => Promise<void>) | undefined;
+  saveSearch?: typeof writeSearchResult | undefined;
 }
 
 export function createArgsCache(): ArgsCache {
@@ -212,7 +212,7 @@ interface MaybeWriteSearchInputs {
   chatSessionId: string;
   workspaceRoot: string;
   now: Date;
-  saveSearch?: typeof writeSearchResult;
+  saveSearch?: typeof writeSearchResult | undefined;
 }
 
 async function maybeWriteSearch(inputs: MaybeWriteSearchInputs): Promise<string | undefined> {

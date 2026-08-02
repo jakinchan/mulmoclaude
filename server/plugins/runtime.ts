@@ -221,7 +221,14 @@ function makeScopedFetch(pkgName: string): PluginRuntime["fetch"] {
       // either input fires — Node 20+.
       const signal = opts.signal ? AbortSignal.any([opts.signal, controller.signal]) : controller.signal;
       const body = opts.body instanceof Uint8Array ? toTransferableBytes(opts.body) : opts.body;
-      return await fetch(url, { method: opts.method, headers: opts.headers, body, signal });
+      // `fetch`'s init rejects an explicit `undefined` for these, so pass only
+      // what the caller actually set.
+      return await fetch(url, {
+        signal,
+        ...(opts.method !== undefined ? { method: opts.method } : {}),
+        ...(opts.headers !== undefined ? { headers: opts.headers } : {}),
+        ...(body !== undefined ? { body } : {}),
+      });
     } catch (err) {
       // Re-throw with plugin context so a fan-out failure in the
       // host log immediately points at the responsible plugin

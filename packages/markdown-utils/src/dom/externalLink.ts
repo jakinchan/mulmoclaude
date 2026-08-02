@@ -9,6 +9,15 @@
 // return value to decide whether to fall through to plugin-specific
 // navigation.
 
+// `nodeType`, not `instanceof Element`: this package is also consumed outside a
+// browser (the Node + jsdom test harness installs `window`/`document` but not
+// the DOM constructors), where the bare `Element` global is a ReferenceError.
+// nodeType 1 is the DOM standard's own element discriminant, and it stops at
+// Element rather than HTMLElement because an inline <svg> inside a link is a
+// legitimate click target that must still resolve to its anchor.
+const ELEMENT_NODE = 1;
+const isElementNode = (target: EventTarget | null): target is Element => target !== null && "nodeType" in target && target.nodeType === ELEMENT_NODE;
+
 // Pure predicate: is `href` an absolute http(s) URL pointing at an
 // origin different from `currentOrigin`? Used by
 // `handleExternalLinkClick` below, and directly by tests.
@@ -41,8 +50,8 @@ export function isCrossOriginHttpUrl(href: string, currentOrigin: string): boole
 export function handleExternalLinkClick(event: MouseEvent): boolean {
   if (event.button !== 0) return false;
   if (event.ctrlKey || event.metaKey || event.shiftKey) return false;
-  const target = event.target as HTMLElement | null;
-  if (!target) return false;
+  const { target } = event;
+  if (!isElementNode(target)) return false;
   const anchor = target.closest("a");
   if (!anchor) return false;
   // `.href` (DOM property) is always a fully-resolved URL; contrast

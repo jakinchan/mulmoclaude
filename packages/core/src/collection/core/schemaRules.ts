@@ -144,8 +144,8 @@ export function singletonIsAValidRecordId(schema: Schema): boolean {
 // declares no `currencyField` would no longer be assignable.
 interface CurrencyBearingField {
   type: string;
-  currencyField?: string;
-  of?: Record<string, { type: string; currencyField?: string }>;
+  currencyField?: string | undefined;
+  of?: Record<string, { type: string; currencyField?: string | undefined }> | undefined;
 }
 
 // Every `currencyField` declared anywhere in the schema — top-level fields and

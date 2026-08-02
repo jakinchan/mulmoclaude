@@ -15,7 +15,7 @@ import { storeFor } from "./store";
 import { firstRecordProblem, type RecordCheckTier } from "../core/recordZ";
 import type { LoadedCollection } from "./discoveredCollection";
 import type { CollectionItem, CollectionSchema } from "../core/schema";
-import { isErrorWithCode } from "@mulmoclaude/common";
+import { isErrorWithCode, isRecord } from "@mulmoclaude/common";
 
 // The compiled record validators (and COMPUTED_TYPES, which moved next to
 // them) live in the isomorphic ../core/recordZ; re-exported here so the
@@ -53,7 +53,7 @@ async function listRecordFilenames(dataDir: string, workspaceRoot: string): Prom
   }
 }
 
-export async function validateCollectionRecords(collection: LoadedCollection, opts: { workspaceRoot?: string } = {}): Promise<RecordIssue[]> {
+export async function validateCollectionRecords(collection: LoadedCollection, opts: { workspaceRoot?: string | undefined } = {}): Promise<RecordIssue[]> {
   // A `dataSource` collection has no record FILES to validate — its rows
   // come from the external data file (type mismatches there surface as
   // raw values in the views, not as repairable record files).
@@ -79,7 +79,7 @@ export async function validateCollectionRecords(collection: LoadedCollection, op
  *  it), so the read/parse classifications of the file scan don't apply —
  *  schema violations are what this catches. `file` carries the record id
  *  (there is no per-record filename). */
-async function validateStoreRecords(collection: LoadedCollection, opts: { workspaceRoot?: string }): Promise<RecordIssue[]> {
+async function validateStoreRecords(collection: LoadedCollection, opts: { workspaceRoot?: string | undefined }): Promise<RecordIssue[]> {
   let items: CollectionItem[];
   try {
     items = await storeFor(collection, { workspaceRoot: opts.workspaceRoot }).list();
@@ -124,14 +124,14 @@ async function inspectRecord(fullPath: string, name: string, schema: CollectionS
       problem: `invalid JSON (${reason}) — SKIPPED, won't appear. Usual cause: an unescaped " inside a string value; use 「」/『』 or write \\" instead.`,
     };
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     return { file: name, problem: "not a JSON object — skipped, won't appear" };
   }
   // "strict" tier: the file scan is REPORT-ONLY (surfaced through
   // presentCollection / the detail response), so it lints the per-type
   // rules the write gate does not yet enforce — legacy records written
   // under the loose rules get reported here, never rejected on write.
-  const problem = validateRecordObject(parsed as CollectionItem, name.replace(/\.json$/, ""), schema, "strict");
+  const problem = validateRecordObject(parsed, name.replace(/\.json$/, ""), schema, "strict");
   return problem ? { file: name, problem } : null;
 }
 

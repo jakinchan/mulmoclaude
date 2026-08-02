@@ -22,7 +22,7 @@ export interface SseToolCallResult {
    *  forwarded from `AgentEvent.toolCallResult.isError` so the
    *  frontend can render the chip distinctly. Drives the MCP
    *  failure monitor (#1353). */
-  isError?: boolean;
+  isError?: boolean | undefined;
 }
 
 export interface SseStatus {
@@ -33,13 +33,13 @@ export interface SseStatus {
 export interface SseText {
   type: typeof EVENT_TYPES.text;
   message: string;
-  source?: "user" | "assistant";
+  source?: "user" | "assistant" | undefined;
   // Files attached to this user turn. Forwarded verbatim from the
   // server's user-text broadcast so observing tabs can render attachment
   // chips matching the originating tab. Only populated when
   // `source === "user"`. Read via `normalizeAttachments` — an older host
   // on the other end of the stream still sends bare path strings.
-  attachments?: PersistedAttachment[];
+  attachments?: PersistedAttachment[] | undefined;
 }
 
 export interface SseToolResult {
@@ -95,7 +95,7 @@ export interface SseGenerationFinished {
   kind: GenerationKind;
   filePath: string;
   key: string;
-  error?: string;
+  error?: string | undefined;
 }
 
 export type SseEvent =

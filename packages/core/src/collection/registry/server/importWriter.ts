@@ -133,7 +133,7 @@ function isRenameOf(name: string, slug: string): boolean {
 // (even if an earlier slug freed up). An authored skill without `.origin.json`
 // is invisible to this scan and so never collides with an update.
 async function findMatchingInstall(skillsDir: string, registry: string, entry: RegistryEntry): Promise<string | null> {
-  const names = await readdir(skillsDir).catch(() => [] as string[]);
+  const names = await readdir(skillsDir).catch((): string[] => []);
   for (const name of names) {
     if (!isRenameOf(name, entry.slug)) continue;
     const dir = path.join(skillsDir, name);
@@ -253,7 +253,7 @@ function bridgeAllowlistFiles(bundle: Map<string, string>): Set<string> {
  *  writing the new ones. */
 async function listFilesRecursive(root: string, prefix = ""): Promise<string[]> {
   const dir = prefix ? path.join(root, ...prefix.split("/")) : root;
-  const entries: Dirent[] = await readdir(dir, { withFileTypes: true }).catch(() => [] as Dirent[]);
+  const entries: Dirent[] = await readdir(dir, { withFileTypes: true }).catch((): Dirent[] => []);
   const out: string[] = [];
   for (const entry of entries) {
     const rel = prefix ? `${prefix}/${entry.name}` : entry.name;

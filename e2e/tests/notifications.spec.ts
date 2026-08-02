@@ -213,8 +213,7 @@ test.describe("notification bell — dismiss", () => {
   test("body click on a fyi row clears the entry", async ({ page }) => {
     // No navigateTarget so the click is a pure clear (no router push
     // racing with the assertion).
-    const entry = buildEntry("notif-fyi-clear-1", "Will be cleared", "");
-    entry.navigateTarget = undefined;
+    const { navigateTarget: __noTarget, ...entry } = buildEntry("notif-fyi-clear-1", "Will be cleared", "");
     await mockAllApis(page, { sessions: [] });
     await primeNotifierList(page, [entry]);
 
@@ -241,10 +240,11 @@ interface NotifierHistoryFixture extends NotifierEntryFixture {
 const HISTORY_BASE_MS = Date.parse("2026-04-25T07:00:00.000Z");
 
 function buildHistoryEntry(index: number): NotifierHistoryFixture {
-  const base = buildEntry(`notif-hist-${index}`, `History entry ${index}`, "");
+  // A cleared fyi row carries no navigate target — the key is absent on the
+  // wire, not present-and-undefined.
+  const { navigateTarget: __noTarget, ...base } = buildEntry(`notif-hist-${index}`, `History entry ${index}`, "");
   return {
     ...base,
-    navigateTarget: undefined,
     terminalType: "cleared",
     terminalAt: new Date(HISTORY_BASE_MS + index * ONE_SECOND_MS).toISOString(),
   };
@@ -340,7 +340,7 @@ test.describe("notification bell — history more / less toggle", () => {
 
 function buildHistoryEntryWithBody(index: number, body: string, navigateTarget?: string): NotifierHistoryFixture {
   const base = buildHistoryEntry(index);
-  return { ...base, body, navigateTarget };
+  return { ...base, body, ...(navigateTarget !== undefined ? { navigateTarget } : {}) };
 }
 
 test.describe("notification bell — history body expansion", () => {
@@ -412,7 +412,8 @@ test.describe("notification bell — history body expansion", () => {
   });
 
   test("history row without body or navigateTarget has no expand button", async ({ page }) => {
-    const history = [{ ...buildHistoryEntry(0), body: undefined }];
+    const { body: __noBody, ...withoutBody } = buildHistoryEntry(0);
+    const history = [withoutBody];
     await mockAllApis(page, { sessions: [] });
     await primeNotifierHistory(page, history);
 

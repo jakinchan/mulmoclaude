@@ -127,7 +127,8 @@ async function save(): Promise<void> {
 // Enter key: commit immediately + drop focus so the visible state
 // transitions to "Configured" without a second tab press.
 function onEnterKey(event: Event): void {
-  (event.target as HTMLInputElement).blur();
+  const { target } = event;
+  if (target instanceof HTMLElement) target.blur();
 }
 
 watch(

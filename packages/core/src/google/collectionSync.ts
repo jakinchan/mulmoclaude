@@ -635,7 +635,7 @@ export function groupByCalendar(collections: readonly LoadedCollection[]): Map<s
 /** The minimum a value needs for the orphan check: just the calendar it reads.
  *  Structural so the rule can be exercised without building a LoadedCollection. */
 export interface CalendarDeclaring {
-  googleCalendar?: { calendarId?: string };
+  googleCalendar?: { calendarId?: string | undefined } | undefined;
 }
 
 /** The canonical calendar whose sync token nothing needs any more, or null.

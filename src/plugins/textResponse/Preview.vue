@@ -50,7 +50,10 @@ const previewText = computed(() => markdownToPlainText(props.result.data?.text ?
 const attachments = computed<AttachmentEntry[]>(() => props.result.data?.attachments ?? []);
 
 function markdownToPlainText(markdown: string): string {
-  const html = marked(markdown, { breaks: true, gfm: true }) as string;
+  const rendered = marked(markdown, { breaks: true, gfm: true });
+  // An async marked extension would hand back a Promise; the preview has no
+  // await point, so it degrades to empty text rather than "[object Promise]".
+  const html = typeof rendered === "string" ? rendered : "";
   const spaced = html
     .replace(/<\/(td|th)>/gi, " ")
     .replace(/<\/(p|h[1-6]|li|tr|blockquote|pre|div)>/gi, "$&\n")

@@ -22,7 +22,7 @@ export interface ClientAttachment {
    *  the user actually called it — the server announces it to the model
    *  alongside the path (#2308). Absent for a file the user selected
    *  rather than uploaded. */
-  filename?: string;
+  filename?: string | undefined;
 }
 
 export interface AgentRequestBodyParams {
@@ -34,7 +34,7 @@ export interface AgentRequestBodyParams {
    *  `[Attached file: <path>]` marker on the user message so
    *  path-passing tools (e.g. `editImages`) can quote it back.
    *  Empty / undefined when no file is attached. */
-  attachments?: readonly ClientAttachment[];
+  attachments?: readonly ClientAttachment[] | undefined;
 }
 
 export interface AgentRequestBody {

@@ -35,7 +35,7 @@ interface Props {
    *  pass plain string URLs. Treated opaquely here — each consumer
    *  asserts the shape it expects via `pluginEndpoints<E>(scope)`.
    *  Contract: `gui-chat-protocol@>=0.3.1`. */
-  endpoints?: Readonly<Record<string, unknown>>;
+  endpoints?: Readonly<Record<string, unknown>> | undefined;
 }
 
 const props = defineProps<Props>();

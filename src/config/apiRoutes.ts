@@ -478,22 +478,26 @@ const HOST_API_ROUTES = {
 //   - host nested groups (`{ run, cancel, internal }`),
 //   - plugin route maps (`Record<string, ResolvedRoute>` produced by
 //     `resolvePluginRoutes`).
-// `defineHostAggregate` is runtime-generic; the cast on the merged
-// result narrows it back to the literal-preserving shape above.
+// `defineHostAggregate` takes the host record type and the
+// literal-preserving plugin map as type arguments, so the merged
+// result carries the shape above without a cast at this call site.
 type ApiRoutesAggregateValue =
   (typeof HOST_API_ROUTES)[keyof typeof HOST_API_ROUTES] | Readonly<Record<string, string>> | Readonly<Record<string, ResolvedRoute>>;
 
-const API_ROUTES_AGGREGATE = defineHostAggregate<ApiRoutesAggregateValue>(BUILT_IN_PLUGIN_METAS, {
-  label: "API_ROUTES",
-  hostRecord: HOST_API_ROUTES,
-  extract: (meta) => {
-    if (meta.apiRoutes === undefined) return undefined;
-    const namespace = meta.apiNamespace ?? meta.toolName;
-    return { [namespace]: resolvePluginRoutes(namespace, meta.apiRoutes) };
+const API_ROUTES_AGGREGATE = defineHostAggregate<ApiRoutesAggregateValue, typeof HOST_API_ROUTES, PluginApiRoutesMap<BuiltInPluginMetas>>(
+  BUILT_IN_PLUGIN_METAS,
+  {
+    label: "API_ROUTES",
+    hostRecord: HOST_API_ROUTES,
+    extract: (meta) => {
+      if (meta.apiRoutes === undefined) return undefined;
+      const namespace = meta.apiNamespace ?? meta.toolName;
+      return { [namespace]: resolvePluginRoutes(namespace, meta.apiRoutes) };
+    },
+    dimension: "apiNamespace",
   },
-  dimension: "apiNamespace",
-});
+);
 export const API_ROUTES_HOST_COLLISIONS: readonly HostPluginCollision[] = API_ROUTES_AGGREGATE.hostCollisions;
 export const API_ROUTES_INTRA_COLLISIONS: readonly IntraPluginCollision[] = API_ROUTES_AGGREGATE.intraCollisions;
 
-export const API_ROUTES = API_ROUTES_AGGREGATE.merged as unknown as typeof HOST_API_ROUTES & PluginApiRoutesMap<BuiltInPluginMetas>;
+export const API_ROUTES = API_ROUTES_AGGREGATE.merged;

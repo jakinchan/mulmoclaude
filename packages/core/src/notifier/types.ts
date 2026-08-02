@@ -84,10 +84,10 @@ export interface PublishInput<TPluginData = unknown> {
   pluginPkg: string;
   severity: NotifierSeverity;
   title: string;
-  body?: string;
-  lifecycle?: NotifierLifecycle;
-  navigateTarget?: string;
-  pluginData?: TPluginData;
+  body?: string | undefined;
+  lifecycle?: NotifierLifecycle | undefined;
+  navigateTarget?: string | undefined;
+  pluginData?: TPluginData | undefined;
 }
 
 /** On-disk shape of `~/mulmoclaude/data/notifier/active.json`. Holds

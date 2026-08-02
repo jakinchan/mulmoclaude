@@ -12,6 +12,7 @@ import type { BrowserPluginRuntime } from "gui-chat-protocol/vue";
 import { usePubSub } from "../../composables/usePubSub";
 import { apiPost } from "../api";
 import { API_ROUTES } from "../../config/apiRoutes";
+import { isSupportedLocale } from "../../lang/index";
 
 /** Build the channel name for a plugin's event. Must stay in lockstep
  *  with `server/plugins/runtime.ts:pluginChannelName`. */
@@ -27,6 +28,7 @@ function makeScopedPubSub(pkgName: string): BrowserPluginRuntime["pubsub"] {
       // declares the expected shape via the generic at the call
       // site. Validation is the plugin's responsibility (Zod or
       // hand-written guard).
+      // Kept (#2692): `T` is the plugin's, so the host cannot check the payload.
       return subscribe(pluginChannelName(pkgName, eventName), handler as (data: unknown) => void);
     },
   };
@@ -104,17 +106,22 @@ export interface MakeBrowserPluginRuntimeDeps {
    *  plain string URLs — kept opaque here, narrowed at the consumer
    *  via `pluginEndpoints<E>(scope)`. See `BrowserPluginRuntime.endpoints`
    *  in `gui-chat-protocol@>=0.3.1` for the contract. */
-  endpoints?: Readonly<Record<string, unknown>>;
+  endpoints?: Readonly<Record<string, unknown>> | undefined;
 }
 
 export function makeBrowserPluginRuntime(deps: MakeBrowserPluginRuntimeDeps): BrowserPluginRuntime {
   const { pkgName, endpoints } = deps;
-  // `useI18n()` exposes `locale` as `WritableComputedRef<Locales>`.
-  // Wrapping in a fresh `computed` widens it to `Ref<string>` for
-  // plugin authors (so they don't need to import the host's locale
-  // union) while preserving reactivity.
+  // `useI18n()` exposes `locale` as `WritableComputedRef<Locales>`. A
+  // writable passthrough widens it to `Ref<string>` for plugin authors
+  // (so they don't need to import the host's locale union) while
+  // preserving reactivity in both directions.
   const { locale: hostLocale } = useI18n();
-  const locale = computed(() => String(hostLocale.value)) as Ref<string>;
+  const locale: Ref<string> = computed({
+    get: () => String(hostLocale.value),
+    set: (next) => {
+      if (isSupportedLocale(next)) hostLocale.value = next;
+    },
+  });
   return {
     pubsub: makeScopedPubSub(pkgName),
     locale,
@@ -127,6 +134,7 @@ export function makeBrowserPluginRuntime(deps: MakeBrowserPluginRuntimeDeps): Br
     // shape via `useRuntime<TheirShape>()` and read `runtime.endpoints!`
     // without a cast. No coercion needed at this construction site —
     // the host populates the field opaquely; each consumer narrows.
-    endpoints,
+    // A plugin with no endpoint group leaves the key absent.
+    ...(endpoints !== undefined ? { endpoints } : {}),
   };
 }

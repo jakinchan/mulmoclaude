@@ -15,9 +15,10 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
-import type { WikiData, WikiPageEntry, WikiEndpoints } from "./index";
+import type { WikiData, WikiDataPatch, WikiPageEntry, WikiEndpoints } from "./index";
 import { useFreshPluginData } from "../../composables/useFreshPluginData";
 import { pluginEndpoints } from "../api";
+import { extractWikiData } from "./parseWikiResponse";
 
 const wikiEndpoints = pluginEndpoints<WikiEndpoints>("wiki");
 
@@ -29,9 +30,9 @@ const action = ref(props.result.data?.action ?? "index");
 const title = ref(props.result.data?.title ?? "Wiki");
 const pageEntries = ref<WikiPageEntry[]>(props.result.data?.pageEntries ?? []);
 
-const { refresh } = useFreshPluginData<WikiData>({
+const { refresh } = useFreshPluginData<WikiDataPatch>({
   endpoint: () => wikiEndpoints.base,
-  extract: (json) => (json as { data?: WikiData }).data ?? null,
+  extract: extractWikiData,
   apply: (data) => {
     // Bug fix (CodeRabbit V1 #6): /api/wiki (no slug) always
     // returns the index payload. The Preview component is reused

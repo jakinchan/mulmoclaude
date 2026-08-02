@@ -67,7 +67,7 @@ async function send(baseUrl: string, opts: PostOptions = {}): Promise<number> {
   const res = await fetch(`${baseUrl}/api/wiki`, {
     method: opts.method ?? "POST",
     headers,
-    body: opts.method === "GET" ? undefined : JSON.stringify({ action: "page", pageName: "test" }),
+    ...(opts.method === "GET" ? {} : { body: JSON.stringify({ action: "page", pageName: "test" }) }),
   });
   return res.status;
 }

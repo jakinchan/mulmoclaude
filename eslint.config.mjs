@@ -346,8 +346,8 @@ export default [
       //     testid prefixes — controlled inputs, not attacker-supplied.
       //     27 warnings / 0 actionable.
       // The remaining rules (detect-eval-with-expression, detect-
-      // child-process, detect-possible-timing-attacks,
-      // detect-non-literal-require, detect-pseudoRandomBytes,
+      // child-process, detect-non-literal-require,
+      // detect-pseudoRandomBytes,
       // detect-buffer-noassert, detect-disable-mustache-escape,
       // detect-no-csrf-before-method-override, detect-bidi-characters,
       // detect-new-buffer) stay as warnings — tripwires for future
@@ -360,6 +360,11 @@ export default [
       // already has a `// eslint-disable-next-line` with a ReDoS-safety
       // rationale and a unit test pinning the bound.
       "security/detect-unsafe-regex": "error",
+      // `detect-possible-timing-attacks` graduates with it (#2736, 2026-08-02).
+      // Its one finding compared a monotonic render-generation counter, not a
+      // secret, and now carries a per-line disable saying so; measured at zero
+      // over `src server test e2e e2e-live packages`.
+      "security/detect-possible-timing-attacks": "error",
     },
     plugins: {
       prettier: prettierPlugin,
@@ -447,6 +452,26 @@ export default [
       "vue/no-useless-v-bind": "error",
       "vue/prefer-true-attribute-shorthand": "error",
       "vue/no-empty-component-block": "error",
+      // Same ratchet (#2736, 2026-08-02): the rule's single finding was an
+      // optional prop in a `withDefaults` component that already listed a
+      // default for every other prop, so the house style was unanimous and the
+      // `warn` guarded nothing. Zero findings across every SFC when promoted.
+      "vue/require-default-prop": "error",
+      // The `as`-cast ban reaches `<script>` only: typescript-eslint's rules
+      // never visit the TEMPLATE body, which `vue-eslint-parser` exposes as a
+      // separate AST. `@change="…($event.target as HTMLInputElement).value"`
+      // was therefore invisible to `consistent-type-assertions` — 18 of them
+      // across host and plugin components (#2692). `vue/no-restricted-syntax`
+      // is the one rule that does walk that AST, so the same ban is spelled
+      // here as a selector. `warn` matches the script-side severity; both
+      // graduate together.
+      "vue/no-restricted-syntax": [
+        "warn",
+        {
+          selector: "TSAsExpression",
+          message: "Do not use any type assertions — narrow in <script> and pass the result to the template.",
+        },
+      ],
     },
   },
   // Plugin import restrictions — codify the loose-coupling pattern
@@ -569,10 +594,17 @@ export default [
     rules: {
       // (1) `any` that survives no-explicit-any.
       "@typescript-eslint/no-unsafe-assignment": "warn",
-      "@typescript-eslint/no-unsafe-member-access": "warn",
-      "@typescript-eslint/no-unsafe-argument": "warn",
-      "@typescript-eslint/no-unsafe-call": "warn",
-      "@typescript-eslint/no-unsafe-return": "warn",
+      // Drained and ratcheted in #2736 (2026-08-02): all four measured ZERO over
+      // `src server test e2e e2e-live packages` once their last finding was
+      // fixed. Read those counts only after `yarn build:packages` — with
+      // `packages/*/dist` missing, every `@mulmoclaude/*` import is an
+      // unresolved type and these report ~2700 phantom findings. CI builds
+      // packages before both typecheck and lint, so the gate sees the real
+      // numbers.
+      "@typescript-eslint/no-unsafe-member-access": "error",
+      "@typescript-eslint/no-unsafe-argument": "error",
+      "@typescript-eslint/no-unsafe-call": "error",
+      "@typescript-eslint/no-unsafe-return": "error",
       // Zero findings today — on to keep it that way.
       "@typescript-eslint/no-unsafe-enum-comparison": "warn",
       "@typescript-eslint/no-unsafe-declaration-merging": "warn",
@@ -593,6 +625,34 @@ export default [
       "@typescript-eslint/await-thenable": "error",
       // Same backlog treatment for the sonarjs rules this block wakes.
       ...sonarTypeAwareRulesAsWarn,
+
+      // Eight of those woken rules had drained to 1-2 findings each, which is a
+      // `warn` guarding nothing. Every finding was triaged in #2736 (2026-08-02)
+      // and is now either fixed or carries a per-line disable naming what was
+      // checked, so each rule measured ZERO over `src server test e2e e2e-live
+      // packages` before promotion. Outside this block sonarjs's own preset
+      // already sets them to `error` (dormant with no TS program), so this only
+      // closes the gap on typed source — the code they actually run on.
+      //
+      // `sonarjs/reduce-initial-value` deliberately did NOT graduate. Both of its
+      // findings are seedless folds whose sole caller already returns/throws on an
+      // empty array, so seeding them bought an unreachable branch and a widened
+      // return type. Each site carries a comment naming its upstream guard; the
+      // rule stays a `warn` so a genuinely unguarded fold still surfaces.
+      //
+      // Still at `warn`: `no-unsafe-assignment`, the only one of the five with a
+      // backlog left (19 findings). `no-unsafe-call` / `no-unsafe-return` were
+      // the "promote them in their own PR" case named here and have since
+      // graduated alongside the other two.
+      "sonarjs/deprecation": "error",
+      "sonarjs/argument-type": "error",
+      "sonarjs/no-selector-parameter": "error",
+      "sonarjs/no-undefined-argument": "error",
+      "sonarjs/concise-regex": "error",
+      // `sonarjs/no-redundant-optional` left this list — see the repo-wide
+      // `off` at the bottom of this file for why the flag invalidates it.
+      "sonarjs/no-try-promise": "error",
+      "sonarjs/post-message": "error",
 
       // Three of those woken rules are off entirely rather than warned. Each
       // was checked against all of its findings in this repo, and none of them
@@ -632,6 +692,75 @@ export default [
       // premise only holds once `noUncheckedIndexedAccess` is on — revisit then.
       "sonarjs/different-types-comparison": "off",
     },
+  },
+  // Per-package ratchet for the `as`-cast ban (#2692). The rule is `warn`
+  // repo-wide while the backlog drains; these packages are already at ZERO,
+  // so a new cast in them is a regression rather than a known debt — and the
+  // only thing that stops the drained set from refilling behind the drain.
+  //
+  // Verified at zero when added; `packages/relay`'s last one went in the same
+  // PR. Extend this list as a directory reaches zero, and delete the block
+  // once the repo-wide setting itself graduates to `error`.
+  {
+    files: [
+      "packages/chat-service/**/*.ts",
+      "packages/client/**/*.ts",
+      "packages/common/**/*.ts",
+      "packages/create-mulmoclaude-plugin/**/*.ts",
+      "packages/mock-server/**/*.ts",
+      "packages/protocol/**/*.ts",
+      "packages/relay/**/*.ts",
+      "packages/scheduler/**/*.ts",
+      "packages/web-push/**/*.ts",
+      "packages/webhook-runtime/**/*.ts",
+    ],
+    // Tests keep the permissive setting the test override below grants them;
+    // this block covers source only, so it must not reach `**/test/**`.
+    ignores: ["packages/*/test/**", "packages/*/**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
+    },
+  },
+  // Build + release scripts. `yarn lint` never reached them, so 21 files that
+  // CI depends on — the build driver, the launcher sync gate, the npm smoke
+  // check — carried no lint at all (#2736).
+  //
+  // They run on Node at build time over files this repo owns, never over a
+  // request, so the rules that are about app-code readability at scale are
+  // relaxed here rather than forcing a rewrite of working tooling. Everything
+  // that catches a real defect — the `as` ban, unused vars, `prefer-const`,
+  // `eqeqeq`, the security tripwires — stays on.
+  {
+    files: ["scripts/**/*.{ts,mts,mjs,js}", "batch/**/*.ts", "config/**/*.mjs"],
+    languageOptions: {
+      globals: { ...globals.node, NodeJS: "readonly" },
+    },
+    rules: {
+      // A build script's audience is whoever is debugging the build, and its
+      // shape follows the tool it drives; `main()` reading top-to-bottom is
+      // clearer here than the same logic split across six named helpers.
+      complexity: "off",
+      "sonarjs/cognitive-complexity": "off",
+      "max-lines-per-function": "off",
+      // `fs`, `os`, `sh`, `pkg` are the idiom in this layer.
+      "id-length": "off",
+      // These regexes match this repo's own package.json fields and TS import
+      // statements at build time. Input is repo-owned, so backtracking cost is
+      // a build-speed question, not a denial-of-service one — kept as warnings
+      // so a genuinely new pattern still surfaces at review.
+      "sonarjs/super-linear-regex": "warn",
+      "sonarjs/regex-complexity": "warn",
+      "security/detect-unsafe-regex": "warn",
+    },
+  },
+  // `x?: T | undefined` is not redundant under `exactOptionalPropertyTypes`:
+  // with that flag on, `x?: T` REJECTS an explicit `undefined` while
+  // `x?: T | undefined` accepts it, so the spelling this rule wants removed is
+  // the one that says "absent and undefined mean the same thing here". Off
+  // repo-wide rather than per-file — every tsconfig sets the flag.
+  // Turn it back on if the flag ever comes off.
+  {
+    rules: { "sonarjs/no-redundant-optional": "off" },
   },
   eslintConfigPrettier,
 ];

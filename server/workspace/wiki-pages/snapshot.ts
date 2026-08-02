@@ -32,11 +32,11 @@ export const SNAPSHOT_RETAIN_COUNT = 100;
 export const SNAPSHOT_RETAIN_DAYS = 180;
 
 export interface SnapshotPathOptions {
-  workspaceRoot?: string;
+  workspaceRoot?: string | undefined;
   /** Injectable clock for deterministic tests. */
-  now?: () => Date;
+  now?: (() => Date) | undefined;
   /** Injectable id for deterministic tests. */
-  shortId?: () => string;
+  shortId?: (() => string) | undefined;
 }
 
 /** Directory holding all snapshots for a single slug. Returned even
@@ -64,8 +64,8 @@ export interface SnapshotSummary {
   bytes: number;
   ts: string;
   editor: WikiPageEditor;
-  sessionId?: string;
-  reason?: string;
+  sessionId?: string | undefined;
+  reason?: string | undefined;
 }
 
 export interface SnapshotContent extends SnapshotSummary {
@@ -137,7 +137,7 @@ const SNAPSHOT_KEYS = ["_snapshot_ts", "_snapshot_editor", "_snapshot_session", 
 export function stripSnapshotMeta(meta: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(meta)) {
-    if ((SNAPSHOT_KEYS as readonly string[]).includes(key)) continue;
+    if (SNAPSHOT_KEYS.some((snapshotKey) => snapshotKey === key)) continue;
     out[key] = value;
   }
   return out;

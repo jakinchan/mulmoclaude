@@ -11,18 +11,18 @@ import { TOOL_NAME } from "./definition";
 // runtime provider (wrapWithScope) so the package's useRuntime()/locale resolves
 // to the host — which is what drives the package's bundled i18n.
 //
-// Coerce the package's plugin to the host's ToolPlugin type. The package is built
-// with its own `vue` dep, so under yarn 4 it resolves a second @vue/runtime-core
-// whose `Component` type is nominally distinct from the host's (identical at
-// runtime — the built app bundles a single Vue). Without this bridge, passing the
-// package's Component into the host-typed wrapWithScope makes tsc compare two giant
-// equivalent Component types and blow the stack (TS2321).
-const pkg = formPlugin as unknown as ToolPlugin<FormData, FormData, FormArgs>;
+// Annotated rather than coerced: the package already declares `plugin` as this
+// exact type, so a plain assignment checks it. Should the install ever hoist a
+// second `@vue/runtime-core` again, this reports the divergence instead of
+// hiding it.
+const pkg: ToolPlugin<FormData, FormData, FormArgs> = formPlugin;
 
+// A slot the package doesn't export stays ABSENT rather than becoming an
+// explicit `undefined` — `ToolPlugin` treats the two differently.
 const presentFormPlugin: ToolPlugin<FormData, FormData, FormArgs> = {
   ...pkg,
-  viewComponent: wrapWithScope("form", pkg.viewComponent),
-  previewComponent: wrapWithScope("form", pkg.previewComponent),
+  ...(pkg.viewComponent ? { viewComponent: wrapWithScope("form", pkg.viewComponent) } : {}),
+  ...(pkg.previewComponent ? { previewComponent: wrapWithScope("form", pkg.previewComponent) } : {}),
 };
 export { TOOL_NAME };
 

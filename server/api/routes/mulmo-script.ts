@@ -12,6 +12,7 @@ import { mulmoScriptOps } from "../../plugins/mulmoscript-server.js";
 import { errorMessage } from "../../utils/errors.js";
 import { badRequest, notFound } from "../../utils/httpError.js";
 import { getOptionalStringQuery, getSessionQuery } from "../../utils/request.js";
+import { requestBodyRecord } from "../../utils/requestBody.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { bindRoute } from "../../utils/router.js";
 import { GENERATION_KINDS } from "../../../src/types/events.js";
@@ -50,12 +51,12 @@ type MovieStatusResponse = { moviePath: string | null } | ErrorResponse;
 type PdfStatusResponse = { pdfPath: string | null } | ErrorResponse;
 
 interface BeatQuery {
-  filePath?: string;
-  beatIndex?: string;
+  filePath?: string | undefined;
+  beatIndex?: string | undefined;
 }
 
 interface FilePathQuery {
-  filePath?: string;
+  filePath?: string | undefined;
 }
 
 // Request values arrive untyped at runtime — query params can be arrays
@@ -142,7 +143,7 @@ bindRoute(router, API_ROUTES.mulmoScript.save, async (req: Request<object, objec
 // package execute they call: guard the wire path, run the execute, map a
 // failure onto the pre-extraction status, else 200. Share the shell.
 async function runGuardedUpdate(req: Request<object, object, unknown>, res: Response, execute: typeof executeUpdateBeat): Promise<void> {
-  const guard = mulmoScriptOps.guardStoryWirePath((req.body as { filePath?: unknown } | undefined)?.filePath);
+  const guard = mulmoScriptOps.guardStoryWirePath(requestBodyRecord(req.body).filePath);
   if (guard) {
     sendOpFailure(res, guard);
     return;
@@ -228,7 +229,7 @@ bindRoute(
 
 interface GenerationRequestBody {
   filePath: string;
-  chatSessionId?: string;
+  chatSessionId?: string | undefined;
 }
 
 // Validate the `{ filePath }` body, run the ffmpeg guard, and resolve the
@@ -237,7 +238,7 @@ interface GenerationRequestBody {
 function resolveStoryRequest(
   req: Request<object, object, GenerationRequestBody>,
   res: Response,
-): { filePath: string; absoluteFilePath: string; chatSessionId?: string } | null {
+): { filePath: string; absoluteFilePath: string; chatSessionId?: string | undefined } | null {
   const { filePath, chatSessionId } = req.body;
   if (typeof filePath !== "string" || !filePath) {
     badRequest(res, "filePath is required");
@@ -296,15 +297,15 @@ bindRoute(router, API_ROUTES.mulmoScript.generateMovie, async (req: Request<obje
 });
 
 interface CharacterImageQuery {
-  filePath?: string;
-  key?: string;
+  filePath?: string | undefined;
+  key?: string | undefined;
 }
 
 interface RenderCharacterBody {
   filePath: string;
   key: string;
-  force?: boolean;
-  chatSessionId?: string;
+  force?: boolean | undefined;
+  chatSessionId?: string | undefined;
 }
 
 interface UploadCharacterImageBody {

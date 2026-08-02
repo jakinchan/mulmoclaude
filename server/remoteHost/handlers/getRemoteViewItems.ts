@@ -13,6 +13,7 @@
 import { clampLimit, clampOffset, normalizeFields, readIdParam } from "@mulmoclaude/core/remote-view";
 import { loadCollection } from "../../workspace/collections/index.js";
 import { remoteViewItems, remoteViewItemsFailureMessage } from "../../workspace/collections/remoteView.js";
+import { coerceJsonObject } from "../commandChannel.js";
 import type { CommandHandler, JsonObject } from "../commandChannel.js";
 
 export interface GetRemoteViewItemsDeps {
@@ -31,10 +32,9 @@ export const createGetRemoteViewItems =
     const result = await deps.remoteViewItems(collection, viewId, request);
     if (result.kind !== "ok") throw new Error(remoteViewItemsFailureMessage(result, slug));
     // Not `toJsonObject`: `RemoteViewPage.items` is `RemoteViewItem[]`, whose
-    // values are `unknown`, so the payload cannot be PROVEN JSON — same
-    // irreducible gap as `pageResult` in collectionPage.ts, and for the same
-    // reason (record values are JSON by loader invariant, not by type).
-    return { page: result.page, inlined: result.inlined, omitted: result.omitted } as unknown as JsonObject;
+    // values are `unknown`, so no mapped type can prove the payload is JSON.
+    // `coerceJsonObject` establishes it by walking the value instead.
+    return coerceJsonObject({ page: result.page, inlined: result.inlined, omitted: result.omitted });
   };
 
 export const getRemoteViewItems = createGetRemoteViewItems({ loadCollection, remoteViewItems });

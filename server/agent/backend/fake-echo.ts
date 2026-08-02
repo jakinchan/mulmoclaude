@@ -29,6 +29,7 @@ import path from "node:path";
 import { getCurrentToken } from "../../api/auth/token.js";
 import { errorMessage } from "../../utils/errors.js";
 import { makeUuid } from "../../utils/id.js";
+import { isRecord } from "../../utils/types.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { EVENT_TYPES } from "../../../src/types/events.js";
 import { WORKSPACE_DIRS } from "../../workspace/paths.js";
@@ -54,18 +55,18 @@ export interface FakeResponse {
   /** Tool calls emitted before the text block. Default generator
    *  never emits any — tests that want tool events drive them
    *  through `setFakeResponse()`. */
-  toolCalls?: readonly FakeToolCall[];
+  toolCalls?: readonly FakeToolCall[] | undefined;
   /** Assistant text. Omit to skip the text event entirely. */
-  text?: string;
+  text?: string | undefined;
   /** When set, emit a single `error` AgentEvent with this message
    *  and stop — mirrors what the claude-code backend does when the
    *  CLI exits non-zero (`readAgentEvents`). Tool calls / text that
    *  would otherwise follow are suppressed. */
-  error?: string;
+  error?: string | undefined;
   /** Emit the `tool_call` for each `toolCalls` entry but NOT the
    *  paired `tool_call_result` — simulates a truncated / partial
    *  stream where the model died mid tool round-trip. */
-  omitToolResult?: boolean;
+  omitToolResult?: boolean | undefined;
 }
 
 export type FakeResponseFn = (input: AgentInput) => FakeResponse | Promise<FakeResponse>;
@@ -242,7 +243,8 @@ async function dispatchToPlugin(call: FakeToolCall, port: number, chatSessionId:
       const errBody = await response.text();
       return JSON.stringify({ error: `plugin ${call.toolName} returned ${response.status}: ${errBody.slice(0, 200)}` });
     }
-    const envelope = ((await response.json()) ?? {}) as PluginEnvelope;
+    const parsed: unknown = await response.json();
+    const envelope: PluginEnvelope = isRecord(parsed) ? parsed : {};
     if (envelope.data !== undefined) {
       // Query key is `session`, not `chatSessionId` — matches the
       // `getSessionQuery(req)` reader and what the MCP bridge's

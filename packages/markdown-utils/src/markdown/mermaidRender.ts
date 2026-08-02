@@ -94,7 +94,7 @@ export function adoptSvg(svgMarkup: string): SVGElement | null {
   // `<svg>` at the top level lands under `body` in HTML5 parsing.
   const svgEl = parsed.body.querySelector("svg");
   if (!svgEl) return null;
-  return document.importNode(svgEl, true) as unknown as SVGElement;
+  return document.importNode(svgEl, true);
 }
 
 async function renderOne(node: HTMLElement, mermaid: MermaidRuntime, labels: MermaidRenderLabels, idPrefix: string): Promise<void> {

@@ -37,13 +37,13 @@ interface RuntimePluginListing {
 }
 
 interface ToolPluginExport {
-  toolDefinition?: ToolDefinition;
-  viewComponent?: Component;
-  previewComponent?: Component;
+  toolDefinition?: ToolDefinition | undefined;
+  viewComponent?: Component | undefined;
+  previewComponent?: Component | undefined;
 }
 
 interface PluginVueModule {
-  plugin?: ToolPluginExport;
+  plugin?: ToolPluginExport | undefined;
   default?: { plugin?: ToolPluginExport };
 }
 
@@ -142,6 +142,14 @@ export async function loadOne(listing: RuntimePluginListing): Promise<void> {
 
   let mod: PluginVueModule;
   try {
+    // Cast kept (#2692). The blocker is `ToolDefinition.parameters`: a
+    // recursive JSON-Schema shape (`JsonSchemaProperty` nests `items`,
+    // `properties`, `oneOf`), so proving it means shipping a JSON-Schema
+    // validator to the browser for a field nothing on this path reads — the
+    // fallback entry above states as much, and LLM dispatch goes through the
+    // MCP server, not this entry. Dropping the field instead would silently
+    // tighten what a third-party bundle must export. `plugin` and the two
+    // components ARE checkable, and the code below already null-checks them.
     mod = (await import(/* @vite-ignore */ moduleUrl)) as PluginVueModule;
   } catch (err) {
     // Asset is reachable but the import threw — parse error,

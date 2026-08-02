@@ -1,0 +1,17 @@
+# esbuild output committed to git — `yarn build:hooks` regenerates it from
+# server/workspace/hooks/dispatcher.ts, and CI gates it with
+# `git diff --exit-code`. Formatting it makes `yarn format` and the build
+# fight over the same file, so the gate fails on a tree nobody edited.
+# `eslint.config.mjs` ignores it for the same reason.
+server/build/
+# The launcher's copy of the same bundle, written at publish time.
+packages/mulmoclaude/server/build/
+
+# Build output.
+dist/
+lib/
+packages/*/dist/
+packages/*/*/dist/
+
+# The i18n JSON cache `yarn dumpi18n` writes before every lint run.
+.i18n-cache/

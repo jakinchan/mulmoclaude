@@ -98,7 +98,9 @@ const heapArgs = [...oldSpaceArgs, ...heapSnapshotArgs];
 // DEV_SERVER_ENTRY points the supervisor at a plain .mjs stub (no tsx) —
 // used only by its own unit test to drive a child that crashes on boot.
 const stubEntry = process.env.DEV_SERVER_ENTRY;
-const childArgs = stubEntry ? [path.resolve(stubEntry)] : [...heapArgs, "--import", "tsx", path.join(REPO_ROOT, "server", "index.ts"), ...process.argv.slice(2)];
+const childArgs = stubEntry
+  ? [path.resolve(stubEntry)]
+  : [...heapArgs, "--import", "tsx", path.join(REPO_ROOT, "server", "index.ts"), ...process.argv.slice(2)];
 
 function log(msg) {
   console.log(`[dev-server] ${msg}`);

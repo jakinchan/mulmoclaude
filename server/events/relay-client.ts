@@ -28,7 +28,7 @@ interface RelayResponse {
   platform: string;
   chatId: string;
   text: string;
-  replyToken?: string;
+  replyToken?: string | undefined;
 }
 
 interface Logger {

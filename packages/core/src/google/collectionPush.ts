@@ -16,8 +16,8 @@ import { isGoogleApiError, HTTP_FORBIDDEN } from "./apiClient.js";
 import {
   canonicalCalendarId,
   createCalendarEvent,
-  getCalendar,
   getCalendarEvent,
+  getCalendarMeta,
   listCalendars,
   updateCalendarEvent,
   CANCELLED_EVENT_STATUS,
@@ -52,10 +52,9 @@ const WRITABLE_ACCESS_ROLES: readonly string[] = ["owner", "writer"];
 
 /** What the up-front writability gate knows about the target calendar. */
 export interface CalendarWriteTarget {
-  /** The role from the user's calendar LIST, or null when the calendar is not in
-   *  it. Null means unknown, never read-only: `calendarList` holds only the
-   *  calendars the user has added, so one shared with write access can be absent
-   *  from it (Codex review). */
+  /** The caller's role on the calendar, or null when neither source reported one.
+   *  Null means unknown, never read-only: hard-denying an unknown role would
+   *  refuse a calendar the user can in fact write to. */
   accessRole: string | null;
   /** IANA zone for rebuilding a zone-less stored clock, `""` when unreported. */
   timeZone: string;
@@ -63,11 +62,18 @@ export interface CalendarWriteTarget {
 
 /** Whether to refuse the whole push before touching a single event.
  *
- *  Only on POSITIVE evidence of a non-writable role. An unlisted calendar is
- *  unknown and must fall through: hard-denying it would block the feature
- *  outright for a calendar the user can in fact write to. Those attempts surface
- *  Google's own 403 per record if the write really is not allowed. */
+ *  Only on POSITIVE evidence of a non-writable role. A calendar whose role
+ *  neither source reported is unknown and must fall through: hard-denying it
+ *  would block the feature outright for a calendar the user can in fact write
+ *  to. Those attempts surface Google's own 403 per record if the write really is
+ *  not allowed. */
 export const isDeniedAccessRole = (accessRole: string | null): boolean => accessRole !== null && !WRITABLE_ACCESS_ROLES.includes(accessRole);
+
+/** A role Google left blank is UNKNOWN, not a denial. `isDeniedAccessRole`
+ *  refuses every role it does not recognise — `""` included — so passing an
+ *  unreported one straight through would refuse a calendar Google simply said
+ *  nothing about. */
+export const reportedAccessRole = (accessRole: string): string | null => accessRole || null;
 
 export interface CalendarCollectionPushResult {
   slug: string;
@@ -113,23 +119,24 @@ export interface CalendarPushDeps {
 
 /** Resolve the calendar a schema names, for its writability and its timezone.
  *
- *  The list is consulted first because only it reports `accessRole`, which is
- *  what lets a read-only calendar be refused with the real reason instead of an
- *  opaque per-event 403. `"primary"` is matched on the `primary` flag, not the
- *  id — the primary calendar's own id is the account's email address, which never
- *  equals the literal the schema declares.
+ *  The list is consulted first because it answers for every added calendar in
+ *  one call the push already makes. `"primary"` is matched on the `primary`
+ *  flag, not the id — the primary calendar's own id is the account's email
+ *  address, which never equals the literal the schema declares.
  *
- *  A calendar absent from the list is NOT denied: it is fetched by id for its
- *  timezone and its role left unknown. A 404 there means the calendar really is
+ *  A calendar absent from the list is NOT denied: `calendarList` holds only the
+ *  calendars the user has added, so one shared with write access can be missing
+ *  from it (Codex review). It is asked about itself instead, which reports the
+ *  same zone AND the real role. A 404 there means the calendar is genuinely
  *  unreachable, and propagates as a `failed` outcome. */
 async function liveCalendarMeta(accessToken: string, calendarId: string | undefined): Promise<CalendarWriteTarget> {
   const key = canonicalCalendarId(calendarId);
   const calendars = await listCalendars(accessToken);
   const listed = key === "primary" ? calendars.find((calendar) => calendar.primary) : calendars.find((calendar) => calendar.id === key);
   if (listed) return { accessRole: listed.accessRole, timeZone: listed.timeZone };
-  const direct = await getCalendar(accessToken, calendarId);
-  log.info("google", "calendar is not in the user's list — pushing without an up-front role check", { calendarId: key });
-  return { accessRole: null, timeZone: direct.timeZone };
+  const direct = await getCalendarMeta(accessToken, calendarId);
+  log.info("google", "calendar is not in the user's list — role read from the calendar itself", { calendarId: key, accessRole: direct.accessRole });
+  return { accessRole: reportedAccessRole(direct.accessRole), timeZone: direct.timeZone };
 }
 
 async function findCalendarCollection(slug: string, workspaceRoot: string): Promise<LoadedCollection | null> {
@@ -316,9 +323,9 @@ async function createOrAdopt(ctx: PushContext, eventId: string, record: Collecti
 
 /** A 403 on a write is a permissions answer, but `googleApiError` appends the
  *  "is the API enabled for the Cloud project?" hint to every 403 — true for a
- *  disabled API, misleading here. Reached when the up-front role check could not
- *  run because the calendar is not in the user's list, which is exactly when the
- *  user needs the real reason. */
+ *  disabled API, misleading here. Reached when the up-front gate let the push
+ *  through on an unknown role, which is exactly when the user needs the real
+ *  reason. */
 function writeFailure(eventId: string, error: unknown): PushOutcome {
   if (isGoogleApiError(error) && error.status === HTTP_FORBIDDEN) {
     return { kind: "skipped", message: `${eventId}: Google refused the write — you may not have permission to change events on this calendar` };

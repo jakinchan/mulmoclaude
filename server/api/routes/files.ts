@@ -65,7 +65,7 @@ export type Spawner = typeof spawn;
 
 function spawnDetachedOsCommand(command: string, args: readonly string[], label: string, spawner: Spawner): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    const child = spawner(command, args as string[], { detached: true, stdio: "ignore" });
+    const child = spawner(command, args, { detached: true, stdio: "ignore" });
     let settled = false;
     child.once("error", (err) => {
       if (settled) return;
@@ -667,7 +667,8 @@ router.get(API_ROUTES.files.dir, async (req: Request<object, unknown, unknown, P
       notFound(res, "Not found");
       return;
     }
-    const node = await listDirShallow(absPath, relPath, undefined);
+    // No gitignore filter — a ref dir lives outside the workspace repo.
+    const node = await listDirShallow(absPath, relPath);
     res.json(node);
     return;
   }

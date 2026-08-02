@@ -80,14 +80,14 @@ export function createCommandHandler(opts: {
   getRole: (roleId: string) => Role;
   resetChatState: ChatStateStore["resetChatState"];
   connectSession: ChatStateStore["connectSession"];
-  listSessions?: ListSessionsFn;
-  getSessionHistory?: GetSessionHistoryFn;
+  listSessions?: ListSessionsFn | undefined;
+  getSessionHistory?: GetSessionHistoryFn | undefined;
   /** Lists the skills the bridge command handler should expose.
    *  Drives both the slash-command allowlist (only matching names
    *  are forwarded to the agent) and the "Skills:" section in the
    *  `/help` reply. When omitted, every unknown slash is rejected
    *  and `/help` shows only the built-in commands. */
-  listRegisteredSkills?: () => Promise<BridgeSkillSummary[]>;
+  listRegisteredSkills?: (() => Promise<BridgeSkillSummary[]>) | undefined;
 }): CommandHandler {
   const { loadAllRoles, getRole, resetChatState, connectSession, listSessions, getSessionHistory, listRegisteredSkills } = opts;
 

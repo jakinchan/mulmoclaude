@@ -81,16 +81,31 @@ async function serverLog(namespace, message, options = {}) {
   await safePost(req, LOG_TIMEOUT_MS);
 }
 
+// packages/common/dist/index.js
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // server/workspace/hooks/shared/stdin.ts
+var isOptionalRecord = (value) => value === void 0 || isRecord(value);
+function isHookPayload(value) {
+  return isRecord(value) && isOptionalRecord(value.tool_input) && isOptionalRecord(value.tool_response);
+}
+function chunkToBuffer(chunk) {
+  if (typeof chunk === "string") return Buffer.from(chunk);
+  if (Buffer.isBuffer(chunk)) return chunk;
+  return Buffer.alloc(0);
+}
 async function readHookPayload() {
   const chunks = [];
   for await (const chunk of process.stdin) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    chunks.push(chunkToBuffer(chunk));
   }
   const raw = Buffer.concat(chunks).toString("utf-8");
   if (!raw.trim()) return null;
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return isHookPayload(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -201,12 +216,12 @@ function mirrorSkillDelete(workspaceRoot2, slug) {
   return { dest };
 }
 
-// packages/core/dist/dist-HC-r8qQi.js
-function isRecord(value) {
+// packages/core/dist/dist-D8zokgGo.js
+function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function hasStringProp(value, key) {
-  return isRecord(value) && typeof value[key] === "string";
+  return isRecord2(value) && typeof value[key] === "string";
 }
 function errorMessage(err, fallback) {
   if (err instanceof Error) return err.message;

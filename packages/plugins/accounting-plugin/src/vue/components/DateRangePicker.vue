@@ -10,7 +10,7 @@
         :value="selectedShortcut"
         class="h-8 px-2 rounded border border-gray-300 text-sm bg-white"
         data-testid="accounting-daterange-shortcut"
-        @change="onShortcutChange(($event.target as HTMLSelectElement).value)"
+        @change="onShortcutChange"
       >
         <!-- Sentinel for the "custom" state. Hidden from the menu
              but bound when the current range doesn't match any
@@ -32,7 +32,7 @@
         type="date"
         class="h-8 px-2 rounded border border-gray-300 text-sm"
         data-testid="accounting-daterange-from"
-        @input="onFromChange(($event.target as HTMLInputElement).value)"
+        @input="onFromChange"
       />
     </label>
     <label class="text-xs text-gray-500 flex flex-col gap-1">
@@ -42,7 +42,7 @@
         type="date"
         class="h-8 px-2 rounded border border-gray-300 text-sm"
         data-testid="accounting-daterange-to"
-        @input="onToChange(($event.target as HTMLInputElement).value)"
+        @input="onToChange"
       />
     </label>
   </div>
@@ -125,7 +125,10 @@ const selectedShortcut = computed<SelectedShortcut>(() => {
   return "";
 });
 
-function onShortcutChange(raw: string): void {
+function onShortcutChange(event: Event): void {
+  const { target } = event;
+  if (!(target instanceof HTMLSelectElement)) return;
+  const raw = target.value;
   const today = new Date();
   if (raw === "currentQuarter") emit("update:modelValue", currentQuarterRange(props.fiscalYearEnd, today));
   else if (raw === "previousQuarter") emit("update:modelValue", previousQuarterRange(props.fiscalYearEnd, today));
@@ -137,11 +140,15 @@ function onShortcutChange(raw: string): void {
   } else if (raw === "all") emit("update:modelValue", UNBOUNDED_RANGE);
 }
 
-function onFromChange(value: string): void {
-  emit("update:modelValue", { from: value, to: props.modelValue.to });
+function onFromChange(event: Event): void {
+  const { target } = event;
+  if (!(target instanceof HTMLInputElement)) return;
+  emit("update:modelValue", { from: target.value, to: props.modelValue.to });
 }
 
-function onToChange(value: string): void {
-  emit("update:modelValue", { from: props.modelValue.from, to: value });
+function onToChange(event: Event): void {
+  const { target } = event;
+  if (!(target instanceof HTMLInputElement)) return;
+  emit("update:modelValue", { from: props.modelValue.from, to: target.value });
 }
 </script>

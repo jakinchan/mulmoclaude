@@ -7,8 +7,9 @@
 // `meta-types.ts`. Imported from server-side code via tsx.
 
 import type { ToolDefinition } from "gui-chat-protocol";
+import { isRecord } from "@mulmoclaude/common";
 import { API_ROUTES } from "../config/apiRoutes";
-import type { PluginMeta, ResolvedRoute } from "./meta-types";
+import type { PluginMeta } from "./meta-types";
 
 export interface ServerPluginBinding {
   /** ToolDefinition object — the plugin's MCP-facing schema. The
@@ -29,10 +30,21 @@ export function mcpEndpoint(meta: PluginMeta): string {
   if (!meta.apiNamespace || !meta.mcpDispatch) {
     throw new Error(`Plugin "${meta.toolName}" cannot register MCP binding: missing apiNamespace or mcpDispatch in META`);
   }
-  const namespaceRecord = (API_ROUTES as unknown as Record<string, Record<string, ResolvedRoute>>)[meta.apiNamespace];
-  const route = namespaceRecord?.[meta.mcpDispatch];
-  if (!route) {
+  const url = findRouteUrl(meta.apiNamespace, meta.mcpDispatch);
+  if (url === undefined) {
     throw new Error(`Plugin "${meta.toolName}" mcpDispatch route "${meta.mcpDispatch}" not found under API_ROUTES.${meta.apiNamespace}`);
   }
-  return route.url;
+  return url;
+}
+
+/** `API_ROUTES` is an intersection of literal-typed records, so it carries no
+ *  index signature and a namespace known only at runtime cannot be used to
+ *  subscript it. Walk the entries instead and read back only the one field this
+ *  module consumes. */
+function findRouteUrl(namespace: string, routeKey: string): string | undefined {
+  const namespaces: [string, unknown][] = Object.entries(API_ROUTES);
+  const namespaceValue = namespaces.find(([key]) => key === namespace)?.[1];
+  if (!isRecord(namespaceValue)) return undefined;
+  const route = namespaceValue[routeKey];
+  return isRecord(route) && typeof route.url === "string" ? route.url : undefined;
 }

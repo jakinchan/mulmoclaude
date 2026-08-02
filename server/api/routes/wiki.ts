@@ -76,11 +76,11 @@ interface WikiData {
   action: string;
   title: string;
   content: string;
-  pageEntries?: WikiPageEntry[];
-  pageName?: string;
-  pageExists?: boolean;
-  error?: string;
-  graph?: WikiGraph;
+  pageEntries?: WikiPageEntry[] | undefined;
+  pageName?: string | undefined;
+  pageExists?: boolean | undefined;
+  error?: string | undefined;
+  graph?: WikiGraph | undefined;
 }
 
 interface WikiResponse {

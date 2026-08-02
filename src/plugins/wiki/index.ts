@@ -44,6 +44,11 @@ export interface WikiData {
   graph?: WikiGraph;
 }
 
+/** A `WikiData` slice as parsed off the wire. Unlike `Partial<WikiData>`, a
+ *  field the response omitted arrives as the key set to `undefined` — every
+ *  view reads it through its own `?? default`. */
+export type WikiDataPatch = { [K in keyof WikiData]?: WikiData[K] | undefined };
+
 // View-only registry entry (Stage 3b, #963). The plugin no longer
 // exposes an MCP tool to the LLM, but the canvas dispatch
 // (`getPlugin("manageWiki")`) still finds it so:

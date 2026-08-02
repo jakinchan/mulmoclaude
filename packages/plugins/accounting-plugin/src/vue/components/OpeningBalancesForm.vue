@@ -180,12 +180,13 @@ function toApiLines(): JournalLine[] {
   for (const account of bsAccounts.value) {
     const row = rows.value[account.code];
     if (!row) continue;
-    const debitOk = isPositiveAmount(row.debit);
-    const creditOk = isPositiveAmount(row.credit);
+    const { debit, credit } = row;
+    const debitOk = isPositiveAmount(debit);
+    const creditOk = isPositiveAmount(credit);
     if (!debitOk && !creditOk) continue;
     const line: JournalLine = { accountCode: account.code };
-    if (debitOk) line.debit = row.debit as number;
-    if (creditOk) line.credit = row.credit as number;
+    if (debitOk) line.debit = debit;
+    if (creditOk) line.credit = credit;
     out.push(line);
   }
   return out;

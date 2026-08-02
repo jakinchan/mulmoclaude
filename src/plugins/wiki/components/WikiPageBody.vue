@@ -37,15 +37,30 @@ useMermaidRenderer(rootRef, renderedHtml);
 
 defineExpose({ rootRef });
 
+function taskCheckboxAt(target: Element): HTMLInputElement | null {
+  if (!(target instanceof HTMLInputElement)) return null;
+  if (target.type !== "checkbox" || !target.classList.contains("md-task")) return null;
+  return target;
+}
+
+function wikiSlugAt(target: Element): string | null {
+  const link = target.closest(".wiki-link");
+  return link instanceof HTMLElement ? (link.dataset.page ?? null) : null;
+}
+
 function onClick(event: MouseEvent) {
-  const target = event.target as HTMLElement;
-  if (target instanceof HTMLInputElement && target.type === "checkbox" && target.classList.contains("md-task")) {
-    emit("taskCheckboxClick", event, target);
+  const { target } = event;
+  // Element, not HTMLElement: an inline <svg> inside rendered markdown
+  // is a real click target and must still resolve to its anchor.
+  if (!(target instanceof Element)) return;
+  const checkbox = taskCheckboxAt(target);
+  if (checkbox) {
+    emit("taskCheckboxClick", event, checkbox);
     return;
   }
-  const link = target.closest(".wiki-link") as HTMLElement | null;
-  if (link?.dataset.page) {
-    emit("wikiLinkClick", link.dataset.page);
+  const slug = wikiSlugAt(target);
+  if (slug) {
+    emit("wikiLinkClick", slug);
     return;
   }
   if (handleExternalLinkClick(event)) return;

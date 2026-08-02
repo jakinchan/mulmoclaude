@@ -101,7 +101,7 @@ type PluginToolNamesMap<T extends BuiltInPluginMetas> = {
 // Plugin keys colliding with a host literal are dropped (host wins —
 // silent override would route the LLM's calls to the wrong handler).
 // Diagnostics flow through `TOOL_NAMES_*_COLLISIONS` for boot warnings.
-const TOOL_NAMES_AGGREGATE = defineHostAggregate<string>(BUILT_IN_PLUGIN_METAS, {
+const TOOL_NAMES_AGGREGATE = defineHostAggregate<string, typeof HOST_TOOL_NAMES, PluginToolNamesMap<BuiltInPluginMetas>>(BUILT_IN_PLUGIN_METAS, {
   label: "TOOL_NAMES",
   hostRecord: HOST_TOOL_NAMES,
   extract: (meta) => ({ [meta.toolName]: meta.toolName }),
@@ -110,7 +110,7 @@ const TOOL_NAMES_AGGREGATE = defineHostAggregate<string>(BUILT_IN_PLUGIN_METAS, 
 export const TOOL_NAMES_HOST_COLLISIONS: readonly HostPluginCollision[] = TOOL_NAMES_AGGREGATE.hostCollisions;
 export const TOOL_NAMES_INTRA_COLLISIONS: readonly IntraPluginCollision[] = TOOL_NAMES_AGGREGATE.intraCollisions;
 
-export const TOOL_NAMES = TOOL_NAMES_AGGREGATE.merged as unknown as typeof HOST_TOOL_NAMES & PluginToolNamesMap<BuiltInPluginMetas>;
+export const TOOL_NAMES = TOOL_NAMES_AGGREGATE.merged;
 
 export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES];
 
@@ -118,7 +118,7 @@ export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES];
  *  payload) needs to be narrowed to a known tool. */
 export function isToolName(value: unknown): value is ToolName {
   if (typeof value !== "string") return false;
-  return (Object.values(TOOL_NAMES) as readonly string[]).includes(value);
+  return Object.values(TOOL_NAMES).some((toolName) => toolName === value);
 }
 
 /** Array of all known tool names, in declaration order. */

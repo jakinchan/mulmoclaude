@@ -7,7 +7,7 @@
           :value="selectedShortcut"
           class="h-8 px-2 rounded border border-gray-300 text-sm bg-white"
           data-testid="accounting-bs-shortcut"
-          @change="onShortcutChange(($event.target as HTMLSelectElement).value)"
+          @change="onShortcutChange"
         >
           <option value="" hidden></option>
           <option value="thisMonth">{{ t("pluginAccounting.balanceSheet.thisMonth") }}</option>
@@ -161,7 +161,10 @@ const selectedShortcut = computed<SelectedShortcut>(() => {
   return "";
 });
 
-function onShortcutChange(raw: string): void {
+function onShortcutChange(event: Event): void {
+  const { target } = event;
+  if (!(target instanceof HTMLSelectElement)) return;
+  const raw = target.value;
   const now = new Date();
   if (raw === "thisMonth") period.value = localMonthString(now);
   else if (raw === "lastMonth") period.value = previousMonthString(now);

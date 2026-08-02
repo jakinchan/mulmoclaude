@@ -27,5 +27,5 @@ export async function existsAsFile(value: string, extensions: readonly string[])
 
 /** `FileOps` over caller-supplied paths — the host's `files.byPath` capability. */
 export function makeByPathFileOps(extensions: readonly string[]): FileOps {
-  return createByPathFileOps({ rootFor, extensions }) as FileOps;
+  return createByPathFileOps({ rootFor, extensions });
 }

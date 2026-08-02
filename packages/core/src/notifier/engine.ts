@@ -288,10 +288,22 @@ function buildHistoryEntry(entry: NotifierEntry, terminalType: "cleared" | "canc
 
 // ── Public API ────────────────────────────────────────────────────
 
+/** The optional half of a publish input, with unset keys left OUT rather than
+ *  written as `undefined` — an entry is persisted and re-read through JSON,
+ *  where an unset field carries no key at all. */
+function optionalPublishFields<TPluginData>(input: PublishInput<TPluginData>): Partial<NotifierEntry<TPluginData>> {
+  return {
+    ...(input.lifecycle !== undefined ? { lifecycle: input.lifecycle } : {}),
+    ...(input.body !== undefined ? { body: input.body } : {}),
+    ...(input.navigateTarget !== undefined ? { navigateTarget: input.navigateTarget } : {}),
+    ...(input.pluginData !== undefined ? { pluginData: input.pluginData } : {}),
+  };
+}
+
 export async function publish<TPluginData = unknown>(input: PublishInput<TPluginData>): Promise<{ id: string }> {
   // Validate at the engine boundary so plugin-runtime callers and
   // HTTP callers hit the same wall.
-  const validationError = validatePublishInput(input as PublishInput);
+  const validationError = validatePublishInput(input);
   if (validationError) {
     throw new Error(`notifier.publish: ${validationError}`);
   }
@@ -300,16 +312,13 @@ export async function publish<TPluginData = unknown>(input: PublishInput<TPlugin
     id: entryId,
     pluginPkg: input.pluginPkg,
     severity: input.severity,
-    lifecycle: input.lifecycle,
     title: input.title,
-    body: input.body,
-    navigateTarget: input.navigateTarget,
-    pluginData: input.pluginData,
     createdAt: new Date().toISOString(),
+    ...optionalPublishFields(input),
   };
   await enqueue((state) => {
-    state.entries[entryId] = entry as NotifierEntry;
-    return { event: { type: "published", entry: entry as NotifierEntry } };
+    state.entries[entryId] = entry;
+    return { event: { type: "published", entry } };
   });
   return { id: entryId };
 }

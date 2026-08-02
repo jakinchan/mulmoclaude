@@ -67,8 +67,9 @@ export async function readDashboard(workspaceRoot?: string): Promise<DashboardFi
   const text = await readTextSafe(dashboardFilePath(workspaceRoot));
   if (text === null) return { tiles: [], rowHeights: {} };
   try {
-    const parsed = JSON.parse(text) as Partial<DashboardFile>;
-    return { tiles: normalizeDashboard(parsed?.tiles), rowHeights: normalizeRowHeights(parsed?.rowHeights) };
+    const parsed: unknown = JSON.parse(text);
+    const file = isRecord(parsed) ? parsed : {};
+    return { tiles: normalizeDashboard(file.tiles), rowHeights: normalizeRowHeights(file.rowHeights) };
   } catch {
     return { tiles: [], rowHeights: {} };
   }

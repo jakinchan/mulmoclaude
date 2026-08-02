@@ -115,7 +115,7 @@ export interface StartChatParams extends ChatServiceStartChatParams {
   /** IANA timezone the user's browser resolved (e.g. "Asia/Tokyo").
    *  Validated server-side before it reaches the system prompt — an
    *  invalid or missing value falls back to server-local time. */
-  userTimezone?: string;
+  userTimezone?: string | undefined;
 }
 
 export type StartChatResult = { kind: "started"; chatSessionId: string } | { kind: "error"; error: string; status?: number };
@@ -140,8 +140,8 @@ export async function spawnSystemWorker(args: {
   /** Path-bearing attachments to hand the spawned chat (e.g. files the mobile
    *  remote attached, ingested into the workspace). Forwarded to `startChat`,
    *  which loads their bytes for the model like any other attachment. */
-  attachments?: Attachment[];
-  onComplete?: CompletionHook;
+  attachments?: Attachment[] | undefined;
+  onComplete?: CompletionHook | undefined;
 }): Promise<SpawnSystemWorkerResult> {
   const chatId = randomUUID();
   const origin: SessionOrigin = args.hidden ? SESSION_ORIGINS.system : SESSION_ORIGINS.skill;
@@ -1134,7 +1134,7 @@ function runPostTurnSideEffects(chatSessionId: string, requestStartedAt: number)
 // Read claudeSessionId from meta (primary) or jsonl (legacy fallback).
 async function readClaudeSessionIdFromSession(chatSessionId: string): Promise<string | undefined> {
   const meta = await readSessionMeta(chatSessionId);
-  if (meta?.claudeSessionId) return meta.claudeSessionId as string;
+  if (meta?.claudeSessionId) return meta.claudeSessionId;
   // Legacy scan: search jsonl lines backwards for a claudeSessionId event
   const jsonl = await readSessionJsonl(chatSessionId);
   if (!jsonl) return undefined;

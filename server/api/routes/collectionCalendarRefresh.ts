@@ -10,9 +10,9 @@ export interface CollectionRefreshBody {
   errors: string[];
   /** Records the sync deleted (an event cancelled in Google). Calendar only —
    *  a feed refresh never removes records. */
-  removed?: number;
-  dispatched?: boolean;
-  chatId?: string;
+  removed?: number | undefined;
+  dispatched?: boolean | undefined;
+  chatId?: string | undefined;
 }
 
 export const CALENDAR_NOT_LINKED_ERROR = "no Google account is linked on this host — link it in Settings → Google";

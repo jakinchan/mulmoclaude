@@ -36,26 +36,26 @@ export interface WikiWriteMeta {
   editor: WikiPageEditor;
   /** Chat session that triggered the edit. Optional — not all
    *  callers know one (e.g. user save through the file editor). */
-  sessionId?: string;
+  sessionId?: string | undefined;
   /** Free-form short reason. LLM-supplied or user-supplied. */
-  reason?: string;
+  reason?: string | undefined;
   /** Force a snapshot to be recorded even when the body and
    *  user-supplied meta haven't changed. Used by the restore
    *  route so a "restore to current version" still leaves an
    *  audit trail entry — without this the `hasMeaningfulChange`
    *  gate would silently swallow the restore (codex iter-1
    *  finding). Default: false. */
-  forceSnapshot?: boolean;
+  forceSnapshot?: boolean | undefined;
 }
 
 export interface WikiPageWriteOptions {
   /** Override the workspace root for tests. Defaults to the
    *  process's resolved workspace (`workspace.ts`). */
-  workspaceRoot?: string;
+  workspaceRoot?: string | undefined;
   /** Inject the "now" used for `created` / `updated` frontmatter
    *  injection. Tests pass a fixed `Date` so the round-trip is
    *  deterministic; production uses the wall clock. */
-  now?: () => Date;
+  now?: (() => Date) | undefined;
   /** Create-only mode: write via `O_EXCL` (`flag: "wx"`) so the
    *  call atomically refuses to overwrite an existing page. The
    *  thrown error has `code: "EEXIST"` — used by the

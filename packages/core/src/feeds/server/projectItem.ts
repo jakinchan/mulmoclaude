@@ -9,6 +9,7 @@
 // re-fetches upsert in place. The natural key comes from the mapped
 // primaryKey value, then `ingest.idFrom`, then a content hash.
 
+import { isRecord } from "@mulmoclaude/common";
 import { createHash } from "node:crypto";
 import { getByPath } from "./pathResolver.js";
 import type { CollectionItem, CollectionSchema } from "../../collection/index.js";
@@ -26,10 +27,9 @@ function asKeyString(value: unknown): string | null {
  *  shape — so a tag like `<guid isPermaLink="false">id</guid>` maps to
  *  its text without the caller needing to write `.#text`. */
 function unwrapTextNode(value: unknown): unknown {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const obj = value as Record<string, unknown>;
-    if (typeof obj["#text"] === "string") return obj["#text"];
-    if (typeof obj["#cdata"] === "string") return obj["#cdata"];
+  if (isRecord(value)) {
+    if (typeof value["#text"] === "string") return value["#text"];
+    if (typeof value["#cdata"] === "string") return value["#cdata"];
   }
   return value;
 }

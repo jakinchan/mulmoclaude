@@ -15,7 +15,7 @@ export type RawRangeGetter = (range: string) => CellValue[];
 export interface FunctionContext {
   getCellValue: CellGetter;
   getRangeValues: RangeGetter;
-  getRangeValuesRaw?: RawRangeGetter;
+  getRangeValuesRaw?: RawRangeGetter | undefined;
   evaluateFormula: (formula: string) => CellValue;
 }
 

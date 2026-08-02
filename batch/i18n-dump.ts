@@ -19,21 +19,12 @@ const locales = { en: enMessages, ja: jaMessages };
 
 // vue-i18n supports a "message function" form — e.g.
 // `argsPlaceholder: () => "…"`. JSON.stringify skips those keys
-// (functions → undefined). Replace them with a placeholder literal
-// so the eslint plugin still sees the key exists. The runtime
-// dictionary keeps the function; only the lint cache loses it.
-function serializableDictionary(input: unknown): unknown {
-  if (typeof input === "function") return "[message-function]";
-  if (Array.isArray(input)) return input.map(serializableDictionary);
-  if (input !== null && typeof input === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-      out[key] = serializableDictionary(value);
-    }
-    return out;
-  }
-  return input;
-}
+// (functions → undefined). Substituting a placeholder literal in the
+// replacer keeps the key visible to the eslint plugin; the runtime
+// dictionary keeps the function, only the lint cache loses it.
+const MESSAGE_FUNCTION_PLACEHOLDER = "[message-function]";
+
+const replaceMessageFunctions = (_key: string, value: unknown): unknown => (typeof value === "function" ? MESSAGE_FUNCTION_PLACEHOLDER : value);
 
 const thisFile = url.fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(thisFile), "..");
@@ -43,11 +34,7 @@ async function main(): Promise<void> {
   await mkdir(outDir, { recursive: true });
   await Promise.all(
     Object.entries(locales).map(([locale, dict]) =>
-      writeFile(
-        path.join(outDir, `${locale}.json`),
-        JSON.stringify(serializableDictionary(dict), null, 2) + "\n",
-        "utf8",
-      ),
+      writeFile(path.join(outDir, `${locale}.json`), `${JSON.stringify(dict, replaceMessageFunctions, 2)}\n`, "utf8"),
     ),
   );
   console.log(`i18n JSON dumped to ${path.relative(repoRoot, outDir)}/`);

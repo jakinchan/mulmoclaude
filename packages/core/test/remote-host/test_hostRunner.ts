@@ -16,6 +16,7 @@ import {
   LISTEN_RETRY_WINDOW_MS,
   backoffDelayMs,
   classifyListenerError,
+  readClaim,
   resolveCommandHandler,
   shouldGiveUpListening,
 } from "../../src/remote-host/server/hostRunner.js";
@@ -117,5 +118,41 @@ describe("shouldGiveUpListening", () => {
     // but the outage is not — that distinction is the whole point of the change.
     const lastAttemptAt = startedAt + LISTEN_RETRY_WINDOW_MS - 30_000;
     assert.equal(shouldGiveUpListening(startedAt, lastAttemptAt + 30_000), true);
+  });
+});
+
+// The claim used to be an `as Command` over whatever Firestore handed back
+// (#2692). These pin the two halves of replacing it: what is refused, and what
+// degrades to a reply the remote can actually see.
+describe("readClaim", () => {
+  it("takes a queued command and keeps its method and params", () => {
+    assert.deepEqual(readClaim({ status: "queued", method: "startChat", params: { text: "hi" } }), { method: "startChat", params: { text: "hi" } });
+  });
+
+  it("refuses a doc another host already moved out of queued", () => {
+    assert.equal(readClaim({ status: "processing", method: "startChat", params: {} }), null);
+  });
+
+  it("refuses a deleted doc (data() is undefined) and a non-object payload", () => {
+    assert.equal(readClaim(undefined), null);
+    assert.equal(readClaim("startChat"), null);
+    assert.equal(readClaim([{ status: "queued" }]), null);
+  });
+
+  it("degrades a missing/non-string method to '' so dispatch answers unknown_method", () => {
+    // Refusing here would leave the doc claimed as `processing` with no reply —
+    // indistinguishable from a dead host. resolveCommandHandler has no ""
+    // entry, so the runner writes unknown_method back instead.
+    assert.deepEqual(readClaim({ status: "queued", params: {} }), { method: "", params: {} });
+    assert.deepEqual(readClaim({ status: "queued", method: 42, params: {} }), { method: "", params: {} });
+    assert.equal(resolveCommandHandler(handlers, ""), undefined);
+  });
+
+  it("degrades absent or non-object params to {} so the handler's own check answers", () => {
+    // An array is not a params map: coercing one would present its indices as
+    // field names ({"0": …}), so it degrades like any other non-record.
+    assert.deepEqual(readClaim({ status: "queued", method: "startChat" }), { method: "startChat", params: {} });
+    assert.deepEqual(readClaim({ status: "queued", method: "startChat", params: "text" }), { method: "startChat", params: {} });
+    assert.deepEqual(readClaim({ status: "queued", method: "startChat", params: [1, 2] }), { method: "startChat", params: {} });
   });
 });

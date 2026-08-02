@@ -24,15 +24,16 @@ export function isNearBottom(
 // Pure in the "no Vue / no module state" sense — it does touch the
 // DOM, so its tests use a synthetic element graph rather than the
 // real DOM.
-export function findScrollableChild(container: HTMLElement): HTMLElement | null {
-  const children = container.querySelectorAll("*");
-  for (const elem of children) {
-    const html = elem as HTMLElement;
-    if (html.scrollHeight > html.clientHeight) {
-      const style = getComputedStyle(html);
-      if (style.overflowY === "auto" || style.overflowY === "scroll" || style.overflow === "auto" || style.overflow === "scroll") {
-        return html;
-      }
+//
+// Returns `Element`: `querySelectorAll("*")` also yields SVG nodes, and
+// every member used here (scrolling metrics, computed style, scrollBy)
+// is defined on `Element`.
+export function findScrollableChild(container: HTMLElement): Element | null {
+  for (const elem of container.querySelectorAll("*")) {
+    if (elem.scrollHeight <= elem.clientHeight) continue;
+    const style = getComputedStyle(elem);
+    if (style.overflowY === "auto" || style.overflowY === "scroll" || style.overflow === "auto" || style.overflow === "scroll") {
+      return elem;
     }
   }
   return null;

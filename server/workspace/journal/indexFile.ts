@@ -2,8 +2,8 @@ import { isoDateOnly } from "../../utils/date.js";
 
 export interface IndexTopicEntry {
   slug: string;
-  title?: string;
-  lastUpdatedIso?: string;
+  title?: string | undefined;
+  lastUpdatedIso?: string | undefined;
 }
 
 export interface IndexDailyEntry {
@@ -15,7 +15,7 @@ export interface IndexInputs {
   days: readonly IndexDailyEntry[];
   archivedTopicCount: number;
   builtAtIso: string;
-  maxRecentDays?: number;
+  maxRecentDays?: number | undefined;
 }
 
 export const DEFAULT_MAX_RECENT_DAYS = 14;

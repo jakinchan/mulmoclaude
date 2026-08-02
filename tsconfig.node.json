@@ -3,8 +3,16 @@
     "composite": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "exactOptionalPropertyTypes": true,
     "allowSyntheticDefaultImports": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "strict": true,
+    "useUnknownInCatchVariables": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  // `vite.config.ts` alone left the modules it imports outside the project, so
+  // they were type-checked by nothing (TS6307 the moment `strict` went on).
+  "include": ["vite.config.ts", "scripts/lib/**/*.ts", "server/utils/envCoerce.ts"]
 }

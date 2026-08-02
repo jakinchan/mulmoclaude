@@ -37,7 +37,7 @@ const { t } = useI18n();
 const props = defineProps<{
   results: ToolResultComplete[];
   resultTimestamps: Map<string, number>;
-  sessionRoleName?: string;
+  sessionRoleName?: string | undefined;
 }>();
 
 const justCopied = ref(false);

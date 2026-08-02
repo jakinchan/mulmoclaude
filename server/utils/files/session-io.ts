@@ -2,7 +2,8 @@ import { appendFile, rm } from "fs/promises";
 import path from "node:path";
 import { WORKSPACE_DIRS, workspacePath } from "../../workspace/paths.js";
 import { readTextUnder, writeTextUnder, resolvePath, ensureWorkspaceDir } from "./workspace-io.js";
-import type { SessionOrigin } from "../../../src/types/session.js";
+import { isRecord } from "../types.js";
+import { isSessionOrigin, type SessionOrigin } from "../../../src/types/session.js";
 
 const CHAT = WORKSPACE_DIRS.chat;
 const root = (rootOverride?: string) => rootOverride ?? workspacePath;
@@ -20,29 +21,60 @@ function jsonlRel(sessionId: string): string {
 }
 
 export interface SessionMeta {
-  roleId?: string;
-  startedAt?: string;
-  firstUserMessage?: string;
-  claudeSessionId?: string;
-  hasUnread?: boolean;
-  isBookmarked?: boolean;
-  origin?: SessionOrigin;
+  roleId?: string | undefined;
+  startedAt?: string | undefined;
+  firstUserMessage?: string | undefined;
+  claudeSessionId?: string | undefined;
+  hasUnread?: boolean | undefined;
+  isBookmarked?: boolean | undefined;
+  origin?: SessionOrigin | undefined;
   /** Number of user turns (queries) sent to this session. Bumped once
    *  per user message so a one-shot session (1) can be told apart from
    *  a long-running conversation. */
-  userQueryCount?: number;
+  userQueryCount?: number | undefined;
   [key: string]: unknown;
 }
 
 export type ReadMetaResult = { kind: "missing" } | { kind: "ok"; meta: SessionMeta } | { kind: "corrupt"; raw: string };
 
+const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string";
+const isOptionalBoolean = (value: unknown): boolean => value === undefined || typeof value === "boolean";
+
+// Checks every field `SessionMeta` declares. The trailing index signature
+// accepts anything, so the extra keys older builds may have written ride
+// along untouched — nothing is dropped and nothing is left unverified.
+function isSessionMeta(value: unknown): value is SessionMeta {
+  return (
+    isRecord(value) &&
+    isOptionalString(value.roleId) &&
+    isOptionalString(value.startedAt) &&
+    isOptionalString(value.firstUserMessage) &&
+    isOptionalString(value.claudeSessionId) &&
+    isOptionalBoolean(value.hasUnread) &&
+    isOptionalBoolean(value.isBookmarked) &&
+    (value.origin === undefined || isSessionOrigin(value.origin)) &&
+    (value.userQueryCount === undefined || typeof value.userQueryCount === "number")
+  );
+}
+
 export async function readSessionMetaFull(sessionId: string, rootOverride?: string): Promise<ReadMetaResult> {
   const raw = await readTextUnder(root(rootOverride), metaRel(sessionId));
   if (raw === null) return { kind: "missing" };
+  // A file whose fields don't match the declared types joins the existing
+  // "corrupt" branch rather than getting a new one: the caller's contract is
+  // already "warn, treat as existing, never clobber", which is exactly the
+  // right handling for a meta file we can't trust.
+  const parsed: unknown = tryParseJson(raw);
+  return isSessionMeta(parsed) ? { kind: "ok", meta: parsed } : { kind: "corrupt", raw };
+}
+
+/** `undefined` on unparseable input — no JSON document parses to `undefined`,
+ *  so it is unambiguous as a sentinel. */
+function tryParseJson(raw: string): unknown {
   try {
-    return { kind: "ok", meta: JSON.parse(raw) as SessionMeta };
+    return JSON.parse(raw);
   } catch {
-    return { kind: "corrupt", raw };
+    return undefined;
   }
 }
 
@@ -66,7 +98,7 @@ export async function createSessionMeta(sessionId: string, roleId: string, first
   await writeSessionMeta(sessionId, meta, rootOverride);
 }
 
-export async function backfillOrigin(sessionId: string, origin: SessionMeta["origin"], rootOverride?: string): Promise<void> {
+export async function backfillOrigin(sessionId: string, origin: NonNullable<SessionMeta["origin"]>, rootOverride?: string): Promise<void> {
   const meta = await readSessionMeta(sessionId, rootOverride);
   if (!meta || meta.origin) return; // already set
   await writeSessionMeta(sessionId, { ...meta, origin }, rootOverride);

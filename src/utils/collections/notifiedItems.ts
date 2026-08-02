@@ -9,6 +9,7 @@
 // as `unknown`, so we narrow defensively rather than trusting its shape.
 
 import { NOTIFICATION_VIEWS } from "../../types/notification";
+import { isRecord } from "../types";
 
 /** Bell severities, worst-last. Mirrors `NotifierEntry["severity"]`. The
  *  Kanban accent colours by this so it matches the bell badge / icon
@@ -25,24 +26,24 @@ function asSeverity(value: unknown): NotifierSeverity {
  *  `NotifierEntry` so callers can pass entries straight from
  *  `useNotifications()` without a cast. */
 export interface NotifiedEntryLike {
-  pluginData?: unknown;
-  severity?: string;
+  pluginData?: unknown | undefined;
+  severity?: string | undefined;
 }
 
 interface CollectionTarget {
   slug: string;
-  itemId?: string;
+  itemId?: string | undefined;
 }
 
 /** Narrow an entry's opaque `pluginData` to its collection navigate
  *  target, or null when it isn't a collection-targeting entry. */
 function collectionTargetOf(pluginData: unknown): CollectionTarget | null {
-  if (!pluginData || typeof pluginData !== "object") return null;
-  const { action } = pluginData as { action?: unknown };
-  if (!action || typeof action !== "object") return null;
-  const { target } = action as { target?: unknown };
-  if (!target || typeof target !== "object") return null;
-  const { view, slug, itemId } = target as { view?: unknown; slug?: unknown; itemId?: unknown };
+  if (!isRecord(pluginData)) return null;
+  const { action } = pluginData;
+  if (!isRecord(action)) return null;
+  const { target } = action;
+  if (!isRecord(target)) return null;
+  const { view, slug, itemId } = target;
   if (view !== NOTIFICATION_VIEWS.collections || typeof slug !== "string") return null;
   return { slug, itemId: typeof itemId === "string" ? itemId : undefined };
 }

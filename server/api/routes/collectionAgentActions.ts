@@ -34,7 +34,7 @@ export interface AgentActionDeps {
     message: string;
     roleId: string;
     hidden: boolean;
-    onComplete?: (outcome: { didError: boolean }) => void | Promise<void>;
+    onComplete?: ((outcome: { didError: boolean }) => void | Promise<void>) | undefined;
   }) => Promise<SpawnSystemWorkerResult>;
   publishChange: (slug: string) => void;
   notifyFailure: (title: string, body: string, slug: string) => Promise<string>;
@@ -107,13 +107,14 @@ async function onWorkerComplete(
 ): Promise<void> {
   clearRunning(collection.slug, key);
   const bellKey = `${collection.slug}\n${key}`;
+  const existingBell = failureBells.get(bellKey);
   try {
-    if (didError && !failureBells.has(bellKey)) {
+    if (didError && existingBell === undefined) {
       const body = `“${action.label}” on “${collection.schema.title}” (${collection.slug}) failed. Open the collection to retry.`;
       failureBells.set(bellKey, await deps.notifyFailure("Collection action failed", body, collection.slug));
     }
-    if (!didError && failureBells.has(bellKey)) {
-      await deps.clearNotification(failureBells.get(bellKey) as string);
+    if (!didError && existingBell !== undefined) {
+      await deps.clearNotification(existingBell);
       failureBells.delete(bellKey);
     }
   } catch (err) {
@@ -137,7 +138,7 @@ export type DispatchAgentActionResult = { ok: true } | { ok: false; error: strin
  *  error clears the guard and reports `ok: false` so the button un-sticks
  *  and the route answers honestly. */
 export async function dispatchAgentAction(
-  args: { collection: LoadedCollection; action: CollectionSeededAction; seed: string; itemId?: string },
+  args: { collection: LoadedCollection; action: CollectionSeededAction; seed: string; itemId?: string | undefined },
   deps: AgentActionDeps = defaultDeps,
 ): Promise<DispatchAgentActionResult> {
   const { collection, action, itemId } = args;

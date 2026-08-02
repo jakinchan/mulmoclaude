@@ -16,7 +16,7 @@ import { CollectionSchemaZ } from "../core/schemaZ";
 import { SCHEMA_FILE, resolveDataDir, safeSlugName } from "./paths";
 import type { LoadedCollection } from "./discoveredCollection";
 import type { CollectionDetail, CollectionSchema, CollectionSource, CollectionSummary } from "../core/schema";
-import { isErrorWithCode } from "@mulmoclaude/common";
+import { isErrorWithCode, isRecord } from "@mulmoclaude/common";
 
 // Re-exported for the existing `collection/server` importers (manageCollection's
 // putSchema, the registry importWriter) that validate schemas the same way
@@ -34,10 +34,9 @@ export { CollectionSchemaZ };
 // its own folder, never another app's data (e.g. `data/wiki`). Non-object
 // input passes through so the Zod error stays clear.
 function applyFeedSchemaDefaults(parsed: unknown, slug: string): unknown {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return parsed;
-  const obj = parsed as Record<string, unknown>;
-  const icon = typeof obj.icon === "string" && obj.icon.trim().length > 0 ? obj.icon : "dynamic_feed";
-  return { ...obj, icon, dataPath: `data/feeds/${slug}` };
+  if (!isRecord(parsed)) return parsed;
+  const icon = typeof parsed.icon === "string" && parsed.icon.trim().length > 0 ? parsed.icon : "dynamic_feed";
+  return { ...parsed, icon, dataPath: `data/feeds/${slug}` };
 }
 
 /** Result of the post-Zod acceptance gates: the resolved record dir (and,
@@ -195,12 +194,12 @@ export interface DiscoveryOptions {
    *  `mkdtempSync` tree so they don't touch the user's real
    *  `~/mulmoclaude/`. Mirrors the pattern in
    *  `server/workspace/skills/catalog.ts#CatalogOptions`. */
-  workspaceRoot?: string;
+  workspaceRoot?: string | undefined;
   /** Override `~/.claude/skills/` for tests. Production callers
    *  leave this unset. Without an override, even a test-scoped
    *  workspaceRoot still scans the real user home — which can leak
    *  unrelated skills into the result. */
-  userSkillsDir?: string;
+  userSkillsDir?: string | undefined;
 }
 
 /** Discover every schema-driven collection available to this

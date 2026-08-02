@@ -16,7 +16,7 @@ import { SpreadsheetEngine, type SheetData, type CellValue } from "../../../../s
 
 /** Calculate `sheet` and report the value, error type, and recorded message for
  *  the cell at (row, col). */
-function cellResult(sheet: SheetData, row: number, col: number): { value: CellValue; type?: string; message?: string } {
+function cellResult(sheet: SheetData, row: number, col: number): { value: CellValue; type?: string | undefined; message?: string | undefined } {
   const result = new SpreadsheetEngine().calculate(sheet);
   const entry = result.errors.find((err) => err.cell.row === row && err.cell.col === col);
   return { value: result.data[row][col], type: entry?.type, message: entry?.error };

@@ -16,5 +16,5 @@ export interface PastedFile {
    *  can render `mime` directly or when the conversion failed — the
    *  preview component falls back to a file-icon chip in that case.
    *  The upload pipeline never reads this field. */
-  previewDataUrl?: string;
+  previewDataUrl?: string | undefined;
 }

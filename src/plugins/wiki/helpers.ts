@@ -23,7 +23,10 @@ export { renderWikiLinks } from "@mulmoclaude/core/wiki";
 export function renderWikiPageHtml(body: string, baseDir: string): string {
   if (!body) return "";
   const withImages = rewriteMarkdownImageRefs(body, baseDir);
-  return makeTasksInteractive(marked.parse(renderWikiLinks(withImages)) as string);
+  const rendered = marked.parse(renderWikiLinks(withImages));
+  // An async marked extension would hand back a Promise; this renderer is
+  // synchronous, so it falls back to the same empty result as an empty body.
+  return typeof rendered === "string" ? makeTasksInteractive(rendered) : "";
 }
 
 /** String accessor that survives the `unknown` type from FAILSAFE

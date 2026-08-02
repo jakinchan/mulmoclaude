@@ -48,7 +48,9 @@ watch(
   () => props.highlightedIndex,
   (index) => {
     nextTick(() => {
-      const option = listRef.value?.children[index] as HTMLElement | undefined;
+      // `.item()` (not `children[i]`) so an out-of-range index is typed
+      // and returns null instead of an implicitly-present Element.
+      const option = listRef.value?.children.item(index);
       option?.scrollIntoView({ block: "nearest" });
     });
   },

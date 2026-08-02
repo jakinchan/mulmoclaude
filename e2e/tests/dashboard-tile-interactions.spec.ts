@@ -32,7 +32,7 @@ const collectionDetail = (slug: string, title: string) => ({
 /** Layout PUTs the component makes, newest last. */
 interface SavedLayout {
   tiles: { slug: string; viewMode?: string }[];
-  rowHeights?: Record<string, number[]>;
+  rowHeights?: Record<string, number[]> | undefined;
 }
 
 async function setup(page: Page): Promise<SavedLayout[]> {

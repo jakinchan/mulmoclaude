@@ -54,7 +54,6 @@ import {
   type LoadedCollection,
   type StoreChange,
 } from "../collection/server";
-import type { CollectionSchema } from "../collection";
 import { errMsg, log } from "./config.js";
 import { evalNow } from "./clock.js";
 import { reconcileAllItems, reconcileItem, sweepStaleActiveEntries } from "./reconciler.js";
@@ -80,15 +79,18 @@ interface CollectionWatcher {
    *  are detected (which paths, which filenames are noise, how an atomic
    *  replace is debounced); this module only holds the handle. */
   unsubscribe: () => void;
-  /** Last-seen serialized schema for change detection. When a rediscovery
-   *  tick observes a different value, the watcher's items are reconciled
-   *  and the cache is refreshed — this catches schema-only edits (e.g.
-   *  flipping `completionField` on or off) that don't touch any record
-   *  file and would otherwise leave bell state stale indefinitely. */
+  /** Last-seen serialized schema, used ONLY as a change-detection
+   *  fingerprint. When a rediscovery tick observes a different value, the
+   *  watcher's items are reconciled and the cache is refreshed — this catches
+   *  schema-only edits (e.g. flipping `completionField` on or off) that don't
+   *  touch any record file and would otherwise leave bell state stale
+   *  indefinitely. Never parsed back: `collection.schema` below is the same
+   *  schema, already typed. */
   schemaJson: string;
   /** The discovered collection this watcher was mounted for — what the
    *  reconciler needs to pick the right STORE (file records vs a sqlite
-   *  `storage` db). Refreshed whenever `schemaJson` is. */
+   *  `storage` db), and the typed schema every other read here goes through.
+   *  Refreshed whenever `schemaJson` is. */
   collection: LoadedCollection;
 }
 
@@ -239,17 +241,11 @@ export async function _tickTimeTriggersForTesting(now?: Date): Promise<void> {
 /** Re-reconcile every watched collection that depends on the clock — i.e.
  *  declares `triggerField` (a bell that fires at a date) and/or `spawn`
  *  (recurrence whose successors come due over time). Collections with
- *  neither are skipped. Idempotent. The schema is parsed back from the
- *  watcher's cached `schemaJson` to avoid a per-tick disk read. */
+ *  neither are skipped. Idempotent. Reads the watcher's cached
+ *  `collection.schema` to avoid a per-tick disk read. */
 async function tickTimeTriggers(now: Date = evalNow()): Promise<void> {
   for (const entry of watchers.values()) {
-    let schema: CollectionSchema;
-    try {
-      schema = JSON.parse(entry.schemaJson) as CollectionSchema;
-    } catch (err) {
-      log().warn("trigger tick: bad cached schema", { slug: entry.slug, error: errMsg(err) });
-      continue;
-    }
+    const { schema } = entry.collection;
     // dataSource is NOT excluded. Its rows are read-only, but `triggerField`
     // is not among the keys zod forbids on it, and a trigger date fires from
     // the CLOCK — the one state change that arrives without the file moving.
@@ -305,13 +301,7 @@ function stopVanishedWatchers(liveSlugs: Set<string>): boolean {
  *  `dataSource.path`, a different `dataPath`, or a flip between the two
  *  modes. The mounted fs.watch is bound to the OLD location, so it must
  *  be remounted, not just re-reconciled. */
-function storagePathChanged(previousJson: string, next: LoadedCollection["schema"]): boolean {
-  let previous: LoadedCollection["schema"];
-  try {
-    previous = JSON.parse(previousJson) as LoadedCollection["schema"];
-  } catch {
-    return true; // unreadable cache — remount to be safe
-  }
+function storagePathChanged(previous: LoadedCollection["schema"], next: LoadedCollection["schema"]): boolean {
   return previous.dataSource?.path !== next.dataSource?.path || previous.dataPath !== next.dataPath || previous.storage?.path !== next.storage?.path;
 }
 
@@ -324,7 +314,7 @@ async function reconcileChangedSchemas(collections: readonly LoadedCollection[])
     if (!existing) continue;
     const nextJson = JSON.stringify(collection.schema);
     if (existing.schemaJson === nextJson) continue;
-    if (storagePathChanged(existing.schemaJson, collection.schema)) {
+    if (storagePathChanged(existing.collection.schema, collection.schema)) {
       // Drop the stale mount; `startNewWatchers` (which runs right after
       // this pass in syncWatchers) remounts on the new location. A
       // dataSource collection also gets a change ping so open views

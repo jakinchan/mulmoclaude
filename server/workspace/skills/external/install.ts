@@ -33,15 +33,15 @@ const SOURCE_METADATA_FILE = ".source.json";
 
 export interface InstallRepoOptions {
   url: string;
-  subpath?: string;
-  ref?: string;
+  subpath?: string | undefined;
+  ref?: string | undefined;
 }
 
 export interface InstallResult {
   repoId: string;
   url: string;
-  subpath?: string;
-  ref?: string;
+  subpath?: string | undefined;
+  ref?: string | undefined;
   sha: string;
   installedAt: string;
   /** Number of SKILL.md files discovered + copied into the catalog
@@ -207,18 +207,27 @@ export type InstallExternalRepoResult =
   | { kind: "id-collision"; repoId: string; existingUrl: string }
   | { kind: "error"; reason: string };
 
+/** The `url` recorded in a repo's `.source.json`, or null when the file is
+ *  missing / unparseable / carries no string url. Shared with the catalog
+ *  reader so both sides agree on what a usable metadata file looks like. */
+export async function readSourceUrl(metadataPath: string): Promise<string | null> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(metadataPath, "utf-8"));
+    const url = isRecord(parsed) ? parsed.url : undefined;
+    return typeof url === "string" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 /** When `repoDir` already holds an install, return its recorded
  *  canonical URL. `repoId` is a lossy punctuation-normalised slug, so
  *  two different repos (`foo/a.b`, `foo/a-b`) can map to the same dir;
  *  the canonical URL in `.source.json` is what actually identifies
  *  the occupant. */
 async function existingCanonicalUrl(metadataPath: string): Promise<string | null> {
-  try {
-    const parsed = JSON.parse(await readFile(metadataPath, "utf-8")) as { url?: unknown };
-    return typeof parsed.url === "string" ? canonicalRepoUrl(parsed.url) : null;
-  } catch {
-    return null;
-  }
+  const url = await readSourceUrl(metadataPath);
+  return url === null ? null : canonicalRepoUrl(url);
 }
 
 /** Install an external skill repo into the catalog. */
@@ -229,7 +238,7 @@ async function existingCanonicalUrl(metadataPath: string): Promise<string | null
 // error result. Exported for unit tests.
 export function resolveInstallInputs(
   opts: InstallRepoOptions,
-): { ok: true; repoId: string; subpath?: string } | { ok: false; result: InstallExternalRepoResult } {
+): { ok: true; repoId: string; subpath?: string | undefined } | { ok: false; result: InstallExternalRepoResult } {
   const repoId = deriveRepoId(opts.url);
   if (!repoId) return { ok: false, result: { kind: "invalid-url", url: opts.url } };
   if (opts.subpath !== undefined) {
@@ -328,17 +337,9 @@ export async function uninstallExternalRepo(repoIdRaw: string, deps: ExternalIns
   if (!(await isDirectory(repoDir))) return { kind: "not-found", repoId };
 
   // Read URL from metadata BEFORE removing so we can also drop the
-  // scratch clone. Missing metadata isn't fatal — uninstall the
+  // scratch clone. Missing / corrupt metadata isn't fatal — uninstall the
   // catalog dir regardless.
-  let url: string | null = null;
-  try {
-    const raw = await readFile(metadataPath, "utf-8");
-    const parsed = JSON.parse(raw) as { url?: unknown };
-    const { url: parsedUrl } = parsed;
-    if (typeof parsedUrl === "string") url = parsedUrl;
-  } catch {
-    /* missing or corrupt metadata — proceed with catalog cleanup */
-  }
+  const url = await readSourceUrl(metadataPath);
 
   await rm(repoDir, { recursive: true, force: true });
   if (url) {
@@ -355,8 +356,8 @@ export async function uninstallExternalRepo(repoIdRaw: string, deps: ExternalIns
 export interface InstalledRepo {
   repoId: string;
   url: string;
-  subpath?: string;
-  ref?: string;
+  subpath?: string | undefined;
+  ref?: string | undefined;
   sha: string;
   installedAt: string;
 }

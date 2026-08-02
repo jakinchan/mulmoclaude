@@ -22,7 +22,7 @@ export interface FeedSummarySource {
   schema: {
     title: string;
     icon: string;
-    ingest?: { kind?: string; schedule?: string };
+    ingest?: { kind?: string | undefined; schedule?: string | undefined } | undefined;
   };
 }
 

@@ -28,9 +28,9 @@ export interface CompletionSchemaView {
   /** Optional so legacy-pair callers (and their test fixtures) that
    *  never consult field specs keep working; only the flag form needs
    *  to look the completion field up. */
-  fields?: Record<string, { type: string; where?: Where }>;
-  completionField?: string;
-  completionDoneValues?: readonly string[];
+  fields?: Record<string, { type: string; where?: Where }> | undefined;
+  completionField?: string | undefined;
+  completionDoneValues?: readonly string[] | undefined;
 }
 
 /** True iff the schema declares completion tracking AND `item` is done
@@ -54,8 +54,8 @@ export function itemIsDone(schema: CompletionSchemaView, item: Record<string, un
  *  `CollectionSchema` types satisfy it as-is. */
 export interface CompletionChipSchemaView {
   fields: Record<string, { type: string; field?: string; onValue?: string }>;
-  completionField?: string;
-  completionDoneValues?: readonly string[];
+  completionField?: string | undefined;
+  completionDoneValues?: readonly string[] | undefined;
 }
 
 /** True when an existing FIELD chip already expresses the legacy completion

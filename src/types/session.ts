@@ -5,6 +5,7 @@ import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import { EVENT_TYPES, type PendingGeneration } from "./events";
 import type { ToolCallHistoryItem } from "./toolCallHistory";
 import type { PersistedAttachment } from "./attachment";
+import { isRecord } from "../utils/types";
 
 // ── Session origin (#486) ───────────────────────────────────
 
@@ -155,7 +156,11 @@ export const isTextEntry = (entry: SessionEntry): entry is TextEntry =>
   (entry.source === "user" || entry.source === "assistant") && entry.type === EVENT_TYPES.text && typeof entry.message === "string";
 
 export const isSkillEntry = (entry: SessionEntry): entry is SkillEntry =>
-  entry.source === "assistant" && entry.type === EVENT_TYPES.skill && typeof entry.message === "string" && typeof (entry as SkillEntry).skillName === "string";
+  entry.source === "assistant" &&
+  entry.type === EVENT_TYPES.skill &&
+  typeof entry.message === "string" &&
+  isRecord(entry) &&
+  typeof entry.skillName === "string";
 
 export const isToolResultEntry = (entry: SessionEntry): entry is ToolResultEntry =>
   entry.source === "tool" && entry.type === EVENT_TYPES.toolResult && entry.result !== undefined;

@@ -18,7 +18,7 @@ import type { Request, Response } from "express";
 import { createBridgeClient } from "@mulmobridge/client";
 import { createWebhookApp, createWebhookRateLimit, registerMetaWebhookVerification, verifyMetaHmacSignature } from "@mulmobridge/webhook-runtime";
 import { parseCsvSet } from "@mulmoclaude/common";
-import { extractWhatsAppMessages } from "@mulmoclaude/common/meta-webhook";
+import { extractWhatsAppMessages, type WhatsAppTextMessage } from "@mulmoclaude/common/meta-webhook";
 
 const TRANSPORT_ID = "whatsapp";
 const PORT = Number(process.env.WHATSAPP_BRIDGE_PORT) || 3003;
@@ -97,10 +97,52 @@ const webhookRateLimit = createWebhookRateLimit();
 // `narrowChallenge` `js/reflected-xss` whitelist + a `text/plain` response.
 registerMetaWebhookVerification(app, { rateLimit: webhookRateLimit, verifyToken, label: "whatsapp" });
 
+async function processOneMessage(msg: WhatsAppTextMessage): Promise<void> {
+  if (!allowAll && !allowedNumbers.has(msg.from)) {
+    console.log(`[whatsapp] denied from=${msg.from}`);
+    return;
+  }
+
+  console.log(`[whatsapp] message from=${msg.from} len=${msg.text.body.length}`);
+
+  try {
+    const ack = await mulmo.send(msg.from, msg.text.body);
+    if (ack.ok) {
+      await sendWhatsAppMessage(msg.from, ack.reply ?? "");
+    } else {
+      const status = ack.status ? ` (${ack.status})` : "";
+      await sendWhatsAppMessage(msg.from, `Error${status}: ${ack.error ?? "unknown"}`);
+    }
+  } catch (err) {
+    console.error(`[whatsapp] message handling failed: ${err}`);
+  }
+}
+
+/** `undefined` is an unambiguous parse-failure sentinel — JSON has no
+ *  `undefined` literal, so a valid body can never produce it. */
+function parseWebhookJson(rawBody: string): unknown {
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    return undefined;
+  }
+}
+
+async function handleWebhookBody(rawBody: string): Promise<void> {
+  const parsed = parseWebhookJson(rawBody);
+  if (parsed === undefined) {
+    console.error("[whatsapp] malformed JSON in webhook body");
+    return;
+  }
+  for (const msg of extractWhatsAppMessages(parsed)) {
+    await processOneMessage(msg);
+  }
+}
+
 // Webhook events (POST) — signature-verified + rate-limited
 app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
-  const signature = req.headers["x-hub-signature-256"] as string;
-  const rawBody = req.body as string;
+  const signature = typeof req.headers["x-hub-signature-256"] === "string" ? req.headers["x-hub-signature-256"] : "";
+  const rawBody = typeof req.body === "string" ? req.body : "";
 
   if (!signature || !verifyMetaHmacSignature(rawBody, signature, appSecret)) {
     console.warn("[whatsapp] webhook signature verification failed");
@@ -109,35 +151,7 @@ app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
   }
 
   res.status(200).send("OK");
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawBody);
-  } catch {
-    console.error("[whatsapp] malformed JSON in webhook body");
-    return;
-  }
-
-  for (const msg of extractWhatsAppMessages(parsed)) {
-    if (!allowAll && !allowedNumbers.has(msg.from)) {
-      console.log(`[whatsapp] denied from=${msg.from}`);
-      continue;
-    }
-
-    console.log(`[whatsapp] message from=${msg.from} len=${msg.text.body.length}`);
-
-    try {
-      const ack = await mulmo.send(msg.from, msg.text.body);
-      if (ack.ok) {
-        await sendWhatsAppMessage(msg.from, ack.reply ?? "");
-      } else {
-        const status = ack.status ? ` (${ack.status})` : "";
-        await sendWhatsAppMessage(msg.from, `Error${status}: ${ack.error ?? "unknown"}`);
-      }
-    } catch (err) {
-      console.error(`[whatsapp] message handling failed: ${err}`);
-    }
-  }
+  await handleWebhookBody(rawBody);
 });
 
 app.listen(PORT, () => {

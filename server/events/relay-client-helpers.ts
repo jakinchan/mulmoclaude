@@ -15,7 +15,7 @@ export interface RelayMessage {
   chatId: string;
   text: string;
   receivedAt: string;
-  replyToken?: string;
+  replyToken?: string | undefined;
 }
 
 type RelayResult = Awaited<ReturnType<ChatService["relay"]>>;

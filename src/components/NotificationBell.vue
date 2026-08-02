@@ -20,8 +20,9 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { useNotifications, type NotifierEntry, type NotifierHistoryEntry } from "../composables/useNotifications";
+import { eventTargetNode } from "../utils/dom/eventTarget";
 import { formatRelativeTime } from "../utils/format/date";
-import type { NotificationI18n, NotificationKind, NotificationPriority } from "../types/notification";
+import type { NotificationI18n } from "../types/notification";
 import { isRecord } from "../utils/types";
 
 const { t } = useI18n();
@@ -75,7 +76,7 @@ function toggle(): void {
 
 function onDocumentClick(event: MouseEvent): void {
   if (!open.value || !rootRef.value) return;
-  if (!rootRef.value.contains(event.target as Node)) close();
+  if (!rootRef.value.contains(eventTargetNode(event))) close();
 }
 
 onMounted(() => document.addEventListener("mousedown", onDocumentClick));
@@ -101,39 +102,58 @@ watch(open, (nowOpen: boolean) => {
 // ── Legacy pluginData typing ────────────────────────────────
 //
 // `publishNotification()` stashes legacy fields under
-// `pluginData.legacy = true`. The bell type-narrows here so it can
-// preserve i18n localization for entries that came through the
-// wrapper. Future direct callers of `notifier.publish()` don't set
-// this shape; their entries fall back to the engine-level
-// `entry.title` / `entry.body`.
+// `pluginData.legacy = true`. The bell reads back only the localization
+// payload, so that is all this rebuilds — the sibling `legacyId` / `kind` /
+// `priority` fields the wrapper also stashes are unused here and therefore
+// not claimed. Direct `notifier.publish()` callers set no such blob; their
+// entries fall back to the engine-level `entry.title` / `entry.body`.
 
-interface LegacyPluginDataShape {
-  legacy: true;
-  legacyId: string;
-  kind: NotificationKind;
-  priority: NotificationPriority;
-  i18n?: NotificationI18n;
+type NotificationI18nParams = NonNullable<NotificationI18n["titleParams"]>;
+
+/** One vue-i18n named param: a scalar, or the string list the
+ *  `NotificationI18n` contract allows for list-style keys. */
+function toI18nParam(value: unknown): string | number | readonly string[] | undefined {
+  if (typeof value === "string" || typeof value === "number") return value;
+  if (!Array.isArray(value)) return undefined;
+  const items: unknown[] = value;
+  return items.every((item) => typeof item === "string") ? items.filter((item) => typeof item === "string") : undefined;
 }
 
-function asLegacy(entry: { pluginData?: unknown }): LegacyPluginDataShape | null {
+function toI18nParams(value: unknown): NotificationI18nParams | undefined {
+  if (!isRecord(value)) return undefined;
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, param]) => {
+      const usable = toI18nParam(param);
+      return usable === undefined ? [] : [[key, usable] as const];
+    }),
+  );
+}
+
+/** The stashed localization payload, rebuilt from the fields this actually
+ *  verified. A blob whose `i18n` carries no string `titleKey` now falls back to
+ *  the engine-level text instead of reaching `t()` with an undefined key. */
+function legacyI18n(entry: { pluginData?: unknown }): NotificationI18n | null {
   const data = entry.pluginData;
-  if (!isRecord(data)) return null;
-  if (data.legacy !== true) return null;
-  if (typeof data.legacyId !== "string") return null;
-  if (typeof data.kind !== "string") return null;
-  if (typeof data.priority !== "string") return null;
-  return data as unknown as LegacyPluginDataShape;
+  if (!isRecord(data) || data.legacy !== true) return null;
+  const { i18n } = data;
+  if (!isRecord(i18n) || typeof i18n.titleKey !== "string") return null;
+  return {
+    titleKey: i18n.titleKey,
+    titleParams: toI18nParams(i18n.titleParams),
+    bodyKey: typeof i18n.bodyKey === "string" ? i18n.bodyKey : undefined,
+    bodyParams: toI18nParams(i18n.bodyParams),
+  };
 }
 
 function localizeTitle(entry: NotifierEntry | NotifierHistoryEntry): string {
-  const legacy = asLegacy(entry);
-  if (legacy?.i18n) return t(legacy.i18n.titleKey, legacy.i18n.titleParams ?? {});
+  const i18n = legacyI18n(entry);
+  if (i18n) return t(i18n.titleKey, i18n.titleParams ?? {});
   return entry.title;
 }
 
 function localizeBody(entry: NotifierEntry | NotifierHistoryEntry): string | undefined {
-  const legacy = asLegacy(entry);
-  if (legacy?.i18n?.bodyKey) return t(legacy.i18n.bodyKey, legacy.i18n.bodyParams ?? {});
+  const i18n = legacyI18n(entry);
+  if (i18n?.bodyKey) return t(i18n.bodyKey, i18n.bodyParams ?? {});
   return entry.body;
 }
 

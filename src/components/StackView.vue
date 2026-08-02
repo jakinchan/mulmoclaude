@@ -46,7 +46,7 @@
       <div
         v-for="item in displayItems"
         :key="item.key"
-        :ref="(element) => setItemRefForMembers(item.members, element as HTMLElement | null)"
+        :ref="(element) => setItemRefForMembers(item.members, element)"
         class="bg-white rounded-lg border transition-colors"
         :class="item.members.some((m) => m.uuid === selectedResultUuid) ? 'border-blue-400 ring-2 ring-blue-200' : 'border-gray-200'"
       >
@@ -83,11 +83,7 @@
            / flex-1 via the .stack-natural scoped styles below. For
            plugins that embed iframes (e.g. presentHtml) we also size
            each iframe to its content after load. -->
-        <div
-          v-else-if="isStackNatural(item.head.toolName)"
-          :ref="(element) => setNaturalWrapperRef(item.head.uuid, element as HTMLElement | null)"
-          class="stack-natural"
-        >
+        <div v-else-if="isStackNatural(item.head.toolName)" :ref="(element) => setNaturalWrapperRef(item.head.uuid, element)" class="stack-natural">
           <component
             :is="getPlugin(item.head.toolName)?.viewComponent"
             v-if="getPlugin(item.head.toolName)?.viewComponent"
@@ -121,7 +117,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, type ComponentPublicInstance } from "vue";
 import { useI18n } from "vue-i18n";
 import { getPlugin } from "../tools";
 import { TOOL_NAMES, type ToolName } from "../config/toolNames";
@@ -202,9 +198,9 @@ const props = defineProps<{
   /** Role's sample queries (already translated). Rendered as
    *  click-to-send suggestions in the empty state so a fresh stack
    *  chat matches the single-layout PageChatComposer experience. */
-  queries?: readonly string[];
-  sessionRoleName?: string;
-  sessionRoleIcon?: string;
+  queries?: readonly string[] | undefined;
+  sessionRoleName?: string | undefined;
+  sessionRoleIcon?: string | undefined;
   layoutMode: LayoutMode;
   showRightSidebar: boolean;
   /** Google Maps JS API key forwarded from `App.vue` to plugin Views
@@ -253,7 +249,15 @@ function setItemRef(uuid: string, element: HTMLElement | null): void {
   else itemRefs.delete(uuid);
 }
 
-function setNaturalWrapperRef(uuid: string, element: HTMLElement | null): void {
+// What Vue hands a `:ref` callback: an element, a mounted component instance,
+// or null on unmount. Only the element case carries the DOM node these
+// setters store.
+type VueRefTarget = Element | ComponentPublicInstance | null;
+
+const asHtmlElement = (target: VueRefTarget): HTMLElement | null => (target instanceof HTMLElement ? target : null);
+
+function setNaturalWrapperRef(uuid: string, target: VueRefTarget): void {
+  const element = asHtmlElement(target);
   if (element) {
     naturalWrapperRefs.set(uuid, element);
     nextTick(() => sizeIframesIn(element));
@@ -279,7 +283,8 @@ const displayItems = computed(() => buildStackDisplayItems(props.toolResults, gr
 // Register the group card element under EVERY member uuid so the
 // scroll-spy and scroll-to-selection logic (which key on individual
 // result uuids) resolve any member to this one card.
-function setItemRefForMembers(members: ToolResultComplete[], element: HTMLElement | null): void {
+function setItemRefForMembers(members: ToolResultComplete[], target: VueRefTarget): void {
+  const element = asHtmlElement(target);
   for (const member of members) setItemRef(member.uuid, element);
 }
 
@@ -325,11 +330,15 @@ function sizeIframesIn(wrapper: HTMLElement): void {
 // flood of messages from an untrusted (sandboxed but script-enabled)
 // iframe into parent-thread DoS. WeakMap key keeps the contentWindow
 // reference weak so it doesn't pin removed iframes.
-const iframesByContentWindow = new WeakMap<Window, HTMLIFrameElement>();
+// Keyed by what `MessageEvent.source` actually hands us rather than by
+// `Window`: a sandboxed cross-origin iframe's WindowProxy fails
+// `instanceof Window`, so the lookup has to match by identity instead.
+type IframeMessageSource = NonNullable<MessageEvent["source"]>;
+const iframesByContentWindow = new WeakMap<IframeMessageSource, HTMLIFrameElement>();
 const pendingIframeHeightsPx = new Map<HTMLIFrameElement, number>();
 let pendingHeightFlushRafId: number | null = null;
 
-function findIframeForSourceWindow(source: Window): HTMLIFrameElement | null {
+function findIframeForSourceWindow(source: IframeMessageSource): HTMLIFrameElement | null {
   const cached = iframesByContentWindow.get(source);
   if (cached && cached.isConnected) return cached;
   for (const wrapper of naturalWrapperRefs.values()) {
@@ -367,13 +376,13 @@ function flushPendingIframeHeights(): void {
 // one when the next animation frame fires.
 function handleIframeHeightMessage(event: MessageEvent): void {
   const { data } = event;
-  if (!data || typeof data !== "object") return;
-  if ((data as { type?: unknown }).type !== "mc-iframe-height") return;
-  const reported = (data as { height?: unknown }).height;
+  if (!isRecord(data)) return;
+  if (data.type !== "mc-iframe-height") return;
+  const reported = data.height;
   if (typeof reported !== "number") return;
   const { source } = event;
-  if (!source || typeof source !== "object" || !("postMessage" in source)) return;
-  const iframe = findIframeForSourceWindow(source as Window);
+  if (!source) return;
+  const iframe = findIframeForSourceWindow(source);
   if (!iframe) return;
   const heightPx = clampIframeHeight(reported, window.innerHeight);
   if (heightPx <= 0) return;

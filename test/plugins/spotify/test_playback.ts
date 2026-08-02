@@ -27,8 +27,8 @@ const validTokens: SpotifyTokens = {
 
 interface CallRecord {
   url: string;
-  method?: string;
-  body?: string;
+  method?: string | undefined;
+  body?: string | undefined;
 }
 
 function makeFakeRuntime(responses: Response[]) {

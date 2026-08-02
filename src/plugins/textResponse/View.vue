@@ -152,14 +152,14 @@ const appApi = useAppApi();
 const props = withDefaults(
   defineProps<{
     selectedResult: ToolResultComplete<TextResponseData>;
-    editable?: boolean;
+    editable?: boolean | undefined;
     // When set, the editor textarea edits this string instead of the
     // displayed `data.text`. FilesView uses it to feed the editor the
     // raw on-disk source (with frontmatter intact, no image-URL
     // rewriting) while the rendered pane keeps showing the cleaned-up
     // display text. Callers listen for `updateSource` to receive the
     // edited source and handle persistence themselves.
-    editableSource?: string;
+    editableSource?: string | undefined;
   }>(),
   { editable: true, editableSource: undefined },
 );
@@ -284,7 +284,10 @@ function openLinksInNewTab(event: MouseEvent): void {
   // Internal workspace-path links (rendered by marked from agent
   // Markdown): route to the appropriate view instead of letting them
   // navigate the SPA to a non-existent session route.
-  const target = event.target as HTMLElement;
+  const { target } = event;
+  // Element, not HTMLElement: an inline <svg> inside a link is a real
+  // click target and must still resolve to its anchor.
+  if (!(target instanceof Element)) return;
   const anchor = target.closest("a");
   if (!anchor) return;
   const href = anchor.getAttribute("href");
@@ -301,7 +304,8 @@ const { zipDownloading, zipFailed, downloadZip: rawDownloadZip } = useMarkdownZi
 const editing = ref(false);
 
 function onDetailsToggle(event: Event) {
-  editing.value = (event.target as HTMLDetailsElement).open;
+  const details = event.target;
+  if (details instanceof HTMLDetailsElement) editing.value = details.open;
 }
 
 onMounted(() => {
@@ -335,7 +339,7 @@ async function copyText() {
 // diverge (Files Explorer's .md preview pre-rewrites image refs to
 // `/api/files/raw?...` for the browser, which the server inliner can't
 // resolve back to disk), so prefer the original source when provided.
-function markdownExport(): { text: string; filename: string; baseDir?: string; stripFrontmatter?: boolean } {
+function markdownExport(): { text: string; filename: string; baseDir?: string | undefined; stripFrontmatter?: boolean | undefined } {
   const { data } = props.selectedResult;
   const text = data?.pdfSourceText ?? data?.text ?? "";
   const filename = buildPdfFilename({

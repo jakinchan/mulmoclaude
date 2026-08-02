@@ -32,10 +32,10 @@ export interface BuildSandboxStatusParams {
   sandboxEnabled: boolean;
   sshAgentForward: boolean;
   configMountNames: readonly string[];
-  sshAuthSock?: string;
-  home?: string;
+  sshAuthSock?: string | undefined;
+  home?: string | undefined;
   /** Injected for tests; defaults to `process.platform`. */
-  platform?: typeof process.platform;
+  platform?: typeof process.platform | undefined;
 }
 
 /**

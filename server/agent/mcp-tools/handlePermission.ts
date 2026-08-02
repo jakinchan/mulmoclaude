@@ -62,11 +62,6 @@ function buildDenyGenericMessage(toolName: string): string {
   );
 }
 
-interface PermissionInput {
-  tool_name?: unknown;
-  input?: unknown;
-}
-
 function buildDenyResponse(message: string): string {
   return JSON.stringify({ behavior: "deny", message });
 }
@@ -97,8 +92,7 @@ export const handlePermission: McpTool = {
   // directly through the `--permission-prompt-tool` flag.
 
   async handler(args: Record<string, unknown>, __ctx?: McpToolContext): Promise<string> {
-    const raw = args as PermissionInput;
-    const toolName = typeof raw.tool_name === "string" ? raw.tool_name : "";
+    const toolName = typeof args.tool_name === "string" ? args.tool_name : "";
 
     if (toolName === ASK_USER_QUESTION_TOOL_NAME) {
       log.info("mcp/handlePermission", "deny AskUserQuestion — instruct LLM to use presentForm");

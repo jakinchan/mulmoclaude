@@ -2,7 +2,7 @@
 defineProps<{
   active: boolean;
   label: string;
-  count?: number;
+  count?: number | undefined;
 }>();
 defineEmits<{ click: [] }>();
 </script>

@@ -94,10 +94,8 @@ export function makeSkillResult(entry: {
   skillPath: string | null;
   skillDescription: string | null;
   message: string;
-}): ToolResultComplete {
-  // `satisfies` rather than an annotation: the envelope's `data` is an index
-  // signature, which an interface-annotated value is not assignable to.
-  const data = {
+}): ToolResultComplete<SkillResultData> {
+  const data: SkillResultData = {
     skillName: entry.skillName,
     skillScope: entry.skillScope,
     skillPath: entry.skillPath,

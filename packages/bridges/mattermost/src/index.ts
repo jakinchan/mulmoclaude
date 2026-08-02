@@ -12,7 +12,7 @@
 
 import "dotenv/config";
 import WebSocket from "ws";
-import { createBridgeClient, chunkText } from "@mulmobridge/client";
+import { createBridgeClient, chunkText, asJsonRecord } from "@mulmobridge/client";
 import { isRecord, parseCsvSet } from "@mulmoclaude/common";
 
 const TRANSPORT_ID = "mattermost";
@@ -48,7 +48,7 @@ async function apiGet(path: string): Promise<Record<string, unknown>> {
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`GET ${path}: ${res.status}`);
-  return res.json() as Promise<Record<string, unknown>>;
+  return asJsonRecord(await res.json());
 }
 
 async function postMessage(channelId: string, text: string): Promise<void> {

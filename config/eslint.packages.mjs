@@ -7,7 +7,7 @@ import eslintConfigPrettier from "eslint-config-prettier";
 import prettierPlugin from "eslint-plugin-prettier";
 import sonarjs from "eslint-plugin-sonarjs";
 
-export default [
+const packagesConfig = [
   eslint.configs.recommended,
   sonarjs.configs.recommended,
   ...tseslint.configs.recommended,
@@ -20,10 +20,13 @@ export default [
       // inline assert. Demoted to warn so reviewers still see it
       // without blocking CI.
       "sonarjs/assertions-in-tests": "warn",
-      "@typescript-eslint/no-unused-vars": [
-        "error",
-        { argsIgnorePattern: "^__", varsIgnorePattern: "^__" },
-      ],
+      // Mirror the root config: `x?: T | undefined` is not redundant under
+      // `exactOptionalPropertyTypes` — with the flag on `x?: T` REJECTS an
+      // explicit `undefined`, so the spelling this rule wants removed is the
+      // one that says "absent and undefined mean the same thing here".
+      // Turn it back on if the flag ever comes off.
+      "sonarjs/no-redundant-optional": "off",
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^__", varsIgnorePattern: "^__" }],
       // Workspace-package boundary restriction (C2 / #1141 family).
       // Each package should be self-contained and reachable from the
       // rest of the repo only through its declared package name
@@ -67,3 +70,5 @@ export default [
   },
   eslintConfigPrettier,
 ];
+
+export default packagesConfig;

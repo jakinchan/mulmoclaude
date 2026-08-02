@@ -27,23 +27,23 @@ export interface AgentInput {
    *  CLI's session id passed to --resume; other backends may
    *  interpret it differently or ignore it entirely
    *  (capabilities.sessionResume === false). */
-  sessionToken?: string;
-  attachments?: Attachment[];
+  sessionToken?: string | undefined;
+  attachments?: Attachment[] | undefined;
   /** Active MCP plugin names (the subset of role.availablePlugins
    *  that is actually registered as an MCP plugin). The orchestrator
    *  has already filtered these — backends should not re-derive. */
   activePlugins: string[];
   /** When set, the path the backend should hand to its MCP loader.
    *  Pre-resolved for host-vs-container by the orchestrator. */
-  mcpConfigPath?: string;
+  mcpConfigPath?: string | undefined;
   /** Extra allowed-tool names from settings + user MCP servers. */
   extraAllowedTools: string[];
   /** Reasoning effort from settings (#1323). Undefined → flag omitted. */
-  effortLevel?: EffortLevel;
+  effortLevel?: EffortLevel | undefined;
   /** When fired, the backend must terminate any in-flight
    *  subprocess / connection. */
-  abortSignal?: AbortSignal;
-  userTimezone?: string;
+  abortSignal?: AbortSignal | undefined;
+  userTimezone?: string | undefined;
   /** Whether the orchestrator detected a usable Docker sandbox.
    *  Backends that don't sandbox can ignore. */
   useDocker: boolean;

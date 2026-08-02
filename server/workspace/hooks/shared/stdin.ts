@@ -3,6 +3,8 @@
 // malformed — the dispatcher treats null as a fast no-op so a hook
 // fired with no body never crashes the user's tool turn.
 
+import { isRecord } from "../../../utils/types.js";
+
 export interface HookPayload {
   tool_name?: unknown;
   tool_input?: {
@@ -18,15 +20,34 @@ export interface HookPayload {
   [key: string]: unknown;
 }
 
+const isOptionalRecord = (value: unknown): boolean => value === undefined || isRecord(value);
+
+// `tool_name` / `session_id` are declared `unknown`, so any value satisfies
+// them; only the two nested objects carry a shape. Together with the trailing
+// index signature that covers every field the interface declares.
+function isHookPayload(value: unknown): value is HookPayload {
+  return isRecord(value) && isOptionalRecord(value.tool_input) && isOptionalRecord(value.tool_response);
+}
+
+// `process.stdin` iterates as `any`, so the chunk shape is narrowed rather
+// than trusted. A chunk that is neither Buffer nor string contributes
+// nothing, which lands on the same "empty input reads as null" path.
+function chunkToBuffer(chunk: unknown): Buffer {
+  if (typeof chunk === "string") return Buffer.from(chunk);
+  if (Buffer.isBuffer(chunk)) return chunk;
+  return Buffer.alloc(0);
+}
+
 export async function readHookPayload(): Promise<HookPayload | null> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    chunks.push(chunkToBuffer(chunk));
   }
   const raw = Buffer.concat(chunks).toString("utf-8");
   if (!raw.trim()) return null;
   try {
-    return JSON.parse(raw) as HookPayload;
+    const parsed: unknown = JSON.parse(raw);
+    return isHookPayload(parsed) ? parsed : null;
   } catch {
     return null;
   }

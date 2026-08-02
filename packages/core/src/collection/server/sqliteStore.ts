@@ -243,7 +243,7 @@ async function sqliteWrite(
   absPath: string,
   itemId: string,
   item: CollectionItem,
-  opts: { workspaceRoot: string; slug?: string; refuseOverwrite?: boolean },
+  opts: { workspaceRoot: string; slug?: string | undefined; refuseOverwrite?: boolean | undefined },
 ): Promise<WriteItemResult> {
   const safeId = safeRecordId(itemId);
   if (safeId === null) return { kind: "invalid-id", itemId };

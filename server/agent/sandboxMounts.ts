@@ -211,10 +211,10 @@ export interface ResolveSandboxAuthParams {
    *  "github.com". Passed to the container as
    *  `SANDBOX_SSH_ALLOWED_HOSTS` and consumed by the entrypoint
    *  to generate a restrictive `~/.ssh/config`. */
-  sshAllowedHosts?: string;
+  sshAllowedHosts?: string | undefined;
   configMountNames: readonly string[];
-  sshAuthSock?: string;
-  home?: string;
+  sshAuthSock?: string | undefined;
+  home?: string | undefined;
 }
 
 /**
