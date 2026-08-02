@@ -416,8 +416,8 @@ export const toCalendarMeta = (value: unknown): CalendarMeta => {
  *  and this app asks for none of them, so it answers 403 for every account it
  *  links (#2735). The events list carries the same `timeZone` — plus the
  *  `accessRole` the calendar resource does not have — under `calendar.events`,
- *  which the push already holds because it writes with it. One event is
- *  requested because the page cannot be empty; the items are unused. */
+ *  which the push already holds because it writes with it. Only the envelope is
+ *  read; the one event asked for is the smallest page Google will serve. */
 export async function getCalendarMeta(accessToken: string, calendarId: string | undefined): Promise<CalendarMeta> {
   const params = new URLSearchParams({ maxResults: String(CALENDAR_META_PAGE_SIZE) });
   return toCalendarMeta(await googleRequest(CALENDAR_API_LABEL, accessToken, `${eventsUrl(calendarId)}?${params.toString()}`));
