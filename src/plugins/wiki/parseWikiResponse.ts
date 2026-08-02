@@ -12,24 +12,30 @@ const parsePageEntry = (value: unknown): WikiPageEntry | null => {
   return { title, slug, description, tags: isStringArray(tags) ? tags : [] };
 };
 
-// One malformed row drops the whole list: a partially-rendered index reads
-// as "pages disappeared", which is worse than keeping the previous list.
-const parsePageEntries = (value: unknown): WikiPageEntry[] | undefined => {
-  if (!isUnknownArray(value)) return undefined;
+// Null on one malformed row: the callers all read this as `?? []`, so handing
+// back a short list — or `undefined` — would empty the visible index instead
+// of keeping it.
+const parsePageEntries = (value: unknown): WikiPageEntry[] | null => {
+  if (!isUnknownArray(value)) return null;
   const entries = value.flatMap((entry) => parsePageEntry(entry) ?? []);
-  return entries.length === value.length ? entries : undefined;
+  return entries.length === value.length ? entries : null;
 };
 
+const isOptionalString = (value: unknown): value is string | undefined => value === undefined || typeof value === "string";
+const isOptionalBoolean = (value: unknown): value is boolean | undefined => value === undefined || typeof value === "boolean";
+
 /** Pull the `data` envelope out of a `/api/wiki` response, keeping only the
- *  fields the views apply. Returns null when the response carries none. */
+ *  fields the views apply.
+ *
+ *  A field that is PRESENT but the wrong type rejects the whole envelope
+ *  (null), because `useFreshPluginData` skips `apply` on null and the view
+ *  keeps the state it already had. Only a genuinely ABSENT field is left
+ *  `undefined`, which is what the views' own `?? default` is there for. */
 export const extractWikiData = (json: unknown): Partial<WikiData> | null => {
   if (!isRecord(json) || !isRecord(json.data)) return null;
   const { action, title, content, pageEntries, pageExists } = json.data;
-  return {
-    action: typeof action === "string" ? action : undefined,
-    title: typeof title === "string" ? title : undefined,
-    content: typeof content === "string" ? content : undefined,
-    pageEntries: parsePageEntries(pageEntries),
-    pageExists: typeof pageExists === "boolean" ? pageExists : undefined,
-  };
+  if (!isOptionalString(action) || !isOptionalString(title) || !isOptionalString(content) || !isOptionalBoolean(pageExists)) return null;
+  const entries = pageEntries === undefined ? undefined : parsePageEntries(pageEntries);
+  if (entries === null) return null;
+  return { action, title, content, pageEntries: entries, pageExists };
 };

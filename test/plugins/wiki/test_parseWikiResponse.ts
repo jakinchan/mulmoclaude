@@ -18,14 +18,30 @@ describe("extractWikiData", () => {
     assert.deepEqual(parsed?.pageEntries, [{ title: "T", slug: "s", description: "d", tags: [] }]);
   });
 
-  it("leaves mistyped fields undefined so the view keeps its default", () => {
-    const parsed = extractWikiData({ data: { action: 1, title: null, content: [], pageExists: "yes" } });
-    assert.deepEqual(parsed, { action: undefined, title: undefined, content: undefined, pageEntries: undefined, pageExists: undefined });
+  it("leaves absent fields undefined so the view applies its own default", () => {
+    assert.deepEqual(extractWikiData({ data: {} }), {
+      action: undefined,
+      title: undefined,
+      content: undefined,
+      pageEntries: undefined,
+      pageExists: undefined,
+    });
   });
 
-  it("drops the whole page list when one row is malformed", () => {
-    const parsed = extractWikiData({ data: { pageEntries: [pageEntry, { slug: "no-title" }] } });
-    assert.equal(parsed?.pageEntries, undefined);
+  // A present-but-mistyped field means the payload isn't a wiki payload.
+  // Handing back a partial object would let the views' `?? default` overwrite
+  // good state with "Wiki" / "" / [], so the whole envelope is rejected and
+  // `useFreshPluginData` skips `apply`.
+  it("rejects the envelope when a present field has the wrong type", () => {
+    assert.equal(extractWikiData({ data: { action: 1 } }), null);
+    assert.equal(extractWikiData({ data: { title: null } }), null);
+    assert.equal(extractWikiData({ data: { content: [] } }), null);
+    assert.equal(extractWikiData({ data: { pageExists: "yes" } }), null);
+  });
+
+  it("rejects the envelope when one page row is malformed, so the index is kept", () => {
+    assert.equal(extractWikiData({ data: { pageEntries: [pageEntry, { slug: "no-title" }] } }), null);
+    assert.equal(extractWikiData({ data: { pageEntries: "home" } }), null);
   });
 
   it("returns null when there is no data envelope", () => {

@@ -15,6 +15,10 @@
       </div>
     </div>
 
+    <div v-if="listError" data-testid="roles-list-error" class="px-3 py-1.5 text-xs text-red-600 bg-red-50 border-b border-red-100">
+      {{ listError }}
+    </div>
+
     <div class="flex-1 overflow-y-auto">
       <!-- New role creation panel -->
       <div v-if="creating" class="m-4 border border-blue-300 bg-blue-50 rounded-lg p-4 space-y-3">
@@ -129,7 +133,13 @@
       </div>
 
       <ul v-if="customRoles.length > 0" class="p-4 space-y-2">
-        <li v-for="role in customRoles" :key="role.id" class="rounded-lg border" :class="selectedId === role.id ? 'border-blue-400' : 'border-gray-200'">
+        <li
+          v-for="role in customRoles"
+          :key="role.id"
+          :data-testid="`role-row-${role.id}`"
+          class="rounded-lg border"
+          :class="selectedId === role.id ? 'border-blue-400' : 'border-gray-200'"
+        >
           <!-- Role header row -->
           <div
             class="flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50 rounded-lg"
@@ -290,8 +300,7 @@ import { apiGet, apiPost } from "../utils/api";
 import { API_ROUTES } from "../config/apiRoutes";
 import { useImeAwareEnter } from "../composables/useImeAwareEnter";
 import { confirmItemDelete } from "../utils/confirmDelete";
-import { parseCustomRoles } from "../plugins/manageRoles/roleForm";
-import { isRecord } from "../utils/types";
+import { parseCustomRoles, parseManageRolesResult } from "../plugins/manageRoles/roleForm";
 
 // Inlined from the former `src/plugins/manageRoles/index.ts`
 // (deleted alongside the manageRoles MCP tool — #949). RolesView
@@ -352,10 +361,20 @@ const emit = defineEmits<{ updateResult: [result: ToolResultComplete] }>();
 const appApi = useAppApi();
 
 const customRoles = ref<CustomRole[]>(props.selectedResult?.data?.customRoles ?? []);
+// Panel-level, not form-level: it reports that the LIST is stale, and the
+// form-scoped `saveError` below is only rendered inside an expanded role.
+const listError = ref("");
 
 const { refresh: refreshCustomRoles } = useFreshPluginData<CustomRole[]>({
   endpoint: () => API_ROUTES.roles.list,
-  extract: parseCustomRoles,
+  // `extract` runs only on a 2xx JSON body, so null here means the payload
+  // itself is unreadable — worth telling the user, unlike a network failure,
+  // which never reaches this point and must not raise a banner.
+  extract: (json) => {
+    const roles = parseCustomRoles(json);
+    listError.value = roles ? "" : t("pluginManageRoles.errRefreshFailed");
+    return roles;
+  },
   apply: (data) => {
     customRoles.value = data;
   },
@@ -467,15 +486,18 @@ async function callManage(body: Record<string, unknown>): Promise<ManageResult> 
 
 async function refreshList() {
   const result = await callManage({ action: "list" });
-  if (!result.success) {
-    // Mutation succeeded but the follow-up list reload failed — surface it
-    // and self-heal via the abort-coordinated GET rather than leaving the
-    // list silently stale.
-    saveError.value = result.error ?? t("pluginManageRoles.errRefreshFailed");
+  const roles = result.success ? parseManageRolesResult(result) : null;
+  if (!roles) {
+    // The reload failed or came back unreadable (a hand-edited roles file
+    // parses to null). Blanking the panel here would read as "my roles were
+    // deleted", so keep what is on screen, say so, and self-heal via the
+    // abort-coordinated GET.
+    listError.value = result.error ?? t("pluginManageRoles.errRefreshFailed");
     void refreshCustomRoles();
     return;
   }
-  customRoles.value = (isRecord(result.data) ? parseCustomRoles(result.data.customRoles) : null) ?? [];
+  listError.value = "";
+  customRoles.value = roles;
   if (props.selectedResult) {
     emit("updateResult", {
       ...props.selectedResult,

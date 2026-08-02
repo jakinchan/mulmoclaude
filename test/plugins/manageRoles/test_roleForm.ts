@@ -4,6 +4,7 @@ import {
   formToRole,
   roleToForm,
   parseCustomRoles,
+  parseManageRolesResult,
   parseQueriesText,
   validateRoleForm,
   isValidRoleId,
@@ -145,5 +146,28 @@ describe("parseCustomRoles", () => {
     assert.equal(parseCustomRoles([wireRole, { ...wireRole, name: 5 }]), null);
     assert.equal(parseCustomRoles([{ ...wireRole, availablePlugins: "chart" }]), null);
     assert.equal(parseCustomRoles(["analyst"]), null);
+  });
+});
+
+// `null` from this parser is the "keep the list you already have" signal.
+// The refreshList() call sites must not collapse it to `[]` — doing so blanks
+// the panel for anyone whose roles file has one hand-edited row (#2738 review).
+describe("parseManageRolesResult", () => {
+  const wireRole = { id: "analyst", name: "Analyst", icon: "insights", prompt: "You are an analyst.", availablePlugins: ["chart"] };
+
+  it("reads the list out of a manage response envelope", () => {
+    assert.deepEqual(parseManageRolesResult({ success: true, data: { customRoles: [wireRole] } }), [wireRole]);
+  });
+
+  it("reads an empty list as an empty list", () => {
+    assert.deepEqual(parseManageRolesResult({ success: true, data: { customRoles: [] } }), []);
+  });
+
+  it("returns null — not [] — when the envelope carries no usable list", () => {
+    assert.equal(parseManageRolesResult({ success: true }), null);
+    assert.equal(parseManageRolesResult({ success: true, data: {} }), null);
+    assert.equal(parseManageRolesResult({ success: true, data: { customRoles: [{ id: "analyst" }] } }), null);
+    assert.equal(parseManageRolesResult({ success: true, data: "roles" }), null);
+    assert.equal(parseManageRolesResult(null), null);
   });
 });

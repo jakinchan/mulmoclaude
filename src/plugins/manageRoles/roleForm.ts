@@ -25,6 +25,15 @@ export const parseCustomRoles = (value: unknown): CustomRole[] | null => {
   return roles.length === value.length ? roles : null;
 };
 
+/** Roles carried by a `POST /api/roles/manage` response, or null when the
+ *  response holds no usable list. Null means "keep the list you already
+ *  have" — never "the user has no roles", which is what an empty array
+ *  would claim. */
+export const parseManageRolesResult = (result: unknown): CustomRole[] | null => {
+  if (!isRecord(result) || !isRecord(result.data)) return null;
+  return parseCustomRoles(result.data.customRoles);
+};
+
 export interface RoleForm {
   id: string;
   name: string;
