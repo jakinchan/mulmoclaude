@@ -166,7 +166,9 @@ describe("GET /api/wiki/pages/:slug/history/:stamp", () => {
     await writeWikiPage(slug, "hello body\n", { editor: "user", reason: "first" });
     const snapshots = await listSnapshots(slug);
     assert.ok(snapshots.length >= 1);
-    const [{ stamp }] = snapshots;
+    const [newest] = snapshots;
+    assert.ok(newest);
+    const { stamp } = newest;
 
     const { state, res } = mockRes();
     await readHandler(makeReq({ slug, stamp }), res);
@@ -215,7 +217,9 @@ describe("POST /api/wiki/pages/:slug/history/:stamp/restore", () => {
     // History grew by one entry (the restore itself).
     const afterRestore = await listSnapshots(slug);
     assert.equal(afterRestore.length, beforeRestore.length + 1, "restore should add a new snapshot");
-    assert.match(afterRestore[0].reason ?? "", /^Restored from /);
+    const [restoreSnapshot] = afterRestore;
+    assert.ok(restoreSnapshot);
+    assert.match(restoreSnapshot.reason ?? "", /^Restored from /);
   });
 
   it("returns 404 when the stamp doesn't exist", async () => {

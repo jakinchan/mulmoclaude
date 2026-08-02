@@ -134,7 +134,9 @@ describe("memory/migrate — edge cases", () => {
       assert.equal(result.writeErrors, 0);
       const all = await loadAllMemoryEntries(fresh);
       assert.equal(all.length, 1);
-      assert.equal(all[0].type, "fact");
+      const [written] = all;
+      assert.ok(written);
+      assert.equal(written.type, "fact");
     } finally {
       await rm(fresh, { recursive: true, force: true });
     }

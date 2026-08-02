@@ -38,6 +38,7 @@ describe("memory/io — write + read round-trip", () => {
     const all = await loadAllMemoryEntries(workspaceRoot);
     assert.equal(all.length, 1);
     const [loaded] = all;
+    assert.ok(loaded);
     assert.equal(loaded.name, entry.name);
     assert.equal(loaded.description, entry.description);
     assert.equal(loaded.type, entry.type);
@@ -71,7 +72,9 @@ describe("memory/io — reader tolerance", () => {
 
     const all = await loadAllMemoryEntries(scopedRoot);
     assert.equal(all.length, 1);
-    assert.equal(all[0].slug, "interest_impressionism");
+    const [loaded] = all;
+    assert.ok(loaded);
+    assert.equal(loaded.slug, "interest_impressionism");
   });
 
   it("skips MEMORY.md and dotfiles in the directory listing", async () => {

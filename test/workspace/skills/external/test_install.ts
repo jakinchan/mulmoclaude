@@ -365,8 +365,10 @@ describe("listInstalledRepos", () => {
     );
     const repos = await listInstalledRepos({ workspaceRoot: workdir });
     assert.equal(repos.length, 1);
-    assert.equal(repos[0].repoId, "foo-bar");
-    assert.equal(repos[0].url, "https://github.com/foo/bar");
+    const [repo] = repos;
+    assert.ok(repo);
+    assert.equal(repo.repoId, "foo-bar");
+    assert.equal(repo.url, "https://github.com/foo/bar");
   });
 
   it("skips repos with missing or malformed metadata", async () => {

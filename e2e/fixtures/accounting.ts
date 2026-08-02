@@ -209,10 +209,9 @@ function handleUpdateBook(state: AccountingState, body: DispatchBody): MockRespo
 function handleDeleteBook(state: AccountingState, body: DispatchBody): MockResponse {
   const bookId = typeof body.bookId === "string" ? body.bookId : "";
   if (body.confirm !== true) return err(400, "deleteBook requires confirm: true");
-  const idx = state.books.findIndex((book) => book.id === bookId);
-  if (idx < 0) return err(404, `book ${JSON.stringify(bookId)} not found`);
-  const target = state.books[idx];
-  state.books.splice(idx, 1);
+  const target = state.books.find((book) => book.id === bookId);
+  if (!target) return err(404, `book ${JSON.stringify(bookId)} not found`);
+  state.books.splice(state.books.indexOf(target), 1);
   state.accountsByBook.delete(bookId);
   state.entriesByBook.delete(bookId);
   return ok({ deletedBookId: bookId, deletedBookName: target.name });

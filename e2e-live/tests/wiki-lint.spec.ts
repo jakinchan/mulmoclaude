@@ -130,7 +130,7 @@ test.describe("wiki lint diagnostics (real workspace)", () => {
     // et al.) may also surface here while they run. That is fine:
     // the assertion is scoped to our unique slug via `:has-text`,
     // not to a total orphan count.
-    const testLabel = testInfo.title.split(":")[0].trim().toLowerCase();
+    const testLabel = (testInfo.title.split(":")[0] ?? "").trim().toLowerCase();
     const nonce = `${testLabel}-${Date.now()}-${randomUUID().slice(0, 6)}`;
     const orphanSlug = `e2e-live-wiki-lint-orphan-${testInfo.project.name}-${nonce}`;
     try {
@@ -176,7 +176,7 @@ test.describe("wiki lint diagnostics (real workspace)", () => {
       // `restoreWikiIndex` round trip (see L-16's iter-2 fix in
       // wiki-nav.spec.ts for the null-vs-empty restore semantics
       // this inherits).
-      const testLabel = testInfo.title.split(":")[0].trim().toLowerCase();
+      const testLabel = (testInfo.title.split(":")[0] ?? "").trim().toLowerCase();
       const nonce = `${testLabel}-${Date.now()}-${randomUUID().slice(0, 6)}`;
       const bogusSlug = `e2e-live-wiki-lint-missing-${testInfo.project.name}-${nonce}`;
       // Sentinel page so `pages/` is non-empty when the lint route
@@ -231,7 +231,7 @@ test.describe("wiki lint diagnostics (real workspace)", () => {
       //
       // Both the page body and the index row need to be seeded.
       // The shared `data/wiki/index.md` is mutated → serial block.
-      const testLabel = testInfo.title.split(":")[0].trim().toLowerCase();
+      const testLabel = (testInfo.title.split(":")[0] ?? "").trim().toLowerCase();
       const nonce = `${testLabel}-${Date.now()}-${randomUUID().slice(0, 6)}`;
       const slug = `e2e-live-wiki-lint-drift-${testInfo.project.name}-${nonce}`;
       // Tag tokens use only lowercase ASCII + hyphens + digits so

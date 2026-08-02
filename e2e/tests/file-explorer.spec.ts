@@ -198,8 +198,7 @@ test.describe("file explorer path in URL", () => {
 
     await expect(() => {
       expect(putRequests).toHaveLength(1);
-      expect(putRequests[0].path).toBe("wiki/hello.md");
-      expect(putRequests[0].content).toBe("# Hello\n\nEdited by the test.");
+      expect(putRequests).toMatchObject([{ path: "wiki/hello.md", content: "# Hello\n\nEdited by the test." }]);
     }).toPass({ timeout: 5 * ONE_SECOND_MS });
   });
 

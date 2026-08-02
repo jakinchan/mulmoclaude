@@ -66,8 +66,10 @@ describe("listCatalogEntries", () => {
       entries.map((entry) => entry.slug),
       ["mc-bar", "mc-foo"], // sorted
     );
-    assert.equal(entries[0].source, "preset");
-    assert.equal(entries[0].description, "bar desc");
+    const [first] = entries;
+    assert.ok(first);
+    assert.equal(first.source, "preset");
+    assert.equal(first.description, "bar desc");
   });
 
   it("skips entries with missing or malformed SKILL.md", async () => {
@@ -100,14 +102,16 @@ describe("listCatalogEntries", () => {
   it("flags alreadyActive when the slug exists under .claude/skills/", async () => {
     writeCatalogEntry("mc-foo", "---\ndescription: ok\n---\n");
     mkdirSync(path.join(activeDir, "mc-foo"));
-    const entries = await listCatalogEntries({ workspaceRoot: workdir });
-    assert.equal(entries[0].alreadyActive, true);
+    const [first] = await listCatalogEntries({ workspaceRoot: workdir });
+    assert.ok(first);
+    assert.equal(first.alreadyActive, true);
   });
 
   it("alreadyActive is false when only the catalog has the entry", async () => {
     writeCatalogEntry("mc-foo", "---\ndescription: ok\n---\n");
-    const entries = await listCatalogEntries({ workspaceRoot: workdir });
-    assert.equal(entries[0].alreadyActive, false);
+    const [first] = await listCatalogEntries({ workspaceRoot: workdir });
+    assert.ok(first);
+    assert.equal(first.alreadyActive, false);
   });
 });
 

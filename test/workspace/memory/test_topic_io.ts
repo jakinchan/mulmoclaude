@@ -40,6 +40,7 @@ describe("memory/topic-io — write + read round-trip", () => {
     const all = await loadAllTopicFiles(workspaceRoot);
     assert.equal(all.length, 1);
     const [loaded] = all;
+    assert.ok(loaded);
     assert.equal(loaded.type, "interest");
     assert.equal(loaded.topic, "music");
     assert.deepEqual(loaded.sections, ["Rock / Metal", "Punk / Melodic"]);
@@ -84,7 +85,9 @@ describe("memory/topic-io — reader tolerance", () => {
     await writeFile(path.join(root, "interest", "art.md"), "---\ntype: interest\ntopic: art\n---\n\n# Art\n\n- Impressionism", "utf-8");
     const all = await loadAllTopicFiles(scoped);
     assert.equal(all.length, 1);
-    assert.equal(all[0].topic, "art");
+    const [loaded] = all;
+    assert.ok(loaded);
+    assert.equal(loaded.topic, "art");
   });
 
   it("skips files whose frontmatter topic disagrees with the filename", async () => {

@@ -74,8 +74,10 @@ describe("prepareRequestExtras — original filename (#2308)", () => {
   it("still loads the bytes for the model alongside the name", async () => {
     const out = await prepareRequestExtras([{ path: STORED_PATH, filename: ORIGINAL_NAME }]);
     assert.equal(out.attachments?.length, 1);
-    assert.equal(out.attachments?.[0].mimeType, "text/csv");
-    assert.ok(out.attachments?.[0].data, "bytes should be loaded off disk");
+    const attachment = out.attachments?.[0];
+    assert.ok(attachment);
+    assert.equal(attachment.mimeType, "text/csv");
+    assert.ok(attachment.data, "bytes should be loaded off disk");
   });
 
   it("produces the marker line the model reads, end to end", async () => {

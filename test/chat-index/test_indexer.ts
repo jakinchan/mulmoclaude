@@ -117,11 +117,15 @@ describe("indexSession — happy path", () => {
     // Manifest upserted.
     const manifest = await readManifest(workspace);
     assert.equal(manifest.entries.length, 1);
-    assert.equal(manifest.entries[0].id, "sess-A");
+    const [manifestEntry] = manifest.entries;
+    assert.ok(manifestEntry);
+    assert.equal(manifestEntry.id, "sess-A");
 
     // Summarizer was called once with the extracted transcript.
     assert.equal(stub.calls.length, 1);
-    assert.match(stub.calls[0], /Can you help me plan a project/);
+    const [summarizeCall] = stub.calls;
+    assert.ok(summarizeCall);
+    assert.match(summarizeCall, /Can you help me plan a project/);
   });
 });
 
@@ -295,7 +299,9 @@ describe("indexSession — manifest upsert and ordering", () => {
 
     const manifest = await readManifest(workspace);
     assert.equal(manifest.entries.length, 1);
-    assert.equal(manifest.entries[0].title, "second");
+    const [manifestEntry] = manifest.entries;
+    assert.ok(manifestEntry);
+    assert.equal(manifestEntry.title, "second");
   });
 
   it("sorts manifest entries newest-startedAt first", async () => {

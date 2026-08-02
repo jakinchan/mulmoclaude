@@ -85,7 +85,7 @@ test.describe("fresh-user smoke (real LLM)", () => {
       const html = await indexResponse.text();
       const metaMatch = /<meta\s+name="mulmoclaude-auth"\s+content="([^"]*)"/.exec(html);
       expect(metaMatch, "<meta name=mulmoclaude-auth> tag must be present in served index.html").not.toBeNull();
-      const tokenInHtml = metaMatch === null ? "" : metaMatch[1];
+      const tokenInHtml = metaMatch?.[1] ?? "";
       expect(tokenInHtml.length, "auth token content attribute must not be empty").toBeGreaterThan(0);
       expect(tokenInHtml.includes("__MULMOCLAUDE_AUTH_TOKEN__"), "placeholder must be replaced with the real bearer token before serving").toBe(false);
 

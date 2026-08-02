@@ -573,7 +573,9 @@ describe("reconcileItem — notifyWhen severity", () => {
     await reconcileItem(asCollection(SLUG, schema, dataDir), "a", { workspaceRoot: workdir });
     const before = await activeCompletionEntries();
     assert.equal(before.length, 1);
-    assert.equal(before[0].severity, "urgent");
+    const [beforeEntry] = before;
+    assert.ok(beforeEntry);
+    assert.equal(beforeEntry.severity, "urgent");
 
     // urgent → high: still flagged, so the entry persists but must re-colour
     // to amber — and keep the SAME id (in-place update, not clear+republish).
@@ -581,8 +583,10 @@ describe("reconcileItem — notifyWhen severity", () => {
     await reconcileItem(asCollection(SLUG, schema, dataDir), "a", { workspaceRoot: workdir });
     const after = await activeCompletionEntries();
     assert.equal(after.length, 1);
-    assert.equal(after[0].severity, "nudge");
-    assert.equal(after[0].priority, "normal");
-    assert.equal(after[0].id, before[0].id);
+    const [afterEntry] = after;
+    assert.ok(afterEntry);
+    assert.equal(afterEntry.severity, "nudge");
+    assert.equal(afterEntry.priority, "normal");
+    assert.equal(afterEntry.id, beforeEntry.id);
   });
 });

@@ -108,8 +108,11 @@ describe("persistToolCallEvent — schema", () => {
       const contents = await readFile(jsonlPath, "utf8");
       const lines = contents.trim().split("\n");
       assert.equal(lines.length, 2);
-      const first = JSON.parse(lines[0]) as Record<string, unknown>;
-      const second = JSON.parse(lines[1]) as Record<string, unknown>;
+      const [firstLine, secondLine] = lines;
+      assert.ok(firstLine);
+      assert.ok(secondLine);
+      const first = JSON.parse(firstLine) as Record<string, unknown>;
+      const second = JSON.parse(secondLine) as Record<string, unknown>;
       assert.equal(first.toolUseId, "u1");
       assert.equal(second.toolUseId, "u2");
     } finally {
@@ -152,8 +155,11 @@ describe("enqueueJsonlAppend — FIFO ordering across awaited / unawaited caller
 
       const lines = (await readFile(jsonlPath, "utf8")).trim().split("\n");
       assert.equal(lines.length, 2);
-      assert.equal((JSON.parse(lines[0]) as Record<string, unknown>).type, "tool_call", "tool_call must land first");
-      assert.equal((JSON.parse(lines[1]) as Record<string, unknown>).type, "tool_result", "tool_result must land second");
+      const [callLine, resultLine] = lines;
+      assert.ok(callLine);
+      assert.ok(resultLine);
+      assert.equal((JSON.parse(callLine) as Record<string, unknown>).type, "tool_call", "tool_call must land first");
+      assert.equal((JSON.parse(resultLine) as Record<string, unknown>).type, "tool_result", "tool_result must land second");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -248,6 +248,7 @@ describe("POST /api/attachments — HEIC → JPEG conversion (#1996)", () => {
     assert.ok(heicCalls.length >= 1, "hook saw at least one image/heic call");
     assert.equal(jpegCalls.length, 0, "hook was NOT fired for the JPEG companion");
     const latest = heicCalls[heicCalls.length - 1];
+    assert.ok(latest);
     assert.ok(latest.relativePath.endsWith(".heic"), "hook received .heic path");
   });
 });

@@ -74,10 +74,12 @@ describe("spawnBackgroundChat — origin mapping", () => {
       const result = await tool.handler({ message: "author lesson 2", role: "tutor", hidden: true });
       chatId = chatIdFrom(result);
       assert.equal(calls.length, 1);
-      assert.equal(calls[0].origin, SESSION_ORIGINS.system);
-      assert.equal(calls[0].roleId, "tutor");
-      assert.equal(calls[0].chatSessionId, chatId);
-      assert.equal(calls[0].message, "author lesson 2");
+      const [call] = calls;
+      assert.ok(call);
+      assert.equal(call.origin, SESSION_ORIGINS.system);
+      assert.equal(call.roleId, "tutor");
+      assert.equal(call.chatSessionId, chatId);
+      assert.equal(call.message, "author lesson 2");
     } finally {
       if (chatId) releaseBackgroundSession(chatId);
     }
@@ -89,7 +91,9 @@ describe("spawnBackgroundChat — origin mapping", () => {
     const result = await tool.handler({ message: "open a chat", role: "general", hidden: false });
     chatIdFrom(result);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].origin, SESSION_ORIGINS.skill);
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.origin, SESSION_ORIGINS.skill);
   });
 
   it("trims message and role before passing them to startChat", async () => {
@@ -99,8 +103,10 @@ describe("spawnBackgroundChat — origin mapping", () => {
     try {
       const result = await tool.handler({ message: "  go  ", role: "  tutor  ", hidden: true });
       chatId = chatIdFrom(result);
-      assert.equal(calls[0].message, "go");
-      assert.equal(calls[0].roleId, "tutor");
+      const [call] = calls;
+      assert.ok(call);
+      assert.equal(call.message, "go");
+      assert.equal(call.roleId, "tutor");
     } finally {
       if (chatId) releaseBackgroundSession(chatId);
     }

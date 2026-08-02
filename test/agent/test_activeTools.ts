@@ -124,7 +124,9 @@ describe("getActiveToolDescriptors — single source of truth", () => {
     const descriptors = getActiveToolDescriptors(role);
     const matches = descriptors.filter((descriptor) => descriptor.name === "presentMulmoScript");
     assert.equal(matches.length, 1, "name should appear once even with a runtime collision");
-    assert.equal(matches[0].source, "static-gui", "static wins over runtime in the unified list");
+    const [match] = matches;
+    assert.ok(match);
+    assert.equal(match.source, "static-gui", "static wins over runtime in the unified list");
   });
 
   it("surfaces an `alwaysActive` MCP tool even when the role lists nothing", () => {

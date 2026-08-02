@@ -40,10 +40,10 @@ interface RouterInternals {
 
 function getHandler(router: Router, url: string): (req: Request, res: Response) => unknown {
   const internals = router as unknown as RouterInternals;
-  for (const layer of internals.stack) {
-    if (layer.route && layer.route.path === url) return layer.route.stack[0].handle;
-  }
-  throw new Error(`handler for ${url} not found in router stack`);
+  const layer = internals.stack.find((candidate) => candidate.route?.path === url);
+  const [first] = layer?.route?.stack ?? [];
+  if (!first) throw new Error(`handler for ${url} not found in router stack`);
+  return first.handle;
 }
 
 interface MockResponse {

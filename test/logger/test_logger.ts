@@ -47,8 +47,11 @@ describe("createLogger level filtering", () => {
       process.stderr.write = originalErr;
     }
     assert.equal(captured.length, 2);
-    assert.equal(captured[0].message, "kept-warn");
-    assert.equal(captured[1].message, "kept-error");
+    const [warnRecord, errorRecord] = captured;
+    assert.ok(warnRecord);
+    assert.ok(errorRecord);
+    assert.equal(warnRecord.message, "kept-warn");
+    assert.equal(errorRecord.message, "kept-error");
   });
 
   it("produces no output when all sinks are disabled", () => {

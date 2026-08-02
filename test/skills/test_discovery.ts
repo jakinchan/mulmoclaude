@@ -40,12 +40,14 @@ describe("collectSkillsFromDir", () => {
     await writeSkill(root, "ci_enable", "Enable CI", "## Steps\n1. Do it");
     const skills = await collectSkillsFromDir(root, "user");
     assert.equal(skills.length, 1);
-    assert.equal(skills[0].name, "ci_enable");
-    assert.equal(skills[0].description, "Enable CI");
-    assert.equal(skills[0].source, "user");
-    assert.match(skills[0].body, /## Steps/);
+    const [skill] = skills;
+    assert.ok(skill);
+    assert.equal(skill.name, "ci_enable");
+    assert.equal(skill.description, "Enable CI");
+    assert.equal(skill.source, "user");
+    assert.match(skill.body, /## Steps/);
     // Path uses `/` on POSIX and `\` on Windows; accept either.
-    assert.match(skills[0].path, /[\\/]ci_enable[\\/]SKILL\.md$/);
+    assert.match(skill.path, /[\\/]ci_enable[\\/]SKILL\.md$/);
   });
 
   it("skips directories without a SKILL.md", async () => {
@@ -54,7 +56,9 @@ describe("collectSkillsFromDir", () => {
     await writeSkill(root, "real_skill", "Real one");
     const skills = await collectSkillsFromDir(root, "user");
     assert.equal(skills.length, 1);
-    assert.equal(skills[0].name, "real_skill");
+    const [skill] = skills;
+    assert.ok(skill);
+    assert.equal(skill.name, "real_skill");
   });
 
   it("skips hidden entries (.DS_Store, .gitkeep)", async () => {
@@ -63,7 +67,9 @@ describe("collectSkillsFromDir", () => {
     await writeSkill(root, "visible", "Visible");
     const skills = await collectSkillsFromDir(root, "user");
     assert.equal(skills.length, 1);
-    assert.equal(skills[0].name, "visible");
+    const [skill] = skills;
+    assert.ok(skill);
+    assert.equal(skill.name, "visible");
   });
 
   it("skips entries where SKILL.md has no frontmatter", async () => {
@@ -73,7 +79,9 @@ describe("collectSkillsFromDir", () => {
     await writeSkill(root, "ok", "Fine");
     const skills = await collectSkillsFromDir(root, "user");
     assert.equal(skills.length, 1);
-    assert.equal(skills[0].name, "ok");
+    const [skill] = skills;
+    assert.ok(skill);
+    assert.equal(skill.name, "ok");
   });
 
   it("follows a symlinked skill directory", async () => {
@@ -84,8 +92,10 @@ describe("collectSkillsFromDir", () => {
       await symlink(join(target, "linked-inner"), join(root, "linked"));
       const skills = await collectSkillsFromDir(root, "user");
       assert.equal(skills.length, 1);
-      assert.equal(skills[0].name, "linked");
-      assert.equal(skills[0].description, "From target");
+      const [skill] = skills;
+      assert.ok(skill);
+      assert.equal(skill.name, "linked");
+      assert.equal(skill.description, "From target");
     } finally {
       rmSync(target, { recursive: true, force: true });
     }
@@ -104,10 +114,12 @@ describe("collectSkillsFromDir", () => {
 
   it("tags results with the given source", async () => {
     await writeSkill(root, "a", "A");
-    const userSkills = await collectSkillsFromDir(root, "user");
-    const projectSkills = await collectSkillsFromDir(root, "project");
-    assert.equal(userSkills[0].source, "user");
-    assert.equal(projectSkills[0].source, "project");
+    const [userSkill] = await collectSkillsFromDir(root, "user");
+    const [projectSkill] = await collectSkillsFromDir(root, "project");
+    assert.ok(userSkill);
+    assert.ok(projectSkill);
+    assert.equal(userSkill.source, "user");
+    assert.equal(projectSkill.source, "project");
   });
 
   it("gracefully handles an unreadable SKILL.md", async (ctx) => {

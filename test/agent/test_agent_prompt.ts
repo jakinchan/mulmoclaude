@@ -464,7 +464,9 @@ describe("buildPluginPromptSections", () => {
     // on a fixed length.
     const role = makeRole({ availablePlugins: ["openCanvas"] });
     const sections = buildPluginPromptSections(role);
-    assert.ok(sections[0].includes("mcp__mulmoclaude__"), "first entry is the prefix hint");
+    const [prefixHint] = sections;
+    assert.ok(prefixHint, "plugin prompt sections must not be empty");
+    assert.ok(prefixHint.includes("mcp__mulmoclaude__"), "first entry is the prefix hint");
     const openCanvas = sections.find((section) => section.startsWith("- **mcp__mulmoclaude__openCanvas**: "));
     assert.ok(openCanvas, "openCanvas renders as a compact bullet");
     assert.ok(!openCanvas.includes("\n"));
@@ -476,7 +478,9 @@ describe("buildPluginPromptSections", () => {
     // survives.
     const role = makeRole({ availablePlugins: ["presentDocument"] });
     const sections = buildPluginPromptSections(role);
-    assert.ok(sections[0].includes("mcp__mulmoclaude__"), "first entry is the prefix hint");
+    const [prefixHint] = sections;
+    assert.ok(prefixHint, "plugin prompt sections must not be empty");
+    assert.ok(prefixHint.includes("mcp__mulmoclaude__"), "first entry is the prefix hint");
     const doc = sections.find((section) => section.startsWith("### mcp__mulmoclaude__presentDocument\n\n"));
     assert.ok(doc, "presentDocument renders in heading form");
     // Body retains its paragraph break
@@ -489,7 +493,9 @@ describe("buildPluginPromptSections", () => {
     // meaningful and the section is present.
     const role = makeRole({ availablePlugins: [] });
     const sections = buildPluginPromptSections(role);
-    assert.ok(sections[0].includes("mcp__mulmoclaude__"), "prefix hint present");
+    const [prefixHint] = sections;
+    assert.ok(prefixHint, "plugin prompt sections must not be empty");
+    assert.ok(prefixHint.includes("mcp__mulmoclaude__"), "prefix hint present");
     assert.ok(
       sections.some((section) => section.includes("mcp__mulmoclaude__spawnBackgroundChat")),
       "always-active spawnBackgroundChat section present even with no role plugins",

@@ -71,6 +71,7 @@ describe("announceShadowedEnv", () => {
   it("never puts a secret VALUE in the bell — the launcher sends names only", async () => {
     await announceShadowedEnv("GEMINI_API_KEY");
     const [entry] = await activeEntries(1);
+    assert.ok(entry);
     assert.ok(!`${entry.title}${entry.body ?? ""}`.includes("="));
   });
 
@@ -87,8 +88,10 @@ describe("announceShadowedEnv", () => {
     await announceShadowedEnv("A", ["B"]);
     const entries = await activeEntries(1);
     assert.equal(entries.length, 1, "two sources must not produce two notifications");
-    assert.match(entries[0].body ?? "", /A/);
-    assert.match(entries[0].body ?? "", /B/);
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.match(entry.body ?? "", /A/);
+    assert.match(entry.body ?? "", /B/);
   });
 
   it("raises the notification from the server's own load alone — the yarn dev case", async () => {
@@ -111,8 +114,10 @@ describe("announceShadowedEnv", () => {
     await announceShadowedEnv("A"); // user unset B in their shell
     const entries = await activeEntries(1);
     assert.equal(entries.length, 1, "the old two-key entry must not survive alongside the new one");
-    assert.match(entries[0].body ?? "", /A/);
-    assert.ok(!(entries[0].body ?? "").includes("B"), "the fixed key must not still be named");
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.match(entry.body ?? "", /A/);
+    assert.ok(!(entry.body ?? "").includes("B"), "the fixed key must not still be named");
   });
 
   it("clears the entry once the conflict is gone entirely", async () => {

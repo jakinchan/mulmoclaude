@@ -60,7 +60,9 @@ describe("photo-locations list — defensive sidecar validation", () => {
     writeSidecar("bad.json", "{not json");
     const all = await listAllSidecars();
     assert.equal(all.length, 1);
-    assert.equal(all[0].id, "good");
+    const [row] = all;
+    assert.ok(row);
+    assert.equal(row.id, "good");
   });
 
   it("skips a sidecar missing capturedAt — does NOT throw at sort time", async () => {
@@ -70,7 +72,9 @@ describe("photo-locations list — defensive sidecar validation", () => {
     writeSidecar("missing-time.json", noCapturedAt);
     const all = await listAllSidecars();
     assert.equal(all.length, 1);
-    assert.equal(all[0].id, "good");
+    const [row] = all;
+    assert.ok(row);
+    assert.equal(row.id, "good");
   });
 
   it("skips a sidecar with non-string capturedAt", async () => {
@@ -85,7 +89,9 @@ describe("photo-locations list — defensive sidecar validation", () => {
     writeSidecar("good.json", VALID_SIDECAR);
     const all = await listAllSidecars();
     assert.equal(all.length, 1);
-    assert.equal(all[0].id, "good");
+    const [row] = all;
+    assert.ok(row);
+    assert.equal(row.id, "good");
   });
 
   it("skips a sidecar with malformed photo block", async () => {
@@ -94,7 +100,9 @@ describe("photo-locations list — defensive sidecar validation", () => {
     writeSidecar("good.json", VALID_SIDECAR);
     const all = await listAllSidecars();
     assert.equal(all.length, 1);
-    assert.equal(all[0].id, "good");
+    const [row] = all;
+    assert.ok(row);
+    assert.equal(row.id, "good");
   });
 
   it("returns an empty array when EVERY sidecar is malformed (no crash)", async () => {
@@ -125,6 +133,7 @@ describe("photo-locations list — defensive sidecar validation", () => {
     const exif = { lat: 35.6, lng: 139.7, altitude: 12.5, iso: 100, takenAt: "2026-04-12T08:30:00.000Z", make: "Apple", flashFired: false };
     writeSidecar("good.json", { ...VALID_SIDECAR, exif });
     const [row] = await listAllSidecars();
+    assert.ok(row);
     assert.deepEqual(row.sidecar.exif, exif);
   });
 
@@ -156,12 +165,14 @@ describe("photo-locations list — defensive sidecar validation", () => {
     };
     writeSidecar("full.json", { ...VALID_SIDECAR, exif });
     const [row] = await listAllSidecars();
+    assert.ok(row);
     assert.deepEqual(row.sidecar.exif, exif);
   });
 
   it("drops an exif field whose stored type contradicts PhotoExif", async () => {
     writeSidecar("edited.json", { ...VALID_SIDECAR, exif: { lat: "35.6", lng: 139.7, flashFired: "true", iso: null } });
     const [row] = await listAllSidecars();
+    assert.ok(row);
     // `lat` was reaching consumers typed as `number` while holding a string.
     assert.deepEqual(row.sidecar.exif, { lng: 139.7 });
   });
@@ -170,6 +181,7 @@ describe("photo-locations list — defensive sidecar validation", () => {
     // JSON has no NaN literal, so a hand-edit lands as null.
     writeSidecar("edited.json", { ...VALID_SIDECAR, exif: { lat: null, lng: 139.7 } });
     const [row] = await listAllSidecars();
+    assert.ok(row);
     assert.deepEqual(row.sidecar.exif, { lng: 139.7 });
   });
 
@@ -180,12 +192,15 @@ describe("photo-locations list — defensive sidecar validation", () => {
     writeSidecar("good.json", VALID_SIDECAR);
     const all = await listAllSidecars();
     assert.equal(all.length, 1);
-    assert.equal(all[0].id, "good");
+    const [row] = all;
+    assert.ok(row);
+    assert.equal(row.id, "good");
   });
 
   it("drops keys outside the declared shape", async () => {
     writeSidecar("extra.json", { ...VALID_SIDECAR, note: "hand added", exif: { lat: 1, lng: 2, someFutureField: "x" } });
     const [row] = await listAllSidecars();
+    assert.ok(row);
     assert.deepEqual(row.sidecar.exif, { lat: 1, lng: 2 });
     assert.equal(Object.hasOwn(row.sidecar, "note"), false);
   });

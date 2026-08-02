@@ -23,7 +23,7 @@ const entries = parseFaqEntries(readFileSync(FAQ_PATH, "utf-8"));
 
 // `voiceInput.enabled` is a legal pointer: the root is what has to exist, the
 // nested field is prose detail the agent reads in the settings file.
-const rootKey = (configKey: string): string => configKey.split(".")[0];
+const rootKey = (configKey: string): string => configKey.split(".")[0] ?? configKey;
 
 describe("bundled bug-report FAQ", () => {
   it("ships and parses into entries", () => {

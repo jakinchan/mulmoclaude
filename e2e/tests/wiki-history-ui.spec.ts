@@ -100,7 +100,7 @@ function setupRoutes(page: Page, state: WikiState): Promise<void> {
     page.route(
       (url) => url.pathname.startsWith(`/api/wiki/pages/${SLUG}/history/`) && !url.pathname.endsWith("/restore"),
       (route) => {
-        const stamp = decodeURIComponent(route.request().url().split("/history/")[1]);
+        const stamp = decodeURIComponent(route.request().url().split("/history/")[1] ?? "");
         if (stamp === SNAPSHOT_NEWER.stamp) {
           return route.fulfill({ json: { slug: SLUG, snapshot: SNAPSHOT_NEWER_CONTENT } });
         }

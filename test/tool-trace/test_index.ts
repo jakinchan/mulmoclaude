@@ -85,9 +85,11 @@ describe("recordToolEvent", () => {
     );
     const lines = readJsonlLines(await harness.readJsonl());
     assert.equal(lines.length, 1);
-    assert.equal(lines[0].type, "tool_call");
-    assert.equal(lines[0].toolName, "Bash");
-    assert.deepEqual(lines[0].args, { command: "ls" });
+    const [record] = lines;
+    assert.ok(record);
+    assert.equal(record.type, "tool_call");
+    assert.equal(record.toolName, "Bash");
+    assert.deepEqual(record.args, { command: "ls" });
     assert.equal(harness.deps.argsCache.size, 1);
   });
 
@@ -115,7 +117,9 @@ describe("recordToolEvent", () => {
     assert.ok(String(resultLine?.contentRef).startsWith("conversations/searches/2026-04-13/"));
     assert.equal(resultLine?.content, undefined);
     assert.equal(harness.savedSearches.length, 1);
-    assert.equal(harness.savedSearches[0].query, "foo bar");
+    const [savedSearch] = harness.savedSearches;
+    assert.ok(savedSearch);
+    assert.equal(savedSearch.query, "foo bar");
   });
 
   it("Read tool_call_result records a pointer to args.file_path", async () => {
@@ -184,9 +188,11 @@ describe("recordToolEvent", () => {
     );
     const lines = readJsonlLines(await harness.readJsonl());
     assert.equal(lines.length, 1);
-    assert.equal(lines[0].type, "tool_call_result");
-    assert.equal(lines[0].content, "mystery output");
-    assert.equal(lines[0].toolName, "");
+    const [record] = lines;
+    assert.ok(record);
+    assert.equal(record.type, "tool_call_result");
+    assert.equal(record.content, "mystery output");
+    assert.equal(record.toolName, "");
   });
 
   it("saveSearch throwing falls back to inline content (never kills the turn)", async () => {

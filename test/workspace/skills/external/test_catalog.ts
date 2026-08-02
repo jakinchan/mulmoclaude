@@ -47,8 +47,10 @@ describe("listExternalCatalogEntries", () => {
     const entries = await listExternalCatalogEntries({ workspaceRoot: workdir });
     assert.equal(entries.length, 2);
     assert.deepEqual(entries.map((entry) => entry.activeId).sort(), ["anthropics-excel-builder", "anthropics-pdf-form-filler"]);
-    assert.equal(entries[0].repoId, "anthropics-skills");
-    assert.equal(entries[0].repoUrl, "https://github.com/anthropics/skills");
+    const [first] = entries;
+    assert.ok(first);
+    assert.equal(first.repoId, "anthropics-skills");
+    assert.equal(first.repoUrl, "https://github.com/anthropics/skills");
   });
 
   it("returns one entry with skillFolder='.' for a single-skill-at-root repo", async () => {
@@ -57,8 +59,10 @@ describe("listExternalCatalogEntries", () => {
     });
     const entries = await listExternalCatalogEntries({ workspaceRoot: workdir });
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].skillFolder, ".");
-    assert.equal(entries[0].activeId, "foo-cool");
+    const [first] = entries;
+    assert.ok(first);
+    assert.equal(first.skillFolder, ".");
+    assert.equal(first.activeId, "foo-cool");
   });
 
   it("flags alreadyActive when .claude/skills/<activeId>/ exists", async () => {
@@ -66,8 +70,9 @@ describe("listExternalCatalogEntries", () => {
       "SKILL.md": "---\ndescription: cool\n---\nbody",
     });
     mkdirSync(path.join(workdir, ".claude/skills/foo-cool"), { recursive: true });
-    const entries = await listExternalCatalogEntries({ workspaceRoot: workdir });
-    assert.equal(entries[0].alreadyActive, true);
+    const [first] = await listExternalCatalogEntries({ workspaceRoot: workdir });
+    assert.ok(first);
+    assert.equal(first.alreadyActive, true);
   });
 
   it("skips repos whose metadata is missing the url", async () => {
@@ -91,7 +96,9 @@ describe("listExternalCatalogEntries", () => {
     writeFileSync(path.join(repoDir, "ok-skill", "SKILL.md"), "---\ndescription: ok\n---\n");
     const entries = await listExternalCatalogEntries({ workspaceRoot: workdir });
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].skillFolder, "ok-skill");
+    const [first] = entries;
+    assert.ok(first);
+    assert.equal(first.skillFolder, "ok-skill");
   });
 });
 

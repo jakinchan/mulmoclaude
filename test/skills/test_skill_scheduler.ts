@@ -62,7 +62,9 @@ describe("skill scheduler visibility + manual run (#2012)", () => {
       const chatSessionId = await runScheduledSkillNow("skill.news-filter");
       assert.ok(chatSessionId, "run returns a chat session id");
       assert.equal(calls.length, 1);
-      assert.equal(calls[0].message, "/news-filter");
+      const [call] = calls;
+      assert.ok(call);
+      assert.equal(call.message, "/news-filter");
 
       // B: a successful DISPATCH does not record a run yet — the outcome is
       // recorded from the turn's completion hook, not at spawn time (#2057), so

@@ -43,7 +43,9 @@ describe("viewDataCors", () => {
     for (const method of ["GET", "PUT", "POST", "OPTIONS"]) {
       assert.ok(VIEW_DATA_CORS_METHODS.includes(method), `${method} must be preflight-allowed`);
     }
-    assert.ok(headers["Access-Control-Allow-Headers"].includes("Authorization"));
+    const allowedHeaders = headers["Access-Control-Allow-Headers"];
+    assert.ok(allowedHeaders);
+    assert.ok(allowedHeaders.includes("Authorization"));
   });
 });
 

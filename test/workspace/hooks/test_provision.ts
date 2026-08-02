@@ -46,14 +46,16 @@ describe("provisionDispatcherHook — first install", () => {
     const entries = settings.hooks?.PostToolUse ?? [];
     assert.equal(entries.length, 1);
     const [entry] = entries;
+    assert.ok(entry);
     assert.equal(entry.matcher, "Write|Edit|Bash");
-    const hook = entry.hooks?.[0];
-    assert.equal(hook?.type, "command");
+    const [hook] = entry.hooks ?? [];
+    assert.ok(hook);
+    assert.equal(hook.type, "command");
     // Command must use $CLAUDE_PROJECT_DIR so the same settings.json
     // works on the host AND inside the Docker container, where the
     // workspace lives at a different absolute path.
-    assert.match(hook?.command ?? "", /node "\$CLAUDE_PROJECT_DIR\/\.claude\/hooks\/mulmoclaude-dispatcher\.mjs"/);
-    assert.equal(hook?.[OWNER_MARKER], true);
+    assert.match(hook.command ?? "", /node "\$CLAUDE_PROJECT_DIR\/\.claude\/hooks\/mulmoclaude-dispatcher\.mjs"/);
+    assert.equal(hook[OWNER_MARKER], true);
 
     const scriptBody = await readFile(path.join(root, ".claude", "hooks", "mulmoclaude-dispatcher.mjs"), "utf-8");
     // Anchor on the shebang and a substring from the bundled
@@ -201,7 +203,11 @@ describe("provisionDispatcherHook — descriptor-level stripping", () => {
     // Just the dispatcher entry — the now-empty Write|Edit entry
     // is gone, not a no-hooks zombie.
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].hooks?.[0]?.[OWNER_MARKER], true);
+    const [dispatcherEntry] = entries;
+    assert.ok(dispatcherEntry);
+    const [dispatcherHook] = dispatcherEntry.hooks ?? [];
+    assert.ok(dispatcherHook);
+    assert.equal(dispatcherHook[OWNER_MARKER], true);
 
     await rm(root, { recursive: true, force: true });
   });

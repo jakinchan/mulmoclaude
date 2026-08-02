@@ -623,8 +623,10 @@ describe("manageCollection — deleteItems", () => {
     assert.deepEqual(result.deleted, []);
     const rejected = result.rejected as { id: string; problem: string }[];
     assert.equal(rejected.length, 1);
-    assert.equal(rejected[0].id, "ghost");
-    assert.match(rejected[0].problem, /not found/);
+    const [ghost] = rejected;
+    assert.ok(ghost);
+    assert.equal(ghost.id, "ghost");
+    assert.match(ghost.problem, /not found/);
   });
 
   it("keeps a partially-bad batch partial — good ids still go", async () => {
@@ -637,7 +639,9 @@ describe("manageCollection — deleteItems", () => {
   it("rejects a path-traversal id without touching the filesystem", async () => {
     const result = await runJson({ action: "deleteItems", slug: "portfolio", ids: ["../../../etc/passwd"] });
     assert.deepEqual(result.deleted, []);
-    assert.match((result.rejected as { problem: string }[])[0].problem, /not a valid record id/);
+    const [traversal] = result.rejected as { problem: string }[];
+    assert.ok(traversal, "the traversal id must be reported as rejected");
+    assert.match(traversal.problem, /not a valid record id/);
     assert.equal(existsSync(recordPath("h1")), true, "nothing else was deleted");
   });
 

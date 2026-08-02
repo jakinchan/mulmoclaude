@@ -167,10 +167,10 @@ describe("parseStreamEvent", () => {
     };
     const result = parseStreamEvent(event);
     assert.equal(result.length, 1);
-    assert.equal(result[0].type, "tool_call_result");
-    if (result[0].type === "tool_call_result") {
-      assert.equal(result[0].content, '{"key":"value"}');
-    }
+    const [first] = result;
+    assert.ok(first);
+    assert.ok(first.type === "tool_call_result", `expected a tool_call_result event, got ${first.type}`);
+    assert.equal(first.content, '{"key":"value"}');
   });
 
   it("skips tool_result blocks without tool_use_id", () => {

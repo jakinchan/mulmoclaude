@@ -250,7 +250,9 @@ describe("buildSummarizeCliArgs", () => {
     assert.equal(args[args.indexOf("--output-format") + 1], "json");
     assert.ok(args.includes("--json-schema"));
     // the schema arg is valid JSON carrying the title/summary/keywords shape
-    const schema = JSON.parse(args[args.indexOf("--json-schema") + 1]);
+    const schemaArg = args[args.indexOf("--json-schema") + 1];
+    assert.ok(schemaArg);
+    const schema = JSON.parse(schemaArg);
     assert.deepEqual(Object.keys(schema.properties).sort(), ["keywords", "summary", "title"]);
   });
 });

@@ -744,8 +744,8 @@ export async function readImgNaturalSizeInWiki(page: Page, imgSelector: string):
  * navigation, or while sitting on /wiki).
  */
 export function getCurrentSessionId(page: Page): string | null {
-  const match = /\/chat\/([^/?#]+)/.exec(page.url());
-  return match ? decodeURIComponent(match[1]) : null;
+  const [, sessionId] = /\/chat\/([^/?#]+)/.exec(page.url()) ?? [];
+  return sessionId === undefined ? null : decodeURIComponent(sessionId);
 }
 
 /**
@@ -1096,6 +1096,7 @@ export async function startGuaranteedNewSession(page: Page): Promise<string> {
     const match = SESSION_ID_FROM_PATH_RE.exec(url.pathname);
     if (!match) return false;
     const [, candidateId] = match;
+    if (candidateId === undefined) return false;
     return candidateId !== priorSessionId && !baselineIds.has(candidateId);
   });
   const newSessionId = getCurrentSessionId(page);

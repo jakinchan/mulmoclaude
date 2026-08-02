@@ -132,10 +132,12 @@ describe("POST /api/wiki/internal/snapshot", () => {
 
     const snapshots = await listSnapshots(slug);
     assert.equal(snapshots.length, 1, "endpoint should have written exactly one snapshot");
-    assert.equal(snapshots[0].editor, "llm", "hook always tags as llm — user-driven writes go through writeWikiPage");
+    const [snapshot] = snapshots;
+    assert.ok(snapshot);
+    assert.equal(snapshot.editor, "llm", "hook always tags as llm — user-driven writes go through writeWikiPage");
     // The hook never supplies `reason` (the LLM has no natural source
     // for one) — the field is absent from this code path.
-    assert.equal(snapshots[0].reason, undefined);
+    assert.equal(snapshot.reason, undefined);
   });
 
   it("propagates sessionId when the hook supplies one", async () => {
@@ -148,7 +150,9 @@ describe("POST /api/wiki/internal/snapshot", () => {
     assert.equal(state.status, 200);
 
     const snapshots = await listSnapshots(slug);
-    assert.equal(snapshots[0].sessionId, "chat-abc-123");
+    const [snapshot] = snapshots;
+    assert.ok(snapshot);
+    assert.equal(snapshot.sessionId, "chat-abc-123");
   });
 
   // Stage 3a (#963): the snapshot endpoint also publishes a synthetic

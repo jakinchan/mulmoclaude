@@ -120,8 +120,7 @@ test.describe("Files Explorer — JSON inline editor (#833)", () => {
 
     await expect(() => {
       expect(puts).toHaveLength(1);
-      expect(puts[0].path).toBe(EDITABLE);
-      expect(puts[0].content).toBe('{\n  "theme": "light"\n}');
+      expect(puts).toMatchObject([{ path: EDITABLE, content: '{\n  "theme": "light"\n}' }]);
     }).toPass({ timeout: 5 * ONE_SECOND_MS });
 
     // Successful save exits edit mode (read-only pre returns).

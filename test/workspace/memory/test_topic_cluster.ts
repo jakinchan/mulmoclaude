@@ -16,10 +16,16 @@ describe("memory/topic-cluster — parseClusterMap", () => {
     const out = parseClusterMap(raw);
     assert.ok(out !== null);
     assert.equal(out.preference.length, 1);
-    assert.equal(out.preference[0].topic, "dev");
-    assert.deepEqual(out.preference[0].unsectionedBullets, ["yarn"]);
+    const [preferenceTopic] = out.preference;
+    assert.ok(preferenceTopic);
+    assert.equal(preferenceTopic.topic, "dev");
+    assert.deepEqual(preferenceTopic.unsectionedBullets, ["yarn"]);
     assert.equal(out.interest.length, 1);
-    assert.equal(out.interest[0].sections?.[0].heading, "Rock");
+    const [interestTopic] = out.interest;
+    assert.ok(interestTopic);
+    const [firstSection] = interestTopic.sections ?? [];
+    assert.ok(firstSection);
+    assert.equal(firstSection.heading, "Rock");
   });
 
   it("strips a leading code fence", () => {
@@ -52,7 +58,9 @@ describe("memory/topic-cluster — parseClusterMap", () => {
     const out = parseClusterMap(raw);
     assert.ok(out !== null);
     assert.equal(out.preference.length, 1);
-    assert.equal(out.preference[0].topic, "real");
+    const [kept] = out.preference;
+    assert.ok(kept);
+    assert.equal(kept.topic, "real");
   });
 
   it("normalises an unsafe topic name via slugify", () => {
@@ -64,7 +72,9 @@ describe("memory/topic-cluster — parseClusterMap", () => {
     });
     const out = parseClusterMap(raw);
     assert.ok(out !== null);
-    assert.equal(out.preference[0].topic, "ai-research-papers");
+    const [slugified] = out.preference;
+    assert.ok(slugified);
+    assert.equal(slugified.topic, "ai-research-papers");
   });
 
   it("drops topics whose name slugs to nothing safe", () => {

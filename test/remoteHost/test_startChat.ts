@@ -57,8 +57,10 @@ describe("createStartChat — free-text form (current clients)", () => {
     const result = await createStartChat(deps)({ message: "who is overdue?" });
     assert.deepEqual(result, { started: true, chatId: "chat-1" });
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].message, "who is overdue?");
-    assert.equal(calls[0].hidden, false);
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.message, "who is overdue?");
+    assert.equal(call.hidden, false);
     // The collection engine is NOT consulted when no slug is sent.
     assert.equal(loadCalls.length, 0);
   });
@@ -66,13 +68,17 @@ describe("createStartChat — free-text form (current clients)", () => {
   it("trims surrounding whitespace from the message", async () => {
     const { deps, calls } = makeDeps({ ok: true, chatId: "chat-2" });
     await createStartChat(deps)({ message: "  hello  " });
-    assert.equal(calls[0].message, "hello");
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.message, "hello");
   });
 
   it("passes a slash-command message through untouched (the host does not interpret it)", async () => {
     const { deps, calls, loadCalls } = makeDeps({ ok: true, chatId: "chat-3" });
     await createStartChat(deps)({ message: "/clients id=acme draft a follow-up" });
-    assert.equal(calls[0].message, "/clients id=acme draft a follow-up");
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.message, "/clients id=acme draft a follow-up");
     assert.equal(loadCalls.length, 0);
   });
 
@@ -121,14 +127,18 @@ describe("createStartChat — legacy slug form", () => {
     const { deps, calls, loadCalls } = makeDeps({ ok: true, chatId: "chat-1" });
     const result = await createStartChat(deps)({ slug: "clients", itemId: "acme", message: "  hello  " });
     assert.deepEqual(result, { started: true, chatId: "chat-1" });
-    assert.equal(calls[0].message, "/clients id=acme hello");
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.message, "/clients id=acme hello");
     assert.deepEqual(loadCalls, ["clients"]);
   });
 
   it("omits id= when itemId is absent", async () => {
     const { deps, calls } = makeDeps({ ok: true, chatId: "chat-2" });
     await createStartChat(deps)({ slug: "clients", message: "hi" });
-    assert.equal(calls[0].message, "/clients hi");
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.message, "/clients hi");
   });
 
   it("refuses feeds (no /<slug> command) without spawning", async () => {
@@ -162,18 +172,22 @@ describe("createStartChat — file attachments", () => {
     const result = await createStartChat(deps)({ message: "look at these", attachments: [{ storage_id: "aaa" }, { storage_id: "bbb" }] });
     assert.deepEqual(result, { started: true, chatId: "chat-1" });
     assert.deepEqual(ingestCalls, [["aaa", "bbb"]]);
-    assert.deepEqual(calls[0].attachments, [
+    const [call] = calls;
+    assert.ok(call);
+    assert.deepEqual(call.attachments, [
       { path: "data/attachments/aaa.jpg", mimeType: "image/jpeg" },
       { path: "data/attachments/bbb.jpg", mimeType: "image/jpeg" },
     ]);
-    assert.equal(calls[0].message, "look at these");
+    assert.equal(call.message, "look at these");
   });
 
   it("passes an empty attachment list when none are sent (text-only parity)", async () => {
     const { deps, calls, ingestCalls } = makeDeps({ ok: true, chatId: "chat-2" });
     await createStartChat(deps)({ message: "hi" });
     assert.deepEqual(ingestCalls, [[]]);
-    assert.deepEqual(calls[0].attachments, []);
+    const [call] = calls;
+    assert.ok(call);
+    assert.deepEqual(call.attachments, []);
   });
 
   it("rejects a malformed attachments payload without spawning", async () => {
@@ -198,7 +212,9 @@ describe("createStartChat — role selection", () => {
   it("defaults to the general role when no role is sent", async () => {
     const { deps, calls } = makeDeps({ ok: true, chatId: "chat-1" });
     await createStartChat(deps)({ message: "hi" });
-    assert.equal(calls[0].roleId, "general");
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.roleId, "general");
   });
 
   it("treats null / empty-string role as absent (default role)", async () => {
@@ -214,7 +230,9 @@ describe("createStartChat — role selection", () => {
   it("runs the chat in a known role when one is sent", async () => {
     const { deps, calls } = makeDeps({ ok: true, chatId: "chat-3" });
     await createStartChat(deps)({ message: "record today's receipt", role: "accounting" });
-    assert.equal(calls[0].roleId, "accounting");
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.roleId, "accounting");
   });
 
   it("rejects an unknown role without spawning", async () => {

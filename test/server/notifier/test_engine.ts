@@ -67,6 +67,7 @@ describe("publish", () => {
     });
     assert.equal(emittedEvents.length, 1);
     const [event] = emittedEvents;
+    assert.ok(event);
     assert.equal(event.type, "published");
     if (event.type === "published") {
       assert.equal(event.entry.id, id);
@@ -241,7 +242,9 @@ describe("listFor", () => {
     assert.equal(aEntries.length, 2);
     assert.equal(bEntries.length, 1);
     assert.deepEqual(aEntries.map((entry) => entry.title).sort(), ["a1", "a2"]);
-    assert.deepEqual(bEntries[0].title, "b1");
+    const [bEntry] = bEntries;
+    assert.ok(bEntry);
+    assert.deepEqual(bEntry.title, "b1");
   });
 
   it("returns [] when nothing matches", async () => {
@@ -271,7 +274,9 @@ describe("listAll", () => {
     await clear(cleared);
     const entries = await listAll();
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].id, kept);
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.equal(entry.id, kept);
   });
 });
 
@@ -287,14 +292,17 @@ describe("write coordination under concurrency", () => {
   });
 
   it("interleaved publish + clear leaves the expected residual set", async () => {
-    const published = await Promise.all(Array.from({ length: 5 }, (_unused, index) => publish({ pluginPkg: "concur", severity: "info", title: `t-${index}` })));
+    const PUBLISHED_COUNT = 5;
+    const CLEARED_COUNT = 3;
+    const published = await Promise.all(
+      Array.from({ length: PUBLISHED_COUNT }, (_unused, index) => publish({ pluginPkg: "concur", severity: "info", title: `t-${index}` })),
+    );
+    assert.equal(published.length, PUBLISHED_COUNT);
     // Concurrently clear three of them while two more publishes are
     // in flight; the queue's drainer batches them into one or two
     // load/save cycles. End state must reflect every operation.
     await Promise.all([
-      clear(published[0].id),
-      clear(published[1].id),
-      clear(published[2].id),
+      ...published.slice(0, CLEARED_COUNT).map((entry) => clear(entry.id)),
       publish({ pluginPkg: "concur", severity: "info", title: "extra-1" }),
       publish({ pluginPkg: "concur", severity: "info", title: "extra-2" }),
     ]);
@@ -355,15 +363,18 @@ describe("history", () => {
     await clear(id);
     const history = await listHistory();
     assert.equal(history.length, 1);
-    assert.equal(history[0].id, id);
-    assert.equal(history[0].terminalType, "cleared");
-    assert.match(history[0].terminalAt, /\d{4}-\d{2}-\d{2}T/);
+    const [head] = history;
+    assert.ok(head);
+    assert.equal(head.id, id);
+    assert.equal(head.terminalType, "cleared");
+    assert.match(head.terminalAt, /\d{4}-\d{2}-\d{2}T/);
   });
 
   it("captures cancelled entries with `cancelled` terminal type", async () => {
     const { id } = await publish({ pluginPkg: "x", severity: "info", title: "to cancel" });
     await cancel(id);
     const [head] = await listHistory();
+    assert.ok(head);
     assert.equal(head.terminalType, "cancelled");
   });
 
@@ -379,6 +390,7 @@ describe("history", () => {
     });
     await clear(id);
     const [head] = await listHistory();
+    assert.ok(head);
     assert.equal(head.title, "preserve me");
     assert.equal(head.severity, "urgent");
     assert.equal(head.lifecycle, "action");
@@ -402,6 +414,7 @@ describe("history", () => {
   });
 
   it("caps at 50 entries (FIFO eviction)", async () => {
+    const HISTORY_CAP = 50;
     const total = 55;
     const ids: string[] = [];
     for (let index = 0; index < total; index += 1) {
@@ -410,10 +423,14 @@ describe("history", () => {
     }
     for (const entryId of ids) await clear(entryId);
     const history = await listHistory();
-    assert.equal(history.length, 50);
+    assert.equal(history.length, HISTORY_CAP);
     // Newest at index 0; oldest 5 (titles t-0..t-4) should be evicted.
-    assert.equal(history[0].title, "t-54");
-    assert.equal(history[49].title, "t-5");
+    const [newest] = history;
+    const oldest = history[HISTORY_CAP - 1];
+    assert.ok(newest);
+    assert.ok(oldest);
+    assert.equal(newest.title, "t-54");
+    assert.equal(oldest.title, "t-5");
   });
 
   it("survives a path rebind (persists to disk)", async () => {
@@ -422,7 +439,9 @@ describe("history", () => {
     _setFilePathsForTesting({ active: activeFile, history: historyFile });
     const history = await listHistory();
     assert.equal(history.length, 1);
-    assert.equal(history[0].id, id);
+    const [head] = history;
+    assert.ok(head);
+    assert.equal(head.id, id);
   });
 
   it("does not record no-op clears (unknown id)", async () => {
@@ -561,7 +580,9 @@ describe("emit safety (pubsub fan-out failure isolation)", () => {
     await clear(idA);
     const entries = await listAll();
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].id, idB);
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.equal(entry.id, idB);
   });
 });
 
@@ -571,6 +592,7 @@ describe("clearForPlugin (per-plugin isolation)", () => {
     await clearForPlugin("@scope/owner", id);
     assert.equal(await get(id), undefined);
     const [terminal] = await listHistory();
+    assert.ok(terminal);
     assert.equal(terminal.id, id);
     assert.equal(terminal.terminalType, "cleared");
   });
@@ -635,6 +657,7 @@ describe("updateForPlugin (in-place state refresh)", () => {
     await updateForPlugin("@scope/owner", id, { title: "t2" });
     assert.equal(emittedEvents.length, 1);
     const [event] = emittedEvents;
+    assert.ok(event);
     assert.equal(event.type, "updated");
     if (event.type === "updated") {
       assert.equal(event.entry.id, id);
@@ -720,6 +743,7 @@ describe("updateForPlugin (in-place state refresh)", () => {
     await clearForPlugin("@scope/owner", id);
     assert.equal(await get(id), undefined, "entry removed by clear");
     const [terminal] = await listHistory();
+    assert.ok(terminal);
     assert.equal(terminal.id, id);
     assert.equal(terminal.title, "t2", "history records the LAST seen title before clear");
   });

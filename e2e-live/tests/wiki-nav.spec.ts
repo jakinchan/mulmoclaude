@@ -207,7 +207,7 @@ test.describe("wiki navigation (real workspace)", () => {
     // wiki page filename の規約は `[a-z0-9-]+` (`wikiSlugify` 出力)
     // で、大文字が混ざると resolver の `wikiSlugify(target)` と
     // on-disk key の case mismatch で fuzzy match が全滅する。
-    const testLabel = testInfo.title.split(":")[0].trim().toLowerCase();
+    const testLabel = (testInfo.title.split(":")[0] ?? "").trim().toLowerCase();
     const nonce = `${testLabel}-${Date.now()}-${randomUUID().slice(0, 6)}`;
     const targetSlug = `日本語タイトル-${projectSlug}-${nonce}`;
     const sourceSlug = `e2e-live-l15b-source-${projectSlug}-${nonce}`;

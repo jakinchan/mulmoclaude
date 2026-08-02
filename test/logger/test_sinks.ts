@@ -44,8 +44,11 @@ describe("createFileSink", () => {
     const contents = await readFile(path.join(dir, "server-2026-04-13.log"), "utf-8");
     const lines = contents.trim().split("\n");
     assert.equal(lines.length, 2);
-    const parsed0: { message: string } = JSON.parse(lines[0]);
-    const parsed1: { message: string } = JSON.parse(lines[1]);
+    const [firstLine, secondLine] = lines;
+    assert.ok(firstLine);
+    assert.ok(secondLine);
+    const parsed0: { message: string } = JSON.parse(firstLine);
+    const parsed1: { message: string } = JSON.parse(secondLine);
     assert.equal(parsed0.message, "first");
     assert.equal(parsed1.message, "second");
   });
