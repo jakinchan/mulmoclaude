@@ -66,8 +66,14 @@ export interface ServerSession {
    * Bounded by the number of tools, not by session length: one entry each,
    * overwritten. Holds only results that carried `data` — the bridge pushes
    * nothing else — so "latest" means "latest RENDERED result".
+   *
+   * A Map rather than a plain object because the key is a tool name off the
+   * wire: `obj["__proto__"] = x` reassigns the prototype instead of storing,
+   * and `obj["constructor"]` reads back the `Object` function rather than
+   * `undefined` — so a lookup could hand a plugin something that is not a
+   * ToolResult at all.
    */
-  latestToolResults: Record<string, ToolResult>;
+  latestToolResults: Map<string, ToolResult>;
 }
 
 // ── Constants ──────────────────────────────────────────────────
@@ -128,7 +134,7 @@ export function getOrCreateSession(
     updatedAt: opts.updatedAt,
     pendingGenerations: {},
     jsonlWriteQueue: Promise.resolve(),
-    latestToolResults: {},
+    latestToolResults: new Map(),
   };
   store.set(chatSessionId, session);
   return session;
@@ -549,7 +555,7 @@ function toToolResult(value: Record<string, unknown>): ToolResult {
  *  filing it under a key the next edit might read. */
 function rememberLatestToolResult(session: ServerSession, result: unknown): void {
   if (!hasStringProp(result, "toolName")) return;
-  session.latestToolResults[result.toolName] = toToolResult(result);
+  session.latestToolResults.set(result.toolName, toToolResult(result));
 }
 
 /** The most recent RENDERED result for one tool in one session, or null.
@@ -558,7 +564,7 @@ function rememberLatestToolResult(session: ServerSession, result: unknown): void
  *  a narrate-only call never reaches this cache. Lives in memory only —
  *  a restart loses it, which is the cost of not re-reading the JSONL. */
 export function latestToolResult(chatSessionId: string, toolName: string): ToolResult | null {
-  return store.get(chatSessionId)?.latestToolResults[toolName] ?? null;
+  return store.get(chatSessionId)?.latestToolResults.get(toolName) ?? null;
 }
 
 export async function pushToolResult(chatSessionId: string, result: unknown): Promise<PushToolResultOutcome> {

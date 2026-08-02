@@ -322,6 +322,28 @@ describe("latestToolResult (#2754 the next call has to see the previous result)"
     assert.equal(latestToolResult("s1", "createMindMap"), null);
   });
 
+  // The key is a tool name off the wire. In a plain object `obj["__proto__"] = x`
+  // reassigns the prototype instead of storing anything, and `obj["constructor"]`
+  // reads back the `Object` FUNCTION rather than undefined — so a lookup could
+  // hand a plugin something that is not a ToolResult at all. Both of these fail
+  // against a `Record`-backed cache. (Observed during Claude review; no bot
+  // flagged it.)
+  it("does not resolve a prototype key to something that is not a result", async () => {
+    getOrCreateSession("s1", opts());
+    await pushToolResult("s1", { toolName: "createMindMap", message: "m", data: {} });
+    assert.equal(latestToolResult("s1", "constructor"), null);
+    assert.equal(latestToolResult("s1", "toString"), null);
+    assert.equal(latestToolResult("s1", "__proto__"), null);
+  });
+
+  it("stores a prototype-named tool as an ordinary entry", async () => {
+    getOrCreateSession("s1", opts());
+    await pushToolResult("s1", { toolName: "__proto__", message: "m", data: { stored: true } });
+    assert.deepEqual(latestToolResult("s1", "__proto__")?.data, { stored: true });
+    // and it must not have leaked onto every other object
+    assert.equal(latestToolResult("s1", "createMindMap"), null);
+  });
+
   it("answers null for an unknown session or an untouched tool", async () => {
     getOrCreateSession("s1", opts());
     await pushToolResult("s1", { toolName: "createMindMap", message: "m", data: {} });
