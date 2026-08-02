@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/line",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "LINE bridge for MulmoBridge — connect a LINE bot to MulmoClaude",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,7 +24,7 @@
   "dependencies": {
     "@mulmobridge/client": "^1.0.1",
     "@mulmobridge/protocol": "^1.0.1",
-    "@mulmobridge/webhook-runtime": "^1.0.2",
+    "@mulmobridge/webhook-runtime": "^1.0.3",
     "dotenv": "^17.0.0",
     "express": "^5.1.0",
     "express-rate-limit": "^8.6.1"

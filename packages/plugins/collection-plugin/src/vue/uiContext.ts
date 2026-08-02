@@ -340,8 +340,13 @@ export interface CollectionUi {
   // ── optional host overrides ──
   /** Where the record modal teleports. Defaults to `"body"`; a Shadow-DOM host
    *  (e.g. MulmoTerminal) points it at an in-shadow node so the injected styles
-   *  still apply to the teleported modal. */
-  modalTeleportTarget?: () => string | HTMLElement;
+   *  still apply to the teleported modal.
+   *
+   *  `ShadowRoot` is in the union because that in-shadow node IS one: Vue's own
+   *  `TeleportProps.to` is `string | RendererElement`, which accepts it, and the
+   *  modal passes this value straight through. Without it a Shadow-DOM host — the
+   *  case this option exists for — cannot satisfy the type without a cast. */
+  modalTeleportTarget?: () => string | HTMLElement | ShadowRoot;
   /** Translate a batch of UI strings into the active locale via the host's
    *  `/api/translation` route (host: `apiPost`, global bearer attached). The
    *  contract is host-agnostic (`@mulmoclaude/core/translation/client`); the LLM

@@ -111,16 +111,18 @@ import { computed, ref, watch, onMounted, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
 import * as XLSX from "xlsx";
 import type { ToolResult } from "gui-chat-protocol";
-import type { SpreadsheetToolData, SpreadsheetSheet, SpreadsheetEndpoints } from "./definition";
+import type { SpreadsheetToolData, SpreadsheetSheet, SpreadsheetCellValue, StorableCell, SpreadsheetEndpoints } from "./definition";
 import {
   SpreadsheetEngine,
   prefersDayFirst,
   indexToColumn,
   extractCellReferences,
   buildCellFromInput,
+  normalizeData,
   decodeSpreadsheetResponse,
   findCellJsonPosition,
   type SpreadsheetCell,
+  type SheetData,
   type CellValue,
 } from "./engine";
 import { applyCellHighlights, clearCellHighlights } from "./cellHighlights";
@@ -134,7 +136,7 @@ import "./engine/functions";
 import { apiGet, apiPut } from "../../utils/api";
 import { pluginEndpoints } from "../api";
 import type { FilesContentResponseLike } from "./engine/responseDecoder";
-import { isObj, isRecord } from "../../utils/types";
+import { isObj, isRecord, isUnknownArray } from "../../utils/types";
 
 const endpoints = pluginEndpoints<SpreadsheetEndpoints>("spreadsheet");
 const filesEndpoints = pluginEndpoints<{ content: string }>("files");
@@ -210,6 +212,31 @@ function isFilePath(value: unknown): value is string {
   return typeof value === "string" && value.startsWith("artifacts/spreadsheets/") && value.endsWith(".json");
 }
 
+const isCellValue = (value: unknown): value is SpreadsheetCellValue => typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+
+// Each predicate claims exactly the union member it proves: `StorableCell`
+// covers the four forms a stored workbook holds — `{ v, f }`, an empty `{}` or
+// `{ v: null }`, a bare value, and a `null` gap — because `normalizeData`
+// folds all four and a reader that took only `{ v }` would reject workbooks
+// the app renders today.
+const isStorableCell = (value: unknown): value is StorableCell =>
+  value === null ||
+  isCellValue(value) ||
+  (isRecord(value) && (value.v === undefined || value.v === null || isCellValue(value.v)) && (value.f === undefined || typeof value.f === "string"));
+
+const isCellRow = (value: unknown): value is StorableCell[] => isUnknownArray(value) && value.every(isStorableCell);
+
+const isSheet = (value: unknown): value is SpreadsheetSheet =>
+  isRecord(value) && typeof value.name === "string" && isUnknownArray(value.data) && value.data.every(isCellRow);
+
+/** Sheets replayed from session JSONL, where the declared type is a claim
+ *  about whatever wrote the log rather than about this value. Taken whole or
+ *  rejected whole — dropping the unreadable half of a workbook would hide
+ *  part of a user's file behind cells that merely look empty. */
+function readReplayedSheets(value: unknown): SpreadsheetSheet[] | null {
+  return isUnknownArray(value) && value.every(isSheet) ? value : null;
+}
+
 // Editor textarea backing ref. Declared up here (rather than next to
 // the other view-state refs further down) so the `fetchSheets().then`
 // initializer below can assign to it without TDZ.
@@ -227,7 +254,9 @@ async function fetchSheets(): Promise<void> {
   }
   if (!isFilePath(raw)) {
     // Legacy inline data
-    resolvedSheets.value = raw as SpreadsheetSheet[];
+    const inline = readReplayedSheets(raw);
+    resolvedSheets.value = inline ?? [];
+    if (!inline) errorMessage.value = t("pluginSpreadsheet.dataMustBeArray");
     return;
   }
   loading.value = true;
@@ -246,7 +275,7 @@ async function fetchSheets(): Promise<void> {
     errorMessage.value = result.message;
     resolvedSheets.value = [];
   } else {
-    resolvedSheets.value = result.sheets as SpreadsheetSheet[];
+    resolvedSheets.value = result.sheets;
   }
   loading.value = false;
 }
@@ -318,15 +347,20 @@ const hasChanges = computed(() => {
 // Short alias used in the template column header.
 const indexToCol = indexToColumn;
 
+// `normalizeData` is the engine's own reader for the stored cell forms (bare
+// values, `null` gaps, flat rows); `calculate` runs it internally anyway, so
+// applying it here only meets the engine's declared type at the call site.
+const toEngineSheet = (sheet: SpreadsheetSheet): SheetData => ({ name: sheet.name, data: normalizeData(sheet.data) });
+
 // Calculate formulas in the data using the spreadsheet engine
-const calculateFormulas = (data: SpreadsheetCell[][], sheetName?: string): CellValue[][] => {
+const calculateFormulas = (data: StorableCell[][], sheetName?: string): CellValue[][] => {
   // If we have a sheet name, we need to find all sheets for cross-sheet references
-  const allSheets = resolvedSheets.value;
+  const allSheets = resolvedSheets.value.map(toEngineSheet);
 
   // Create a SheetData object for the engine
-  const sheet = {
+  const sheet: SheetData = {
     name: sheetName || "Sheet1",
-    data,
+    data: normalizeData(data),
   };
 
   // Read the date order from the current locale on every calculation, so a
@@ -542,14 +576,11 @@ function handleTableClick(event: MouseEvent) {
   // External http(s) links inside cells (XLSX hyperlink fields) —
   // open in a new tab instead of navigating the SPA away (#1221).
   if (handleExternalLinkClick(event)) return;
-  const target = event.target as HTMLElement;
-
-  // Check if clicked element is a table cell
-  if (target.tagName !== "TD") return;
-
-  // Get the row and column indices
-  const cell = target as HTMLTableCellElement;
-  const row = cell.parentElement as HTMLTableRowElement;
+  const cell = event.target;
+  // HTMLTableCellElement covers <th> too, and only data cells carry coordinates.
+  if (!(cell instanceof HTMLTableCellElement) || cell.tagName !== "TD") return;
+  const row = cell.parentElement;
+  if (!(row instanceof HTMLTableRowElement)) return;
 
   const colIndex = cell.cellIndex;
   const { rowIndex } = row;
