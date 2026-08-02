@@ -14,6 +14,7 @@
 // What it does NOT do: stop two hosts walking the same calendar at once. That
 // wastes API calls, but the records are upserts and the baseline is now safe,
 // so nothing is lost by it.
+import { hasStringProp } from "@mulmoclaude/common";
 import { open, readFile, stat, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { log } from "./host.js";
@@ -68,9 +69,7 @@ async function readLockRaw(lockPath: string): Promise<string | null> {
 function parseLock(raw: string): LockFile | null {
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return null;
-    const { holder } = parsed as Partial<LockFile>;
-    return typeof holder === "string" ? { holder } : null;
+    return hasStringProp(parsed, "holder") ? { holder: parsed.holder } : null;
   } catch {
     return null;
   }

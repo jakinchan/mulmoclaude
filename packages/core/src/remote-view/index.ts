@@ -20,6 +20,7 @@
 // (`{ items, total, offset, limit }`), or tighten limits a shipped view may
 // already rely on.
 
+import { isRecord } from "@mulmoclaude/common";
 import { projectRecordFields } from "../collection/core/project";
 
 /** Bump when the bootstrap/message contract changes shape; the bootstrap
@@ -293,8 +294,9 @@ export function normalizeMutate(data: { op?: unknown; id?: unknown; patch?: unkn
   if (!itemId) return null;
   if (data.op === "delete") return { op: "delete", id: itemId };
   if (data.op === "update") {
-    if (typeof data.patch !== "object" || data.patch === null || Array.isArray(data.patch)) return null;
-    return { op: "update", id: itemId, patch: data.patch as Record<string, unknown> };
+    const { patch } = data;
+    if (!isRecord(patch)) return null;
+    return { op: "update", id: itemId, patch };
   }
   return null;
 }
@@ -345,20 +347,8 @@ type RemoteViewReply = (message: Record<string, unknown>) => void;
  * was a remote-view request for this slug (callers ignore everything else).
  */
 export async function handleRemoteViewMessage(data: unknown, handlers: RemoteViewBridgeHandlers, reply: RemoteViewReply): Promise<boolean> {
-  if (typeof data !== "object" || data === null) return false;
-  const msg = data as {
-    type?: unknown;
-    slug?: unknown;
-    requestId?: unknown;
-    offset?: unknown;
-    limit?: unknown;
-    fields?: unknown;
-    op?: unknown;
-    id?: unknown;
-    patch?: unknown;
-    prompt?: unknown;
-    role?: unknown;
-  };
+  if (!isRecord(data)) return false;
+  const msg = data;
   if (msg.slug !== handlers.slug) return false;
   if (msg.type === REMOTE_VIEW_MESSAGES.startChat) {
     const prompt = typeof msg.prompt === "string" ? msg.prompt.trim() : "";
