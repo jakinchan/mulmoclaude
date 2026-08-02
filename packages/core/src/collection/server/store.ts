@@ -111,13 +111,13 @@ export interface CollectionStore {
    *  `core/queryZ.ts`) — present only on stores with a native query
    *  engine (the CSV store). Absent ⇒ use the engine-level fallback
    *  (`runCollectionQuery`), never emulate ad hoc. */
-  query?: (query: CollectionQuery) => Promise<Record<string, unknown>[]>;
+  query?: ((query: CollectionQuery) => Promise<Record<string, unknown>[]>) | undefined;
   /** Present ONLY when `capabilities.writable` — absence IS the read-only
    *  refusal (surface it with `readOnlyRefusal`). A successful write/delete
    *  publishes a collection-change event: the store always threads the
    *  collection's slug into the publish hook, so no writer can forget it. */
-  write?: (itemId: string, item: CollectionItem, opts?: WriteOptions) => Promise<WriteItemResult>;
-  delete?: (itemId: string) => Promise<DeleteItemResult>;
+  write?: ((itemId: string, item: CollectionItem, opts?: WriteOptions) => Promise<WriteItemResult>) | undefined;
+  delete?: ((itemId: string) => Promise<DeleteItemResult>) | undefined;
   /** Subscribe to changes made OUTSIDE this process — a file edited by the
    *  agent, a CSV replaced by the user, a db written by another tool.
    *

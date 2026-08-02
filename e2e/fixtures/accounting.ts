@@ -27,14 +27,14 @@ interface FakeAccount {
 
 interface FakeLine {
   accountCode: string;
-  debit?: number;
-  credit?: number;
-  memo?: string;
+  debit?: number | undefined;
+  credit?: number | undefined;
+  memo?: string | undefined;
   /** Counterparty tax-registration ID (JP T-number, EU VAT ID, …).
    *  Mirrors `JournalLine.taxRegistrationId` in
    *  server/accounting/types.ts so the mock dispatcher round-trips
    *  the same shape the production REST handler does. */
-  taxRegistrationId?: string;
+  taxRegistrationId?: string | undefined;
 }
 
 interface FakeEntry {
@@ -42,10 +42,10 @@ interface FakeEntry {
   date: string;
   kind: "normal" | "opening" | "void" | "void-marker";
   lines: FakeLine[];
-  memo?: string;
-  voidedEntryId?: string;
-  voidReason?: string;
-  replacesEntryId?: string;
+  memo?: string | undefined;
+  voidedEntryId?: string | undefined;
+  voidReason?: string | undefined;
+  replacesEntryId?: string | undefined;
   createdAt: string;
 }
 
@@ -484,18 +484,18 @@ export interface SeedJournalEntry {
 export interface AccountingSeedBook {
   id: string;
   name: string;
-  currency?: string;
-  country?: SupportedCountryCode;
+  currency?: string | undefined;
+  country?: SupportedCountryCode | undefined;
   /** Pre-seed an empty opening entry so the View's opening-gate
    *  doesn't kick in and hide the journal / newEntry tabs. The View
    *  treats any opening entry — even one with zero lines — as
    *  satisfying the gate. Tests that drive flows past the gate set
    *  this to true so they can land directly on those tabs. */
-  withEmptyOpening?: boolean;
+  withEmptyOpening?: boolean | undefined;
   /** Pre-seed normal journal entries on the book. Pushed after the
    *  empty-opening row so the journal renders in the same order as
    *  a real append: opening first, then these. */
-  entries?: readonly SeedJournalEntry[];
+  entries?: readonly SeedJournalEntry[] | undefined;
 }
 
 /** Register a mock /api/accounting route on `page`. The mock keeps
@@ -508,8 +508,8 @@ export interface AccountingSeedBook {
 export async function mockAccountingApi(
   page: Page,
   opts: {
-    books?: readonly AccountingSeedBook[];
-    reports?: { balanceSheet?: BalanceSheetMock; profitLoss?: ProfitLossMock; timeSeries?: TimeSeriesPointMock[] };
+    books?: readonly AccountingSeedBook[] | undefined;
+    reports?: { balanceSheet?: BalanceSheetMock; profitLoss?: ProfitLossMock; timeSeries?: TimeSeriesPointMock[] } | undefined;
   } = {},
 ): Promise<AccountingState> {
   const state = makeState();

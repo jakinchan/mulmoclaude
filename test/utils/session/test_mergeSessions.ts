@@ -34,15 +34,21 @@ function makeActive(overrides: Partial<ActiveSession> = {}): ActiveSession {
   };
 }
 
-function makeSummary(overrides: Partial<SessionSummary> = {}): SessionSummary {
-  return {
+/** Like `Partial<SessionSummary>` but accepts an explicit `undefined` — dropping
+ *  those is exactly what the override filter under test is expected to do. */
+type SummaryOverrides = { [K in keyof SessionSummary]?: SessionSummary[K] | undefined };
+
+function makeSummary(overrides: SummaryOverrides = {}): SessionSummary {
+  const base: SessionSummary = {
     id: "srv-1",
     roleId: "general",
     startedAt: "2026-04-09T10:00:00.000Z",
     updatedAt: "2026-04-09T10:05:00.000Z",
     preview: "first user message",
-    ...overrides,
   };
+  // `Object.assign`, not a spread: an override that is explicitly `undefined`
+  // must land on the summary as a PRESENT key, which is what these tests probe.
+  return Object.assign(base, overrides);
 }
 
 function makeUserTextResult(message: string): ToolResultComplete {

@@ -15,7 +15,7 @@ interface FakeRuntimeOpts {
 /** Build a faux `PluginRuntime` covering only the surface
  *  `client.ts` touches (`fetch` + `files.config.write` + `log`). */
 function makeFakeRuntime(opts: FakeRuntimeOpts) {
-  const calls: { url: string; method?: string; headers?: Record<string, string>; body?: string }[] = [];
+  const calls: { url: string; method?: string | undefined; headers?: Record<string, string> | undefined; body?: string | undefined }[] = [];
   const written: SpotifyTokens[] = [];
   const queue = [...opts.responses];
   return {

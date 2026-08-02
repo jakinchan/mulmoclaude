@@ -30,10 +30,10 @@ const BOOK_ID = "book-action-routing";
 interface SetupOpts {
   /** Override the default seed (one book with empty opening). Pass an
    *  empty array to test cold-load flows like createBook. */
-  books?: readonly AccountingSeedBook[];
+  books?: readonly AccountingSeedBook[] | undefined;
   /** Pre-seeded journal entries on BOOK_ID. Only honored when the
    *  default seed is used; otherwise pass them through `books`. */
-  entries?: readonly SeedJournalEntry[];
+  entries?: readonly SeedJournalEntry[] | undefined;
   /** Tool-result envelope to inject as the only non-text entry in the
    *  session transcript. */
   envelope: Record<string, unknown>;

@@ -36,5 +36,5 @@ export interface DashboardFile {
    *  (1-column) and wide (2-column) layouts independent, so resizing on
    *  one doesn't shift heights on the other. `0` (or a missing index)
    *  means that row uses the default height. */
-  rowHeights?: Record<string, number[]>;
+  rowHeights?: Record<string, number[]> | undefined;
 }

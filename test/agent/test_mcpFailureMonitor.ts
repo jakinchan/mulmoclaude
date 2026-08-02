@@ -17,7 +17,7 @@ interface CapturedPublish {
 interface CapturedWarn {
   event: string;
   message: string;
-  data?: Record<string, unknown>;
+  data?: Record<string, unknown> | undefined;
 }
 
 function makeSink() {

@@ -17,7 +17,7 @@ function toolResult(toolName: string, title: string | undefined, uuid: string): 
     toolName,
     uuid,
     message: title ?? toolName,
-    title,
+    ...(title !== undefined ? { title } : {}),
   };
 }
 

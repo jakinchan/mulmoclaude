@@ -21,9 +21,9 @@ import { mockAccountingApi, makeAccountingToolResult, type AccountingSeedBook, t
 const SESSION_ID = "accounting-reports-session";
 
 interface SetupOpts {
-  books?: readonly AccountingSeedBook[];
+  books?: readonly AccountingSeedBook[] | undefined;
   envelope: { bookId: string | null; initialTab?: string };
-  reports?: { balanceSheet?: BalanceSheetMock; profitLoss?: ProfitLossMock };
+  reports?: { balanceSheet?: BalanceSheetMock; profitLoss?: ProfitLossMock } | undefined;
 }
 
 async function setupSession(page: Page, opts: SetupOpts): Promise<void> {

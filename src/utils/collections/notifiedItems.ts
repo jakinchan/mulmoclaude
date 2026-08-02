@@ -25,8 +25,8 @@ function asSeverity(value: unknown): NotifierSeverity {
  *  `NotifierEntry` so callers can pass entries straight from
  *  `useNotifications()` without a cast. */
 export interface NotifiedEntryLike {
-  pluginData?: unknown;
-  severity?: string;
+  pluginData?: unknown | undefined;
+  severity?: string | undefined;
 }
 
 interface CollectionTarget {

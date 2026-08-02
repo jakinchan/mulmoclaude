@@ -32,7 +32,7 @@ let loadPromise: Promise<void> | null = null;
 
 interface DashboardResponse {
   tiles: DashboardTile[];
-  rowHeights?: Record<string, number[]>;
+  rowHeights?: Record<string, number[]> | undefined;
 }
 
 /** Snapshot of the mutable layout, for optimistic rollback. */

@@ -12,7 +12,7 @@ interface TestKeyboardEvent {
   defaultPrevented: boolean;
 }
 
-function fakeKeydown(opts: { key: string; shiftKey?: boolean; isComposing?: boolean }): TestKeyboardEvent {
+function fakeKeydown(opts: { key: string; shiftKey?: boolean | undefined; isComposing?: boolean | undefined }): TestKeyboardEvent {
   const evt: TestKeyboardEvent = {
     key: opts.key,
     shiftKey: opts.shiftKey ?? false,
@@ -155,7 +155,7 @@ describe("useImeAwareEnter", () => {
 });
 
 describe("useImeAwareEnter.isImeConfirmation", () => {
-  const enterEvent = (opts: { isComposing?: boolean }) => fakeKeydown({ key: "Enter", isComposing: opts.isComposing }) as unknown as KeyboardEvent;
+  const enterEvent = (opts: { isComposing?: boolean | undefined }) => fakeKeydown({ key: "Enter", isComposing: opts.isComposing }) as unknown as KeyboardEvent;
 
   it("is true mid-composition (event flag or internal flag)", () => {
     const { handlers } = setup();

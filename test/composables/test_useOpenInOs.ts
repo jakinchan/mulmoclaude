@@ -15,7 +15,7 @@ interface FetchStubResponse {
   jsonBody: unknown;
 }
 
-let fetchCalls: { url: string; init?: { method?: string; body?: string } }[] = [];
+let fetchCalls: { url: string; init?: { method?: string | undefined; body?: string | undefined } | undefined }[] = [];
 let nextResponse: FetchStubResponse = { status: 200, jsonBody: { ok: true } };
 let shouldThrow: Error | null = null;
 

@@ -20,7 +20,7 @@ interface LogCall {
   level: "info" | "warn" | "error";
   namespace: string;
   message: string;
-  data?: object;
+  data?: object | undefined;
 }
 
 const captured: LogCall[] = [];
