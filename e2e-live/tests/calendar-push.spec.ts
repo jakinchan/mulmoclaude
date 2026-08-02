@@ -3,8 +3,8 @@ import { expect, test } from "@playwright/test";
 import {
   createCalendarEvent,
   deleteCalendarEvent,
-  getCalendar,
   getCalendarEvent,
+  getCalendarMeta,
   getGoogleAccessToken,
   isGoogleApiError,
   listCalendars,
@@ -14,6 +14,7 @@ import {
   HTTP_CONFLICT,
   HTTP_FORBIDDEN,
   HTTP_PRECONDITION_FAILED,
+  type CalendarCollectionPushResult,
   type CalendarEventTime,
   type FetchedCalendarEvent,
 } from "@mulmoclaude/core/google";
@@ -41,7 +42,7 @@ import {
 //   L-GCAL-02  a duplicate client-set id answers 409, not 400            (item 1)
 //   L-GCAL-03  a stale etag answers 412, not 409/400                     (item 3)
 //   L-GCAL-04  an all-day event survives a date move as all-day          (item 4)
-//   L-GCAL-05  an unlisted calendar reports a timeZone and accepts writes (item 5)
+//   L-GCAL-05  an unlisted calendar reports zone + role and accepts writes  (item 5)
 //   L-GCAL-06  a calendar the account only reads answers 403             (item 6)
 //   L-GCAL-07  the real push creates, then stays quiet, then updates     (items 1, 2)
 //   L-GCAL-08  a read-only calendar is refused as a permissions problem  (item 6)
@@ -116,7 +117,7 @@ test.describe("Google Calendar contract behind the push (#2602)", () => {
   test("L-GCAL-01: client 指定の event id と offset 無し dateTime を Google が受ける (#2602 項目1,2)", async () => {
     const accessToken = await getGoogleAccessToken();
     const calendarId = calendarIdFrom(WRITABLE_CALENDAR_ENV);
-    const { timeZone } = await getCalendar(accessToken, calendarId);
+    const { timeZone } = await getCalendarMeta(accessToken, calendarId);
     expect(timeZone, "the calendar reports no timeZone, so a zone-less dateTime could never be pushed to it").not.toBe("");
 
     // Pinned, not merely passed through: if the push ever starts sending an
@@ -142,7 +143,7 @@ test.describe("Google Calendar contract behind the push (#2602)", () => {
   test("L-GCAL-02: 同じ client 指定 id での再 insert は 409 で返る (#2602 項目1)", async () => {
     const accessToken = await getGoogleAccessToken();
     const calendarId = calendarIdFrom(WRITABLE_CALENDAR_ENV);
-    const { timeZone } = await getCalendar(accessToken, calendarId);
+    const { timeZone } = await getCalendarMeta(accessToken, calendarId);
     const span = { start: pushTime(LOCAL_START, undefined, timeZone), end: pushTime(LOCAL_END, undefined, timeZone) };
 
     const eventId = newEventId();
@@ -160,7 +161,7 @@ test.describe("Google Calendar contract behind the push (#2602)", () => {
   test("L-GCAL-03: 古い etag での If-Match 書き込みは 412 で返る (#2602 項目3)", async () => {
     const accessToken = await getGoogleAccessToken();
     const calendarId = calendarIdFrom(WRITABLE_CALENDAR_ENV);
-    const { timeZone } = await getCalendar(accessToken, calendarId);
+    const { timeZone } = await getCalendarMeta(accessToken, calendarId);
     const span = { start: pushTime(LOCAL_START, undefined, timeZone), end: pushTime(LOCAL_END, undefined, timeZone) };
 
     const eventId = newEventId();
@@ -183,7 +184,7 @@ test.describe("Google Calendar contract behind the push (#2602)", () => {
   test("L-GCAL-04: 終日イベントは日付を動かしても終日のまま、exclusive end もずれない (#2602 項目4)", async () => {
     const accessToken = await getGoogleAccessToken();
     const calendarId = calendarIdFrom(WRITABLE_CALENDAR_ENV);
-    const { timeZone } = await getCalendar(accessToken, calendarId);
+    const { timeZone } = await getCalendarMeta(accessToken, calendarId);
 
     const eventId = newEventId();
     try {
@@ -231,9 +232,12 @@ test.describe("Google Calendar contract behind the push (#2602)", () => {
     ).not.toContain(unlisted);
 
     // #2600 iter-4 stopped treating "absent from calendarList" as read-only, on
-    // the assumption that the calendar resource still answers with a timezone.
-    const direct = await getCalendar(accessToken, unlisted);
+    // the assumption that the calendar still answers with a timezone. The role
+    // comes back too (#2735), which is what lets the up-front gate judge an
+    // unlisted calendar instead of waving it through.
+    const direct = await getCalendarMeta(accessToken, unlisted);
     expect(direct.timeZone).not.toBe("");
+    expect(["owner", "writer"]).toContain(direct.accessRole);
 
     const eventId = newEventId();
     try {
@@ -287,7 +291,20 @@ test.describe("Collection → Google push, end to end (#2602)", () => {
     const calendarId = calendarIdFrom(WRITABLE_CALENDAR_ENV);
     const eventId = newEventId();
     const workspace = await createCalendarCollectionWorkspace(calendarId);
-    const quiet = { slug: workspace.slug, created: 0, updated: 0, conflicts: 0, localDeletes: 0, skipped: [], errors: [] };
+    // Annotated, not inferred: the whole-object comparisons below are only as
+    // good as this literal, and an un-annotated one silently stops matching the
+    // result the day a field is added — which is how `unpushedIds` (#2620) went
+    // unnoticed until the suite was run live (#2735).
+    const quiet: CalendarCollectionPushResult = {
+      slug: workspace.slug,
+      created: 0,
+      updated: 0,
+      conflicts: 0,
+      localDeletes: 0,
+      skipped: [],
+      errors: [],
+      unpushedIds: [],
+    };
 
     try {
       await workspace.putRecord(eventId, {
@@ -346,9 +363,10 @@ test.describe("Collection → Google push, end to end (#2602)", () => {
 
       // The up-front role gate, not the per-event 403: a subscribed read-only
       // calendar IS in the calendar list, so the push learns the real reason
-      // before it writes anything. The 403 branch in `writeFailure` is only
-      // reachable for a calendar that is unlisted AND unwritable, which needs a
-      // second account to set up — L-GCAL-06 pins Google's status for it.
+      // before it writes anything. Since #2735 an UNLISTED read-only calendar
+      // reaches the same gate — `events.list` reports its role — so the 403
+      // branch in `writeFailure` is now only reachable when Google reports no
+      // role at all and still refuses the write. L-GCAL-06 pins its status.
       const outcome = await pushCalendarForCollection(workspace.slug, workspace.root);
       if (outcome.kind !== "read-only") throw new Error(`expected a read-only outcome, got ${JSON.stringify(outcome)}`);
       expect(["reader", "freeBusyReader"]).toContain(outcome.accessRole);

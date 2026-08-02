@@ -447,6 +447,21 @@ export default [
       "vue/no-useless-v-bind": "error",
       "vue/prefer-true-attribute-shorthand": "error",
       "vue/no-empty-component-block": "error",
+      // The `as`-cast ban reaches `<script>` only: typescript-eslint's rules
+      // never visit the TEMPLATE body, which `vue-eslint-parser` exposes as a
+      // separate AST. `@change="…($event.target as HTMLInputElement).value"`
+      // was therefore invisible to `consistent-type-assertions` — 18 of them
+      // across host and plugin components (#2692). `vue/no-restricted-syntax`
+      // is the one rule that does walk that AST, so the same ban is spelled
+      // here as a selector. `warn` matches the script-side severity; both
+      // graduate together.
+      "vue/no-restricted-syntax": [
+        "warn",
+        {
+          selector: "TSAsExpression",
+          message: "Do not use any type assertions — narrow in <script> and pass the result to the template.",
+        },
+      ],
     },
   },
   // Plugin import restrictions — codify the loose-coupling pattern
@@ -631,6 +646,66 @@ export default [
       // secret check, and the JSON one is followed by `.length`. The rule's
       // premise only holds once `noUncheckedIndexedAccess` is on — revisit then.
       "sonarjs/different-types-comparison": "off",
+    },
+  },
+  // Per-package ratchet for the `as`-cast ban (#2692). The rule is `warn`
+  // repo-wide while the backlog drains; these packages are already at ZERO,
+  // so a new cast in them is a regression rather than a known debt — and the
+  // only thing that stops the drained set from refilling behind the drain.
+  //
+  // Verified at zero when added; `packages/relay`'s last one went in the same
+  // PR. Extend this list as a directory reaches zero, and delete the block
+  // once the repo-wide setting itself graduates to `error`.
+  {
+    files: [
+      "packages/chat-service/**/*.ts",
+      "packages/client/**/*.ts",
+      "packages/common/**/*.ts",
+      "packages/create-mulmoclaude-plugin/**/*.ts",
+      "packages/mock-server/**/*.ts",
+      "packages/protocol/**/*.ts",
+      "packages/relay/**/*.ts",
+      "packages/scheduler/**/*.ts",
+      "packages/web-push/**/*.ts",
+      "packages/webhook-runtime/**/*.ts",
+    ],
+    // Tests keep the permissive setting the test override below grants them;
+    // this block covers source only, so it must not reach `**/test/**`.
+    ignores: ["packages/*/test/**", "packages/*/**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
+    },
+  },
+  // Build + release scripts. `yarn lint` never reached them, so 21 files that
+  // CI depends on — the build driver, the launcher sync gate, the npm smoke
+  // check — carried no lint at all (#2736).
+  //
+  // They run on Node at build time over files this repo owns, never over a
+  // request, so the rules that are about app-code readability at scale are
+  // relaxed here rather than forcing a rewrite of working tooling. Everything
+  // that catches a real defect — the `as` ban, unused vars, `prefer-const`,
+  // `eqeqeq`, the security tripwires — stays on.
+  {
+    files: ["scripts/**/*.{ts,mts,mjs,js}", "batch/**/*.ts", "config/**/*.mjs"],
+    languageOptions: {
+      globals: { ...globals.node, NodeJS: "readonly" },
+    },
+    rules: {
+      // A build script's audience is whoever is debugging the build, and its
+      // shape follows the tool it drives; `main()` reading top-to-bottom is
+      // clearer here than the same logic split across six named helpers.
+      complexity: "off",
+      "sonarjs/cognitive-complexity": "off",
+      "max-lines-per-function": "off",
+      // `fs`, `os`, `sh`, `pkg` are the idiom in this layer.
+      "id-length": "off",
+      // These regexes match this repo's own package.json fields and TS import
+      // statements at build time. Input is repo-owned, so backtracking cost is
+      // a build-speed question, not a denial-of-service one — kept as warnings
+      // so a genuinely new pattern still surfaces at review.
+      "sonarjs/super-linear-regex": "warn",
+      "sonarjs/regex-complexity": "warn",
+      "security/detect-unsafe-regex": "warn",
     },
   },
   eslintConfigPrettier,

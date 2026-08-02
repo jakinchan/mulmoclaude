@@ -4,12 +4,25 @@
 // dependency-free so either side can import it; extracted to kill the
 // jscpd duplicate the two copies were.
 
+//  Pruning a shallow copy keeps the caller's record type; rebuilding the object
+//  from `Object.entries` would only ever be a `Record<string, unknown>`.
+//  `Reflect.ownKeys` rather than `Object.keys` because the spread also copies
+//  enumerable SYMBOL keys, and a symbol can never be one of the requested
+//  `fields` — leaving it would return data the caller did not select.
+function withOnlyKeys<T extends Record<string, unknown>>(item: T, keep: Set<string>): T {
+  const pruned = { ...item };
+  Reflect.ownKeys(pruned)
+    .filter((key) => typeof key !== "string" || !keep.has(key))
+    .forEach((key) => Reflect.deleteProperty(pruned, key));
+  return pruned;
+}
+
 /** Keep only `fields` (+ `primaryKey`, always) on each record. No `fields`
  *  ⇒ records pass through untouched. */
 export function projectRecordFields<T extends Record<string, unknown>>(items: T[], fields: readonly string[] | undefined, primaryKey: string): T[] {
   if (!fields) return items;
   const keep = new Set([primaryKey, ...fields]);
-  return items.map((item) => Object.fromEntries(Object.entries(item).filter(([key]) => keep.has(key))) as T);
+  return items.map((item) => withOnlyKeys(item, keep));
 }
 
 /** Retrieved values laid over whatever the record already holds.

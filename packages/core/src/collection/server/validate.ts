@@ -15,7 +15,7 @@ import { storeFor } from "./store";
 import { firstRecordProblem, type RecordCheckTier } from "../core/recordZ";
 import type { LoadedCollection } from "./discoveredCollection";
 import type { CollectionItem, CollectionSchema } from "../core/schema";
-import { isErrorWithCode } from "@mulmoclaude/common";
+import { isErrorWithCode, isRecord } from "@mulmoclaude/common";
 
 // The compiled record validators (and COMPUTED_TYPES, which moved next to
 // them) live in the isomorphic ../core/recordZ; re-exported here so the
@@ -124,14 +124,14 @@ async function inspectRecord(fullPath: string, name: string, schema: CollectionS
       problem: `invalid JSON (${reason}) — SKIPPED, won't appear. Usual cause: an unescaped " inside a string value; use 「」/『』 or write \\" instead.`,
     };
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     return { file: name, problem: "not a JSON object — skipped, won't appear" };
   }
   // "strict" tier: the file scan is REPORT-ONLY (surfaced through
   // presentCollection / the detail response), so it lints the per-type
   // rules the write gate does not yet enforce — legacy records written
   // under the loose rules get reported here, never rejected on write.
-  const problem = validateRecordObject(parsed as CollectionItem, name.replace(/\.json$/, ""), schema, "strict");
+  const problem = validateRecordObject(parsed, name.replace(/\.json$/, ""), schema, "strict");
   return problem ? { file: name, problem } : null;
 }
 

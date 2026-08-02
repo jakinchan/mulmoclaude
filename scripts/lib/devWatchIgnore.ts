@@ -73,7 +73,10 @@ export const devWatchIgnoredPrefixes = (options: DevWatchIgnoreOptions): string[
 const isPackageDist = (candidate: string, projectRoot: string): boolean => {
   const packagesRoot = path.posix.join(projectRoot, "packages");
   if (!isInside(candidate, packagesRoot)) return false;
-  return candidate.slice(packagesRoot.length + 1).split("/").includes("dist");
+  return candidate
+    .slice(packagesRoot.length + 1)
+    .split("/")
+    .includes("dist");
 };
 
 /** Predicate for Vite's `server.watch.ignored` (anymatch-compatible). */

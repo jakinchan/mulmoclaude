@@ -24,7 +24,7 @@
 // — the serviceUrl varies per region and we carry it through via the
 // existing RelayMessage.replyToken channel (opaque to the relay core).
 
-import { isRecord } from "@mulmoclaude/common";
+import { hasNumberProp, hasStringProp, isRecord } from "@mulmoclaude/common";
 import { PLATFORMS, type RelayMessage, type Env } from "../types.js";
 import { registerPlatform, CONNECTION_MODES, type PlatformPlugin } from "../platform.js";
 import { ONE_HOUR_MS, ONE_HOUR_S, TEN_SECONDS_MS } from "../time.js";
@@ -237,11 +237,11 @@ async function getAccessToken(env: Env): Promise<string> {
   if (!res.ok) {
     throw new Error(`Teams token exchange failed: ${res.status}`);
   }
-  const data = (await res.json()) as { access_token?: string; expires_in?: number };
-  if (typeof data.access_token !== "string") {
+  const data: unknown = await res.json();
+  if (!hasStringProp(data, "access_token")) {
     throw new Error("Teams token response missing access_token");
   }
-  const ttlSec = typeof data.expires_in === "number" ? data.expires_in : ONE_HOUR_S;
+  const ttlSec = hasNumberProp(data, "expires_in") ? data.expires_in : ONE_HOUR_S;
   tokenCache = { token: data.access_token, expiresAt: now + ttlSec };
   return data.access_token;
 }

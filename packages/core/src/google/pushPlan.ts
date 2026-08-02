@@ -16,7 +16,7 @@ export const PUSHABLE_SOURCE_FIELDS = ["summary", "start", "end", "colorId", "de
 
 export type PushableSourceField = (typeof PUSHABLE_SOURCE_FIELDS)[number];
 
-const isPushableSource = (source: string): source is PushableSourceField => (PUSHABLE_SOURCE_FIELDS as readonly string[]).includes(source);
+const isPushableSource = (source: string): source is PushableSourceField => PUSHABLE_SOURCE_FIELDS.some((field) => field === source);
 
 /** The subset of a schema's `map` a push can act on: collection field → event field. */
 export function pushableMap(map: Record<string, string>): Record<string, PushableSourceField> {

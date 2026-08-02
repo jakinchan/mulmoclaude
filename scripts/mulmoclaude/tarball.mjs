@@ -61,7 +61,7 @@ export function allocateRandomPort() {
         reject(new Error("allocateRandomPort: server.address() returned null"));
         return;
       }
-      const port = address.port;
+      const { port } = address;
       server.close(() => resolve(port));
     });
   });
@@ -378,7 +378,7 @@ export async function probeRuntimePlugins({
 // single-shot probe — callers see the result without it (keeps the
 // public shape stable for unit tests and the smoke driver).
 function stripRetryable(result) {
-  const { retryable: _retryable, ...rest } = result;
+  const { retryable: __retryable, ...rest } = result;
   return rest;
 }
 
@@ -423,7 +423,13 @@ async function runRuntimePluginsProbeOnce({ port, token, fetchImpl, expectedDevP
       // The race we're actually fixing: route is wired, body shape
       // is right, but the IIFE hasn't registered yet. Retry.
       const seen = body.plugins.map((entry) => `${entry.name}@${entry.version}`).join(", ");
-      return { ok: false, status: 200, plugins: body.plugins.length, lastError: `dev plugin "${expectedDevPlugin}@dev" not in list — saw: ${seen}`, retryable: true };
+      return {
+        ok: false,
+        status: 200,
+        plugins: body.plugins.length,
+        lastError: `dev plugin "${expectedDevPlugin}@dev" not in list — saw: ${seen}`,
+        retryable: true,
+      };
     }
   }
   return { ok: true, status: 200, plugins: body.plugins.length, lastError: null, retryable: false };
@@ -619,7 +625,7 @@ export async function runTarballSmoke({
     }
     const resolvedPort = port ?? (await allocateRandomPort());
     const booted = await bootAndProbe({ workDir: runDir, port: resolvedPort, bootTimeoutMs, logFile: resolvedLog, extraArgs });
-    child = booted.child;
+    ({ child } = booted);
     let pluginProbe = null;
     if (booted.probe.ok) {
       const token = await readTokenFromLauncherLog({ logFile: resolvedLog });
@@ -632,7 +638,7 @@ export async function runTarballSmoke({
       port: resolvedPort,
       attempts: booted.probe.attempts,
       elapsedMs: booted.probe.elapsedMs,
-      lastError: overallOk ? null : (pluginProbe && !pluginProbe.ok ? `runtime plugin probe failed: ${pluginProbe.lastError}` : booted.probe.lastError),
+      lastError: overallOk ? null : pluginProbe && !pluginProbe.ok ? `runtime plugin probe failed: ${pluginProbe.lastError}` : booted.probe.lastError,
       tarballPath,
       workDir: runDir,
       logFile: resolvedLog,
@@ -661,7 +667,9 @@ export async function runTarballSmoke({
 export async function main() {
   const result = await runTarballSmoke();
   if (result.ok) {
-    console.log(`[mulmoclaude:tarball] OK — HTTP 200 on port ${result.port} after ${result.attempts} attempt(s) (${result.elapsedMs}ms); runtime plugins=${result.pluginProbe?.plugins ?? 0}`);
+    console.log(
+      `[mulmoclaude:tarball] OK — HTTP 200 on port ${result.port} after ${result.attempts} attempt(s) (${result.elapsedMs}ms); runtime plugins=${result.pluginProbe?.plugins ?? 0}`,
+    );
     return 0;
   }
   console.error(`[mulmoclaude:tarball] FAIL — ${result.lastError}`);

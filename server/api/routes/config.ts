@@ -29,7 +29,13 @@ import { loadReferenceDirs, saveReferenceDirs, validateReferenceDirs, type Refer
 
 // ── Scheduler overrides (#493) ──────────────────────────────────
 
-import { loadSchedulerOverrides, saveSchedulerOverrides, UTC_HH_MM_RE, type ScheduleOverrides } from "../../utils/files/scheduler-overrides-io.js";
+import {
+  keepValidOverrides,
+  loadSchedulerOverrides,
+  saveSchedulerOverrides,
+  UTC_HH_MM_RE,
+  type ScheduleOverrides,
+} from "../../utils/files/scheduler-overrides-io.js";
 import { applyScheduleOverride } from "../../events/scheduler-adapter.js";
 import { SCHEDULE_TYPES } from "@receptron/task-scheduler";
 import { ONE_SECOND_MS } from "../../utils/time.js";
@@ -291,7 +297,7 @@ router.put(
       badRequest(res, "overrides must be an object");
       return;
     }
-    const overrides = raw as ScheduleOverrides;
+    const overrides = keepValidOverrides(raw);
     saveSchedulerOverrides(overrides);
 
     // Apply to running task-manager immediately

@@ -23,12 +23,11 @@ export type { RefreshResult } from "./refreshResult.js";
 const ONE_HOUR_MS = 3_600_000;
 const ONE_DAY_MS = 86_400_000;
 
-/** Feed schemas carry the rich `IngestSpec` (validated at discovery —
- *  `source === "feed"` requires `ingest`), but the canonical
- *  `CollectionSchema.ingest` only promises the minimal `CollectionIngest`.
- *  Narrow here so the engine can read the retrieval fields type-safely. */
+/** A feed's retrieval config, or undefined. `CollectionSchema.ingest` and the
+ *  engine's `IngestSpec` are both `IngestZ`'s inferred union, so this is a
+ *  rename, not a narrowing — the engine keeps its own vocabulary at the seam. */
 function feedIngest(schema: CollectionSchema): IngestSpec | undefined {
-  return schema.ingest as IngestSpec | undefined;
+  return schema.ingest;
 }
 
 /** A feed's store. `write`/`delete` are always present (discovery rejects

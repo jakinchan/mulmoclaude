@@ -8,7 +8,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { calendarPushBody, pushReadOnlyError, PUSH_NOT_DECLARED_ERROR, PUSH_NOT_LINKED_ERROR } from "../../server/api/routes/collectionCalendarPush.js";
-import { isDeniedAccessRole, type CalendarCollectionPushResult } from "@mulmoclaude/core/google";
+import { isDeniedAccessRole, reportedAccessRole, type CalendarCollectionPushResult } from "@mulmoclaude/core/google";
 
 const result = (overrides: Partial<CalendarCollectionPushResult> = {}): CalendarCollectionPushResult => ({
   slug: "my-schedule",
@@ -90,6 +90,20 @@ describe("isDeniedAccessRole — the up-front writability gate", () => {
   it("denies an unrecognised role rather than assuming it can write", () => {
     assert.equal(isDeniedAccessRole(""), true);
     assert.equal(isDeniedAccessRole("somethingNew"), true);
+  });
+});
+
+describe("reportedAccessRole — what an unlisted calendar says about itself", () => {
+  it("passes a reported role through, so an unlisted read-only calendar is refused up front", () => {
+    assert.equal(reportedAccessRole("writer"), "writer");
+    assert.equal(isDeniedAccessRole(reportedAccessRole("reader")), true);
+  });
+
+  // The pairing that matters: `""` reaching the gate unchanged would refuse
+  // every calendar Google declined to report a role for.
+  it("turns an unreported role into the unknown the gate lets through", () => {
+    assert.equal(reportedAccessRole(""), null);
+    assert.equal(isDeniedAccessRole(reportedAccessRole("")), false);
   });
 });
 

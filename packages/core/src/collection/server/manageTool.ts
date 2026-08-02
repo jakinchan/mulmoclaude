@@ -43,6 +43,7 @@
 // evaluation-only validation ablation are injected, and tests point the
 // whole tool at a tmpdir workspace via the same deps.
 
+import { isRecord, isStringArray, isUnknownArray } from "@mulmoclaude/common";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { COMPUTED_TYPES } from "../core/schema";
@@ -134,10 +135,10 @@ interface PutItemsArgs {
 
 function optionalStringArray(value: unknown, name: string): { ok: true; value?: string[] } | { ok: false; error: string } {
   if (value === undefined) return { ok: true };
-  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string" && entry.length > 0)) {
+  if (!isStringArray(value) || !value.every((entry) => entry.length > 0)) {
     return { ok: false, error: `manageCollection: \`${name}\` must be an array of non-empty strings when present.` };
   }
-  return { ok: true, value: value as string[] };
+  return { ok: true, value };
 }
 
 /** Project a record down to the requested fields. The primary key is
@@ -193,17 +194,18 @@ async function loadRequestedItems(
 }
 
 async function handleGetItems(collection: LoadedCollection, args: GetItemsArgs, deps: ManageCollectionDeps): Promise<string> {
-  const { items, missing } = await loadRequestedItems(collection, args.ids, deps);
-  if (!args.ids && !args.fields && items.length > MAX_UNSELECTIVE_ITEMS) {
+  const { ids, fields } = args;
+  const { items, missing } = await loadRequestedItems(collection, ids, deps);
+  if (!ids && !fields && items.length > MAX_UNSELECTIVE_ITEMS) {
     return `manageCollection: refused — '${collection.slug}' has ${items.length} records, over the unselective limit of ${MAX_UNSELECTIVE_ITEMS}. Pass \`ids\` for specific records or \`fields\` to project only the columns you need.`;
   }
   const enriched = await enrichItems(collection, items, deps);
-  const projected = args.fields ? enriched.map((item) => projectFields(item, args.fields as string[], collection.schema.primaryKey)) : enriched;
+  const projected = fields ? enriched.map((item) => projectFields(item, fields, collection.schema.primaryKey)) : enriched;
   // The warning scan reads every record file, so don't pay it on a
   // selective read that found everything it asked for — only a full
   // listing (where a malformed file silently looks absent) or a missing
   // requested id (where the scan explains WHY it's missing) needs it.
-  const warning = !args.ids || missing.length > 0 ? await recordIssuesWarning(collection, deps) : undefined;
+  const warning = !ids || missing.length > 0 ? await recordIssuesWarning(collection, deps) : undefined;
   return JSON.stringify({
     collection: collection.slug,
     count: projected.length,
@@ -378,19 +380,30 @@ async function deleteOneItem(removeItem: NonNullable<CollectionStore["delete"]>,
 
 function parseDeleteIds(args: Record<string, unknown>): string[] | string {
   const { ids } = args;
-  const valid = Array.isArray(ids) && ids.length > 0 && ids.every((entry) => typeof entry === "string" && entry.trim().length > 0);
+  const valid = isStringArray(ids) && ids.length > 0 && ids.every((entry) => entry.trim().length > 0);
   if (!valid) return "manageCollection: `ids` is required for deleteItems — a non-empty array of record ids.";
-  return ids as string[];
+  return ids;
+}
+
+const PUT_MODES: readonly PutMode[] = ["upsert", "create", "merge"];
+
+/** The requested write mode, defaulting when absent, or null when the caller
+ *  named a mode that doesn't exist. */
+function parsePutMode(mode: unknown): PutMode | null {
+  if (mode === undefined) return "upsert";
+  return PUT_MODES.find((candidate) => candidate === mode) ?? null;
+}
+
+function isRecordArray(value: unknown): value is CollectionItem[] {
+  return isUnknownArray(value) && value.every(isRecord);
 }
 
 function parsePutItems(args: Record<string, unknown>, slug: string): PutItemsArgs | string {
   const { items, mode } = args;
-  const validItems = Array.isArray(items) && items.length > 0 && items.every((entry) => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry));
-  if (!validItems) return "manageCollection: `items` is required for putItems — a non-empty array of record objects.";
-  if (mode !== undefined && mode !== "upsert" && mode !== "create" && mode !== "merge") {
-    return 'manageCollection: `mode` must be "upsert" (default), "create", or "merge".';
-  }
-  return { slug, items: items as CollectionItem[], mode: (mode as PutItemsArgs["mode"] | undefined) ?? "upsert" };
+  if (!isRecordArray(items) || items.length === 0) return "manageCollection: `items` is required for putItems — a non-empty array of record objects.";
+  const putMode = parsePutMode(mode);
+  if (putMode === null) return 'manageCollection: `mode` must be "upsert" (default), "create", or "merge".';
+  return { slug, items, mode: putMode };
 }
 
 /** The machine-readable workspace ontology: every collection with its

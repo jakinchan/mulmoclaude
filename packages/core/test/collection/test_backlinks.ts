@@ -58,6 +58,20 @@ test("dotted via is fail-soft: absent / non-array table field, or rows missing t
   assert.equal(viaMatches("characters.character", chapterEmpty, "hero"), false, "empty table");
 });
 
+test("a non-object table row matches nothing — never the row's own intrinsic members", () => {
+  // A `table` field stores row OBJECTS. Reading a column off a row that is a
+  // string / number / null used to reach through to the primitive's own
+  // members, so `via: "lines.length"` compared a string row's LENGTH against
+  // the record id and reported a backlink that does not exist. Rows are gated
+  // on being records now, so every non-object row is skipped instead.
+  assert.equal(viaMatches("lines.length", { lines: ["abc"] }, "3"), false, "a string row's `length` is not a ref value");
+  assert.equal(viaMatches("lines.ref", { lines: ["abc"] }, "abc"), false, "string row");
+  assert.equal(viaMatches("lines.ref", { lines: [42] }, "42"), false, "number row");
+  assert.equal(viaMatches("lines.ref", { lines: [null] }, "hero"), false, "null row");
+  // A malformed row alongside a good one must not hide the good one.
+  assert.equal(viaMatches("lines.ref", { lines: [null, "abc", { ref: "hero" }] }, "hero"), true, "valid row still matches");
+});
+
 test("an exact top-level key containing a dot keeps flat-match behavior (no nesting regression)", () => {
   // `schemaZ` allows field names with dots (`z.string()`), so a top-level ref
   // column literally named "client.id" must still match `item["client.id"]`

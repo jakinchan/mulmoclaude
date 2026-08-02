@@ -26,6 +26,7 @@
 // deliberately NOT exported through the browser barrel; the server surface
 // re-exports it via `../server/validate`.
 
+import { isRecord } from "@mulmoclaude/common";
 import { z } from "zod";
 import { coerceNumeric } from "./backlinks";
 import { parseIsoDate, parseIsoDateTime } from "./calendarGrid";
@@ -91,9 +92,9 @@ function strictTableProblem(key: string, spec: Extract<CollectionFieldSpec, { ty
   if (!Array.isArray(value)) return `'${key}' = '${String(value)}' is not an array of rows (a 'table' field stores an array of row objects)`;
   for (let index = 0; index < value.length; index++) {
     const row: unknown = value[index];
-    if (!row || typeof row !== "object" || Array.isArray(row)) return `'${key}' row ${index + 1} is not an object`;
+    if (!isRecord(row)) return `'${key}' row ${index + 1} is not an object`;
     for (const [subKey, subSpec] of Object.entries(spec.of)) {
-      const subValue = (row as Record<string, unknown>)[subKey];
+      const subValue = row[subKey];
       // Typed checks apply to PRESENT sub-values only — an empty optional
       // cell is fine, mirroring the top-level gate in `recordFieldProblem`.
       const problem = enforcedProblem(subKey, subSpec, subValue) ?? (isEmptyValue(subValue) ? null : strictTypeProblem(subKey, subSpec, subValue));

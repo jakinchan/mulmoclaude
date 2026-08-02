@@ -58,7 +58,7 @@ function signPayload(payloadB64: string, key: string): string {
  *  the least-privilege default `["read"]`; undefined requested ⇒ grant the
  *  full declared set. The result is `declared ∩ requested`. */
 export function clampCapabilities(declared: ViewCapability[] | undefined, requested: ViewCapability[] | undefined): ViewCapability[] {
-  const declaredCaps = declared && declared.length > 0 ? declared : (["read"] as ViewCapability[]);
+  const declaredCaps: ViewCapability[] = declared && declared.length > 0 ? declared : ["read"];
   const requestedCaps = requested && requested.length > 0 ? requested : declaredCaps;
   return declaredCaps.filter((cap) => requestedCaps.includes(cap));
 }

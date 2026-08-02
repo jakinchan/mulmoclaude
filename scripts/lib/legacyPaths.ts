@@ -19,8 +19,8 @@
 //     artifact file references — free-prose sentences mentioning
 //     "markdowns" in other contexts are left alone.
 
-const MARKDOWNS_RE = /(?<![\w/.\-])markdowns\/([\w.\-]+\.md)/g;
-const SPREADSHEETS_RE = /(?<![\w/.\-])spreadsheets\/([\w.\-]+\.json)/g;
+const MARKDOWNS_RE = /(?<![\w/.-])markdowns\/([\w.-]+\.md)/g;
+const SPREADSHEETS_RE = /(?<![\w/.-])spreadsheets\/([\w.-]+\.json)/g;
 
 export interface RewriteResult {
   text: string;
