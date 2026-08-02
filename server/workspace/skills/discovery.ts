@@ -96,11 +96,11 @@ export async function collectSkillsFromDir(root: string, source: SkillSource): P
 export interface DiscoverSkillsOptions {
   /** Absolute path to the user's ~/.claude/skills/. Overridable for
    *  tests that point at mkdtempSync trees. */
-  userDir?: string;
+  userDir?: string | undefined;
   /** Workspace root; project-level skills live at
    *  `<workspaceRoot>/.claude/skills/`. Passing undefined skips the
    *  project scope entirely. */
-  workspaceRoot?: string;
+  workspaceRoot?: string | undefined;
 }
 
 /**

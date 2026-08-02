@@ -264,7 +264,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
-import type { WikiData, WikiPageEntry, WikiEndpoints } from "./index";
+import type { WikiData, WikiDataPatch, WikiPageEntry, WikiEndpoints } from "./index";
 import { useFreshPluginData } from "../../composables/useFreshPluginData";
 import { usePdfDownload } from "../../composables/usePdfDownload";
 import { useMarkdownZip } from "../../composables/useMarkdownZip";
@@ -422,7 +422,7 @@ async function downloadZipFile() {
   await rawDownloadZip(content.value, filename, { baseDir: "data/wiki/pages", stripFrontmatter: true });
 }
 
-function applyWikiResult(data: Partial<WikiData> | undefined): void {
+function applyWikiResult(data: WikiDataPatch | undefined): void {
   action.value = data?.action ?? "index";
   title.value = data?.title ?? "Wiki";
   content.value = data?.content ?? "";
@@ -458,7 +458,7 @@ async function callApi(body: Record<string, unknown>) {
   }
 }
 
-const { refresh, abort: abortFreshFetch } = useFreshPluginData<Partial<WikiData>>({
+const { refresh, abort: abortFreshFetch } = useFreshPluginData<WikiDataPatch>({
   // Slug-aware: when the view is currently showing a specific page,
   // fetch that page by slug; otherwise fetch the index. Reads the
   // slug via `currentSlug()` so both mount paths are covered —

@@ -15,13 +15,13 @@ const router = Router();
 
 interface PresentSvgBody {
   svg: string;
-  title?: string;
+  title?: string | undefined;
 }
 
 interface PresentSvgSuccessResponse {
   message: string;
   instructions: string;
-  data: { title?: string; filePath: string };
+  data: { title?: string | undefined; filePath: string };
 }
 
 interface PresentSvgErrorResponse {

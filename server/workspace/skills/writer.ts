@@ -127,7 +127,7 @@ export interface DeleteSkillInput {
    *  guard consults. Real callers omit this and get the default
    *  `USER_SKILLS_DIR`; unit tests pass a temp dir to exercise the
    *  refusal path without touching the caller's home. */
-  userDir?: string;
+  userDir?: string | undefined;
 }
 
 export type DeleteResult =

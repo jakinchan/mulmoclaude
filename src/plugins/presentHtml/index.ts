@@ -15,6 +15,17 @@ import { htmlPreviewUrlFor } from "../../composables/useContentDisplay";
 // shape from "./index" keeps working while the type stays single-sourced.
 export type { PresentHtmlData };
 
+/** Inject the host-served preview URL so the host-agnostic package View can
+ *  point its iframe at the file's real URL (relative asset refs resolve
+ *  against it). Only for `artifacts/html/…`, which MulmoClaude serves from a
+ *  static mount; a page outside it drops the key so the View falls back to the
+ *  package's own `/htmlfile` URL, a scheme both hosts serve. */
+function withHostPreviewUrl(data: PresentHtmlData): PresentHtmlData {
+  const { previewUrl: __hostInjected, ...rest } = data;
+  const hostUrl = htmlPreviewUrlFor(data.filePath);
+  return hostUrl ? { ...rest, previewUrl: hostUrl } : rest;
+}
+
 const presentHtmlPlugin: ToolPlugin<PresentHtmlData> = {
   toolDefinition,
 
@@ -30,15 +41,9 @@ const presentHtmlPlugin: ToolPlugin<PresentHtmlData> = {
       };
     }
     const body = result.data;
-    // Inject the host-served preview URL so the host-agnostic package View can
-    // point its iframe at the file's real URL (relative asset refs resolve
-    // against it). Only for `artifacts/html/…`, which MulmoClaude serves from a
-    // static mount; a page outside it falls through to the package's own
-    // `/htmlfile` URL, a scheme both hosts serve.
-    const data = body.data ? { ...body.data, previewUrl: htmlPreviewUrlFor(body.data.filePath) ?? undefined } : body.data;
     return {
       ...body,
-      data,
+      ...(body.data ? { data: withHostPreviewUrl(body.data) } : {}),
       toolName: TOOL_NAME,
       uuid: makeUuid(),
     };

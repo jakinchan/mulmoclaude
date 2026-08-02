@@ -198,9 +198,9 @@ const props = defineProps<{
   /** Role's sample queries (already translated). Rendered as
    *  click-to-send suggestions in the empty state so a fresh stack
    *  chat matches the single-layout PageChatComposer experience. */
-  queries?: readonly string[];
-  sessionRoleName?: string;
-  sessionRoleIcon?: string;
+  queries?: readonly string[] | undefined;
+  sessionRoleName?: string | undefined;
+  sessionRoleIcon?: string | undefined;
   layoutMode: LayoutMode;
   showRightSidebar: boolean;
   /** Google Maps JS API key forwarded from `App.vue` to plugin Views

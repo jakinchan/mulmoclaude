@@ -32,11 +32,11 @@ export async function appendLogEntry(logsDir: string, entry: TaskLogEntry, deps:
 export async function queryLog(
   logsDir: string,
   opts: {
-    since?: string; // ISO — only entries after this time
-    taskId?: string;
-    limit?: number;
+    since?: string | undefined; // ISO — only entries after this time
+    taskId?: string | undefined;
+    limit?: number | undefined;
     /** Override "today" for testing. Defaults to `new Date()`. */
-    date?: Date;
+    date?: Date | undefined;
   },
   deps: LogDeps,
 ): Promise<TaskLogEntry[]> {

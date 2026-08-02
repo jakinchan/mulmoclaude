@@ -13,9 +13,9 @@ export interface RefreshResult {
   /** True when an agent-ingest run dispatched a worker (fire-and-forget): the
    *  records update later when the worker finishes. Absent/false for declarative
    *  feeds, which write records synchronously before returning. */
-  dispatched?: boolean;
+  dispatched?: boolean | undefined;
   /** The dispatched worker's chat session id. Set only for a VISIBLE (manual)
    *  agent-ingest run so the client can open the session to watch it; absent for
    *  hidden scheduled runs and declarative feeds. */
-  chatId?: string;
+  chatId?: string | undefined;
 }

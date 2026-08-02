@@ -17,8 +17,8 @@ let nextResult = true;
 
 describe("confirmItemDelete", () => {
   before(() => {
-    originalWindow = (globalThis as { window?: MinimalWindow }).window;
-    (globalThis as { window?: MinimalWindow }).window = {
+    originalWindow = (globalThis as { window?: MinimalWindow | undefined }).window;
+    (globalThis as { window?: MinimalWindow | undefined }).window = {
       confirm: (message?: string) => {
         lastMessage = message;
         return nextResult;
@@ -27,7 +27,7 @@ describe("confirmItemDelete", () => {
   });
 
   after(() => {
-    (globalThis as { window?: MinimalWindow }).window = originalWindow;
+    (globalThis as { window?: MinimalWindow | undefined }).window = originalWindow;
   });
 
   beforeEach(() => {

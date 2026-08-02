@@ -27,11 +27,11 @@ export interface NotifierEntry {
   id: string;
   pluginPkg: string;
   severity: "info" | "nudge" | "urgent";
-  lifecycle?: "fyi" | "action";
+  lifecycle?: "fyi" | "action" | undefined;
   title: string;
-  body?: string;
-  navigateTarget?: string;
-  pluginData?: unknown;
+  body?: string | undefined;
+  navigateTarget?: string | undefined;
+  pluginData?: unknown | undefined;
   createdAt: string;
 }
 

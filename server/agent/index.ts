@@ -21,9 +21,9 @@ export interface RunAgentOptions {
   workspacePath: string;
   sessionId: string;
   port: number;
-  claudeSessionId?: string;
+  claudeSessionId?: string | undefined;
   /** When aborted, the spawned Claude CLI process is killed. */
-  abortSignal?: AbortSignal;
+  abortSignal?: AbortSignal | undefined;
 }
 
 export interface RunAgentInput {
@@ -32,10 +32,10 @@ export interface RunAgentInput {
   workspacePath: string;
   sessionId: string;
   port: number;
-  claudeSessionId?: string;
-  abortSignal?: AbortSignal;
-  attachments?: Attachment[];
-  userTimezone?: string;
+  claudeSessionId?: string | undefined;
+  abortSignal?: AbortSignal | undefined;
+  attachments?: Attachment[] | undefined;
+  userTimezone?: string | undefined;
 }
 
 export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent> {

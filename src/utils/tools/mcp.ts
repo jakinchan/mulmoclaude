@@ -4,7 +4,7 @@
 // be unit-tested without Vue or fetch.
 
 export interface ToolDefinitionMetadata {
-  description?: string;
+  description?: string | undefined;
 }
 
 // Filter a role's plugin list down to the tools that are still

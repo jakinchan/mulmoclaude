@@ -43,17 +43,17 @@ export function validBeatIndex(value: unknown): value is number {
 export interface BeatOpArgs {
   filePath: string;
   beatIndex: number;
-  force?: boolean;
-  chatSessionId?: string;
+  force?: boolean | undefined;
+  chatSessionId?: string | undefined;
 }
 
 /** Untrusted request body: `filePath` / `beatIndex` are whatever JSON the
  *  client sent, so they stay `unknown` until the guards run. */
 export interface BeatOpBody {
-  filePath?: unknown;
-  beatIndex?: unknown;
-  force?: boolean;
-  chatSessionId?: string;
+  filePath?: unknown | undefined;
+  beatIndex?: unknown | undefined;
+  force?: boolean | undefined;
+  chatSessionId?: string | undefined;
 }
 
 export type BeatOpHandler<TBody> = (req: Request<object, unknown, BeatOpBody>, res: Response<TBody | ErrorResponse>) => Promise<void>;

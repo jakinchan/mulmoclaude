@@ -80,8 +80,7 @@
         :line-width="brushSize"
         :color="brushColor"
         background-color="#FFFFFF"
-        :background-image="backgroundImage"
-        :watermark="undefined"
+        v-bind="backgroundImage !== undefined ? { backgroundImage } : {}"
         save-as="png"
         :styles="{
           border: '1px solid #ddd',

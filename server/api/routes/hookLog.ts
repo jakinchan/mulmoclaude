@@ -28,10 +28,10 @@ import { isRecord } from "../../utils/types.js";
 type Level = "info" | "warn" | "error";
 
 interface HookLogBody {
-  namespace?: unknown;
-  message?: unknown;
-  level?: unknown;
-  data?: unknown;
+  namespace?: unknown | undefined;
+  message?: unknown | undefined;
+  level?: unknown | undefined;
+  data?: unknown | undefined;
 }
 
 const router = Router();
@@ -51,7 +51,7 @@ interface ValidatedHookLog {
   // parameter exactly — `object` would force a cast at the log
   // call site. The validator already narrows via `isRecord`, so the
   // tighter type also documents the gate visually.
-  data?: Record<string, unknown>;
+  data?: Record<string, unknown> | undefined;
 }
 
 // Pull validation into a helper so the route body stays under the

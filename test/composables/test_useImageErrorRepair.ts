@@ -176,14 +176,14 @@ describe("findRepairTarget", () => {
 // reads/writes. `getAttribute` / `setAttribute` mock keeps the test
 // in the same plain-JS shape as the <img> stand-in above.
 interface FakeSource {
-  srcset?: string;
+  srcset?: string | undefined;
   attrs: Record<string, string>;
   dataset: { imageRepairTried?: string };
   getAttribute: (name: string) => string | null;
   setAttribute: (name: string, value: string) => void;
 }
 
-function makeSource(opts: { srcset?: string; src?: string } = {}): FakeSource {
+function makeSource(opts: { srcset?: string | undefined; src?: string | undefined } = {}): FakeSource {
   const attrs: Record<string, string> = {};
   if (opts.src !== undefined) attrs.src = opts.src;
   return {

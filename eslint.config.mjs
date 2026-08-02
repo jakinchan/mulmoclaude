@@ -648,7 +648,8 @@ export default [
       "sonarjs/no-selector-parameter": "error",
       "sonarjs/no-undefined-argument": "error",
       "sonarjs/concise-regex": "error",
-      "sonarjs/no-redundant-optional": "error",
+      // `sonarjs/no-redundant-optional` left this list — see the repo-wide
+      // `off` at the bottom of this file for why the flag invalidates it.
       "sonarjs/no-try-promise": "error",
       "sonarjs/post-message": "error",
 
@@ -750,6 +751,15 @@ export default [
       "sonarjs/regex-complexity": "warn",
       "security/detect-unsafe-regex": "warn",
     },
+  },
+  // `x?: T | undefined` is not redundant under `exactOptionalPropertyTypes`:
+  // with that flag on, `x?: T` REJECTS an explicit `undefined` while
+  // `x?: T | undefined` accepts it, so the spelling this rule wants removed is
+  // the one that says "absent and undefined mean the same thing here". Off
+  // repo-wide rather than per-file — every tsconfig sets the flag.
+  // Turn it back on if the flag ever comes off.
+  {
+    rules: { "sonarjs/no-redundant-optional": "off" },
   },
   eslintConfigPrettier,
 ];

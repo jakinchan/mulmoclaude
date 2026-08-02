@@ -15,11 +15,11 @@ import {
 interface MockElement {
   tagName: string;
   dataset: { imageRepairTried?: string };
-  src?: string;
-  srcset?: string;
+  src?: string | undefined;
+  srcset?: string | undefined;
   attrs: Record<string, string | undefined>;
   children: MockElement[]; // simple "shadow tree" for the picture/audio/video case
-  parentPicture?: MockElement;
+  parentPicture?: MockElement | undefined;
   getAttribute: (name: string) => string | null;
   setAttribute: (name: string, value: string) => void;
   closest: (selector: string) => MockElement | null;

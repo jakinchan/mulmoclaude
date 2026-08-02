@@ -51,12 +51,12 @@ type MovieStatusResponse = { moviePath: string | null } | ErrorResponse;
 type PdfStatusResponse = { pdfPath: string | null } | ErrorResponse;
 
 interface BeatQuery {
-  filePath?: string;
-  beatIndex?: string;
+  filePath?: string | undefined;
+  beatIndex?: string | undefined;
 }
 
 interface FilePathQuery {
-  filePath?: string;
+  filePath?: string | undefined;
 }
 
 // Request values arrive untyped at runtime — query params can be arrays
@@ -229,7 +229,7 @@ bindRoute(
 
 interface GenerationRequestBody {
   filePath: string;
-  chatSessionId?: string;
+  chatSessionId?: string | undefined;
 }
 
 // Validate the `{ filePath }` body, run the ffmpeg guard, and resolve the
@@ -238,7 +238,7 @@ interface GenerationRequestBody {
 function resolveStoryRequest(
   req: Request<object, object, GenerationRequestBody>,
   res: Response,
-): { filePath: string; absoluteFilePath: string; chatSessionId?: string } | null {
+): { filePath: string; absoluteFilePath: string; chatSessionId?: string | undefined } | null {
   const { filePath, chatSessionId } = req.body;
   if (typeof filePath !== "string" || !filePath) {
     badRequest(res, "filePath is required");
@@ -297,15 +297,15 @@ bindRoute(router, API_ROUTES.mulmoScript.generateMovie, async (req: Request<obje
 });
 
 interface CharacterImageQuery {
-  filePath?: string;
-  key?: string;
+  filePath?: string | undefined;
+  key?: string | undefined;
 }
 
 interface RenderCharacterBody {
   filePath: string;
   key: string;
-  force?: boolean;
-  chatSessionId?: string;
+  force?: boolean | undefined;
+  chatSessionId?: string | undefined;
 }
 
 interface UploadCharacterImageBody {

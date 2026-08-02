@@ -48,11 +48,11 @@ router.post(API_ROUTES.share.pack, async (req: Request<object, unknown, PackBody
 });
 
 interface PackMarkdownBody {
-  markdown?: string;
-  filename?: string;
-  baseDir?: string;
-  stripFrontmatter?: boolean;
-  marp?: boolean;
+  markdown?: string | undefined;
+  filename?: string | undefined;
+  baseDir?: string | undefined;
+  stripFrontmatter?: boolean | undefined;
+  marp?: boolean | undefined;
 }
 
 // A shared markdown zip is opened directly by the recipient (unlike the

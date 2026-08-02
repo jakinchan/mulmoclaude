@@ -94,17 +94,17 @@ const HELPS_DIR = "config/helps";
  *  re-reads schema.json on every call, so only a live UI update is
  *  delayed, never the data). */
 export type ManageCollectionDeps = DiscoveryOptions & {
-  refreshAfterWrite?: () => Promise<void>;
+  refreshAfterWrite?: (() => Promise<void>) | undefined;
   /** Evaluation-only: skip pre-write record validation in putItems and
    *  the getItems record-issue scan. MulmoClaude's production singleton
    *  binds this from its ablation env; leave unset everywhere else. */
-  ablateValidation?: boolean;
+  ablateValidation?: boolean | undefined;
   /** The host's bundled help-docs dir (workspace-setup's `helpsAssetDir()`)
    *  — the `schemaDocs` fallback when the workspace has no `config/helps`
    *  copy. Injected because that module is ESM-only (`import.meta.url`)
    *  while this entry builds dual ESM+CJS. Omitted, only the workspace
    *  copy is tried. */
-  bundledHelpsDir?: () => string;
+  bundledHelpsDir?: (() => string) | undefined;
 };
 
 /** Resolve the workspace root the same way every collections call does:
@@ -121,8 +121,8 @@ function unknownCollection(slug: string): string {
 
 interface GetItemsArgs {
   slug: string;
-  ids?: string[];
-  fields?: string[];
+  ids?: string[] | undefined;
+  fields?: string[] | undefined;
 }
 
 type PutMode = "upsert" | "create" | "merge";

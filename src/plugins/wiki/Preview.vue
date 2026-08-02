@@ -15,7 +15,7 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
-import type { WikiData, WikiPageEntry, WikiEndpoints } from "./index";
+import type { WikiData, WikiDataPatch, WikiPageEntry, WikiEndpoints } from "./index";
 import { useFreshPluginData } from "../../composables/useFreshPluginData";
 import { pluginEndpoints } from "../api";
 import { extractWikiData } from "./parseWikiResponse";
@@ -30,7 +30,7 @@ const action = ref(props.result.data?.action ?? "index");
 const title = ref(props.result.data?.title ?? "Wiki");
 const pageEntries = ref<WikiPageEntry[]>(props.result.data?.pageEntries ?? []);
 
-const { refresh } = useFreshPluginData<Partial<WikiData>>({
+const { refresh } = useFreshPluginData<WikiDataPatch>({
   endpoint: () => wikiEndpoints.base,
   extract: extractWikiData,
   apply: (data) => {

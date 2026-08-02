@@ -21,17 +21,17 @@ function jsonlRel(sessionId: string): string {
 }
 
 export interface SessionMeta {
-  roleId?: string;
-  startedAt?: string;
-  firstUserMessage?: string;
-  claudeSessionId?: string;
-  hasUnread?: boolean;
-  isBookmarked?: boolean;
-  origin?: SessionOrigin;
+  roleId?: string | undefined;
+  startedAt?: string | undefined;
+  firstUserMessage?: string | undefined;
+  claudeSessionId?: string | undefined;
+  hasUnread?: boolean | undefined;
+  isBookmarked?: boolean | undefined;
+  origin?: SessionOrigin | undefined;
   /** Number of user turns (queries) sent to this session. Bumped once
    *  per user message so a one-shot session (1) can be told apart from
    *  a long-running conversation. */
-  userQueryCount?: number;
+  userQueryCount?: number | undefined;
   [key: string]: unknown;
 }
 
@@ -98,7 +98,7 @@ export async function createSessionMeta(sessionId: string, roleId: string, first
   await writeSessionMeta(sessionId, meta, rootOverride);
 }
 
-export async function backfillOrigin(sessionId: string, origin: SessionMeta["origin"], rootOverride?: string): Promise<void> {
+export async function backfillOrigin(sessionId: string, origin: NonNullable<SessionMeta["origin"]>, rootOverride?: string): Promise<void> {
   const meta = await readSessionMeta(sessionId, rootOverride);
   if (!meta || meta.origin) return; // already set
   await writeSessionMeta(sessionId, { ...meta, origin }, rootOverride);

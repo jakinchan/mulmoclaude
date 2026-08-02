@@ -64,9 +64,9 @@ export interface TaskDefinition {
 
 export interface TaskSummary {
   id: string;
-  description?: string;
+  description?: string | undefined;
   schedule: TaskSchedule;
-  dependsOn?: string;
+  dependsOn?: string | undefined;
 }
 
 export interface ITaskManager {

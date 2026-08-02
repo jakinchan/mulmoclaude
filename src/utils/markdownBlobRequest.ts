@@ -14,18 +14,18 @@ export interface MarkdownRenderOptions {
    *  `"data/wiki/pages"` for Wiki pages). The server uses it to
    *  resolve relative `<img>` references to the right base path
    *  before inlining. Omit for the legacy `markdowns/` default. */
-  baseDir?: string;
+  baseDir?: string | undefined;
   /** When true, the server strips a leading YAML frontmatter envelope
    *  (`---\n…\n---\n`) before rendering, so the YAML header doesn't
    *  appear as plain text on page 1. Wiki pages set this. Other callers
    *  leave it false so a chat-generated document that literally starts
    *  with `---` is preserved. */
-  stripFrontmatter?: boolean;
+  stripFrontmatter?: boolean | undefined;
   /** When true, the server renders the markdown via Marp (slide deck,
    *  one slide per page, 16:9) instead of the default paged markdown
    *  layout. Caller sets this when the source has `marp: true` in its
    *  frontmatter. */
-  marp?: boolean;
+  marp?: boolean | undefined;
 }
 
 /** Rejects on network errors. Does NOT check `response.ok` — that branch

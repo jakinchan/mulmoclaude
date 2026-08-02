@@ -194,12 +194,12 @@ export interface DiscoveryOptions {
    *  `mkdtempSync` tree so they don't touch the user's real
    *  `~/mulmoclaude/`. Mirrors the pattern in
    *  `server/workspace/skills/catalog.ts#CatalogOptions`. */
-  workspaceRoot?: string;
+  workspaceRoot?: string | undefined;
   /** Override `~/.claude/skills/` for tests. Production callers
    *  leave this unset. Without an override, even a test-scoped
    *  workspaceRoot still scans the real user home — which can leak
    *  unrelated skills into the result. */
-  userSkillsDir?: string;
+  userSkillsDir?: string | undefined;
 }
 
 /** Discover every schema-driven collection available to this

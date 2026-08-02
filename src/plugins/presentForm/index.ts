@@ -17,10 +17,12 @@ import { TOOL_NAME } from "./definition";
 // hiding it.
 const pkg: ToolPlugin<FormData, FormData, FormArgs> = formPlugin;
 
+// A slot the package doesn't export stays ABSENT rather than becoming an
+// explicit `undefined` — `ToolPlugin` treats the two differently.
 const presentFormPlugin: ToolPlugin<FormData, FormData, FormArgs> = {
   ...pkg,
-  viewComponent: wrapWithScope("form", pkg.viewComponent),
-  previewComponent: wrapWithScope("form", pkg.previewComponent),
+  ...(pkg.viewComponent ? { viewComponent: wrapWithScope("form", pkg.viewComponent) } : {}),
+  ...(pkg.previewComponent ? { previewComponent: wrapWithScope("form", pkg.previewComponent) } : {}),
 };
 export { TOOL_NAME };
 

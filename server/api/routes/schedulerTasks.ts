@@ -193,9 +193,9 @@ bindRoute(
 // ── Execution logs ──────────────────────────────────────────────
 
 interface LogQuery {
-  since?: string;
-  taskId?: string;
-  limit?: string;
+  since?: string | undefined;
+  taskId?: string | undefined;
+  limit?: string | undefined;
 }
 
 bindRoute(

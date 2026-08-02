@@ -9,6 +9,7 @@
     "outDir": "../dist/server",
     "rootDir": "..",
     "strict": true,
+    "exactOptionalPropertyTypes": true,
     "useUnknownInCatchVariables": true,
     "noImplicitReturns": true,
     "noImplicitOverride": true,

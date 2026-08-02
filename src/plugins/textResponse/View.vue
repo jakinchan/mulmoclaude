@@ -152,14 +152,14 @@ const appApi = useAppApi();
 const props = withDefaults(
   defineProps<{
     selectedResult: ToolResultComplete<TextResponseData>;
-    editable?: boolean;
+    editable?: boolean | undefined;
     // When set, the editor textarea edits this string instead of the
     // displayed `data.text`. FilesView uses it to feed the editor the
     // raw on-disk source (with frontmatter intact, no image-URL
     // rewriting) while the rendered pane keeps showing the cleaned-up
     // display text. Callers listen for `updateSource` to receive the
     // edited source and handle persistence themselves.
-    editableSource?: string;
+    editableSource?: string | undefined;
   }>(),
   { editable: true, editableSource: undefined },
 );
@@ -339,7 +339,7 @@ async function copyText() {
 // diverge (Files Explorer's .md preview pre-rewrites image refs to
 // `/api/files/raw?...` for the browser, which the server inliner can't
 // resolve back to disk), so prefer the original source when provided.
-function markdownExport(): { text: string; filename: string; baseDir?: string; stripFrontmatter?: boolean } {
+function markdownExport(): { text: string; filename: string; baseDir?: string | undefined; stripFrontmatter?: boolean | undefined } {
   const { data } = props.selectedResult;
   const text = data?.pdfSourceText ?? data?.text ?? "";
   const filename = buildPdfFilename({

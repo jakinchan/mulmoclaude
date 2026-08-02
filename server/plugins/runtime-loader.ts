@@ -68,14 +68,14 @@ export interface RuntimePlugin {
 }
 
 interface PackageJson {
-  name?: string;
-  version?: string;
+  name?: string | undefined;
+  version?: string | undefined;
   /** Left unnarrowed because every legal Node.js `exports` value is
    *  accepted here — string sugar, array fallback chain, condition or
    *  subpath map. `pickExportsTarget` is what discriminates them. */
-  exports?: unknown;
-  main?: string;
-  module?: string;
+  exports?: unknown | undefined;
+  main?: string | undefined;
+  module?: string | undefined;
 }
 
 const isToolDefinition = (value: unknown): value is ToolDefinition => {

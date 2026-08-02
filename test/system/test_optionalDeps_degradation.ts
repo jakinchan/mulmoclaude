@@ -127,7 +127,7 @@ describe("optional-deps: ffmpeg route guard", () => {
 
 describe("optional-deps: boot announcement", () => {
   let tmpDir = "";
-  const captured: { namespace: string; message: string; data?: object }[] = [];
+  const captured: { namespace: string; message: string; data?: object | undefined }[] = [];
   const originalWarn = log.warn;
 
   beforeEach(() => {

@@ -148,7 +148,8 @@ const currencyKeys = {
   currency: z.string().trim().min(1).optional(),
   currencyField: z.string().trim().min(1).optional(),
 };
-const hasCurrencySource = (spec: { currency?: string; currencyField?: string }): boolean => spec.currency !== undefined || spec.currencyField !== undefined;
+const hasCurrencySource = (spec: { currency?: string | undefined; currencyField?: string | undefined }): boolean =>
+  spec.currency !== undefined || spec.currencyField !== undefined;
 const currencyMessage = {
   message:
     "fields that render as money (type 'money', or 'derived' with display 'money') must declare either a literal `currency` (ISO 4217 code, e.g. 'USD', 'JPY') or a `currencyField` naming the record field that holds the code",

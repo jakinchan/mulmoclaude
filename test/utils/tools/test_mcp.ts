@@ -30,7 +30,7 @@ describe("availableToolsFor", () => {
 });
 
 describe("toolDescriptionsFor", () => {
-  const localDefs: Record<string, { description?: string }> = {
+  const localDefs: Record<string, { description?: string | undefined }> = {
     todo: { description: "Local todo description" },
     blank: { description: undefined },
   };

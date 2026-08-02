@@ -19,10 +19,10 @@ export type OpResult<T> = ({ ok: true } & T) | OpFailure;
 
 export interface GenerateOpArgs {
   filePath: string;
-  beatIndex?: number;
-  key?: string;
-  force?: boolean;
-  chatSessionId?: string;
+  beatIndex?: number | undefined;
+  key?: string | undefined;
+  force?: boolean | undefined;
+  chatSessionId?: string | undefined;
 }
 
 export type MovieGenerationResult = { ok: true; outputPath: string } | { ok: false; error: string };

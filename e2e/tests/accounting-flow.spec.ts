@@ -16,7 +16,7 @@ import { mockAccountingApi, makeAccountingToolResult, type AccountingSeedBook } 
 const SESSION_ID = "accounting-session";
 
 interface SetupOpts {
-  books?: readonly AccountingSeedBook[];
+  books?: readonly AccountingSeedBook[] | undefined;
   envelope: { bookId: string | null; initialTab?: string };
 }
 

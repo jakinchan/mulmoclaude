@@ -12,7 +12,7 @@ interface RelayResponseLike {
   platform: string;
   chatId: string;
   text: string;
-  replyToken?: string;
+  replyToken?: string | undefined;
 }
 
 // Mirror of MAX_RESPONSE_QUEUE in relay-client.ts (kept private there).
@@ -22,7 +22,7 @@ interface LogCall {
   level: "info" | "warn" | "error";
   prefix: string;
   msg: string;
-  data?: Record<string, unknown>;
+  data?: Record<string, unknown> | undefined;
 }
 
 function createFakeLogger() {
@@ -338,7 +338,7 @@ interface FakeSocket {
   send: (payload: string, callback: (err: Error | undefined) => void) => void;
   close: (code?: number, reason?: string) => void;
   sent: string[];
-  closed: { code?: number; reason?: string }[];
+  closed: { code?: number | undefined; reason?: string | undefined }[];
 }
 
 // WebSocket.OPEN is 1 per the RFC 6455 spec and the `ws` npm package.

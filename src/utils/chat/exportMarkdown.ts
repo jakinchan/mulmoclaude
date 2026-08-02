@@ -45,11 +45,11 @@ type Role = keyof typeof ROLE_LABELS;
 
 export interface ExportChatOptions {
   /** Friendly role / persona name shown in the document title (e.g. "General"). */
-  sessionRoleName?: string;
+  sessionRoleName?: string | undefined;
   /** ISO string for the document's "Exported …" line. Defaults to `new Date()`. */
-  exportedAt?: string;
+  exportedAt?: string | undefined;
   /** Per-uuid epoch-ms map matching `ActiveSession.resultTimestamps`. */
-  resultTimestamps?: Map<string, number>;
+  resultTimestamps?: Map<string, number> | undefined;
   /** Resolver for workspace-relative file paths (currently the
    *  `artifacts/documents/*.md` form used by presentDocument). Returns
    *  the file's text content, or null if the read fails. Omit it to

@@ -54,7 +54,7 @@ export interface StartChatParams {
    *  server-side and rewrites them as path-bearing attachments
    *  before any other processing. */
   selectedImageData?: string;
-  attachments?: Attachment[];
+  attachments?: Attachment[] | undefined;
   /** Session origin — application-defined (e.g. "human", "bridge") */
   origin?: string;
   /** Flat primitive bag forwarded from the bridge handshake. Chat-
@@ -64,7 +64,7 @@ export interface StartChatParams {
    *  pollution. The host app is free to look up its own keys
    *  (e.g. `defaultRole`). Empty object when the bridge didn't
    *  send any. */
-  bridgeOptions?: Readonly<Record<string, string | number | boolean>>;
+  bridgeOptions?: Readonly<Record<string, string | number | boolean>> | undefined;
 }
 
 export type StartChatResult = { kind: "started"; chatSessionId: string } | { kind: "error"; error: string; status?: number };
@@ -112,18 +112,18 @@ export interface ChatServiceDeps {
    * Omit in tests / unauth environments to skip the check. See
    * `attachChatSocket` in ./socket.ts.
    */
-  tokenProvider?: () => string | null;
+  tokenProvider?: (() => string | null) | undefined;
   /**
    * List recent sessions from the server. Used by /sessions command.
    * Omit if session listing is not available (command will reply
    * "not available").
    */
-  listSessions?: ListSessionsFn;
+  listSessions?: ListSessionsFn | undefined;
   /**
    * Get recent messages from a session. Used by /history command.
    * Returns newest-first array of {source, text} pairs.
    */
-  getSessionHistory?: GetSessionHistoryFn;
+  getSessionHistory?: GetSessionHistoryFn | undefined;
   /**
    * Resolve the roleId a given session was started with. Used by the HTTP
    * `/connect` route so the persisted bridge state's role tracks the target

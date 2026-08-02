@@ -15,7 +15,7 @@ interface FakeAnchor {
 interface FakeElement {
   tag: string;
   parent: FakeElement | null;
-  href?: string;
+  href?: string | undefined;
   closest: (selector: string) => FakeAnchor | null;
 }
 

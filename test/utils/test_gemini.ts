@@ -49,7 +49,12 @@ describe("extractImageResult", () => {
   });
 
   it("skips parts whose text is empty / undefined / null", () => {
-    const parts: Part[] = [{ text: "" }, { text: undefined }, { inlineData: { data: "IMG" } }];
+    // `Part.text` is exact-optional in the SDK types, so the key can only be
+    // set to `undefined` after construction — and a PRESENT-but-undefined key
+    // is exactly the shape this case exercises.
+    const undefinedText: Part = {};
+    Object.assign(undefinedText, { text: undefined });
+    const parts: Part[] = [{ text: "" }, undefinedText, { inlineData: { data: "IMG" } }];
     assert.deepEqual(extractImageResult(parts), { imageData: "IMG" });
   });
 

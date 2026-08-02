@@ -71,16 +71,16 @@ function wrapPluginExecute<TBody = any, TResult = unknown>(
 // presentDocument — fills image placeholders via Gemini if API key is available
 interface PresentDocumentBody {
   title: string;
-  markdown?: string;
-  filenamePrefix?: string;
-  path?: string;
+  markdown?: string | undefined;
+  filenamePrefix?: string | undefined;
+  path?: string | undefined;
 }
 
 interface PresentDocumentSuccess {
   message: string;
   instructions: string;
   title: string;
-  data: { markdown: string; docPath: string; filenamePrefix?: string };
+  data: { markdown: string; docPath: string; filenamePrefix?: string | undefined };
 }
 
 interface PresentDocumentError {
