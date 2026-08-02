@@ -133,9 +133,13 @@ export async function mockAllApis(page: Page, opts: MockApiOptions = {}): Promis
 
   // Defensive defaults for the broader runtime-plugin surface — the
   // boot path queries these on every page load. Empty responses are
-  // safe for tests that don't exercise plugin install / diagnostics.
-  await page.route(urlEndsWith("/api/plugins/runtime/list"), (route) => route.fulfill({ json: [] }));
-  await page.route(urlEndsWith("/api/plugins/diagnostics"), (route) => route.fulfill({ json: [] }));
+  // safe for tests that don't exercise plugin install / diagnostics,
+  // but they have to carry the real envelope: a bare `[]` made
+  // `loadRuntimePlugins` throw on `result.data.plugins.length` before
+  // it loaded anything, so every spec ran with the plugin boot path
+  // dead rather than merely empty.
+  await page.route(urlEndsWith("/api/plugins/runtime/list"), (route) => route.fulfill({ json: { plugins: [] } }));
+  await page.route(urlEndsWith("/api/plugins/diagnostics"), (route) => route.fulfill({ json: { diagnostics: [] } }));
 
   // Notifier engine — every page load primes via list + listHistory.
   // Empty defaults keep specs that don't care about notifications
