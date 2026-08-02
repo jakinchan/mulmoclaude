@@ -108,13 +108,13 @@ export const wikiEmbedExtension: MarkedExtension = {
         };
       },
       renderer(token): string {
-        const node = token as WikiEmbedToken;
-        const handler = handlers.get(node.prefix);
+        const { prefix, id, raw }: { prefix?: unknown; id?: unknown; raw: string } = token;
+        const handler = typeof prefix === "string" ? handlers.get(prefix) : undefined;
         // Guarded by the tokenizer (only handlers we know about
         // produce a token), but defensive — a handler unregistered
         // mid-render shouldn't crash the parser.
-        if (!handler) return escapeHtml(node.raw);
-        return handler.render(node.id);
+        if (!handler || typeof id !== "string") return escapeHtml(raw);
+        return handler.render(id);
       },
     },
   ],

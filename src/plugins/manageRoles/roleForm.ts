@@ -1,7 +1,29 @@
 import type { CustomRole } from "./index";
+import { isRecord, isStringArray, isUnknownArray } from "../../utils/types";
 
 export const DEFAULT_ROLE_ICON = "person";
 const ROLE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+// Rebuilt field by field rather than asserted: the role list arrives as
+// untrusted JSON and every consumer reads `name` / `icon` straight into
+// the DOM, so a missing field has to fail here, not in a template.
+const parseCustomRole = (value: unknown): CustomRole | null => {
+  if (!isRecord(value)) return null;
+  const { id, name, icon, prompt, availablePlugins, queries } = value;
+  if (typeof id !== "string" || typeof name !== "string" || typeof icon !== "string" || typeof prompt !== "string") return null;
+  if (!isStringArray(availablePlugins)) return null;
+  const role: CustomRole = { id, name, icon, prompt, availablePlugins };
+  return isStringArray(queries) ? { ...role, queries } : role;
+};
+
+/** Parse an untrusted `/api/roles` payload into the role list. Returns
+ *  null when the value isn't an array of well-formed roles, so callers
+ *  keep the state they already had instead of rendering a partial list. */
+export const parseCustomRoles = (value: unknown): CustomRole[] | null => {
+  if (!isUnknownArray(value)) return null;
+  const roles = value.flatMap((entry) => parseCustomRole(entry) ?? []);
+  return roles.length === value.length ? roles : null;
+};
 
 export interface RoleForm {
   id: string;

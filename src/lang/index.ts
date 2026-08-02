@@ -36,7 +36,7 @@ export const messages: Record<Locale, LocaleMessages> = {
 };
 
 export function isSupportedLocale(tag: string): tag is Locale {
-  return (SUPPORTED_LOCALES as readonly string[]).includes(tag);
+  return SUPPORTED_LOCALES.some((locale) => locale === tag);
 }
 
 // Match the full tag first (so `pt-BR` resolves exactly), then collapse

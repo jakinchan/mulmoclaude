@@ -51,7 +51,7 @@ export const COLLAPSED_SECTIONS_STORAGE_KEY = "skills:sectionCollapsed";
  * directly. Call sites should reach it via loadCollapsedSections.
  */
 export function isSkillSectionKey(value: unknown): value is SkillSectionKey {
-  return typeof value === "string" && (SKILL_SECTION_KEYS as readonly string[]).includes(value);
+  return typeof value === "string" && SKILL_SECTION_KEYS.some((key) => key === value);
 }
 
 /** Read the persisted collapse state, falling back to defaults on any error. */

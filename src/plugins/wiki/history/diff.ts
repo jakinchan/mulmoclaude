@@ -3,7 +3,7 @@ import { diffLines } from "diff";
 // Keys that `writeWikiPage` auto-stamps on every save. Diffing
 // these would surface a change on every snapshot even when the
 // user touched nothing meaningful (Q5 in the PR 3 plan).
-const AUTO_STAMP_KEYS = ["updated", "editor"] as const;
+const AUTO_STAMP_KEYS: readonly string[] = ["updated", "editor"];
 
 export const DIFF_LINE_KIND = {
   context: "context",
@@ -107,7 +107,7 @@ function splitLines(text: string): string[] {
 export function stripAutoStampKeys(meta: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(meta)) {
-    if ((AUTO_STAMP_KEYS as readonly string[]).includes(key)) continue;
+    if (AUTO_STAMP_KEYS.includes(key)) continue;
     out[key] = value;
   }
   return out;

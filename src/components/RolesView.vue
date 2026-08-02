@@ -290,6 +290,8 @@ import { apiGet, apiPost } from "../utils/api";
 import { API_ROUTES } from "../config/apiRoutes";
 import { useImeAwareEnter } from "../composables/useImeAwareEnter";
 import { confirmItemDelete } from "../utils/confirmDelete";
+import { parseCustomRoles } from "../plugins/manageRoles/roleForm";
+import { isRecord } from "../utils/types";
 
 // Inlined from the former `src/plugins/manageRoles/index.ts`
 // (deleted alongside the manageRoles MCP tool — #949). RolesView
@@ -353,7 +355,7 @@ const customRoles = ref<CustomRole[]>(props.selectedResult?.data?.customRoles ??
 
 const { refresh: refreshCustomRoles } = useFreshPluginData<CustomRole[]>({
   endpoint: () => API_ROUTES.roles.list,
-  extract: (json) => (Array.isArray(json) ? (json as CustomRole[]) : null),
+  extract: parseCustomRoles,
   apply: (data) => {
     customRoles.value = data;
   },
@@ -473,8 +475,7 @@ async function refreshList() {
     void refreshCustomRoles();
     return;
   }
-  const data = result as { data?: { customRoles?: CustomRole[] } };
-  customRoles.value = data.data?.customRoles ?? [];
+  customRoles.value = (isRecord(result.data) ? parseCustomRoles(result.data.customRoles) : null) ?? [];
   if (props.selectedResult) {
     emit("updateResult", {
       ...props.selectedResult,

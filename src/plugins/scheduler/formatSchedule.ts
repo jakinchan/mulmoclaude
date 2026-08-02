@@ -1,6 +1,8 @@
 // Tasks store the daily trigger as `HH:MM` in UTC (that's what the engine fires on); the UI converts to the
 // viewer's local zone so a user in Tokyo sees "Daily 05:00 JST" instead of "Daily 20:00 UTC".
 
+import { isRecord } from "../../utils/types";
+
 export interface DailySchedule {
   type: "daily";
   time: string; // "HH:MM" in UTC
@@ -69,12 +71,13 @@ export function formatInterval(intervalMs: number): string {
   return restMins === 0 ? `Every ${hours}h` : `Every ${hours}h ${restMins}m`;
 }
 
-export function formatSchedule(schedule: TaskSchedule, now: Date = new Date()): string {
-  if (schedule.type === "interval" && typeof (schedule as IntervalSchedule).intervalMs === "number") {
-    return formatInterval((schedule as IntervalSchedule).intervalMs);
-  }
-  if (schedule.type === "daily" && typeof (schedule as DailySchedule).time === "string") {
-    return formatDailyLocal((schedule as DailySchedule).time, now);
+// Takes `unknown`: the schedule comes off a task JSON whose `type` is open-ended,
+// and every field is verified here anyway, so callers don't need a matching type.
+export function formatSchedule(schedule: unknown, now: Date = new Date()): string {
+  if (isRecord(schedule)) {
+    const { type, intervalMs, time } = schedule;
+    if (type === "interval" && typeof intervalMs === "number") return formatInterval(intervalMs);
+    if (type === "daily" && typeof time === "string") return formatDailyLocal(time, now);
   }
   return JSON.stringify(schedule);
 }

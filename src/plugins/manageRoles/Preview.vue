@@ -19,6 +19,7 @@ import type { ManageRolesData, CustomRole } from "./index";
 import { useFreshPluginData } from "../../composables/useFreshPluginData";
 import { pluginEndpoints } from "../api";
 import type { RolesEndpoints } from "./definition";
+import { parseCustomRoles } from "./roleForm";
 
 const { t } = useI18n();
 
@@ -29,7 +30,7 @@ const endpoints = pluginEndpoints<RolesEndpoints>("roles");
 
 const { refresh } = useFreshPluginData<CustomRole[]>({
   endpoint: () => endpoints.list,
-  extract: (json) => (Array.isArray(json) ? (json as CustomRole[]) : null),
+  extract: parseCustomRoles,
   apply: (data) => {
     customRoles.value = data;
   },

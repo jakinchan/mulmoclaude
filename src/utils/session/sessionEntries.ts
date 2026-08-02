@@ -18,6 +18,7 @@ import {
   type SessionSummary,
 } from "../../types/session";
 import { EVENT_TYPES } from "../../types/events";
+import { isRecord } from "../types";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
 
 // Pull origin off the `session_meta` row in the entries payload, if
@@ -32,7 +33,7 @@ import type { ToolResultComplete } from "gui-chat-protocol/vue";
 function extractMetaOrigin(entries: readonly SessionEntry[]): SessionOrigin | undefined {
   for (const entry of entries) {
     if (entry.type === EVENT_TYPES.sessionMeta) {
-      const candidate = (entry as { origin?: unknown }).origin;
+      const candidate = isRecord(entry) ? entry.origin : undefined;
       return isSessionOrigin(candidate) ? candidate : undefined;
     }
   }

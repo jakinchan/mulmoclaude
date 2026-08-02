@@ -16,6 +16,7 @@ import { computed, onUnmounted, ref, type ComputedRef, type Ref } from "vue";
 import { API_ROUTES } from "../config/apiRoutes";
 import { PUBSUB_CHANNELS } from "../config/pubsubChannels";
 import { apiPost } from "../utils/api";
+import { isRecord } from "../utils/types";
 import { usePubSub } from "./usePubSub";
 
 // Mirror of `server/notifier/types.ts` — repeated here rather than
@@ -41,6 +42,36 @@ export interface NotifierHistoryEntry extends NotifierEntry {
 
 type NotifierEvent =
   { type: "published"; entry: NotifierEntry } | { type: "cleared"; id: string } | { type: "cancelled"; id: string } | { type: "updated"; entry: NotifierEntry };
+
+// Rebuilt field by field: the pubsub payload is untrusted JSON and every
+// field below lands in the bell UI, so an event that doesn't carry a whole
+// entry is dropped rather than rendered half-empty.
+const parseNotifierEntry = (value: unknown): NotifierEntry | null => {
+  if (!isRecord(value)) return null;
+  const { id, pluginPkg, severity, title, createdAt } = value;
+  if (typeof id !== "string" || typeof pluginPkg !== "string" || typeof title !== "string" || typeof createdAt !== "string") return null;
+  if (severity !== "info" && severity !== "nudge" && severity !== "urgent") return null;
+  return {
+    id,
+    pluginPkg,
+    severity,
+    title,
+    createdAt,
+    lifecycle: value.lifecycle === "fyi" || value.lifecycle === "action" ? value.lifecycle : undefined,
+    body: typeof value.body === "string" ? value.body : undefined,
+    navigateTarget: typeof value.navigateTarget === "string" ? value.navigateTarget : undefined,
+    pluginData: value.pluginData,
+  };
+};
+
+const parseNotifierEvent = (value: unknown): NotifierEvent | null => {
+  if (!isRecord(value)) return null;
+  const { type } = value;
+  if (type === "cleared" || type === "cancelled") return typeof value.id === "string" ? { type, id: value.id } : null;
+  if (type !== "published" && type !== "updated") return null;
+  const entry = parseNotifierEntry(value.entry);
+  return entry ? { type, entry } : null;
+};
 
 const HISTORY_CAP = 50;
 
@@ -110,7 +141,10 @@ function applyEvent(event: NotifierEvent): void {
 function ensureSubscribed(subscribe: ReturnType<typeof usePubSub>["subscribe"]): void {
   subscriberCount += 1;
   if (unsubscribeFn) return;
-  unsubscribeFn = subscribe(PUBSUB_CHANNELS.notifier, (data) => applyEvent(data as NotifierEvent));
+  unsubscribeFn = subscribe(PUBSUB_CHANNELS.notifier, (data) => {
+    const event = parseNotifierEvent(data);
+    if (event) applyEvent(event);
+  });
   void prime();
 }
 

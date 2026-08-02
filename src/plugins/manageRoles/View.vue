@@ -289,7 +289,8 @@ import type { CustomRole, ManageRolesData } from "./index";
 import { apiGet, apiPost } from "../../utils/api";
 import { pluginEndpoints, pluginAllPluginNames } from "../api";
 import type { RolesEndpoints } from "./definition";
-import { formToRole, roleToForm, validateRoleForm, type RoleForm, type RoleFormError } from "./roleForm";
+import { formToRole, parseCustomRoles, roleToForm, validateRoleForm, type RoleForm, type RoleFormError } from "./roleForm";
+import { isRecord } from "../../utils/types";
 import { useImeAwareEnter } from "../../composables/useImeAwareEnter";
 import { confirmItemDelete } from "../../utils/confirmDelete";
 
@@ -344,7 +345,7 @@ const rolesEndpoints = pluginEndpoints<RolesEndpoints>("roles");
 
 const { refresh: refreshCustomRoles } = useFreshPluginData<CustomRole[]>({
   endpoint: () => rolesEndpoints.list,
-  extract: (json) => (Array.isArray(json) ? (json as CustomRole[]) : null),
+  extract: parseCustomRoles,
   apply: (data) => {
     customRoles.value = data;
   },
@@ -448,8 +449,7 @@ async function refreshList() {
     void refreshCustomRoles();
     return;
   }
-  const data = result as { data?: { customRoles?: CustomRole[] } };
-  customRoles.value = data.data?.customRoles ?? [];
+  customRoles.value = (isRecord(result.data) ? parseCustomRoles(result.data.customRoles) : null) ?? [];
   if (props.selectedResult) {
     emit("updateResult", {
       ...props.selectedResult,

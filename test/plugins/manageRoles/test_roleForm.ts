@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   formToRole,
   roleToForm,
+  parseCustomRoles,
   parseQueriesText,
   validateRoleForm,
   isValidRoleId,
@@ -115,5 +116,34 @@ describe("validateRoleForm", () => {
 
   it("excludes the role's own id on rename", () => {
     assert.equal(validateRoleForm(form({ id: "self" }), "self", ["self"]), null);
+  });
+});
+
+describe("parseCustomRoles", () => {
+  const wireRole = { id: "analyst", name: "Analyst", icon: "insights", prompt: "You are an analyst.", availablePlugins: ["chart"] };
+
+  it("rebuilds a well-formed list and drops unknown fields", () => {
+    assert.deepEqual(parseCustomRoles([{ ...wireRole, isDebugRole: true }]), [wireRole]);
+  });
+
+  it("keeps queries only when it is a string list", () => {
+    assert.deepEqual(parseCustomRoles([{ ...wireRole, queries: ["a", "b"] }]), [{ ...wireRole, queries: ["a", "b"] }]);
+    assert.deepEqual(parseCustomRoles([{ ...wireRole, queries: [1] }]), [wireRole]);
+  });
+
+  it("accepts an empty list", () => {
+    assert.deepEqual(parseCustomRoles([]), []);
+  });
+
+  it("returns null for a non-array payload", () => {
+    assert.equal(parseCustomRoles(null), null);
+    assert.equal(parseCustomRoles({ customRoles: [] }), null);
+    assert.equal(parseCustomRoles(undefined), null);
+  });
+
+  it("returns null when any entry is malformed, so the caller keeps its list", () => {
+    assert.equal(parseCustomRoles([wireRole, { ...wireRole, name: 5 }]), null);
+    assert.equal(parseCustomRoles([{ ...wireRole, availablePlugins: "chart" }]), null);
+    assert.equal(parseCustomRoles(["analyst"]), null);
   });
 });

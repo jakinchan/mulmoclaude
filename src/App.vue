@@ -382,12 +382,12 @@ import { CollectionView, CollectionsIndexView, FeedsView } from "@mulmoclaude/co
 import PluginScopedRoot from "./components/PluginScopedRoot.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import { PAGE_ROUTES, type PageRouteName } from "./router";
-import type { SseEvent } from "./types/sse";
 import type { ActiveSession } from "./types/session";
 import { EVENT_TYPES } from "./types/events";
 import { buildAgentRequestBody, postAgentRun } from "./utils/agent/request";
 import { resolvePastedAttachment, type ResolvedAttachment } from "./utils/agent/pastedAttachment";
 import { applyAgentEvent, type AgentEventContext } from "./utils/agent/eventDispatch";
+import { parseSseEvent } from "./utils/agent/parseSseEvent";
 import { pushErrorMessage, beginUserTurn, updateResult, applyToolResultToSession } from "./utils/session/sessionHelpers";
 import { parseCollectionSlashSeed, makeSyntheticCollectionResult, hasRealCollectionResult } from "./utils/collections/presentSeed";
 import { mergeBufferedIntoDraft } from "./utils/chat/buffer";
@@ -717,7 +717,7 @@ function onPluginNavigate(target: { key: string }): void {
 }
 
 function isPageRouteName(value: string): value is PageRouteName {
-  return Object.values(PAGE_ROUTES).includes(value as PageRouteName);
+  return Object.values(PAGE_ROUTES).some((routeName) => routeName === value);
 }
 
 // A pinned shortcut reuses the existing collection / feed routes — the
@@ -1001,8 +1001,8 @@ onScopeDispose(() => {
 
 function createSessionEventHandler(session: ActiveSession, ctx: AgentEventContext): (data: unknown) => void {
   return (data: unknown) => {
-    const event = data as SseEvent;
-    if (!event || typeof event !== "object") return;
+    const event = parseSseEvent(data);
+    if (!event) return;
     if (event.type === EVENT_TYPES.sessionFinished) {
       handleSessionFinished(session.id);
       return;

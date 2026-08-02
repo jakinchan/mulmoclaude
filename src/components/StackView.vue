@@ -371,9 +371,9 @@ function flushPendingIframeHeights(): void {
 // one when the next animation frame fires.
 function handleIframeHeightMessage(event: MessageEvent): void {
   const { data } = event;
-  if (!data || typeof data !== "object") return;
-  if ((data as { type?: unknown }).type !== "mc-iframe-height") return;
-  const reported = (data as { height?: unknown }).height;
+  if (!isRecord(data)) return;
+  if (data.type !== "mc-iframe-height") return;
+  const reported = data.height;
   if (typeof reported !== "number") return;
   const { source } = event;
   if (!source) return;

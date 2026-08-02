@@ -234,7 +234,7 @@ function resultDotClass(result: string): string {
 }
 
 function formatSchedule(schedule: TaskSchedule): string {
-  return formatTaskSchedule(schedule as FormatterTaskSchedule);
+  return formatTaskSchedule(schedule);
 }
 
 async function runTask(taskId: string): Promise<void> {

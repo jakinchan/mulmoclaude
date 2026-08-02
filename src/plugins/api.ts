@@ -98,6 +98,7 @@ export function pluginEndpoints<E extends object = EndpointGroup>(scope: string)
   if (!group) {
     throw new Error(`Unknown plugin endpoint scope: "${scope}"`);
   }
+  // Kept (#2692): `E` is chosen by the caller, so nothing here can check it.
   return group as E;
 }
 
