@@ -91,7 +91,10 @@ function toJsonScalar(value: unknown, path: string): JsonValue {
 function toJsonItems(items: unknown[], path: string): JsonValue[] {
   // An absent element becomes `null`, matching `JSON.stringify` — an array has
   // to keep its length, so a hole cannot simply be dropped the way a key is.
-  return items.map((entry, index) => (entry === undefined ? null : toJsonValue(entry, `${path}[${index}]`)));
+  // `Array.from` rather than `map`, which SKIPS holes and would leave them in
+  // the result: `JSON.stringify` renders a hole as null and hides that, but
+  // `1 in arr` / `Object.keys` / `forEach` all still see the gap.
+  return Array.from(items, (entry, index) => (entry === undefined ? null : toJsonValue(entry, `${path}[${index}]`)));
 }
 
 function toJsonEntries(record: Record<string, unknown>, path: string): JsonObject {
