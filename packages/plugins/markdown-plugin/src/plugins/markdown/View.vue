@@ -133,7 +133,7 @@
         <div class="markdown-source">
           <button v-if="!editing" class="source-toggle" @click="openEditor">{{ t("pluginMarkdown.editSource") }}</button>
           <template v-else>
-            <textarea ref="editorRef" v-model="editableMarkdown" class="markdown-editor" spellcheck="false" @scroll="syncPreviewScroll"></textarea>
+            <textarea ref="editorRef" v-model="editableMarkdown" class="markdown-editor" spellcheck="false" @scroll="onEditorScroll"></textarea>
             <div class="editor-actions">
               <div class="toggle-group">
                 <label class="live-toggle">
@@ -402,8 +402,31 @@ const previewDoc = useMarkdownDoc(previewSource);
 const previewScrollRef = ref<HTMLElement | null>(null);
 const editorRef = ref<HTMLTextAreaElement | null>(null);
 
+// Whether the textarea has been scrolled since the editor opened. Until it has,
+// the viewer is left exactly where the reader put it: opening the editor shrinks
+// the viewer, and the browser keeps its absolute scrollTop, so re-deriving that
+// position from the editor's fraction against the new (shorter) range would
+// nudge the text the reader is looking at for no reason. The sync starts the
+// moment the editor actually becomes the side being driven.
+const editorScrolled = ref(false);
+
+// Set when we move the textarea ourselves (opening the editor at the viewer's
+// position). The resulting scroll event is indistinguishable from the user's,
+// and taking it as "the editor is being driven now" would trigger the very
+// nudge this flag exists to prevent.
+let suppressEditorScroll = false;
+
+function onEditorScroll(): void {
+  if (suppressEditorScroll) {
+    suppressEditorScroll = false;
+    return;
+  }
+  editorScrolled.value = true;
+  syncPreviewScroll();
+}
+
 function syncPreviewScroll(): void {
-  if (!livePreview.value || !editing.value) return;
+  if (!livePreview.value || !editing.value || !editorScrolled.value) return;
   const editor = editorRef.value;
   const preview = previewScrollRef.value;
   if (!editor || !preview) return;
@@ -438,7 +461,12 @@ function applyEditorScrollFraction(fraction: number): void {
   if (!editor) return;
   const range = editor.scrollHeight - editor.clientHeight;
   if (range <= 0) return;
-  editor.scrollTop = fraction * range;
+  const target = fraction * range;
+  // Only arm the suppression when the assignment will actually move the
+  // element — a no-op assignment fires no scroll event, and the flag would
+  // then swallow the user's first real scroll instead.
+  if (Math.round(target) !== Math.round(editor.scrollTop)) suppressEditorScroll = true;
+  editor.scrollTop = target;
 }
 
 function enterMarpSplitMode(): void {
@@ -555,6 +583,9 @@ function openEditor(): void {
   // The draft survives a close/reopen, so don't touch `editableMarkdown` here
   // — only `closeEditor` (and Cancel, which is the same thing) discards it.
   saveError.value = null;
+  // A fresh open is a fresh reader: the viewer keeps its position until this
+  // editor is scrolled, however the previous one was left.
+  editorScrolled.value = false;
   // Read the viewer's position BEFORE the editor mounts: opening it shrinks the
   // viewer, which moves its own scrollTop, so the fraction taken afterwards
   // would be the post-shrink one rather than what the user was looking at.
