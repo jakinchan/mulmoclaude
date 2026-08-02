@@ -250,7 +250,7 @@ const HOST_WORKSPACE_DIRS = {
 // First-write-wins host+plugin aggregate (see `defineHostAggregate`):
 // host keys win on collision, second-claiming plugin wins are
 // dropped, both diagnostic lists are exposed for boot warnings.
-const WORKSPACE_DIRS_AGGREGATE = defineHostAggregate(BUILT_IN_PLUGIN_METAS, {
+const WORKSPACE_DIRS_AGGREGATE = defineHostAggregate<string, typeof HOST_WORKSPACE_DIRS, PluginWorkspaceDirsMap<BuiltInPluginMetas>>(BUILT_IN_PLUGIN_METAS, {
   label: "WORKSPACE_DIRS",
   hostRecord: HOST_WORKSPACE_DIRS,
   // Reserve `WORKSPACE_FILES` keys too — those land in `WORKSPACE_PATHS`
@@ -265,11 +265,7 @@ const WORKSPACE_DIRS_AGGREGATE = defineHostAggregate(BUILT_IN_PLUGIN_METAS, {
 export const WORKSPACE_DIRS_HOST_COLLISIONS: readonly HostPluginCollision[] = WORKSPACE_DIRS_AGGREGATE.hostCollisions;
 export const WORKSPACE_DIRS_INTRA_COLLISIONS: readonly IntraPluginCollision[] = WORKSPACE_DIRS_AGGREGATE.intraCollisions;
 
-// Cast kept (#2692): `defineHostAggregate` returns `Record<string, V>` by
-// design and documents that the caller owns the literal-preserving cast —
-// removing it means making that helper (in `src/plugins/metas.ts`, shared with
-// `apiRoutes.ts`) generic over the merged key set.
-export const WORKSPACE_DIRS = WORKSPACE_DIRS_AGGREGATE.merged as unknown as typeof HOST_WORKSPACE_DIRS & PluginWorkspaceDirsMap<BuiltInPluginMetas>;
+export const WORKSPACE_DIRS = WORKSPACE_DIRS_AGGREGATE.merged;
 export { WORKSPACE_FILES };
 
 // Absolute paths, built once at module load from `workspacePath`.

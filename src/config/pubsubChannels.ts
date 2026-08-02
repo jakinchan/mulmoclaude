@@ -171,7 +171,7 @@ const HOST_STATIC_CHANNELS = {
 // First-write-wins host+plugin aggregate (see `defineHostAggregate`):
 // host keys win on collision, second-claiming plugin wins are
 // dropped, both diagnostic lists are exposed for boot warnings.
-const PUBSUB_CHANNELS_AGGREGATE = defineHostAggregate(BUILT_IN_PLUGIN_METAS, {
+const PUBSUB_CHANNELS_AGGREGATE = defineHostAggregate<string, typeof HOST_STATIC_CHANNELS, PluginStaticChannelsMap<BuiltInPluginMetas>>(BUILT_IN_PLUGIN_METAS, {
   label: "PUBSUB_CHANNELS",
   hostRecord: HOST_STATIC_CHANNELS,
   extract: (meta) => meta.staticChannels,
@@ -182,8 +182,6 @@ export const PUBSUB_CHANNELS_INTRA_COLLISIONS: readonly IntraPluginCollision[] =
 
 /** Static pub/sub channel names. Factories for parameterised channels
  *  (e.g. `sessionChannel(id)`) live alongside as named helpers. */
-// Kept (#2692): the plugin half of this type is derived from META at compile
-// time, which no runtime check over the merged record can reproduce.
-export const PUBSUB_CHANNELS = PUBSUB_CHANNELS_AGGREGATE.merged as unknown as typeof HOST_STATIC_CHANNELS & PluginStaticChannelsMap<BuiltInPluginMetas>;
+export const PUBSUB_CHANNELS = PUBSUB_CHANNELS_AGGREGATE.merged;
 
 export type StaticPubSubChannel = (typeof PUBSUB_CHANNELS)[keyof typeof PUBSUB_CHANNELS];
