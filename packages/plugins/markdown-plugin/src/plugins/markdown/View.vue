@@ -370,6 +370,15 @@ let autoSaveTimer: ReturnType<typeof setTimeout> | undefined;
 // same path can land out of order, leaving disk on the older buffer.
 let autoSaveChain: Promise<unknown> = Promise.resolve();
 
+// Re-checked when a queued write finally runs, not just when it was queued.
+// Clearing `autoSaveTimer` only cancels a write still waiting out the debounce;
+// one already handed to the chain waits behind an in-flight PUT and would
+// otherwise still land — persisting text the user discarded with Cancel, or
+// asked to stop persisting by unticking a box.
+function autoSaveStillWanted(path: string | null): boolean {
+  return autoSaveActive.value && documentPathOf(props.selectedResult.data) === path;
+}
+
 watch([editableMarkdown, autoSaveActive], () => {
   clearTimeout(autoSaveTimer);
   // Closing the editor / unticking either box flips `autoSaveActive` and lands
@@ -383,7 +392,7 @@ watch([editableMarkdown, autoSaveActive], () => {
   const text = editableMarkdown.value;
   const path = documentPathOf(props.selectedResult.data);
   autoSaveTimer = setTimeout(() => {
-    autoSaveChain = autoSaveChain.then(() => (documentPathOf(props.selectedResult.data) === path ? persistMarkdown(text) : false));
+    autoSaveChain = autoSaveChain.then(() => (autoSaveStillWanted(path) ? persistMarkdown(text) : false));
   }, AUTO_SAVE_DEBOUNCE_MS);
 });
 
