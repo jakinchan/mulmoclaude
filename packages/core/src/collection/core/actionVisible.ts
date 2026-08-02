@@ -37,8 +37,8 @@ export function whenMatches(when: WhenPredicate | undefined, record: Record<stri
  *  (chat/agent), `require` on mutate. Accepts the full CollectionAction
  *  union (each variant declares at most one of the two). */
 export interface ActionWithWhen {
-  when?: WhenPredicate;
-  require?: WhenPredicate;
+  when?: WhenPredicate | undefined;
+  require?: WhenPredicate | undefined;
 }
 
 /** True when the action's button should render against `record` — and,
@@ -61,7 +61,7 @@ export function agentActionRunKey(actionId: string, itemId?: string): string {
 /** Minimal shape this helper needs from a field spec — just its
  *  optional `when` predicate. Accepts the full FieldSpec too. */
 export interface FieldWithWhen {
-  when?: WhenPredicate;
+  when?: WhenPredicate | undefined;
 }
 
 /** True when the field should render against `record`. A field with

@@ -91,9 +91,9 @@ export interface HostRunnerOptions {
   // concurrent reconnect as a different account can't point cleanup at the wrong
   // user's Storage path. Best-effort: a throw is logged via onEvent and does NOT
   // block the doc deletion. Absent ⇒ the expired doc is simply deleted.
-  onExpire?: (command: Command, uid: string) => void | Promise<void>;
+  onExpire?: ((command: Command, uid: string) => void | Promise<void>) | undefined;
   // Presence heartbeat interval; defaults to one minute.
-  heartbeatMs?: number;
+  heartbeatMs?: number | undefined;
   // Paths in a handler's reply where `undefined` is expected rather than a bug,
   // keyed by method name — `{ listSessions: ["sessions.*.work"] }`, `*` matching
   // exactly one segment. Firestore refuses `undefined` either way, so these are

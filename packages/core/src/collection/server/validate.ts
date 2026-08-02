@@ -53,7 +53,7 @@ async function listRecordFilenames(dataDir: string, workspaceRoot: string): Prom
   }
 }
 
-export async function validateCollectionRecords(collection: LoadedCollection, opts: { workspaceRoot?: string } = {}): Promise<RecordIssue[]> {
+export async function validateCollectionRecords(collection: LoadedCollection, opts: { workspaceRoot?: string | undefined } = {}): Promise<RecordIssue[]> {
   // A `dataSource` collection has no record FILES to validate — its rows
   // come from the external data file (type mismatches there surface as
   // raw values in the views, not as repairable record files).
@@ -79,7 +79,7 @@ export async function validateCollectionRecords(collection: LoadedCollection, op
  *  it), so the read/parse classifications of the file scan don't apply —
  *  schema violations are what this catches. `file` carries the record id
  *  (there is no per-record filename). */
-async function validateStoreRecords(collection: LoadedCollection, opts: { workspaceRoot?: string }): Promise<RecordIssue[]> {
+async function validateStoreRecords(collection: LoadedCollection, opts: { workspaceRoot?: string | undefined }): Promise<RecordIssue[]> {
   let items: CollectionItem[];
   try {
     items = await storeFor(collection, { workspaceRoot: opts.workspaceRoot }).list();

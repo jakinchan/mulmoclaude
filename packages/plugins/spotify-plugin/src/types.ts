@@ -40,9 +40,9 @@ export type PendingAuthorization = z.infer<typeof PendingAuthSchema>;
  *  omits it (the prior token stays valid). */
 export interface RefreshResponseFields {
   accessToken: string;
-  refreshToken?: string;
+  refreshToken?: string | undefined;
   expiresInSec: number;
-  scopes?: readonly string[];
+  scopes?: readonly string[] | undefined;
 }
 
 /** Reason codes the plugin returns to the LLM / View when an

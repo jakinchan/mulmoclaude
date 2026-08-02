@@ -145,7 +145,7 @@ export interface RemoteViewPage {
 export interface RemoteViewPageRequest {
   offset: number;
   limit: number;
-  fields?: string[];
+  fields?: string[] | undefined;
 }
 
 /** Keep only `fields` (+ always the primary key) on each record. Parents apply

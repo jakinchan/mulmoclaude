@@ -111,7 +111,7 @@ async function callOnce<T>(
         Authorization: `Bearer ${tokens.accessToken}`,
         ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
       timeoutMs: FETCH_TIMEOUT_MS,
       allowedHosts: [SPOTIFY_API_HOST],
     });

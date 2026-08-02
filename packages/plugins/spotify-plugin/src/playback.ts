@@ -16,9 +16,9 @@ import type { SpotifyClientResult } from "./client";
 import type { NormalisedDevice, SpotifyDeps } from "./types";
 
 interface PlayArgs {
-  deviceId?: string;
-  contextUri?: string;
-  trackUris?: string[];
+  deviceId?: string | undefined;
+  contextUri?: string | undefined;
+  trackUris?: string[] | undefined;
 }
 
 export async function playerPlay(deps: SpotifyDeps, args: PlayArgs): Promise<SpotifyClientResult<null>> {

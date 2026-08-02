@@ -54,7 +54,7 @@ export interface StartChatParams {
    *  server-side and rewrites them as path-bearing attachments
    *  before any other processing. */
   selectedImageData?: string;
-  attachments?: Attachment[];
+  attachments?: Attachment[] | undefined;
   /** Session origin — application-defined (e.g. "human", "bridge") */
   origin?: string;
   /** Flat primitive bag forwarded from the bridge handshake. Chat-
@@ -112,13 +112,13 @@ export interface ChatServiceDeps {
    * Omit in tests / unauth environments to skip the check. See
    * `attachChatSocket` in ./socket.ts.
    */
-  tokenProvider?: () => string | null;
+  tokenProvider?: (() => string | null) | undefined;
   /**
    * List recent sessions from the server. Used by /sessions command.
    * Omit if session listing is not available (command will reply
    * "not available").
    */
-  listSessions?: ListSessionsFn;
+  listSessions?: ListSessionsFn | undefined;
   /**
    * Get recent messages from a session. Used by /history command.
    * Returns newest-first array of {source, text} pairs.

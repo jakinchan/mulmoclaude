@@ -229,7 +229,7 @@ export async function recordExternalRun(params: {
   durationMs: number;
   trigger: TaskTrigger;
   errorMessage: string | null;
-  chatSessionId?: string;
+  chatSessionId?: string | undefined;
 }): Promise<void> {
   await persistRun({
     meta: { id: params.id, name: params.name, schedule: params.schedule },
@@ -283,7 +283,7 @@ interface RunRecord {
   durationMs: number;
   trigger: TaskTrigger;
   errMsg: string | null;
-  chatSessionId?: string;
+  chatSessionId?: string | undefined;
 }
 
 /** Best-effort persistence — state and log are independent, so one failing

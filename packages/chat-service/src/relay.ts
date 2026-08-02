@@ -19,7 +19,7 @@ export interface RelayParams {
   transportId: string;
   externalChatId: string;
   text: string;
-  attachments?: Attachment[];
+  attachments?: Attachment[] | undefined;
   /** Flat primitive bag captured at handshake time (string /
    *  number / boolean values only — see socket.ts sanitiser).
    *  Forwarded to the host app's startChat callback as

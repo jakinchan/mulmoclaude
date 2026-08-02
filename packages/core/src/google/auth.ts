@@ -52,7 +52,7 @@ export interface AuthorizeGoogleOptions {
 }
 
 const createClient = (secret: InstalledClientSecret, redirectUri?: string): OAuth2Client =>
-  new OAuth2Client({ clientId: secret.client_id, clientSecret: secret.client_secret, redirectUri });
+  new OAuth2Client({ clientId: secret.client_id, clientSecret: secret.client_secret, ...(redirectUri !== undefined ? { redirectUri } : {}) });
 
 const persistRotatedTokens = (client: OAuth2Client, home?: string): void => {
   client.on("tokens", (tokens) => {

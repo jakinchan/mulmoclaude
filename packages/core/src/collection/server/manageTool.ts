@@ -121,8 +121,8 @@ function unknownCollection(slug: string): string {
 
 interface GetItemsArgs {
   slug: string;
-  ids?: string[];
-  fields?: string[];
+  ids?: string[] | undefined;
+  fields?: string[] | undefined;
 }
 
 type PutMode = "upsert" | "create" | "merge";

@@ -62,50 +62,50 @@ export type CalendarEventSpan = { startDateTime: string; endDateTime: string } |
 
 export type CalendarEventInput = {
   summary: string;
-  description?: string;
-  location?: string;
+  description?: string | undefined;
+  location?: string | undefined;
   /** Calendar to create the event on; defaults to the user's primary. */
-  calendarId?: string;
+  calendarId?: string | undefined;
   /** Event colour (Google event palette id "1".."11"); omit to inherit the calendar's colour. */
-  colorId?: string;
+  colorId?: string | undefined;
   /** Caller-chosen event id. Google requires base32hex (`0-9a-v`), 5-1024 chars,
    *  and answers 409 when it is already taken. A collection push sets this so a
    *  locally-created record keeps its own record id as the event id, instead of
    *  being re-keyed to Google's after the fact — a re-key that is missed leaves
    *  a duplicate record on the next pull. */
-  eventId?: string;
+  eventId?: string | undefined;
 } & CalendarEventSpan;
 
 export interface UpdateCalendarEventInput {
   eventId: string;
-  summary?: string;
-  startDateTime?: string;
-  endDateTime?: string;
+  summary?: string | undefined;
+  startDateTime?: string | undefined;
+  endDateTime?: string | undefined;
   /** Structured span; wins over the flat pair when both are present. */
-  start?: CalendarEventTime;
-  end?: CalendarEventTime;
+  start?: CalendarEventTime | undefined;
+  end?: CalendarEventTime | undefined;
   /** `""` clears the description; omit to leave it untouched. */
-  description?: string;
+  description?: string | undefined;
   /** `""` clears the location; omit to leave it untouched. */
-  location?: string;
-  calendarId?: string;
-  colorId?: string;
+  location?: string | undefined;
+  calendarId?: string | undefined;
+  colorId?: string | undefined;
   /** Etag of the version this edit was computed against. Sent as `If-Match`, so
    *  Google answers 412 rather than letting the PATCH clobber a change that
    *  landed after the caller read the event. Omit for an unconditional write. */
-  ifMatch?: string;
+  ifMatch?: string | undefined;
 }
 
 export interface DeleteCalendarEventInput {
   eventId: string;
-  calendarId?: string;
+  calendarId?: string | undefined;
 }
 
 export interface ListEventsInput {
-  timeMin?: string;
-  maxResults?: number;
+  timeMin?: string | undefined;
+  maxResults?: number | undefined;
   /** Calendar to read; defaults to the user's primary. */
-  calendarId?: string;
+  calendarId?: string | undefined;
 }
 
 export interface CalendarEventSummary {
@@ -301,11 +301,11 @@ export async function listCalendarEvents(accessToken: string, input: ListEventsI
 
 export interface SyncEventsInput {
   /** Calendar to sync; defaults to the user's primary. */
-  calendarId?: string;
+  calendarId?: string | undefined;
   /** Token from the previous sync. Omit for a full sync. */
-  syncToken?: string;
+  syncToken?: string | undefined;
   /** Page size for the underlying list calls. */
-  maxResults?: number;
+  maxResults?: number | undefined;
 }
 
 export interface CalendarSyncResult {
@@ -313,7 +313,7 @@ export interface CalendarSyncResult {
    *  arrive here too, as `status: "cancelled"`. */
   events: CalendarEventSummary[];
   /** Token to pass to the NEXT sync. Absent only if Google omitted it. */
-  nextSyncToken?: string;
+  nextSyncToken?: string | undefined;
   /** The stored token had expired (410) — the caller must drop it and re-sync
    *  from scratch; no events are returned in that case. */
   fullResyncRequired: boolean;
@@ -371,7 +371,7 @@ export async function syncCalendarEvents(accessToken: string, input: SyncEventsI
 
 export interface CalendarListPage {
   items: unknown[];
-  nextPageToken?: string;
+  nextPageToken?: string | undefined;
 }
 
 /** Pagination loop for CalendarList.list, extracted so it can be tested without

@@ -24,7 +24,7 @@ export type AgentWorkerRunner = (args: {
   message: string;
   roleId: string;
   hidden: boolean;
-  onComplete?: (outcome: { didError: boolean }) => void | Promise<void>;
+  onComplete?: ((outcome: { didError: boolean }) => void | Promise<void>) | undefined;
 }) => Promise<AgentWorkerResult>;
 
 /** Public alias of the shared `StructuredLogger` — same shape as `CollectionLogger`. */

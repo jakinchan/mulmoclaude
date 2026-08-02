@@ -113,7 +113,7 @@ export function renameSyncWithWindowsRetry(fromPath: string, toPath: string, dep
 }
 
 // Forcing utf-8 on a Uint8Array would re-encode the bytes — wrong for PNGs and other binary blobs.
-function writeOptionsFor(content: string | Uint8Array, mode: number | undefined): { encoding?: "utf-8"; mode?: number } {
+function writeOptionsFor(content: string | Uint8Array, mode: number | undefined): { encoding?: "utf-8" | undefined; mode?: number | undefined } {
   return typeof content === "string" ? { encoding: "utf-8", mode } : { mode };
 }
 

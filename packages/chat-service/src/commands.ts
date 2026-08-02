@@ -80,7 +80,7 @@ export function createCommandHandler(opts: {
   getRole: (roleId: string) => Role;
   resetChatState: ChatStateStore["resetChatState"];
   connectSession: ChatStateStore["connectSession"];
-  listSessions?: ListSessionsFn;
+  listSessions?: ListSessionsFn | undefined;
   getSessionHistory?: GetSessionHistoryFn;
   /** Lists the skills the bridge command handler should expose.
    *  Drives both the slash-command allowlist (only matching names

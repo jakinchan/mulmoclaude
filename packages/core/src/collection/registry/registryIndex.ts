@@ -27,7 +27,7 @@ export interface RegistryEntry {
   hasSeed: boolean;
   seedCount: number;
   /** repo-relative path, omitted when absent. */
-  screenshot?: string;
+  screenshot?: string | undefined;
   /** repo-relative collection dir. */
   path: string;
   /** Stable bundle hash for update detection. */
