@@ -447,6 +447,21 @@ export default [
       "vue/no-useless-v-bind": "error",
       "vue/prefer-true-attribute-shorthand": "error",
       "vue/no-empty-component-block": "error",
+      // The `as`-cast ban reaches `<script>` only: typescript-eslint's rules
+      // never visit the TEMPLATE body, which `vue-eslint-parser` exposes as a
+      // separate AST. `@change="…($event.target as HTMLInputElement).value"`
+      // was therefore invisible to `consistent-type-assertions` — 18 of them
+      // across host and plugin components (#2692). `vue/no-restricted-syntax`
+      // is the one rule that does walk that AST, so the same ban is spelled
+      // here as a selector. `warn` matches the script-side severity; both
+      // graduate together.
+      "vue/no-restricted-syntax": [
+        "warn",
+        {
+          selector: "TSAsExpression",
+          message: "Do not use any type assertions — narrow in <script> and pass the result to the template.",
+        },
+      ],
     },
   },
   // Plugin import restrictions — codify the loose-coupling pattern

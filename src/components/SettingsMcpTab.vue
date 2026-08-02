@@ -201,12 +201,7 @@
             <span class="text-gray-500">{{ t("settingsMcpTab.urlLabel") }}</span>
             <code class="ml-1">{{ entry.spec.url }}</code>
           </div>
-          <i18n-t
-            v-if="dockerMode && wouldRewriteLocalhost((entry.spec as HttpSpec).url)"
-            keypath="settingsMcpTab.localhostRewrite"
-            tag="div"
-            class="text-amber-700"
-          >
+          <i18n-t v-if="dockerMode && wouldRewriteLocalhost(entry.spec.url)" keypath="settingsMcpTab.localhostRewrite" tag="div" class="text-amber-700">
             <template #localhost><code>localhost</code></template>
             <template #hostDockerInternal><code>host.docker.internal</code></template>
           </i18n-t>
@@ -215,8 +210,8 @@
           <div>
             <span class="text-gray-500">{{ t("settingsMcpTab.commandLabel") }}</span>
             <code class="ml-1">{{ entry.spec.command }}</code>
-            <code v-if="(entry.spec as StdioSpec).args?.length" class="ml-1">
-              {{ ((entry.spec as StdioSpec).args ?? []).join(" ") }}
+            <code v-if="entry.spec.args?.length" class="ml-1">
+              {{ (entry.spec.args ?? []).join(" ") }}
             </code>
           </div>
           <!-- Sandbox-incompatible warning (#1334) + host-exec opt-in
@@ -227,10 +222,8 @@
                it escapes the sandbox, hence the explicit
                acknowledgment checkbox rather than a silent default. -->
           <div v-if="dockerMode" class="space-y-1" :data-testid="'mcp-docker-warning-' + entry.id">
-            <div class="flex items-baseline gap-2" :class="(entry.spec as StdioSpec).hostExecInDocker ? 'text-red-700' : 'text-amber-700'">
-              <span>{{
-                (entry.spec as StdioSpec).hostExecInDocker ? t("settingsMcpTab.dockerStdioHostExecActive") : t("settingsMcpTab.dockerStdioUnsupported")
-              }}</span>
+            <div class="flex items-baseline gap-2" :class="entry.spec.hostExecInDocker ? 'text-red-700' : 'text-amber-700'">
+              <span>{{ entry.spec.hostExecInDocker ? t("settingsMcpTab.dockerStdioHostExecActive") : t("settingsMcpTab.dockerStdioUnsupported") }}</span>
               <a :href="MCP_SANDBOX_DOC_URL" target="_blank" rel="noopener noreferrer" class="underline whitespace-nowrap">
                 {{ t("settingsMcpTab.learnMore") }}
               </a>
@@ -239,7 +232,7 @@
               <input
                 type="checkbox"
                 class="mt-0.5 shrink-0"
-                :checked="(entry.spec as StdioSpec).hostExecInDocker === true"
+                :checked="entry.spec.hostExecInDocker === true"
                 :data-testid="'mcp-hostexec-' + entry.id"
                 @change="onToggleHostExec(idx, $event)"
               />

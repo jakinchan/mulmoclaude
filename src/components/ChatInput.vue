@@ -68,7 +68,7 @@
           :placeholder="placeholder"
           rows="2"
           class="flex-1 bg-white border border-gray-300 rounded px-3 py-2 text-sm text-gray-900 placeholder-gray-400 resize-none"
-          @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
+          @input="onInput"
           @compositionstart="imeEnter.onCompositionStart"
           @compositionend="imeEnter.onCompositionEnd"
           @keydown="onKeydown"
@@ -460,6 +460,11 @@ watch(
 watch(slashMenuOpen, (open) => {
   if (open) suggestionsExpanded.value = false;
 });
+
+function onInput(event: Event): void {
+  const { target } = event;
+  if (target instanceof HTMLTextAreaElement) emit("update:modelValue", target.value);
+}
 
 function onKeydown(event: KeyboardEvent): void {
   // Ctrl/Cmd+Enter inserts a newline instead of sending. Checked before the

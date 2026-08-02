@@ -46,7 +46,7 @@
       <div
         v-for="item in displayItems"
         :key="item.key"
-        :ref="(element) => setItemRefForMembers(item.members, element as HTMLElement | null)"
+        :ref="(element) => setItemRefForMembers(item.members, element)"
         class="bg-white rounded-lg border transition-colors"
         :class="item.members.some((m) => m.uuid === selectedResultUuid) ? 'border-blue-400 ring-2 ring-blue-200' : 'border-gray-200'"
       >
@@ -83,11 +83,7 @@
            / flex-1 via the .stack-natural scoped styles below. For
            plugins that embed iframes (e.g. presentHtml) we also size
            each iframe to its content after load. -->
-        <div
-          v-else-if="isStackNatural(item.head.toolName)"
-          :ref="(element) => setNaturalWrapperRef(item.head.uuid, element as HTMLElement | null)"
-          class="stack-natural"
-        >
+        <div v-else-if="isStackNatural(item.head.toolName)" :ref="(element) => setNaturalWrapperRef(item.head.uuid, element)" class="stack-natural">
           <component
             :is="getPlugin(item.head.toolName)?.viewComponent"
             v-if="getPlugin(item.head.toolName)?.viewComponent"
@@ -121,7 +117,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, type ComponentPublicInstance } from "vue";
 import { useI18n } from "vue-i18n";
 import { getPlugin } from "../tools";
 import { TOOL_NAMES, type ToolName } from "../config/toolNames";
@@ -253,7 +249,15 @@ function setItemRef(uuid: string, element: HTMLElement | null): void {
   else itemRefs.delete(uuid);
 }
 
-function setNaturalWrapperRef(uuid: string, element: HTMLElement | null): void {
+// What Vue hands a `:ref` callback: an element, a mounted component instance,
+// or null on unmount. Only the element case carries the DOM node these
+// setters store.
+type VueRefTarget = Element | ComponentPublicInstance | null;
+
+const asHtmlElement = (target: VueRefTarget): HTMLElement | null => (target instanceof HTMLElement ? target : null);
+
+function setNaturalWrapperRef(uuid: string, target: VueRefTarget): void {
+  const element = asHtmlElement(target);
   if (element) {
     naturalWrapperRefs.set(uuid, element);
     nextTick(() => sizeIframesIn(element));
@@ -279,7 +283,8 @@ const displayItems = computed(() => buildStackDisplayItems(props.toolResults, gr
 // Register the group card element under EVERY member uuid so the
 // scroll-spy and scroll-to-selection logic (which key on individual
 // result uuids) resolve any member to this one card.
-function setItemRefForMembers(members: ToolResultComplete[], element: HTMLElement | null): void {
+function setItemRefForMembers(members: ToolResultComplete[], target: VueRefTarget): void {
+  const element = asHtmlElement(target);
   for (const member of members) setItemRef(member.uuid, element);
 }
 
