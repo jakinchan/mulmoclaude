@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/google-chat",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Google Chat bridge for MulmoBridge — connect Google Chat to MulmoClaude",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,7 +24,7 @@
   "dependencies": {
     "@mulmobridge/client": "^1.0.1",
     "@mulmobridge/protocol": "^1.0.1",
-    "@mulmobridge/webhook-runtime": "^1.0.2",
+    "@mulmobridge/webhook-runtime": "^1.0.3",
     "@mulmoclaude/common": "^1.1.1",
     "dotenv": "^17.0.0",
     "express": "^5.1.0",

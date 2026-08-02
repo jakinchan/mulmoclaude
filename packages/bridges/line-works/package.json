@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/line-works",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "LINE Works bridge for MulmoBridge — enterprise LINE (separate API from the consumer product)",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,7 +24,7 @@
   "dependencies": {
     "@mulmobridge/client": "^1.0.1",
     "@mulmobridge/protocol": "^1.0.1",
-    "@mulmobridge/webhook-runtime": "^1.0.2",
+    "@mulmobridge/webhook-runtime": "^1.0.3",
     "@mulmoclaude/common": "^1.1.1",
     "dotenv": "^17.0.0",
     "express": "^5.0.0",

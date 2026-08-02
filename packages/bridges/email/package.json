@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/email",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Email bridge for MulmoBridge — checks an IMAP mailbox and replies via SMTP",
   "type": "module",
   "main": "./dist/index.js",
