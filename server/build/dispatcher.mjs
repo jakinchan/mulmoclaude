@@ -81,7 +81,7 @@ async function serverLog(namespace, message, options = {}) {
   await safePost(req, LOG_TIMEOUT_MS);
 }
 
-// ../mulmoclaude3/packages/common/dist/index.js
+// packages/common/dist/index.js
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -136,7 +136,7 @@ async function handleConfigRefresh(payload) {
   await safePost(req);
 }
 
-// ../mulmoclaude3/packages/core/dist/templatePath-k_WNbL_Q.js
+// packages/core/dist/templatePath-k_WNbL_Q.js
 var TEMPLATES_PREFIX = "templates/";
 function isSafeTemplatePath(value) {
   if (value.length === 0 || value.includes("\\") || value.startsWith("/")) return false;
@@ -146,7 +146,7 @@ function isSafeActionTemplatePath(value) {
   return value.startsWith(TEMPLATES_PREFIX) && isSafeTemplatePath(value);
 }
 
-// ../mulmoclaude3/packages/core/dist/skill-bridge/index.js
+// packages/core/dist/skill-bridge/index.js
 import { mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
 import path3 from "node:path";
 var DATA_SKILLS_DIR = path3.join("data", "skills");
@@ -211,7 +211,7 @@ function mirrorSkillDelete(workspaceRoot2, slug) {
   return { dest };
 }
 
-// ../mulmoclaude3/packages/core/dist/dist-HC-r8qQi.js
+// packages/core/dist/dist-HC-r8qQi.js
 function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -279,7 +279,7 @@ async function handleSkillBridge(payload) {
 // server/workspace/hooks/handlers/wikiSnapshot.ts
 import path5 from "node:path";
 
-// ../mulmoclaude3/packages/core/dist/slug-CdN-pQX1.js
+// packages/core/dist/slug-CdN-pQX1.js
 function isSafeSlug(slug) {
   if (slug.length === 0) return false;
   if (slug === "." || slug === "..") return false;
@@ -288,7 +288,7 @@ function isSafeSlug(slug) {
   return true;
 }
 
-// ../mulmoclaude3/packages/core/dist/wiki/paths.js
+// packages/core/dist/wiki/paths.js
 import path4 from "node:path";
 function wikiSlugFromAbsPath(absPath, pagesDir) {
   const rel = path4.relative(pagesDir, absPath);
