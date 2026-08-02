@@ -325,11 +325,15 @@ function sizeIframesIn(wrapper: HTMLElement): void {
 // flood of messages from an untrusted (sandboxed but script-enabled)
 // iframe into parent-thread DoS. WeakMap key keeps the contentWindow
 // reference weak so it doesn't pin removed iframes.
-const iframesByContentWindow = new WeakMap<Window, HTMLIFrameElement>();
+// Keyed by what `MessageEvent.source` actually hands us rather than by
+// `Window`: a sandboxed cross-origin iframe's WindowProxy fails
+// `instanceof Window`, so the lookup has to match by identity instead.
+type IframeMessageSource = NonNullable<MessageEvent["source"]>;
+const iframesByContentWindow = new WeakMap<IframeMessageSource, HTMLIFrameElement>();
 const pendingIframeHeightsPx = new Map<HTMLIFrameElement, number>();
 let pendingHeightFlushRafId: number | null = null;
 
-function findIframeForSourceWindow(source: Window): HTMLIFrameElement | null {
+function findIframeForSourceWindow(source: IframeMessageSource): HTMLIFrameElement | null {
   const cached = iframesByContentWindow.get(source);
   if (cached && cached.isConnected) return cached;
   for (const wrapper of naturalWrapperRefs.values()) {
@@ -372,8 +376,8 @@ function handleIframeHeightMessage(event: MessageEvent): void {
   const reported = (data as { height?: unknown }).height;
   if (typeof reported !== "number") return;
   const { source } = event;
-  if (!source || typeof source !== "object" || !("postMessage" in source)) return;
-  const iframe = findIframeForSourceWindow(source as Window);
+  if (!source) return;
+  const iframe = findIframeForSourceWindow(source);
   if (!iframe) return;
   const heightPx = clampIframeHeight(reported, window.innerHeight);
   if (heightPx <= 0) return;

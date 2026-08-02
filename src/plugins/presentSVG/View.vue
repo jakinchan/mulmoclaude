@@ -150,7 +150,9 @@ async function fetchSource(): Promise<string | null> {
 }
 
 function onDetailsToggle(event: Event) {
-  const { open } = event.target as HTMLDetailsElement;
+  const details = event.target;
+  if (!(details instanceof HTMLDetailsElement)) return;
+  const { open } = details;
   saveError.value = null;
   editableSvg.value = cachedSource.value ?? "";
   if (open && cachedSource.value === null) {

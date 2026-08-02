@@ -24,6 +24,13 @@ import DOMPurify from "dompurify";
 // without losing real-world coverage.
 const ALLOWED_IFRAME_SRC = /^https:\/\/www\.youtube-nocookie\.com\/embed\/[A-Za-z0-9_-]{11}$/;
 
+// `nodeType`, not `instanceof Element`: this package is also consumed outside a
+// browser (the Node + jsdom test harness installs `window`/`document` but not
+// the DOM constructors), where the bare `Element` global is a ReferenceError.
+// nodeType 1 is the DOM standard's own element discriminant.
+const ELEMENT_NODE = 1;
+const isElementNode = (node: Node): node is Element => node.nodeType === ELEMENT_NODE;
+
 let hookInstalled = false;
 
 function ensureHook(): void {
@@ -31,8 +38,8 @@ function ensureHook(): void {
   hookInstalled = true;
   DOMPurify.addHook("uponSanitizeElement", (node, data) => {
     if (data.tagName !== "iframe") return;
-    const src = (node as Element).getAttribute("src") ?? "";
-    if (!ALLOWED_IFRAME_SRC.test(src)) {
+    const src = isElementNode(node) ? node.getAttribute("src") : null;
+    if (src === null || !ALLOWED_IFRAME_SRC.test(src)) {
       // Drop the iframe entirely — keeps the surrounding markdown, removes the
       // unsafe element.
       node.parentNode?.removeChild(node);

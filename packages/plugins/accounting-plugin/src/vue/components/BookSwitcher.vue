@@ -51,7 +51,8 @@ function formatBookOption(book: BookSummary): string {
 }
 
 function onSelect(event: Event): void {
-  const target = event.target as HTMLSelectElement;
+  const { target } = event;
+  if (!(target instanceof HTMLSelectElement)) return;
   const bookId = target.value;
   if (bookId === NEW_BOOK_SENTINEL) {
     target.value = props.modelValue;

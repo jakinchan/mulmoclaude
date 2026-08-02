@@ -364,8 +364,11 @@ function revealSelectedInTree(): void {
   if (pendingRevealRaf !== 0) return;
   pendingRevealRaf = requestAnimationFrame(() => {
     pendingRevealRaf = 0;
-    const paneRoot = treePaneRef.value?.$el as HTMLElement | undefined;
-    const button = paneRoot?.querySelector<HTMLElement>('button[data-selected="true"]');
+    // `$el` is `any` on a component instance; FileTreePane has a single
+    // <div> root, so the guard passes for every mounted instance.
+    const paneRoot: unknown = treePaneRef.value?.$el;
+    if (!(paneRoot instanceof HTMLElement)) return;
+    const button = paneRoot.querySelector<HTMLElement>('button[data-selected="true"]');
     button?.scrollIntoView({ block: "nearest" });
   });
 }

@@ -20,6 +20,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { useNotifications, type NotifierEntry, type NotifierHistoryEntry } from "../composables/useNotifications";
+import { eventTargetNode } from "../utils/dom/eventTarget";
 import { formatRelativeTime } from "../utils/format/date";
 import type { NotificationI18n, NotificationKind, NotificationPriority } from "../types/notification";
 import { isRecord } from "../utils/types";
@@ -75,7 +76,7 @@ function toggle(): void {
 
 function onDocumentClick(event: MouseEvent): void {
   if (!open.value || !rootRef.value) return;
-  if (!rootRef.value.contains(event.target as Node)) close();
+  if (!rootRef.value.contains(eventTargetNode(event))) close();
 }
 
 onMounted(() => document.addEventListener("mousedown", onDocumentClick));

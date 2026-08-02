@@ -148,7 +148,7 @@ function draftForNew(type: AccountType): AccountDraft {
 // in which Vue invokes the function refs.
 function bindNewEditor(node: Element | object | null, sectionType: AccountType): void {
   if (sectionType !== draft.value.type) return;
-  newEditorWrapper.value = (node as HTMLDivElement | null) ?? null;
+  newEditorWrapper.value = node instanceof HTMLDivElement ? node : null;
 }
 
 function onEdit(account: Account): void {
