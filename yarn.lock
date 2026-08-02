@@ -1368,12 +1368,11 @@
   dependencies:
     gui-chat-protocol "^1.2.0"
 
-"@gui-chat-plugin/mindmap@^1.1.0":
-  version "1.1.0"
-  resolved "https://registry.yarnpkg.com/@gui-chat-plugin/mindmap/-/mindmap-1.1.0.tgz#5f3cc8ed41c5bf64cffa138af80915e770b31d77"
-  integrity sha512-eiAqwASpkdy+n2Mr2bYU/jSqsjHxT+C4T3CNda5y5FhnH0dzdhwqBGlqiGZfYt/d32HKcuEH4AM2/PFDgXfJvw==
+"@gui-chat-plugin/mindmap@^1.2.0":
+  version "1.2.0"
+  resolved "https://registry.yarnpkg.com/@gui-chat-plugin/mindmap/-/mindmap-1.2.0.tgz#ab11345894eceb97b9b1e607ebf40de378ef7ae4"
+  integrity sha512-9tKya/Kt91TYyRYaogC8o6GCtXMbdo96OlQC+wHFcU7ibaRAoAFWNftlb9KkUxuagjMNq9FdUzaovc+0G0tgpQ==
   dependencies:
-    gui-chat-protocol "^1.2.0"
     jspdf "^4.0.0"
 
 "@gui-chat-plugin/present3d@^1.1.0":

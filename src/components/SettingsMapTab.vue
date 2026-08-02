@@ -10,8 +10,9 @@
         type="password"
         autocomplete="off"
         spellcheck="false"
-        class="w-full px-3 py-2 text-sm font-mono rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        class="w-full px-3 py-2 text-sm font-mono rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
         :placeholder="t('settingsModal.mapTab.apiKeyPlaceholder')"
+        :disabled="loading"
         data-testid="settings-map-api-key-input"
         @blur="save"
         @keydown.enter.prevent="onEnterKey"
@@ -65,6 +66,10 @@ interface SettingsResponse {
 
 const apiKeyDraft = ref("");
 const storedKey = ref("");
+// The field stays disabled until the stored key has arrived: a load that
+// resolves after the user started typing would overwrite the draft, and the
+// save that follows then sees no change and silently does nothing.
+const loading = ref(true);
 const loaded = ref(false);
 const saving = ref(false);
 const errorMessage = ref("");
@@ -88,7 +93,9 @@ const statusColour = computed(() => {
 
 async function load(): Promise<void> {
   errorMessage.value = "";
+  loading.value = true;
   const response = await apiGet<SettingsResponse>(API_ROUTES.config.base);
+  loading.value = false;
   if (!response.ok) {
     errorMessage.value = response.error || t("settingsModal.mapTab.loadError");
     return;

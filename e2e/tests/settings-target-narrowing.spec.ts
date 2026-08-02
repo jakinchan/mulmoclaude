@@ -18,14 +18,21 @@ interface ConfigState {
 
 const GMAIL_SERVER: McpEntry = { id: "gmail", spec: { type: "http", url: "https://gmail.mcp.claude.com/mcp", enabled: true } };
 
+/** Long enough that the tab is observably still loading after it mounts. */
+const SLOW_CONFIG_GET_MS = 1000;
+
 /** `/api/config` GET plus the two patch endpoints, reflecting writes back. */
-async function mockConfig(page: Page, initial: ConfigState): Promise<ConfigState> {
+async function mockConfig(page: Page, initial: ConfigState, getDelayMs = 0): Promise<ConfigState> {
   await mockAllApis(page);
   const state: ConfigState = JSON.parse(JSON.stringify(initial));
 
   await page.route(
     (url) => url.pathname === "/api/config",
-    (route) => (route.request().method() === "GET" ? route.fulfill({ json: state }) : route.fallback()),
+    async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      if (getDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, getDelayMs));
+      return route.fulfill({ json: state });
+    },
   );
   await page.route(
     (url) => url.pathname === "/api/config/settings",
@@ -66,6 +73,23 @@ test.describe("Settings — handlers that narrow event.target", () => {
     // The handler blurs the input; the blur listener is what saves.
     await expect(input).not.toBeFocused();
     await expect.poll(() => state.settings.googleMapsApiKey).toBe("AIzaTestKey123");
+  });
+
+  // The tab mounts before its config GET resolves. Left editable in that
+  // window, a key typed into it is overwritten by the arriving stored value
+  // and the save that follows sees no change — the key vanishes silently.
+  test("the Maps API key field is not editable until the stored key has loaded", async ({ page }) => {
+    const state = await mockConfig(page, { settings: { extraAllowedTools: [] }, mcp: { servers: [] } }, SLOW_CONFIG_GET_MS);
+    await page.goto("/chat");
+    await openTab(page, "map");
+
+    const input = page.locator('[data-testid="settings-map-api-key-input"]');
+    await expect(input).toBeDisabled();
+    await expect(input).toBeEnabled();
+
+    await input.fill("AIzaLateLoad456");
+    await input.press("Enter");
+    await expect.poll(() => state.settings.googleMapsApiKey).toBe("AIzaLateLoad456");
   });
 
   test("unchecking an MCP server's enable box persists enabled: false", async ({ page }) => {
