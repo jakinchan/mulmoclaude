@@ -6,17 +6,26 @@ import { errorMessage } from "../../utils/errors";
 export const TOOL_NAME = META.toolName;
 export type SpreadsheetEndpoints = { readonly [K in keyof typeof META.apiRoutes]: ResolvedRoute };
 
+/** Mirrors the engine's `StoredCellValue`. Declaring it narrower than what the
+ *  engine stores and renders is what forced the View to cast its decoded
+ *  sheets back to this type. */
+export type SpreadsheetCellValue = string | number | boolean;
+
 export interface SpreadsheetCell {
-  /** Mirrors the engine's `StoredCellValue`. Declaring it narrower than what
-   *  the engine stores and renders is what forced the View to cast its
-   *  decoded sheets back to this type. */
-  v: string | number | boolean;
+  v: SpreadsheetCellValue;
   f?: string;
 }
 
+/** A cell as a stored workbook actually holds it. The engine's `normalizeData`
+ *  folds all four forms, and models and hand edits write all four, so a
+ *  workbook read back off disk cannot promise `{ v }` for every cell. The tool
+ *  SCHEMA is deliberately stricter — it says what a caller should emit, not
+ *  what an existing file may contain. */
+export type StorableCell = SpreadsheetCell | { v?: null; f?: string } | SpreadsheetCellValue | null;
+
 export interface SpreadsheetSheet {
   name: string;
-  data: SpreadsheetCell[][];
+  data: StorableCell[][];
 }
 
 export interface SpreadsheetToolData {
