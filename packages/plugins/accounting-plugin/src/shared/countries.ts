@@ -96,7 +96,7 @@ export function localizedCountryName(code: string, locale: string): string {
  *  LLM input arrives as raw `string` (form submit, JSON-RPC body),
  *  so the service layer narrows here before persisting. */
 export function isSupportedCountryCode(value: unknown): value is SupportedCountryCode {
-  return typeof value === "string" && (SUPPORTED_COUNTRY_CODES as readonly string[]).includes(value);
+  return SUPPORTED_COUNTRY_CODES.some((code) => code === value);
 }
 
 /** Country-gated UI features. Each key is a feature name; the value

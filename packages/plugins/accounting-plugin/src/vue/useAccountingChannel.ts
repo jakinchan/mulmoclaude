@@ -18,8 +18,20 @@
 // own `./shared` so publisher and subscriber stay in lockstep.
 
 import { ref, watch, onUnmounted, type Ref } from "vue";
-import { bookChannel, ACCOUNTING_BOOKS_CHANNEL, type BookChannelPayload } from "../shared";
+import { bookChannel, ACCOUNTING_BOOKS_CHANNEL, BOOK_EVENT_KINDS, type BookChannelPayload } from "../shared";
 import { hostSubscribe } from "./hostContext";
+
+const BOOK_EVENT_KIND_VALUES = Object.values(BOOK_EVENT_KINDS);
+
+/** The host hands subscribers an `unknown`, so rebuild the payload from
+ *  the fields we can prove rather than trusting the publisher's type. */
+function toBookChannelPayload(data: unknown): BookChannelPayload | null {
+  if (typeof data !== "object" || data === null || !("kind" in data)) return null;
+  const kind = BOOK_EVENT_KIND_VALUES.find((candidate) => candidate === data.kind);
+  if (kind === undefined) return null;
+  const period = "period" in data && typeof data.period === "string" ? data.period : undefined;
+  return period === undefined ? { kind } : { kind, period };
+}
 
 export interface UseAccountingChannelReturn {
   /** Bumps on every per-book event for the current bookId. Resets to
@@ -37,9 +49,9 @@ export function useAccountingChannel(bookId: Ref<string | null>, onPayload?: (pa
     version.value = 0;
     if (!nextBookId) return;
     unsubscribe = hostSubscribe(bookChannel(nextBookId), (data) => {
-      const event = data as BookChannelPayload;
       version.value += 1;
-      onPayload?.(event);
+      const event = toBookChannelPayload(data);
+      if (event) onPayload?.(event);
     });
   }
 

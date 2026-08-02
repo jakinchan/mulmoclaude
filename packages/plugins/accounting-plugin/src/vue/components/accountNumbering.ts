@@ -33,6 +33,7 @@
 // imports between Vue components.
 
 import type { Account, AccountType } from "../api";
+import { ACCOUNT_TYPES } from "../../shared";
 
 export const ACCOUNT_TYPE_PREFIX: Record<AccountType, number> = {
   asset: 1,
@@ -65,10 +66,7 @@ export function isValidAccountCode(code: string): boolean {
 export function typeForCode(code: string): AccountType | null {
   if (!isValidAccountCode(code)) return null;
   const leading = Number.parseInt(code[0], 10);
-  for (const [type, prefix] of Object.entries(ACCOUNT_TYPE_PREFIX) as [AccountType, number][]) {
-    if (prefix === leading) return type;
-  }
-  return null;
+  return ACCOUNT_TYPES.find((type) => ACCOUNT_TYPE_PREFIX[type] === leading) ?? null;
 }
 
 export function codeMatchesType(code: string, type: AccountType): boolean {
