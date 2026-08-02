@@ -15,7 +15,7 @@ MulmoClaude では `execute()` はクライアントで呼ばれず、プラグ�
 
 ## いま何が起きているか（コードで確認した経路）
 
-```
+```text
 MCP bridge  ──postJson(/api/mindmap?session=<id>)──▶  plugins.ts
                                                        executeMindMap(SERVER_TOOL_CONTEXT, body)
                                                        └─ currentResult: undefined  ← ここ
@@ -38,11 +38,16 @@ JSONL 全読みはしない（起動直後や大きなセッションで重く�
 
 ### 置き場所
 
-`ServerSession` に `latestToolResults: Record<string, ToolResult>` を足し、`pushToolResult` が
+`ServerSession` に `latestToolResults: Map<string, ToolResult>` を足し、`pushToolResult` が
 書くときに一緒に更新する。**push 経路は1本しかない**ので、ここに置けば取りこぼしがない。
 
 - 保持は **toolName ごとに1件**。ツール数で上限が決まるのでセッションあたりの増加は有界
 - セッションが evict されれば一緒に消える（既存のライフサイクルに乗る）
+- **`Map` である理由**: キーは wire から来るツール名。プレーンオブジェクトだと
+  `obj["__proto__"] = x` は保存ではなくプロトタイプ差し替えになり、`obj["constructor"]` は
+  `undefined` ではなく `Object` 関数を返す ── **`ToolResult` ですらない値**が
+  `currentResult` としてプラグインに渡り得る。リポジトリが `ownProp` と dispatcher テストで
+  既に扱っているバグクラスと同じもの（レビュー中に発見）
 
 ### 読み出し
 
@@ -61,8 +66,10 @@ mindmap ルートで `{ currentResult }` を組み立てて渡す。
 
 ## 実装
 
-1. `ServerSession` に `latestToolResults: Record<string, ToolResult>`（初期値 `{}`）
-2. `pushToolResult` が、結果に文字列 `toolName` があればそこへ記録
+1. `ServerSession` に `latestToolResults: Map<string, ToolResult>`（初期値 `new Map()`）
+2. `pushToolResult` が、結果に文字列 `toolName` があればそこへ記録。値は **cast せず
+   フィールドごとに検証して再構築**する（届くのは JSON ボディなので、`as ToolResult` だと
+   `{ message: 42 }` が string として読み戻される）
 3. `latestToolResult(chatSessionId, toolName): ToolResult | null` を export
 4. `plugins.ts` の mindmap ルートで、`getSessionQuery(req)` + `TOOL_NAMES.createMindMap` から
    context を作って `executeMindMap` に渡す。セッションが無い / 結果が無い場合は
@@ -80,9 +87,18 @@ mindmap ルートで `{ currentResult }` を組み立てて渡す。
 
 ## テスト
 
-- `pushToolResult` が `toolName` 付きの結果を `latestToolResults` に記録すること
+`test/events/test_session_store.ts`:
+
+- `toolName` 付きの結果が記録されること／同じ toolName の2回目が置き換えること
+- tool 間・セッション間で混ざらないこと
 - `toolName` が無い / 文字列でない結果は記録しないこと（壊れた入力で落ちない）
-- 同じ toolName の2回目が1回目を置き換えること
-- 別 toolName が互いを上書きしないこと
-- `latestToolResult` が未知のセッション / 未知の toolName で `null` を返すこと
-- mindmap ルートが、セッションに結果があるときは `currentResult` を渡し、無いときは空 context を渡すこと
+- 未知のセッション / 未使用の toolName で `null` を返すこと
+- **型が合わないフィールドを落としつつ `data` は残すこと**（再構築が効いていること）
+- **プロトタイプキー（`constructor` / `toString` / `__proto__`）が `null` を返すこと**、および
+  `__proto__` という名前の tool が普通のエントリとして保存されること
+  ── いずれも `Record` 実装では落ちることを、実際に戻して確認済み
+
+`test/routes/test_sessionToolContext.ts`:
+
+- 直近結果を渡すこと／該当 tool の結果が無い・セッション未知・セッション ID 未送信で空 context
+- **他セッションのマップを漏らさないこと**
