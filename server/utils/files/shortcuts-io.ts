@@ -45,8 +45,8 @@ export async function readShortcuts(workspaceRoot?: string): Promise<Shortcut[]>
   const text = await readTextSafe(shortcutsFilePath(workspaceRoot));
   if (text === null) return [];
   try {
-    const parsed = JSON.parse(text) as Partial<ShortcutsFile>;
-    return normalizeShortcuts(parsed?.shortcuts);
+    const parsed: unknown = JSON.parse(text);
+    return normalizeShortcuts(isRecord(parsed) ? parsed.shortcuts : undefined);
   } catch {
     return [];
   }

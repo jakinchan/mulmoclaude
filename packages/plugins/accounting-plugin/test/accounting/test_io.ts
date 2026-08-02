@@ -131,6 +131,57 @@ describe("journal append + read", () => {
     assert.equal(result.entries.length, 1);
     assert.equal(result.skipped, 1);
   });
+  it("skips lines that parse as JSON but aren't journal entries", async () => {
+    const root = makeTmp();
+    await ensureBookDir("default", root);
+    await appendJournal("default", sampleEntry("2026-04-01", "good"), root);
+    const fsModule = await import("node:fs/promises");
+    const file = path.join(root, "data/accounting/books/default/journal/2026-04.jsonl");
+    const existing = await fsModule.readFile(file, "utf-8");
+    // Each of these used to be admitted as a `JournalEntry`, and the one
+    // without `lines` then crashed `aggregateBalances` with "entry.lines is
+    // not iterable" — taking the whole book's reports down over one bad line.
+    const bogus = [
+      "null",
+      "[1,2,3]",
+      '"hello"',
+      JSON.stringify({ id: "x", date: "2026-04-02", kind: "normal", createdAt: "t" }),
+      JSON.stringify({ ...sampleEntry("2026-04-03", "y"), kind: "weird" }),
+    ];
+    await fsModule.writeFile(file, existing + bogus.map((line) => `${line}\n`).join(""));
+    const result = await readJournalMonth("default", "2026-04", root);
+    assert.deepEqual(
+      result.entries.map((entry) => entry.id),
+      ["good"],
+    );
+    assert.equal(result.skipped, bogus.length);
+  });
+  it("keeps every entry shape the plugin itself writes", async () => {
+    const root = makeTmp();
+    await ensureBookDir("default", root);
+    const fsModule = await import("node:fs/promises");
+    const file = path.join(root, "data/accounting/books/default/journal/2026-04.jsonl");
+    await fsModule.mkdir(path.dirname(file), { recursive: true });
+    const kept = [
+      { id: "marker", date: "2026-04-02", kind: "void-marker", lines: [], createdAt: "t", voidedEntryId: "a", voidReason: "typo" },
+      { id: "opening", date: "2026-04-03", kind: "opening", lines: [{ accountCode: "1000", debit: 1 }], createdAt: "t" },
+      {
+        id: "taxed",
+        date: "2026-04-04",
+        kind: "normal",
+        lines: [{ accountCode: "1400", credit: 1, memo: "m", taxRegistrationId: "T1" }],
+        createdAt: "t",
+        replacesEntryId: "opening",
+      },
+    ];
+    await fsModule.writeFile(file, kept.map((entry) => `${JSON.stringify(entry)}\n`).join(""));
+    const result = await readJournalMonth("default", "2026-04", root);
+    assert.deepEqual(
+      result.entries.map((entry) => entry.id),
+      ["marker", "opening", "taxed"],
+    );
+    assert.equal(result.skipped, 0);
+  });
   it("listJournalPeriods returns sorted YYYY-MM list", async () => {
     const root = makeTmp();
     await ensureBookDir("default", root);

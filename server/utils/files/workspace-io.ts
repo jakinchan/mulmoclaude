@@ -34,21 +34,23 @@ export function readWorkspaceTextSync(relPath: string): string | null {
   }
 }
 
-export async function readWorkspaceJson<T>(relPath: string, fallback: T): Promise<T> {
+// Returns whatever the file happens to hold; narrowing is the caller's job,
+// because only the caller knows which shape it asked for.
+export async function readWorkspaceJson(relPath: string, fallback: unknown): Promise<unknown> {
   const text = await readWorkspaceText(relPath);
   if (text === null) return fallback;
   try {
-    return JSON.parse(text) as T;
+    return JSON.parse(text);
   } catch {
     return fallback;
   }
 }
 
-export function readWorkspaceJsonSync<T>(relPath: string, fallback: T): T {
+export function readWorkspaceJsonSync(relPath: string, fallback: unknown): unknown {
   const text = readWorkspaceTextSync(relPath);
   if (text === null) return fallback;
   try {
-    return JSON.parse(text) as T;
+    return JSON.parse(text);
   } catch {
     return fallback;
   }

@@ -13,6 +13,7 @@ import { promises as fsPromises } from "node:fs";
 import path from "node:path";
 
 import { defaultWorkspaceRoot } from "./context.js";
+import { isJournalEntry } from "./journal.js";
 import { ACCOUNTING_DIRS as WORKSPACE_DIRS, resolveFiscalYearEnd } from "../shared";
 import { writeJsonAtomic, isEnoent } from "@mulmoclaude/core/files";
 import type { AccountingConfig, MonthSnapshot } from "./types.js";
@@ -91,6 +92,11 @@ async function fileExists(filePath: string): Promise<boolean> {
 async function readJsonStrict<T>(filePath: string): Promise<T | null> {
   try {
     const raw = await fsPromises.readFile(filePath, "utf-8");
+    // Cast kept (#2692): the persisted shapes are deliberately looser than
+    // their types — `BookSummary.fiscalYearEnd` is typed as a month number but
+    // legacy books hold "Q1".."Q4" on disk (`normalizeBookFiscalYearEnd`
+    // absorbs it on read). A predicate written against the type would reject
+    // those files and lock the user out of their books.
     return JSON.parse(raw) as T;
   } catch (err) {
     if (isEnoent(err)) return null;
@@ -200,6 +206,18 @@ export async function appendJournalBatch(bookId: string, entries: readonly Journ
   }
 }
 
+/** One JSONL line, or null when it isn't a journal entry — unparseable JSON
+ *  and JSON of the wrong shape are the same failure to a caller that can only
+ *  skip the line. */
+function parseJournalLine(line: string): JournalEntry | null {
+  try {
+    const parsed: unknown = JSON.parse(line);
+    return isJournalEntry(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Read a single month's JSONL. Malformed lines are skipped (logged
  *  by the caller; this layer just returns the parseable subset) so
  *  one bad line doesn't lock the user out of their book. */
@@ -212,17 +230,12 @@ export async function readJournalMonth(bookId: string, period: string, workspace
     if (isEnoent(err)) return { entries: [], skipped: 0 };
     throw err;
   }
-  const entries: JournalEntry[] = [];
-  let skipped = 0;
-  for (const line of raw.split("\n")) {
-    if (line.trim() === "") continue;
-    try {
-      entries.push(JSON.parse(line) as JournalEntry);
-    } catch {
-      skipped += 1;
-    }
-  }
-  return { entries, skipped };
+  const parsed = raw
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map(parseJournalLine);
+  const entries = parsed.filter((entry): entry is JournalEntry => entry !== null);
+  return { entries, skipped: parsed.length - entries.length };
 }
 
 /** List the YYYY-MM periods that have a journal file on disk, sorted

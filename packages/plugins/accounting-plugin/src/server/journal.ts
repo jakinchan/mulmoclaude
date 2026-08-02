@@ -11,8 +11,9 @@
 // `addEntries` call for the corrected booking.
 
 import { randomUUID } from "node:crypto";
-import { isRecord, isUnknownArray } from "@mulmoclaude/common";
+import { hasStringProp, isRecord, isUnknownArray } from "@mulmoclaude/common";
 
+import { JOURNAL_ENTRY_KINDS } from "../shared/types.js";
 import type { Account, JournalEntry, JournalLine } from "../shared/types.js";
 
 /** Floating-point tolerance for the debit = credit check. Currency
@@ -191,6 +192,40 @@ function parseOptionalString(value: unknown, field: string, errors: ValidationEr
   if (value === undefined || typeof value === "string") return value;
   errors.push({ field, message: `${field} must be a string when supplied` });
   return undefined;
+}
+
+const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string";
+const isOptionalNumber = (value: unknown): boolean => value === undefined || typeof value === "number";
+
+function isJournalLine(value: unknown): value is JournalLine {
+  return (
+    hasStringProp(value, "accountCode") &&
+    isOptionalNumber(value.debit) &&
+    isOptionalNumber(value.credit) &&
+    isOptionalString(value.memo) &&
+    isOptionalString(value.taxRegistrationId)
+  );
+}
+
+/** Checks every field `JournalEntry` and `JournalLine` declare, so a value
+ *  that passes really is one. Used when reading the journal JSONL back:
+ *  everything this module ever wrote satisfies it (`id` / `date` / `kind` /
+ *  `lines` / `createdAt` have been required since the plugin's first
+ *  release), while a line that doesn't is exactly the line that takes the
+ *  whole book down — `report.ts` iterates `entry.lines` unguarded. */
+export function isJournalEntry(value: unknown): value is JournalEntry {
+  return (
+    hasStringProp(value, "id") &&
+    hasStringProp(value, "date") &&
+    hasStringProp(value, "createdAt") &&
+    JOURNAL_ENTRY_KINDS.some((kind) => kind === value.kind) &&
+    isUnknownArray(value.lines) &&
+    value.lines.every(isJournalLine) &&
+    isOptionalString(value.memo) &&
+    isOptionalString(value.voidedEntryId) &&
+    isOptionalString(value.voidReason) &&
+    isOptionalString(value.replacesEntryId)
+  );
 }
 
 /** Normalize a journal line before persistence: trim string fields

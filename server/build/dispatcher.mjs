@@ -81,7 +81,16 @@ async function serverLog(namespace, message, options = {}) {
   await safePost(req, LOG_TIMEOUT_MS);
 }
 
+// packages/common/dist/index.js
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // server/workspace/hooks/shared/stdin.ts
+var isOptionalRecord = (value) => value === void 0 || isRecord(value);
+function isHookPayload(value) {
+  return isRecord(value) && isOptionalRecord(value.tool_input) && isOptionalRecord(value.tool_response);
+}
 async function readHookPayload() {
   const chunks = [];
   for await (const chunk of process.stdin) {
@@ -90,7 +99,8 @@ async function readHookPayload() {
   const raw = Buffer.concat(chunks).toString("utf-8");
   if (!raw.trim()) return null;
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return isHookPayload(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -202,11 +212,11 @@ function mirrorSkillDelete(workspaceRoot2, slug) {
 }
 
 // packages/core/dist/dist-HC-r8qQi.js
-function isRecord(value) {
+function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function hasStringProp(value, key) {
-  return isRecord(value) && typeof value[key] === "string";
+  return isRecord2(value) && typeof value[key] === "string";
 }
 function errorMessage(err, fallback) {
   if (err instanceof Error) return err.message;

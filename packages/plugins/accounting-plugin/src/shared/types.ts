@@ -68,7 +68,8 @@ export interface BookSummary {
   createdAt: string;
 }
 
-export type JournalEntryKind = "normal" | "opening" | "void" | "void-marker";
+export const JOURNAL_ENTRY_KINDS = ["normal", "opening", "void", "void-marker"] as const;
+export type JournalEntryKind = (typeof JOURNAL_ENTRY_KINDS)[number];
 
 export interface JournalLine {
   accountCode: string;

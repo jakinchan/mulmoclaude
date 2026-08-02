@@ -15,6 +15,7 @@ import type { Attachment } from "@mulmobridge/protocol";
 import { isImageMime, isNativeAttachmentMime } from "@mulmobridge/client";
 import { convertAttachment } from "./attachmentConverter.js";
 import { log } from "../system/logger/index.js";
+import { isRecord } from "../utils/types.js";
 import { preflightUserServers, logPreflightResult } from "./mcpPreflight.js";
 
 export const CONTAINER_WORKSPACE_PATH = "/home/node/mulmoclaude";
@@ -752,7 +753,8 @@ function workspacePackageDirs(packageRoot: string): string[] {
 // `@mulmobridge/protocol` unmounted (#2052).
 function scopedPackageName(pkgDir: string): string | null {
   try {
-    const { name } = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf-8")) as { name?: unknown };
+    const parsed: unknown = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf-8"));
+    const name = isRecord(parsed) ? parsed.name : undefined;
     return typeof name === "string" && name.startsWith("@") ? name : null;
   } catch {
     return null;

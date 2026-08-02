@@ -1,6 +1,6 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -44,6 +44,25 @@ describe("readSessionMeta", () => {
     await writeSessionMeta("rw-test", { roleId: "general" }, root);
     const meta = await readSessionMeta("rw-test", root);
     assert.equal(meta?.roleId, "general");
+  });
+
+  it("returns null for JSON whose declared fields have the wrong types", async () => {
+    const chatDir = path.join(root, WORKSPACE_DIRS.chat);
+    const body = JSON.stringify({ roleId: 5, hasUnread: "yes", origin: "martian" });
+    writeFileSync(path.join(chatDir, "bad-shape.json"), body);
+    assert.equal(await readSessionMeta("bad-shape", root), null);
+    // Every mutator early-returns on null, so an unreadable meta file must
+    // stay on disk intact rather than being replaced by a partial rewrite.
+    await updateHasUnread("bad-shape", true, root);
+    assert.equal(readFileSync(path.join(chatDir, "bad-shape.json"), "utf-8"), body);
+  });
+
+  it("keeps keys the type doesn't model, and accepts a plugin origin", async () => {
+    const chatDir = path.join(root, WORKSPACE_DIRS.chat);
+    writeFileSync(path.join(chatDir, "extra.json"), JSON.stringify({ roleId: "general", origin: "plugin:@scope/pkg", futureField: [1, 2] }));
+    const meta = await readSessionMeta("extra", root);
+    assert.equal(meta?.origin, "plugin:@scope/pkg");
+    assert.deepEqual(meta?.futureField, [1, 2]);
   });
 });
 

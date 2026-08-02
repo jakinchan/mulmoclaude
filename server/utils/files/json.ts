@@ -17,6 +17,10 @@ export function loadJsonFile<T>(filePath: string, defaultValue: T): T {
     throw err;
   }
   try {
+    // Cast kept (#2692): `loadSchedulerItems` / `loadUserTasks` propagate this
+    // `T` into files the same request rewrites, so filtering unrecognised
+    // entries here would delete the user's data. Removing it needs those two
+    // persistence paths to gain real per-entry validation first.
     return JSON.parse(raw) as T;
   } catch (err) {
     log.error("json", "loadJsonFile parse failed, using default", {
