@@ -84,8 +84,7 @@ export function parseSessionEntries(entries: readonly SessionEntry[], sessionOri
 // it's a tool result or a text result. Returns null only when the
 // list is empty.
 export function resolveSelectedUuid(toolResults: readonly ToolResultComplete[]): string | null {
-  if (toolResults.length === 0) return null;
-  return toolResults[toolResults.length - 1].uuid;
+  return toolResults[toolResults.length - 1]?.uuid ?? null;
 }
 
 // Total character length of the STREAMED-TEXT card bodies. Only text and

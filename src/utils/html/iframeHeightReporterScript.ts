@@ -1,3 +1,5 @@
+import { injectBeforeBodyClose } from "./injectBeforeBodyClose";
+
 // Tiny inline script injected into every `/artifacts/html/...` document
 // so the parent (StackView in chat) can size each iframe to its
 // rendered content height — despite the sandbox treating the iframe as
@@ -43,8 +45,6 @@ const REPORTER_SCRIPT = `(()=>{const p=()=>{try{parent.postMessage({type:"mc-ifr
 
 export const HEIGHT_REPORTER_SCRIPT_TAG = `<script>${REPORTER_SCRIPT}</script>`;
 
-const BODY_CLOSE_RE = /<\/body\s*>/gi;
-
 /** Splice the height-reporter `<script>` tag immediately before the
  *  document's last `</body>`. Pure string operation — no DOM parsing,
  *  linear time in input length, idempotent in effect (the script is
@@ -53,10 +53,5 @@ const BODY_CLOSE_RE = /<\/body\s*>/gi;
  *  (server-streamed HTML, partial output, hand-written fragment), the
  *  tag is appended at the end so the script still loads. */
 export function injectHeightReporterScript(html: string): string {
-  if (!html) return html;
-  const matches = [...html.matchAll(BODY_CLOSE_RE)];
-  if (matches.length === 0) return html + HEIGHT_REPORTER_SCRIPT_TAG;
-  const idx = matches[matches.length - 1].index;
-  if (idx === undefined) return html + HEIGHT_REPORTER_SCRIPT_TAG;
-  return `${html.slice(0, idx)}${HEIGHT_REPORTER_SCRIPT_TAG}${html.slice(idx)}`;
+  return injectBeforeBodyClose(html, HEIGHT_REPORTER_SCRIPT_TAG);
 }

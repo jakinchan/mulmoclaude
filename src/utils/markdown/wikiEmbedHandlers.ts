@@ -62,7 +62,7 @@ export function amazonTldForLocale(locale: string): string {
   // Try the full tag first (`pt-br`), then the language-only segment (`pt`).
   const fullMatch = tldFor(raw);
   if (fullMatch) return fullMatch;
-  const [lang] = raw.split("-");
+  const [lang = raw] = raw.split("-");
   return tldFor(lang) ?? "com";
 }
 

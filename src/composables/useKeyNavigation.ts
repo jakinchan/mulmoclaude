@@ -16,14 +16,16 @@ function isVerticalArrow(key: string): key is "ArrowUp" | "ArrowDown" {
   return key === "ArrowUp" || key === "ArrowDown";
 }
 
+function nextIndex(results: ToolResultComplete[], currentIndex: number, direction: "ArrowUp" | "ArrowDown"): number {
+  if (currentIndex === -1) return direction === "ArrowDown" ? 0 : results.length - 1;
+  if (direction === "ArrowUp") return Math.max(0, currentIndex - 1);
+  return Math.min(results.length - 1, currentIndex + 1);
+}
+
 function resolveNextUuid(results: ToolResultComplete[], currentUuid: string | null, direction: "ArrowUp" | "ArrowDown"): string | null {
   if (results.length === 0) return null;
-  const idx = results.findIndex((result) => result.uuid === currentUuid);
-  if (idx === -1) {
-    return direction === "ArrowDown" ? results[0].uuid : results[results.length - 1].uuid;
-  }
-  const next = direction === "ArrowUp" ? Math.max(0, idx - 1) : Math.min(results.length - 1, idx + 1);
-  return results[next].uuid;
+  const currentIndex = results.findIndex((result) => result.uuid === currentUuid);
+  return results[nextIndex(results, currentIndex, direction)]?.uuid ?? null;
 }
 
 export function useKeyNavigation(opts: {

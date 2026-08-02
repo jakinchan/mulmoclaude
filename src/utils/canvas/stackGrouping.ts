@@ -32,21 +32,24 @@ export function buildStackDisplayItems<T>(
   uuidOf: (result: T) => string,
 ): StackDisplayItem<T>[] {
   const items: StackDisplayItem<T>[] = [];
-  const indexByGroupKey = new Map<string, number>();
+  // Holds the item itself, not its index: the same object lives in
+  // `items`, so merging a later call mutates the card already queued.
+  const itemByGroupKey = new Map<string, StackDisplayItem<T>>();
   for (const result of results) {
     const groupKey = groupKeyOf(result);
-    if (groupKey !== null) {
-      const existing = indexByGroupKey.get(groupKey);
-      if (existing !== undefined) {
-        items[existing].members.push(result);
-        items[existing].head = result; // latest call drives the header
-        continue;
-      }
-      indexByGroupKey.set(groupKey, items.length);
-      items.push({ key: `group:${groupKey}`, head: result, members: [result], isGroup: true });
-    } else {
+    if (groupKey === null) {
       items.push({ key: uuidOf(result), head: result, members: [result], isGroup: false });
+      continue;
     }
+    const existing = itemByGroupKey.get(groupKey);
+    if (existing !== undefined) {
+      existing.members.push(result);
+      existing.head = result; // latest call drives the header
+      continue;
+    }
+    const group: StackDisplayItem<T> = { key: `group:${groupKey}`, head: result, members: [result], isGroup: true };
+    itemByGroupKey.set(groupKey, group);
+    items.push(group);
   }
   return items;
 }

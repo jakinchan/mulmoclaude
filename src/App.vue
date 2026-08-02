@@ -11,12 +11,8 @@
     <!-- CSP-blocked-resource notice (#1989) — a sandboxed view tried to load a
          host not allowed by config/csp.json. Tells the user the exact host +
          directive so they can extend the policy (if they trust it). -->
-    <div
-      v-if="cspViolations.length > 0"
-      class="shrink-0 flex items-start gap-3 bg-amber-50 text-amber-900 text-xs px-3 py-2 border-b border-amber-200"
-      role="alert"
-    >
-      <span class="flex-1 min-w-0">{{ $t("cspViolation.notice", { host: cspViolations[0].host, directive: cspViolations[0].directive }) }}</span>
+    <div v-if="firstCspViolation" class="shrink-0 flex items-start gap-3 bg-amber-50 text-amber-900 text-xs px-3 py-2 border-b border-amber-200" role="alert">
+      <span class="flex-1 min-w-0">{{ $t("cspViolation.notice", { host: firstCspViolation.host, directive: firstCspViolation.directive }) }}</span>
       <button class="shrink-0 underline hover:no-underline" @click="dismissCspViolations()">{{ $t("cspViolation.dismiss") }}</button>
     </div>
     <!-- Global top bar — shown in every view mode -->
@@ -416,7 +412,7 @@ import { useCurrentRole } from "./composables/useCurrentRole";
 import { useShortcuts } from "./composables/useShortcuts";
 import type { Shortcut } from "./types/shortcuts";
 import { useTranslatedQueries } from "./composables/useTranslatedQueries";
-import { BUILTIN_ROLE_IDS, type Role } from "./config/roles";
+import { BUILTIN_ROLE_IDS, ROLES, type Role } from "./config/roles";
 import { usePubSub } from "./composables/usePubSub";
 import { sessionChannel } from "./config/pubsubChannels";
 import ConfirmModal from "./components/ConfirmModal.vue";
@@ -540,7 +536,9 @@ const sessionRole = computed<Role>(() => {
     const match = roles.value.find((role) => role.id === sessionRoleId);
     if (match) return match;
   }
-  return roles.value[0];
+  // `roles` always carries the built-ins (merge keeps them), so the first
+  // entry is the effective default; ROLES[0] only covers the type.
+  return roles.value[0] ?? ROLES[0];
 });
 
 // Translated suggested-query strings for the active session's role.
@@ -832,6 +830,9 @@ async function refreshGoogleMapsApiKey(): Promise<void> {
 void refreshGoogleMapsApiKey();
 void loadCspExtra();
 installCspViolationListener();
+// The banner names one blocked host; the rest of the list is deduped
+// behind it and surfaces once the user extends the policy.
+const firstCspViolation = computed(() => cspViolations.value[0]);
 
 function googleMapKeyFor(toolName: string | undefined): string | null {
   return toolName === TOOL_NAMES.mapControl ? googleMapsApiKey.value : null;

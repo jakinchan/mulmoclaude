@@ -32,7 +32,13 @@ interface RestoreResponse {
 }
 
 function fillRoute(template: string, params: Record<string, string>): string {
-  return template.replace(/:([a-zA-Z]+)/g, (_, key: string) => encodeURIComponent(params[key]));
+  return template.replace(/:([a-zA-Z]+)/g, (_, key: string) => {
+    const value = params[key];
+    // Silently substituting "undefined" would request a page by that
+    // literal name, so an unfilled placeholder has to be loud.
+    if (value === undefined) throw new Error(`Missing route param ":${key}" for ${template}`);
+    return encodeURIComponent(value);
+  });
 }
 
 function endpoints(): WikiEndpoints {

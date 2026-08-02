@@ -1,3 +1,5 @@
+import { injectBeforeBodyClose } from "../html/injectBeforeBodyClose";
+
 // Inline-script flavour of the image-self-repair behaviour the app
 // shell already runs via `useGlobalImageErrorRepair` (see
 // `src/composables/useImageErrorRepair.ts`).
@@ -238,10 +240,9 @@ const IMAGE_REPAIR_SCRIPT_TAG = `<script>${IMAGE_REPAIR_INLINE_SCRIPT}</script>`
 // implementation paired this with a `(?![\s\S]*<\/body\s*>)` negative
 // lookahead to anchor at the LAST occurrence — but that lookahead is
 // O(N²) on inputs with many `</body>` tokens (an adversarial / unusual
-// input shape, but cheap to defang). The current implementation runs
+// input shape, but cheap to defang). `injectBeforeBodyClose` runs
 // `matchAll` once over the input (linear) and takes the last hit, so
 // the splice point selection is O(N) regardless of input shape.
-const BODY_CLOSE_RE = /<\/body\s*>/gi;
 
 /** Splice `<script>${IMAGE_REPAIR_INLINE_SCRIPT}</script>` into an
  *  HTML document just before its **last** closing `</body>`.
@@ -259,13 +260,5 @@ const BODY_CLOSE_RE = /<\/body\s*>/gi;
  *  script is one-shot per element so duplicates are harmless), so
  *  callers should splice exactly once per response. */
 export function injectImageRepairScript(html: string): string {
-  if (!html) return html;
-  // matchAll → spread into an array → take the last entry. One linear
-  // pass over the input regardless of how many `</body>` tokens it
-  // contains.
-  const matches = [...html.matchAll(BODY_CLOSE_RE)];
-  if (matches.length === 0) return html + IMAGE_REPAIR_SCRIPT_TAG;
-  const idx = matches[matches.length - 1].index;
-  if (idx === undefined) return html + IMAGE_REPAIR_SCRIPT_TAG;
-  return `${html.slice(0, idx)}${IMAGE_REPAIR_SCRIPT_TAG}${html.slice(idx)}`;
+  return injectBeforeBodyClose(html, IMAGE_REPAIR_SCRIPT_TAG);
 }
