@@ -219,7 +219,7 @@ async function loadCursor(): Promise<void> {
     const raw = await readFile(cursorFile, "utf-8");
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed === "object" && parsed !== null && "lastSeenAt" in parsed) {
-      const value = (parsed as { lastSeenAt: unknown }).lastSeenAt;
+      const { lastSeenAt: value } = parsed;
       if (typeof value === "number" && Number.isFinite(value) && value > 0) {
         cursorState.lastSeenAt = Math.floor(value);
       }

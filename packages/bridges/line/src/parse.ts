@@ -52,14 +52,40 @@ export function extractIncomingLineMessage(event: LineEvent): IncomingLineMessag
   return null;
 }
 
-/** Best-effort JSON parse for the webhook body — null on malformed input. */
+const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string";
+
+function isLineEventSource(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  if ("userId" in value && !isOptionalString(value.userId)) return false;
+  return !("type" in value) || isOptionalString(value.type);
+}
+
+function isLineMessage(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("type" in value) || typeof value.type !== "string") return false;
+  if ("text" in value && !isOptionalString(value.text)) return false;
+  return !("id" in value) || isOptionalString(value.id);
+}
+
+/** True only when every field `LineEvent` declares is present in the shape it
+ *  declares. Extra platform fields we don't model are left untouched. */
+function isLineEvent(value: unknown): value is LineEvent {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("type" in value) || typeof value.type !== "string") return false;
+  if ("replyToken" in value && !isOptionalString(value.replyToken)) return false;
+  if ("source" in value && value.source !== undefined && !isLineEventSource(value.source)) return false;
+  return !("message" in value) || value.message === undefined || isLineMessage(value.message);
+}
+
+/** Best-effort JSON parse for the webhook body — null on malformed input.
+ *  Events that don't match `LineEvent` are dropped rather than handed on as if
+ *  they did: a `null` element used to throw inside the delivery loop. */
 export function parseLineWebhookBody(raw: string): LineWebhookBody | null {
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { events?: unknown }).events)) {
-      return null;
-    }
-    return parsed as LineWebhookBody;
+    if (typeof parsed !== "object" || parsed === null || !("events" in parsed)) return null;
+    const { events } = parsed;
+    return Array.isArray(events) ? { events: events.filter(isLineEvent) } : null;
   } catch {
     return null;
   }

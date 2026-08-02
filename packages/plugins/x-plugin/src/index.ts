@@ -7,7 +7,7 @@
 // `X_BEARER_TOKEN` env var. All formatting/fetch logic lives here.
 
 import { errorMessage } from "@mulmoclaude/common";
-import { EXPANSIONS, extractTweetId, fetchX, formatTweet, TWEET_FIELDS, USER_FIELDS, type XApiResponse, type XTweet, type XUser } from "./client";
+import { EXPANSIONS, extractTweetId, fetchX, formatTweet, TWEET_FIELDS, USER_FIELDS, type XApiResponse, type XUser } from "./client";
 
 /** A tweet URL or bare id from model-emitted args: a string as given, a finite
  *  integer rendered as its digits, and nothing else. Objects/arrays have no id
@@ -73,7 +73,9 @@ export const readXPost: XTool = {
 
     if (data.errors?.length) return `X API error: ${data.errors.map((err) => err.detail).join("; ")}`;
 
-    const tweet = data.data as XTweet | undefined;
+    // `/tweets/{id}` answers with a single object; an array here means the
+    // response wasn't the one this endpoint documents.
+    const tweet = Array.isArray(data.data) ? undefined : data.data;
     if (!tweet) return "Tweet not found.";
 
     const author = data.includes?.users?.find((user) => user.id === tweet.author_id);

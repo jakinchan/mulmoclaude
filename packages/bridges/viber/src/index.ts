@@ -90,7 +90,7 @@ async function sendViber(receiverId: string, text: string): Promise<void> {
     }
     // Viber returns {status: 0} on success; log non-zero as warnings
     const body: unknown = await res.json().catch(() => null);
-    if (body && typeof body === "object" && "status" in body && (body as { status: number }).status !== 0) {
+    if (body && typeof body === "object" && "status" in body && body.status !== 0) {
       console.warn(`[viber] send non-zero status: ${JSON.stringify(body)}`);
     }
   }

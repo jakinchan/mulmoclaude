@@ -42,9 +42,8 @@ mulmo.onPush((pushEvent) => {
 async function onPushEvent(pushEvent: { chatId: string; message: string }): Promise<void> {
   try {
     const channel = discord.channels.cache.get(pushEvent.chatId) ?? (await discord.channels.fetch(pushEvent.chatId).catch(() => null));
-    if (channel?.isTextBased() && "send" in channel) {
-      const sendable = channel as { send: (messageText: string) => Promise<unknown> };
-      await sendChunkedToSendable(sendable, pushEvent.message);
+    if (channel?.isTextBased() && channel.isSendable()) {
+      await sendChunkedToSendable(channel, pushEvent.message);
     } else {
       console.warn(`[discord] push: channel ${pushEvent.chatId} not found or not text-based`);
     }
@@ -88,8 +87,8 @@ async function sendChunked(msg: Message, text: string): Promise<void> {
     const chunk = text.slice(i, i + MAX_DISCORD_LENGTH);
     if (i === 0) {
       await msg.reply(chunk);
-    } else if ("send" in msg.channel) {
-      await (msg.channel as { send: (messageText: string) => Promise<unknown> }).send(chunk);
+    } else if (msg.channel.isSendable()) {
+      await msg.channel.send(chunk);
     }
   }
 }

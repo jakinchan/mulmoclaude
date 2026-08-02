@@ -19,6 +19,7 @@ import { computed } from "vue";
 import type { ToolResult } from "gui-chat-protocol";
 import CollectionView from "../components/CollectionView.vue";
 import type { PresentCollectionData } from "@mulmoclaude/core/collection";
+import { toPresentCollectionData } from "./presentCollectionData";
 
 /** Card-local UI state persisted in the tool result's `viewState` so it
  *  survives a re-render — same pattern as presentForm. `selected` is the
@@ -46,13 +47,23 @@ const emit = defineEmits<{
   updateResult: [result: ToolResult];
 }>();
 
-const data = computed<PresentCollectionData | null>(
-  () => (props.selectedResult?.data ?? props.selectedResult?.jsonData ?? null) as PresentCollectionData | null,
-);
+const data = computed<PresentCollectionData | null>(() => toPresentCollectionData(props.selectedResult?.data ?? props.selectedResult?.jsonData));
 
 const slug = computed<string | undefined>(() => data.value?.collectionSlug);
 
-const viewState = computed<PresentCollectionViewState | null>(() => (props.selectedResult?.viewState as PresentCollectionViewState | undefined) ?? null);
+/** Keep a field only when the stored value still matches what the interface
+ *  declares, so `"selected" in state` keeps meaning "the user navigated". */
+function toViewState(value: unknown): PresentCollectionViewState | null {
+  if (typeof value !== "object" || value === null) return null;
+  const state: PresentCollectionViewState = {};
+  if ("selected" in value && (typeof value.selected === "string" || value.selected === null)) state.selected = value.selected;
+  if ("view" in value && (value.view === "table" || value.view === "calendar" || value.view === "kanban")) state.view = value.view;
+  if ("anchorField" in value && typeof value.anchorField === "string") state.anchorField = value.anchorField;
+  if ("groupField" in value && typeof value.groupField === "string") state.groupField = value.groupField;
+  return state;
+}
+
+const viewState = computed<PresentCollectionViewState | null>(() => toViewState(props.selectedResult?.viewState));
 
 /** Open record: the card-local `viewState.selected` once the user has
  *  navigated within the card (including an explicit close → null), else

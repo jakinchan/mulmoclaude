@@ -56,10 +56,7 @@ async function runDriftStage({ root, driftFn }) {
     const pendingNote = pending.length > 0 ? `, ${pending.length} pending publish (${pendingList})` : "";
     return passed(`${okCount} package(s) ok${pendingNote}, ${skipped} skipped`, { results });
   }
-  return failed(
-    `${drifted.length} package(s) drifted`,
-    { results, drifted: drifted.map((row) => row.packageBaseName) },
-  );
+  return failed(`${drifted.length} package(s) drifted`, { results, drifted: drifted.map((row) => row.packageBaseName) });
 }
 
 // §4 wrapper — runTarballSmoke is the expensive one. It returns a
@@ -68,10 +65,11 @@ async function runDriftStage({ root, driftFn }) {
 async function runTarballStage({ root, tarballFn, tarballOptions }) {
   const result = await tarballFn({ root, ...(tarballOptions ?? {}) });
   if (result.ok) {
-    return passed(
-      `HTTP 200 on port ${result.port} after ${result.attempts} attempt(s) (${result.elapsedMs}ms)`,
-      { workDir: result.workDir, logFile: result.logFile, tarballPath: result.tarballPath },
-    );
+    return passed(`HTTP 200 on port ${result.port} after ${result.attempts} attempt(s) (${result.elapsedMs}ms)`, {
+      workDir: result.workDir,
+      logFile: result.logFile,
+      tarballPath: result.tarballPath,
+    });
   }
   return failed(result.lastError ?? "tarball smoke failed", {
     workDir: result.workDir,

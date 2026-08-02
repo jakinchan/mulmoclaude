@@ -40,25 +40,20 @@ if (!botToken || !appToken) {
 const allowedChannels = parseCsvSet(process.env.SLACK_ALLOWED_CHANNELS);
 const allowAll = allowedChannels.size === 0;
 
-const granularity = (() => {
+// The explicit `T` return annotation is what lets TS see `process.exit`'s
+// `never` and accept the catch branch as non-returning.
+function parseEnvOrExit<T>(parse: () => T): T {
   try {
-    return parseGranularity(process.env.SLACK_SESSION_GRANULARITY);
+    return parse();
   } catch (err) {
     console.error(`[slack] ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
-    return undefined as never;
   }
-})();
+  return process.exit(1);
+}
 
-const ackEmoji = (() => {
-  try {
-    return parseAckReaction(process.env.SLACK_ACK_REACTION);
-  } catch (err) {
-    console.error(`[slack] ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
-    return undefined as never;
-  }
-})();
+const granularity = parseEnvOrExit(() => parseGranularity(process.env.SLACK_SESSION_GRANULARITY));
+
+const ackEmoji = parseEnvOrExit(() => parseAckReaction(process.env.SLACK_ACK_REACTION));
 
 const web = new WebClient(botToken);
 const socketMode = new SocketModeClient({ appToken });
