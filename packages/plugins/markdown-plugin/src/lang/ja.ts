@@ -9,6 +9,7 @@ const ja: Messages = {
   pdfFailedShort: "⚠ PDF 失敗",
   editSource: "Markdown ソースを編集",
   livePreview: "ライブプレビュー",
+  autoSave: "自動保存",
   saving: "保存中...",
   applyChanges: "変更を適用",
   cancel: "キャンセル",
