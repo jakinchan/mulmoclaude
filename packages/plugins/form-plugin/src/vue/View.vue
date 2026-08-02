@@ -272,6 +272,7 @@
 import { ref, watch, computed } from "vue";
 import type { ToolResult } from "gui-chat-protocol";
 import type { FormData, FormField, TextField, TextareaField, NumberField, DateField, CheckboxField } from "../core/types";
+import { toFormViewState, type FormViewState } from "../core/viewState";
 import { useT } from "../lang";
 
 const t = useT();
@@ -280,13 +281,6 @@ interface FieldError {
   fieldId: string;
   message: string;
   type: "required" | "format" | "range" | "pattern" | "custom";
-}
-
-interface FormViewState {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  userResponses: Record<string, any>;
-  touched: string[];
-  submitted?: boolean;
 }
 
 const props = defineProps<{
@@ -312,11 +306,9 @@ function isFreshResult(newResult: ToolResult, oldResult: ToolResult | null | und
 }
 
 function restoreViewState(state: FormViewState): void {
-  if (state.userResponses) Object.assign(formValues.value, state.userResponses);
-  if (state.touched) {
-    touched.value = new Set(state.touched);
-    state.touched.forEach((fieldId) => validateField(fieldId));
-  }
+  Object.assign(formValues.value, state.userResponses);
+  touched.value = new Set(state.touched);
+  state.touched.forEach((fieldId) => validateField(fieldId));
   if (state.submitted !== undefined) submitted.value = state.submitted;
 }
 
@@ -327,7 +319,8 @@ function applyNewResult(newResult: ToolResult): void {
   formData.value.fields.forEach((field) => {
     formValues.value[field.id] = getDefaultValue(field);
   });
-  if (newResult.viewState) restoreViewState(newResult.viewState as unknown as FormViewState);
+  const viewState = toFormViewState(newResult.viewState);
+  if (viewState) restoreViewState(viewState);
   isRestoring.value = false;
 }
 

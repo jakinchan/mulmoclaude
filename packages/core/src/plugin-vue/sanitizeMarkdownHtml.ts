@@ -49,10 +49,12 @@ const SANITIZE_CONFIG = {
  *  normally strip; additionally permits the one YouTube-embed iframe shape. */
 export function sanitizeMarkdownHtml(html: string): string {
   ensureHook();
-  // DOMPurify's typed return is `string | TrustedHTML` depending on config
-  // flags; `RETURN_TRUSTED_TYPE` is never enabled here, so it is always a
-  // string. The double cast is the documented way to narrow through the union.
-  return DOMPurify.sanitize(html, SANITIZE_CONFIG) as unknown as string;
+  // `SANITIZE_CONFIG` is deliberately left un-annotated: every DOMPurify
+  // overload that returns something other than a string requires an explicit
+  // flag (`RETURN_TRUSTED_TYPE` / `RETURN_DOM` / `RETURN_DOM_FRAGMENT` /
+  // `IN_PLACE`), so keeping the literal type is what makes adding one a compile
+  // error here instead of a silent change of return shape.
+  return DOMPurify.sanitize(html, SANITIZE_CONFIG);
 }
 
 /** Test seam — undoes the global DOMPurify hook so an isolated test can verify

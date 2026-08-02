@@ -94,7 +94,7 @@ export function makeSkillResult(entry: {
   skillPath: string | null;
   skillDescription: string | null;
   message: string;
-}): ToolResultComplete {
+}): ToolResultComplete<SkillResultData> {
   const data: SkillResultData = {
     skillName: entry.skillName,
     skillScope: entry.skillScope,
@@ -107,6 +107,6 @@ export function makeSkillResult(entry: {
     toolName: SKILL_TOOL_NAME,
     message: entry.skillDescription ?? entry.skillName,
     title: `Skill: ${entry.skillName}`,
-    data: data as unknown as Record<string, unknown>,
+    data,
   };
 }

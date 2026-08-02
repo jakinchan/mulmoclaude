@@ -4,38 +4,39 @@
 // `bindRoute(router, API_ROUTES.todos.itemsCreate, handler)` instead
 // of branching on the verb at the call site.
 //
-// Handler typing matches Express's own loose `RouteParameters`
-// inference: a handler typed as `(req: Request<{ id: string }>, res:
-// Response) => void` is forwarded as-is — the underlying
-// `router[method](url, handler)` call accepts any handler shape, so
-// we cast through `unknown` once here rather than at every site.
+// Handler typing mirrors Express's own: the generics travel through to
+// `router[method]`, whose matching overload is itself generic over
+// params / body / query, so a handler declared as `(req: Request<{ id:
+// string }>, res: Response) => void` binds with no coercion.
 
 import type { IRouter, RequestHandler } from "express";
+import type { ParamsDictionary, Query } from "express-serve-static-core";
 import type { ResolvedRoute } from "../../src/plugins/meta-types.js";
 
-/** Register `handler` on `router` using the verb + URL declared by
- *  `route`. The generic on `handler` lets callers pass an Express
- *  handler typed against their own `params` / `body` / `query`
- *  generics; the cast hides the variance from Express's
- *  `RequestHandler<ParamsDictionary, …>` default. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function bindRoute<H extends (...args: any[]) => unknown>(router: IRouter, route: ResolvedRoute, ...handlers: H[]): void {
-  const cast = handlers as unknown as RequestHandler[];
+/** Register `handlers` on `router` using the verb + URL declared by
+ *  `route`. The generics let callers keep their own `params` / `body` /
+ *  `query` shapes; every handler in one call must agree on them, which
+ *  is the same constraint Express itself imposes. */
+export function bindRoute<P = ParamsDictionary, ResBody = unknown, ReqBody = unknown, ReqQuery = Query>(
+  router: IRouter,
+  route: ResolvedRoute,
+  ...handlers: RequestHandler<P, ResBody, ReqBody, ReqQuery>[]
+): void {
   switch (route.method) {
     case "GET":
-      router.get(route.url, ...cast);
+      router.get<P, ResBody, ReqBody, ReqQuery>(route.url, ...handlers);
       break;
     case "POST":
-      router.post(route.url, ...cast);
+      router.post<P, ResBody, ReqBody, ReqQuery>(route.url, ...handlers);
       break;
     case "PUT":
-      router.put(route.url, ...cast);
+      router.put<P, ResBody, ReqBody, ReqQuery>(route.url, ...handlers);
       break;
     case "PATCH":
-      router.patch(route.url, ...cast);
+      router.patch<P, ResBody, ReqBody, ReqQuery>(route.url, ...handlers);
       break;
     case "DELETE":
-      router.delete(route.url, ...cast);
+      router.delete<P, ResBody, ReqBody, ReqQuery>(route.url, ...handlers);
       break;
   }
 }

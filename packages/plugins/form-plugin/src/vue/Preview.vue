@@ -41,15 +41,10 @@
 import { computed } from "vue";
 import type { ToolResult } from "gui-chat-protocol";
 import type { FormData } from "../core/types";
+import { toFormViewState, type FormViewState } from "../core/viewState";
 import { useT } from "../lang";
 
 const t = useT();
-
-interface FormViewState {
-  userResponses: Record<string, unknown>;
-  touched: string[];
-  submitted?: boolean;
-}
 
 const props = defineProps<{
   result: ToolResult;
@@ -62,7 +57,7 @@ const formData = computed<FormData | null>(() => {
   return null;
 });
 
-const viewState = computed<FormViewState | null>(() => (props.result?.viewState as unknown as FormViewState) || null);
+const viewState = computed<FormViewState | null>(() => toFormViewState(props.result?.viewState));
 
 const fieldCount = computed(() => formData.value?.fields.length || 0);
 

@@ -35,7 +35,8 @@ import path from "node:path";
 import iconv from "iconv-lite";
 import type { CollectionItem } from "../core/schema";
 import type { CollectionQuery } from "../core/queryZ";
-import { compileCsvQuery, quoteIdent, readCsvArgs } from "./csvQuery";
+import type { DuckDBInstance } from "@duckdb/node-api";
+import { compileCsvQuery, quoteIdent, readCsvArgs, type CsvQueryParam } from "./csvQuery";
 import { getWorkspaceRoot, log } from "./host";
 import { isContainedInRoot, safeRecordId } from "./paths";
 
@@ -282,27 +283,16 @@ async function ensureUtf8CsvPath(absPath: string, workspaceRoot: string): Promis
 // DuckDB plumbing
 // ---------------------------------------------------------------------------
 
-interface DuckDbModule {
-  DuckDBInstance: {
-    create: (dbPath?: string) => Promise<{
-      connect: () => Promise<{
-        runAndReadAll: (sql: string, values?: unknown[]) => Promise<{ getRowObjectsJS: () => Record<string, unknown>[] }>;
-        disconnectSync: () => void;
-      }>;
-    }>;
-  };
-}
-
-let instancePromise: ReturnType<DuckDbModule["DuckDBInstance"]["create"]> | null = null;
+let instancePromise: Promise<DuckDBInstance> | null = null;
 
 /** Lazily create one shared in-memory DuckDB instance. The dynamic import
  *  keeps the native module OUT of core's load path — a platform where the
  *  prebuilt binding is missing degrades to a per-query error on dataSource
  *  collections only, never a broken core. A failed init is retried on the
  *  next call (the promise is reset). */
-async function duckDbInstance(): ReturnType<DuckDbModule["DuckDBInstance"]["create"]> {
+async function duckDbInstance(): Promise<DuckDBInstance> {
   if (instancePromise === null) {
-    instancePromise = import("@duckdb/node-api").then((mod) => (mod as unknown as DuckDbModule).DuckDBInstance.create(":memory:"));
+    instancePromise = import("@duckdb/node-api").then((mod) => mod.DuckDBInstance.create(":memory:"));
   }
   try {
     return await instancePromise;
@@ -314,7 +304,7 @@ async function duckDbInstance(): ReturnType<DuckDbModule["DuckDBInstance"]["crea
   }
 }
 
-export async function queryCsv(sql: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+export async function queryCsv(sql: string, params: CsvQueryParam[]): Promise<Record<string, unknown>[]> {
   const instance = await duckDbInstance();
   const connection = await instance.connect();
   try {

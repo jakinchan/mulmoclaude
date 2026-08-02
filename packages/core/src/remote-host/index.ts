@@ -14,6 +14,7 @@
 // every host's own Firebase init. The hostId is host-specific ("mulmoclaude",
 // "mulmoterminal") and is supplied by each host — there is no discovery.
 import { CollectionReference, DocumentData, DocumentReference, Firestore, collection, doc } from "firebase/firestore";
+import { isRecord } from "@mulmoclaude/common";
 
 // JSON payloads carried by the command channel. Explicit JSON types keep the
 // channel typed without resorting to any/unknown.
@@ -53,6 +54,49 @@ export type Jsonify<T> = T extends JsonValue
  *  with the justification re-argued in eight slightly different comments —
  *  which is how a rule stops being reviewable. */
 export const toJsonObject = <T extends object>(payload: Jsonify<T>): JsonObject => payload as JsonObject;
+
+const describeNonJson = (value: unknown): string => {
+  if (typeof value === "number") return String(value);
+  if (typeof value === "object") return "a non-plain object";
+  return `a ${typeof value}`;
+};
+
+/** Rebuild `value` as JSON, or throw naming the property that cannot be. */
+function toJsonValue(value: unknown, path: string): JsonValue {
+  if (Array.isArray(value)) return toJsonItems(value, path);
+  if (isRecord(value)) return toJsonEntries(value, path);
+  return toJsonScalar(value, path);
+}
+
+/** JSON's four scalar forms. Anything else — a function, a class instance, a
+ *  non-finite number — is what the channel cannot carry. */
+function toJsonScalar(value: unknown, path: string): JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  throw new Error(`${path} is ${describeNonJson(value)}, which JSON cannot represent`);
+}
+
+function toJsonItems(items: unknown[], path: string): JsonValue[] {
+  // An absent element becomes `null`, matching `JSON.stringify` — an array has
+  // to keep its length, so a hole cannot simply be dropped the way a key is.
+  return items.map((entry, index) => (entry === undefined ? null : toJsonValue(entry, `${path}[${index}]`)));
+}
+
+function toJsonEntries(record: Record<string, unknown>, path: string): JsonObject {
+  const usable = Object.entries(record).filter(([, value]) => value !== undefined);
+  return Object.fromEntries(usable.map(([key, value]) => [key, toJsonValue(value, `${path}.${key}`)]));
+}
+
+/** Runtime counterpart to `toJsonObject`, for payloads whose values are typed
+ *  `unknown` — a collection record, a projected view row — so no amount of
+ *  mapped-type work can PROVE them JSON.
+ *
+ *  Walks the payload and rebuilds it from the values it actually inspected, so
+ *  the returned `JsonObject` is earned rather than asserted. Absent (`undefined`)
+ *  properties are dropped exactly as `JSON.stringify` drops them; anything the
+ *  channel could not carry — a function, a class instance, `NaN` — throws
+ *  naming its path, instead of reaching Firestore as a silently mangled write. */
+export const coerceJsonObject = (payload: Record<string, unknown>): JsonObject => toJsonEntries(payload, "payload");
 
 // A channel routes commands to one specific host. Both sides agree on a
 // hardcoded hostId per use case (e.g. "mulmoclaude", "mulmoterminal"); there is
