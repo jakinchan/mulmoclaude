@@ -16,6 +16,7 @@ export type SortDir = "asc" | "desc" | null;
 /** The direction to render visuals for: on hover, preview the next click's
  *  direction (none → asc → desc → none); otherwise the column's actual one. */
 export function previewSortDir(current: SortDir, isHovered: boolean): SortDir {
+  // eslint-disable-next-line sonarjs/no-selector-parameter -- `isHovered` is pointer state both call sites pass as a variable, never a literal. Splitting it would copy `hovered ? nextSortDirection(dir) : dir` into the composable AND the component, undoing the extraction that made this testable.
   return isHovered ? nextSortDirection(current) : current;
 }
 

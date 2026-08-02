@@ -111,5 +111,6 @@ let installed = false;
 export function installCspViolationListener(): void {
   if (installed || typeof window === "undefined") return;
   installed = true;
+  // eslint-disable-next-line sonarjs/post-message -- `onMessage` delegates to `decideViolation`, which drops anything whose `event.origin` is not the opaque `"null"` AND whose nonce is not in the live per-render allowlist.
   window.addEventListener("message", onMessage);
 }

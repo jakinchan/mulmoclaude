@@ -667,7 +667,8 @@ router.get(API_ROUTES.files.dir, async (req: Request<object, unknown, unknown, P
       notFound(res, "Not found");
       return;
     }
-    const node = await listDirShallow(absPath, relPath, undefined);
+    // No gitignore filter — a ref dir lives outside the workspace repo.
+    const node = await listDirShallow(absPath, relPath);
     res.json(node);
     return;
   }

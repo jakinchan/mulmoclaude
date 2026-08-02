@@ -96,7 +96,7 @@ export function buildRouteUrl(route: ResolvedRoute, params?: Readonly<Record<str
   // one value rewrite a longer placeholder it prefixes (`:id` vs `:idx`).
   // Own-property check so a `:constructor` placeholder never reads
   // `Object.prototype`. (`Object.hasOwn` needs es2022 lib — not enabled.)
-  return route.url.replace(/:([A-Za-z0-9_]+)/g, (placeholder, name: string) => {
+  return route.url.replace(/:(\w+)/g, (placeholder, name: string) => {
     if (!Object.prototype.hasOwnProperty.call(params, name)) return placeholder;
     return encodeURIComponent(String(params[name]));
   });
