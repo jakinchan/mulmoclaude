@@ -6,14 +6,26 @@ import { errorMessage } from "../../utils/errors";
 export const TOOL_NAME = META.toolName;
 export type SpreadsheetEndpoints = { readonly [K in keyof typeof META.apiRoutes]: ResolvedRoute };
 
+/** Mirrors the engine's `StoredCellValue`. Declaring it narrower than what the
+ *  engine stores and renders is what forced the View to cast its decoded
+ *  sheets back to this type. */
+export type SpreadsheetCellValue = string | number | boolean;
+
 export interface SpreadsheetCell {
-  v: string | number;
+  v: SpreadsheetCellValue;
   f?: string;
 }
 
+/** A cell as a stored workbook actually holds it. The engine's `normalizeData`
+ *  folds all four forms, and models and hand edits write all four, so a
+ *  workbook read back off disk cannot promise `{ v }` for every cell. The tool
+ *  SCHEMA is deliberately stricter — it says what a caller should emit, not
+ *  what an existing file may contain. */
+export type StorableCell = SpreadsheetCell | { v?: null; f?: string } | SpreadsheetCellValue | null;
+
 export interface SpreadsheetSheet {
   name: string;
-  data: SpreadsheetCell[][];
+  data: StorableCell[][];
 }
 
 export interface SpreadsheetToolData {
@@ -59,9 +71,9 @@ const toolDefinition: ToolDefinition = {
                   description: "Cell object with value and optional format. If value is a string starting with '=', it's treated as a formula.",
                   properties: {
                     v: {
-                      oneOf: [{ type: "string" }, { type: "number" }],
+                      oneOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }],
                       description:
-                        "Cell value. Can be text, number, date, or formula (string starting with '='). Examples: 'Revenue', 1500000, '01/15/2025', '=SUM(A1:A10)', '=B2-TODAY()'. Date strings like '01/15/2025' are automatically parsed to date serial numbers.",
+                        "Cell value. Can be text, number, boolean, date, or formula (string starting with '='). Examples: 'Revenue', 1500000, true, '01/15/2025', '=SUM(A1:A10)', '=B2-TODAY()'. Date strings like '01/15/2025' are automatically parsed to date serial numbers.",
                     },
                     f: {
                       type: "string",

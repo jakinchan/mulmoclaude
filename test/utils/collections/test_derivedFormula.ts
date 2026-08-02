@@ -92,6 +92,34 @@ describe("evaluateDerived — sum()", () => {
   });
 });
 
+describe("evaluateDerived — long operator chains parse without stack growth", () => {
+  // A formula is user input, so chain length must not decide whether parsing
+  // overflows the stack and fails soft to null.
+  const SUM_FACTOR_COUNT = 20_000;
+  // `+` / `*` chains build a left-leaning AST that the evaluator walks
+  // recursively, so they stay far below that (separate, pre-existing) limit.
+  const TERM_COUNT = 2_000;
+
+  it("parses a sum() with 20k factors instead of failing soft to null", () => {
+    const record = { items: [{ v: 1, k: 3 }] };
+    const formula = `sum(items[].k${" * items[].v".repeat(SUM_FACTOR_COUNT - 1)})`;
+    assert.equal(evaluateDerived(formula, { record }), 3);
+  });
+
+  it("parses a long '+' chain", () => {
+    assert.equal(evaluateDerived(`1${" + 1".repeat(TERM_COUNT - 1)}`, { record: {} }), TERM_COUNT);
+  });
+
+  it("parses a long '*' chain", () => {
+    assert.equal(evaluateDerived(`7${" * 1".repeat(TERM_COUNT - 1)}`, { record: {} }), 7);
+  });
+
+  it("parses a long '-' / '/' chain (left-associative to the end)", () => {
+    assert.equal(evaluateDerived(`${TERM_COUNT}${" - 1".repeat(TERM_COUNT - 1)}`, { record: {} }), 1);
+    assert.equal(evaluateDerived(`8${" / 1".repeat(TERM_COUNT - 1)}`, { record: {} }), 8);
+  });
+});
+
 describe("evaluateDerived — ref dereference (<field>.<col>)", () => {
   // A my-portfolio row: `ticker` is a ref field whose stored value is
   // the slug "AAPL"; the caller resolves it into ctx.refs.
