@@ -25,7 +25,7 @@
     "@gui-chat-plugin/browse": "^1.1.0",
     "@gui-chat-plugin/camera": "^1.1.0",
     "@gui-chat-plugin/google-map": "^1.1.0",
-    "@gui-chat-plugin/mindmap": "^1.1.0",
+    "@gui-chat-plugin/mindmap": "^1.2.0",
     "@gui-chat-plugin/present3d": "^1.1.0",
     "@marp-team/marp-core": "^4.4.0",
     "@mulmobridge/chat-service": "^1.0.2",

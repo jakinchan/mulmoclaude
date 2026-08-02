@@ -1,4 +1,7 @@
 import { Router, Request, Response } from "express";
+import { getSessionQuery } from "../../utils/request.js";
+import { latestToolResult } from "../../events/session-store/index.js";
+import { TOOL_NAMES } from "../../../src/config/toolNames.js";
 import type { ToolContext } from "gui-chat-protocol";
 import { executeMindMap } from "@gui-chat-plugin/mindmap";
 import { executeSpreadsheet, type SpreadsheetArgs } from "../../../src/plugins/spreadsheet/definition.js";
@@ -229,6 +232,21 @@ bindRoute(
 // and throws on it. Frozen because one instance serves every request.
 const SERVER_TOOL_CONTEXT: ToolContext = Object.freeze({});
 
+/** The context for a tool whose next call edits what its previous one produced.
+ *
+ *  A plugin's `execute()` never runs in the client here — every call arrives on
+ *  this router — so a context without `currentResult` left `add_node` with no
+ *  map to add to (#2754). The session id rides on the query string already: the
+ *  MCP bridge appends `?session=<id>` to every request.
+ *
+ *  Falls back to the empty context, which is what this route passed before and
+ *  is still valid: no session, no previous result, or a first call all mean the
+ *  plugin is creating rather than editing. */
+export function sessionToolContext(req: Request<object, unknown, unknown>, toolName: string): ToolContext {
+  const currentResult = latestToolResult(getSessionQuery(req), toolName);
+  return currentResult ? { currentResult } : SERVER_TOOL_CONTEXT;
+}
+
 // presentSpreadsheet — validate, then save sheets to disk
 bindRoute(
   router,
@@ -294,7 +312,7 @@ bindRoute(
 // createMindMap — uses package execute for node layout computation
 router.post(
   API_ROUTES.plugins.mindmap,
-  wrapPluginExecute<Parameters<typeof executeMindMap>[1]>((req) => executeMindMap(SERVER_TOOL_CONTEXT, req.body)),
+  wrapPluginExecute<Parameters<typeof executeMindMap>[1]>((req) => executeMindMap(sessionToolContext(req, TOOL_NAMES.createMindMap), req.body)),
 );
 
 // putQuestions — quiz

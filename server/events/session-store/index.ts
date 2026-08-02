@@ -13,7 +13,8 @@ import { updateHasUnread } from "../../utils/files/session-io.js";
 import { EVENT_TYPES, GENERATION_KINDS, type GenerationKind, type PendingGeneration, generationKey } from "../../../src/types/events.js";
 import { ONE_HOUR_MS, ONE_MINUTE_MS } from "../../utils/time.js";
 import { errorMessage } from "../../utils/errors.js";
-import { hasStringProp } from "../../utils/types.js";
+import { hasStringProp, isRecord } from "../../utils/types.js";
+import type { ToolResult } from "gui-chat-protocol";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -53,6 +54,20 @@ export interface ServerSession {
    * its preceding `tool_call` to disk. Codex review on PR #1101.
    */
   jsonlWriteQueue: Promise<void>;
+  /**
+   * The most recent ToolResult per `toolName`, for plugins whose next call
+   * has to edit what the previous one produced.
+   *
+   * In MulmoClaude a plugin's `execute()` never runs in the client — every
+   * call arrives at `/api/*`, where the context used to be empty, so an
+   * `add_node` had no map to add to (#2754). The push path below is the only
+   * writer of tool results, which is why the cache lives on it.
+   *
+   * Bounded by the number of tools, not by session length: one entry each,
+   * overwritten. Holds only results that carried `data` — the bridge pushes
+   * nothing else — so "latest" means "latest RENDERED result".
+   */
+  latestToolResults: Record<string, ToolResult>;
 }
 
 // ── Constants ──────────────────────────────────────────────────
@@ -113,6 +128,7 @@ export function getOrCreateSession(
     updatedAt: opts.updatedAt,
     pendingGenerations: {},
     jsonlWriteQueue: Promise.resolve(),
+    latestToolResults: {},
   };
   store.set(chatSessionId, session);
   return session;
@@ -496,10 +512,60 @@ export type PushToolResultOutcome = { kind: "skipped"; reason: string } | { kind
  *  Routes through the session's FIFO `jsonlWriteQueue` so a result
  *  can't beat its preceding `tool_call` to disk under
  *  `PERSIST_TOOL_CALLS=1` (Codex review on #1101). */
+const TOOL_RESULT_STRING_FIELDS = ["toolName", "uuid", "title", "action", "instructions"] as const;
+const TOOL_RESULT_BOOLEAN_FIELDS = ["instructionsRequired", "updating", "cancelled"] as const;
+
+/** Rebuild a `ToolResult` from a pushed payload, field by field.
+ *
+ *  Reconstructed rather than asserted: what arrives is a JSON body, and casting
+ *  it into the type would let `{ message: 42 }` through as a string. Every field
+ *  the interface declares is covered, so a consumer reading this back loses
+ *  nothing it could legitimately expect.
+ *
+ *  `message` is the one required field, so a payload without a usable one gets
+ *  `""` rather than being dropped — the caller wants the `data`, and a missing
+ *  narration is no reason to withhold it. */
+function toToolResult(value: Record<string, unknown>): ToolResult {
+  const result: ToolResult = { message: typeof value.message === "string" ? value.message : "" };
+  for (const field of TOOL_RESULT_STRING_FIELDS) {
+    const found = value[field];
+    if (typeof found === "string") result[field] = found;
+  }
+  for (const field of TOOL_RESULT_BOOLEAN_FIELDS) {
+    const found = value[field];
+    if (typeof found === "boolean") result[field] = found;
+  }
+  if (value.data !== undefined) result.data = value.data;
+  if (value.jsonData !== undefined) result.jsonData = value.jsonData;
+  if (isRecord(value.viewState)) result.viewState = value.viewState;
+  return result;
+}
+
+/** Remember this result as the latest for its tool, when it names one.
+ *
+ *  The bridge stamps `toolName` itself and overrides whatever a handler put
+ *  there, so it can be trusted. A result without one is still persisted and
+ *  published — it just cannot be looked up by tool, which is better than
+ *  filing it under a key the next edit might read. */
+function rememberLatestToolResult(session: ServerSession, result: unknown): void {
+  if (!hasStringProp(result, "toolName")) return;
+  session.latestToolResults[result.toolName] = toToolResult(result);
+}
+
+/** The most recent RENDERED result for one tool in one session, or null.
+ *
+ *  "Rendered" because the bridge only pushes results that carried `data`;
+ *  a narrate-only call never reaches this cache. Lives in memory only —
+ *  a restart loses it, which is the cost of not re-reading the JSONL. */
+export function latestToolResult(chatSessionId: string, toolName: string): ToolResult | null {
+  return store.get(chatSessionId)?.latestToolResults[toolName] ?? null;
+}
+
 export async function pushToolResult(chatSessionId: string, result: unknown): Promise<PushToolResultOutcome> {
   const session = store.get(chatSessionId);
   if (!session) return { kind: "skipped", reason: "unknown session" };
 
+  rememberLatestToolResult(session, result);
   await enqueueJsonlAppend(
     session,
     `${JSON.stringify({

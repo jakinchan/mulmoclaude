@@ -11,6 +11,8 @@ import {
   getActiveSessionIds,
   initSessionStore,
   pushSessionEvent,
+  pushToolResult,
+  latestToolResult,
 } from "../../server/events/session-store/index.ts";
 import { EVENT_TYPES, GENERATION_KINDS, generationKey } from "../../src/types/events.ts";
 
@@ -268,5 +270,75 @@ describe("pushSessionEvent — malformed payload fields", () => {
     pushSessionEvent("s1", { type: 99, toolUseId: "t1", toolName: "Bash", args: {} });
     assert.deepEqual(history(), []);
     assert.equal(getSession("s1")?.statusMessage, "");
+  });
+});
+
+// A plugin's `execute()` never runs in the client here — every call arrives at
+// `/api/*`, where the tool context used to be empty. `add_node` therefore had no
+// map to add to: the create's result existed, but only in the JSONL (#2754).
+// `pushToolResult` is the single writer of tool results, so the per-tool cache
+// hangs off it.
+describe("latestToolResult (#2754 the next call has to see the previous result)", () => {
+  const opts = () => sessionOpts({ resultsFilePath: "/dev/null" });
+
+  it("remembers a result under its toolName", async () => {
+    getOrCreateSession("s1", opts());
+    await pushToolResult("s1", { toolName: "createMindMap", message: "made a map", data: { nodes: ["root"] } });
+    const found = latestToolResult("s1", "createMindMap");
+    assert.deepEqual(found?.data, { nodes: ["root"] });
+    assert.equal(found?.message, "made a map");
+  });
+
+  it("replaces the previous result for the same tool", async () => {
+    getOrCreateSession("s1", opts());
+    await pushToolResult("s1", { toolName: "createMindMap", message: "v1", data: { v: 1 } });
+    await pushToolResult("s1", { toolName: "createMindMap", message: "v2", data: { v: 2 } });
+    assert.deepEqual(latestToolResult("s1", "createMindMap")?.data, { v: 2 });
+  });
+
+  it("keeps tools apart", async () => {
+    getOrCreateSession("s1", opts());
+    await pushToolResult("s1", { toolName: "createMindMap", message: "m", data: { a: 1 } });
+    await pushToolResult("s1", { toolName: "putQuestions", message: "q", data: { b: 2 } });
+    assert.deepEqual(latestToolResult("s1", "createMindMap")?.data, { a: 1 });
+    assert.deepEqual(latestToolResult("s1", "putQuestions")?.data, { b: 2 });
+  });
+
+  it("keeps sessions apart", async () => {
+    getOrCreateSession("s1", opts());
+    getOrCreateSession("s2", opts());
+    await pushToolResult("s1", { toolName: "createMindMap", message: "m", data: { which: "s1" } });
+    assert.deepEqual(latestToolResult("s1", "createMindMap")?.data, { which: "s1" });
+    assert.equal(latestToolResult("s2", "createMindMap"), null);
+  });
+
+  // A result with no usable toolName is still persisted and published — it just
+  // cannot be looked up. Filing it under `undefined` would hand the wrong map
+  // to the next edit.
+  it("ignores a result whose toolName is missing or not a string", async () => {
+    getOrCreateSession("s1", opts());
+    assert.equal((await pushToolResult("s1", { message: "m", data: { x: 1 } })).kind, "processed");
+    assert.equal((await pushToolResult("s1", { toolName: 42, message: "m", data: { x: 2 } })).kind, "processed");
+    assert.equal(latestToolResult("s1", "createMindMap"), null);
+  });
+
+  it("answers null for an unknown session or an untouched tool", async () => {
+    getOrCreateSession("s1", opts());
+    await pushToolResult("s1", { toolName: "createMindMap", message: "m", data: {} });
+    assert.equal(latestToolResult("nope", "createMindMap"), null);
+    assert.equal(latestToolResult("s1", "putQuestions"), null);
+  });
+
+  // The payload is a JSON body, so its fields are whatever the sender put
+  // there. Rebuilding rather than casting is what keeps a wrong-typed field
+  // from being read back as if the interface guaranteed it.
+  it("drops fields whose type does not match the interface, and still keeps data", async () => {
+    getOrCreateSession("s1", opts());
+    await pushToolResult("s1", { toolName: "createMindMap", message: 42, title: {}, updating: "yes", data: { kept: true } });
+    const found = latestToolResult("s1", "createMindMap");
+    assert.equal(found?.message, "", "a non-string message becomes empty, not 42");
+    assert.equal(found?.title, undefined);
+    assert.equal(found?.updating, undefined);
+    assert.deepEqual(found?.data, { kept: true }, "data survives regardless");
   });
 });
