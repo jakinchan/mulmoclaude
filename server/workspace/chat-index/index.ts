@@ -37,14 +37,14 @@ export interface MaybeIndexSessionOptions {
   // re-index even a live session (accepting that the transcript
   // may be slightly out of date).
   activeSessionIds?: ReadonlySet<string>;
-  workspaceRoot?: string;
-  deps?: IndexerDeps;
+  workspaceRoot?: string | undefined;
+  deps?: IndexerDeps | undefined;
   // Bypass the activeSessionIds guard and the isFresh throttle
   // for this call. The per-session lock and the `disabled`
   // sentinel are still respected — forcing doesn't help if the
   // claude CLI is missing or the same session is already in
   // flight.
-  force?: boolean;
+  force?: boolean | undefined;
 }
 
 // Fire-and-forget entry point. Errors are swallowed here; a
@@ -135,14 +135,14 @@ async function indexSessionForBackfill(
 
 export async function backfillAllSessions(
   opts: {
-    workspaceRoot?: string;
-    deps?: IndexerDeps;
+    workspaceRoot?: string | undefined;
+    deps?: IndexerDeps | undefined;
     // Opt-in to "regenerate every summary, even those still current".
     // Default false — the scheduled tick uses that so unchanged
     // sessions cost only a stat + entry read, not a Claude CLI call.
     // The manual rebuild endpoint and CHAT_INDEX_FORCE_RUN_ON_STARTUP
     // opt in explicitly, matching their debug / rollout intent (#1929).
-    force?: boolean;
+    force?: boolean | undefined;
   } = {},
 ): Promise<BackfillResult> {
   const workspaceRoot = opts.workspaceRoot ?? defaultWorkspacePath;

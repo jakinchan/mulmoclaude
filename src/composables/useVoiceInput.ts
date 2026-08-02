@@ -34,7 +34,7 @@ export interface UseVoiceInputOptions {
   /** Called with each segment's transcript once recognized (never empty). */
   onTranscript: (text: string) => void;
   /** Called when a segment produced no speech. */
-  onEmpty?: () => void;
+  onEmpty?: (() => void) | undefined;
 }
 
 export interface UseVoiceInput {

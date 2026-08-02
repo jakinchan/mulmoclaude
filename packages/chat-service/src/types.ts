@@ -64,7 +64,7 @@ export interface StartChatParams {
    *  pollution. The host app is free to look up its own keys
    *  (e.g. `defaultRole`). Empty object when the bridge didn't
    *  send any. */
-  bridgeOptions?: Readonly<Record<string, string | number | boolean>>;
+  bridgeOptions?: Readonly<Record<string, string | number | boolean>> | undefined;
 }
 
 export type StartChatResult = { kind: "started"; chatSessionId: string } | { kind: "error"; error: string; status?: number };
@@ -123,7 +123,7 @@ export interface ChatServiceDeps {
    * Get recent messages from a session. Used by /history command.
    * Returns newest-first array of {source, text} pairs.
    */
-  getSessionHistory?: GetSessionHistoryFn;
+  getSessionHistory?: GetSessionHistoryFn | undefined;
   /**
    * Resolve the roleId a given session was started with. Used by the HTTP
    * `/connect` route so the persisted bridge state's role tracks the target

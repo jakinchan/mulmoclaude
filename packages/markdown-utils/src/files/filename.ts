@@ -29,7 +29,7 @@ export function formatLocalDate(timestampMs: number): string {
 // callers pass the result's creation timestamp when available so the
 // date reflects when the content was produced, not when the user
 // clicked download.
-export function buildPdfFilename(opts: { name: string | null | undefined; fallback: string; timestampMs?: number }): string {
+export function buildPdfFilename(opts: { name: string | null | undefined; fallback: string; timestampMs?: number | undefined }): string {
   const safe = toSafeFilename(opts.name ?? "", opts.fallback);
   const date = formatLocalDate(opts.timestampMs ?? Date.now());
   return `${safe}-${date}.pdf`;

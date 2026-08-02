@@ -31,7 +31,7 @@ export interface NotifiedEntryLike {
 
 interface CollectionTarget {
   slug: string;
-  itemId?: string;
+  itemId?: string | undefined;
 }
 
 /** Narrow an entry's opaque `pluginData` to its collection navigate

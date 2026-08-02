@@ -42,8 +42,8 @@ export type ToolPlugin<T = unknown, J = unknown, A extends object = object> = Ba
  */
 export interface PluginEntry {
   toolDefinition: ToolDefinition;
-  viewComponent?: Component;
-  previewComponent?: Component;
+  viewComponent?: Component | undefined;
+  previewComponent?: Component | undefined;
 }
 
 /**

@@ -17,10 +17,10 @@ import { errorCodeOf, isSpreadsheetErrorValue } from "./spreadsheet-errors";
 export interface EvaluatorContext {
   getCellValue: (ref: string) => CellValue;
   getRangeValues: (range: string) => CellValue[];
-  getRangeValuesRaw?: (range: string) => CellValue[];
+  getRangeValuesRaw?: ((range: string) => CellValue[]) | undefined;
   evaluateFormula: (formula: string) => CellValue;
   /** Reading order for an ambiguous slash date; see engine/date-locale.ts. */
-  preferDDMMYYYY?: boolean;
+  preferDDMMYYYY?: boolean | undefined;
 }
 
 /** Render a cell's value as the text that stands in for it inside an

@@ -10,11 +10,11 @@ export interface ToolCallHistoryItem {
   toolName: string;
   args: unknown;
   timestamp: number;
-  result?: string;
-  error?: string;
+  result?: string | undefined;
+  error?: string | undefined;
   /** Structured hint surfaced next to `error` when the failing tool
    *  belongs to a catalogued MCP server. Lets the right-sidebar
    *  render setup-guide links / required-key reminders without the
    *  caller re-parsing the tool name. (#1354) */
-  mcpHint?: McpHint;
+  mcpHint?: McpHint | undefined;
 }

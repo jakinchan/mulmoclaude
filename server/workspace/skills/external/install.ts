@@ -33,15 +33,15 @@ const SOURCE_METADATA_FILE = ".source.json";
 
 export interface InstallRepoOptions {
   url: string;
-  subpath?: string;
-  ref?: string;
+  subpath?: string | undefined;
+  ref?: string | undefined;
 }
 
 export interface InstallResult {
   repoId: string;
   url: string;
-  subpath?: string;
-  ref?: string;
+  subpath?: string | undefined;
+  ref?: string | undefined;
   sha: string;
   installedAt: string;
   /** Number of SKILL.md files discovered + copied into the catalog
@@ -238,7 +238,7 @@ async function existingCanonicalUrl(metadataPath: string): Promise<string | null
 // error result. Exported for unit tests.
 export function resolveInstallInputs(
   opts: InstallRepoOptions,
-): { ok: true; repoId: string; subpath?: string } | { ok: false; result: InstallExternalRepoResult } {
+): { ok: true; repoId: string; subpath?: string | undefined } | { ok: false; result: InstallExternalRepoResult } {
   const repoId = deriveRepoId(opts.url);
   if (!repoId) return { ok: false, result: { kind: "invalid-url", url: opts.url } };
   if (opts.subpath !== undefined) {
@@ -356,8 +356,8 @@ export async function uninstallExternalRepo(repoIdRaw: string, deps: ExternalIns
 export interface InstalledRepo {
   repoId: string;
   url: string;
-  subpath?: string;
-  ref?: string;
+  subpath?: string | undefined;
+  ref?: string | undefined;
   sha: string;
   installedAt: string;
 }

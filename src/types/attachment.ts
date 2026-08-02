@@ -12,7 +12,7 @@
  *  turn recorded before #2308 shipped. */
 export interface AttachmentEntry {
   path: string;
-  filename?: string;
+  filename?: string | undefined;
 }
 
 /** What a stored or broadcast `attachments` array may hold. Turns recorded

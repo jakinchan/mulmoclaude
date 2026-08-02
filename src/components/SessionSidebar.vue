@@ -84,8 +84,8 @@ defineProps<{
   results: ToolResultComplete[];
   selectedUuid: string | null;
   resultTimestamps: Map<string, number>;
-  sessionRoleName?: string;
-  sessionRoleIcon?: string;
+  sessionRoleName?: string | undefined;
+  sessionRoleIcon?: string | undefined;
   layoutMode: LayoutMode;
   showRightSidebar: boolean;
   /** Output arrived while the reader was scrolled away from the bottom.

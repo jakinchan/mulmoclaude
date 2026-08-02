@@ -15,7 +15,7 @@ export const DEFAULT_FETCH_TIMEOUT_MS = 10 * ONE_SECOND_MS;
 // `Parameters<typeof fetch>[1]` avoids referencing the ambient `RequestInit`
 // type, which ESLint's `no-undef` rule trips over in the server config. The
 // resulting type is identical to `RequestInit & { timeoutMs?: number }`.
-export type FetchWithTimeoutInit = Parameters<typeof fetch>[1] & { timeoutMs?: number };
+export type FetchWithTimeoutInit = Parameters<typeof fetch>[1] & { timeoutMs?: number | undefined };
 
 /**
  * `fetch` with a finite timeout. Rejects with a `TimeoutError` once `timeoutMs`

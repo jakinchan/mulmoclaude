@@ -79,24 +79,24 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; s
 export type ApiQuery = Record<string, string | number | boolean | undefined>;
 
 export interface ApiOptions {
-  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | undefined;
   /** JSON-serialized into the request body. Omit for GET/DELETE. */
   body?: unknown;
   /** Appended as a query string. `undefined` values are dropped. */
-  query?: ApiQuery;
+  query?: ApiQuery | undefined;
   /** AbortSignal — pass through to fetch. */
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   /**
    * Extra headers. Content-Type is set automatically for JSON bodies;
    * Authorization is injected from `authToken`.
    */
-  headers?: Record<string, string>;
+  headers?: Record<string, string> | undefined;
 }
 
 // Use Parameters<typeof fetch> rather than global DOM lib types so
 // this module doesn't depend on DOM lib being in the ESLint globals.
-type FetchInit = Parameters<typeof fetch>[1];
-type FetchBody = NonNullable<FetchInit>["body"];
+type FetchInit = NonNullable<Parameters<typeof fetch>[1]>;
+type FetchBody = FetchInit["body"];
 
 // ── Internals ────────────────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ function buildQueryString(query: ApiQuery | undefined): string {
   return parts.length === 0 ? "" : `?${parts.join("&")}`;
 }
 
-function buildHeaders(opts: { headers?: Record<string, string> }, hasBody: boolean): Record<string, string> {
+function buildHeaders(opts: { headers?: Record<string, string> | undefined }, hasBody: boolean): Record<string, string> {
   const headers: Record<string, string> = { ...(opts.headers ?? {}) };
   if (hasBody && headers["Content-Type"] === undefined) {
     headers["Content-Type"] = "application/json";
@@ -154,10 +154,12 @@ export async function apiCall<T = unknown>(path: string, opts: ApiOptions = {}):
   const hasBody = opts.body !== undefined;
   const url = `${path}${buildQueryString(opts.query)}`;
 
+  // `fetch`'s init rejects an explicit `undefined` signal, so only set it
+  // when the caller passed one.
   const init: FetchInit = {
     method,
     headers: buildHeaders(opts, hasBody),
-    signal: opts.signal,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
   };
   if (hasBody) {
     init.body = JSON.stringify(opts.body);
@@ -233,12 +235,12 @@ export function apiDelete<T = unknown>(path: string, body?: unknown, extra: Omit
 // ── Raw Response escape hatch ───────────────────────────────────────
 
 export interface RawOptions {
-  method?: string;
+  method?: string | undefined;
   /** Accepts any value fetch accepts (string / Blob / FormData / …). */
-  body?: FetchBody;
-  headers?: Record<string, string>;
-  signal?: AbortSignal;
-  query?: ApiQuery;
+  body?: FetchBody | undefined;
+  headers?: Record<string, string> | undefined;
+  signal?: AbortSignal | undefined;
+  query?: ApiQuery | undefined;
 }
 
 /**
@@ -253,8 +255,8 @@ export async function apiFetchRaw(path: string, opts: RawOptions = {}): Promise<
   const init: FetchInit = {
     method: opts.method ?? "GET",
     headers: buildHeaders(opts, false),
-    body: opts.body,
-    signal: opts.signal,
+    ...(opts.body !== undefined ? { body: opts.body } : {}),
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
   };
   return fetch(url, init);
 }

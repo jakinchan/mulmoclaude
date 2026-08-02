@@ -22,8 +22,8 @@ export interface ToolCallHistoryItem {
   toolName: string;
   args: unknown;
   timestamp: number;
-  result?: string;
-  error?: string;
+  result?: string | undefined;
+  error?: string | undefined;
 }
 
 export interface ServerSession {
@@ -37,7 +37,7 @@ export interface ServerSession {
   startedAt: string;
   updatedAt: string;
   /** Kills the spawned Claude CLI process for this session. */
-  abortRun?: () => void;
+  abortRun?: (() => void) | undefined;
   /**
    * In-flight background generations keyed by `generationKey(kind, filePath, key)`.
    * The value carries the decomposed (kind, filePath, key) so consumers never
@@ -93,7 +93,7 @@ export function getOrCreateSession(
     resultsFilePath: string;
     startedAt: string;
     updatedAt: string;
-    hasUnread?: boolean;
+    hasUnread?: boolean | undefined;
   },
 ): ServerSession {
   const existing = store.get(chatSessionId);

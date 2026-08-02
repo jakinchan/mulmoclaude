@@ -58,12 +58,12 @@ export interface ActiveToolDescriptor {
   description: string;
   /** Optional richer prompt the plugin author wrote for the system
    *  prompt. Falls back to `description` when missing. */
-  prompt?: string;
+  prompt?: string | undefined;
   /** HTTP endpoint the MCP child posts to when the tool is called.
    *  Static GUI plugins look this up via `TOOL_ENDPOINTS`; runtime
    *  plugins always go through the generic dispatch route; pure
    *  MCP tools handle the call internally and have no endpoint. */
-  endpoint?: string;
+  endpoint?: string | undefined;
   /** Where the descriptor came from. Useful for telemetry / debug
    *  logging; not consumed by the production tool-call path. */
   source: ToolSource;

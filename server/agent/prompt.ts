@@ -267,7 +267,7 @@ export interface SystemPromptParams {
    *  agent to interpret bare times in that zone without asking the
    *  user every turn. Missing or invalid values fall back to
    *  server-local date only. */
-  userTimezone?: string;
+  userTimezone?: string | undefined;
   /** Pre-loaded memory snapshot — caller awaits `loadMemorySnapshot`
    *  before invoking `buildSystemPrompt` so prompt assembly stays
    *  synchronous and side-effect-free for the memory section. */

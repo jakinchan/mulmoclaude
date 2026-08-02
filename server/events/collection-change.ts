@@ -52,7 +52,13 @@ export function initCollectionChangePublisher(instance: IPubSub): void {
     return;
   }
   setPublisher((payload: CollectionChangePayload) => {
-    const channelPayload: CollectionChannelPayload = { slug: payload.slug, ids: payload.ids, op: payload.op };
+    // Only the keys the change actually carried — this payload rides the
+    // pub/sub channel out to browser subscribers.
+    const channelPayload: CollectionChannelPayload = {
+      slug: payload.slug,
+      ...(payload.ids !== undefined ? { ids: payload.ids } : {}),
+      ...(payload.op !== undefined ? { op: payload.op } : {}),
+    };
     try {
       instance.publish(collectionChannel(payload.slug), channelPayload);
     } catch (err) {

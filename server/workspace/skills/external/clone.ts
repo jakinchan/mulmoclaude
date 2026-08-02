@@ -30,9 +30,9 @@ const GIT_OP_TIMEOUT_MS = ONE_MINUTE_MS;
 
 export interface CloneOptions {
   url: string;
-  subpath?: string;
+  subpath?: string | undefined;
   /** Branch / tag / SHA to fetch. Default: "HEAD". */
-  ref?: string;
+  ref?: string | undefined;
 }
 
 export interface CloneResult {

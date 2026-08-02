@@ -36,7 +36,7 @@ export function isSafeSessionId(sessionId: string): boolean {
  *       unwrapped, `rethrowUnexpected` inside the reader would surface
  *       as a 500 from the `/connect` handler — that's a hostile-input
  *       surface too, so degrade to null instead. */
-export async function resolveBridgeSessionRole(sessionId: string, readMeta: (id: string) => Promise<{ roleId?: string } | null>): Promise<string | null> {
+export async function resolveBridgeSessionRole(sessionId: string, readMeta: (id: string) => Promise<{ roleId?: string | undefined } | null>): Promise<string | null> {
   if (!isSafeSessionId(sessionId)) return null;
   try {
     const meta = await readMeta(sessionId);

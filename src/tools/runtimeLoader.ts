@@ -37,13 +37,13 @@ interface RuntimePluginListing {
 }
 
 interface ToolPluginExport {
-  toolDefinition?: ToolDefinition;
-  viewComponent?: Component;
-  previewComponent?: Component;
+  toolDefinition?: ToolDefinition | undefined;
+  viewComponent?: Component | undefined;
+  previewComponent?: Component | undefined;
 }
 
 interface PluginVueModule {
-  plugin?: ToolPluginExport;
+  plugin?: ToolPluginExport | undefined;
   default?: { plugin?: ToolPluginExport };
 }
 

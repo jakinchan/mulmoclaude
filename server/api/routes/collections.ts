@@ -517,7 +517,7 @@ async function respondForActionKind(
   collection: LoadedCollection,
   action: CollectionSeededAction,
   seed: ActionSeedResponse,
-  itemId?: string,
+  itemId?: string | undefined,
 ): Promise<void> {
   if (action.kind !== "agent") {
     res.json(seed);

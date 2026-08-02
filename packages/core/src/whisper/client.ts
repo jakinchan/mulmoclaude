@@ -71,11 +71,11 @@ export interface VoiceCaptureCallbacks {
   /** A recognized (non-empty) segment transcript. */
   onTranscript: (text: string) => void;
   /** A segment produced no speech. */
-  onEmpty?: () => void;
+  onEmpty?: (() => void) | undefined;
   /** A recoverable error message (transport failure, permission denied, etc.). */
-  onError?: (message: string) => void;
+  onError?: ((message: string) => void) | undefined;
   /** Pushed whenever available/listening/transcribing changes. */
-  onState?: (state: VoiceCaptureState) => void;
+  onState?: ((state: VoiceCaptureState) => void) | undefined;
 }
 
 export interface VoiceCapture {

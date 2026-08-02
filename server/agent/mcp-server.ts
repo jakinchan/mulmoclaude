@@ -298,13 +298,13 @@ function respond(msg: unknown): void {
 // block below, keep the log emission.
 // =====================================================================
 interface PostJsonOpts {
-  allowHttpError?: boolean;
+  allowHttpError?: boolean | undefined;
   // Override the default bridge-call timeout. Needed when the
   // downstream handler itself does slow work (e.g. /api/mcp-tools/*
   // that hits an external API): the bridge must wait long enough for
   // the handler's own timeout to fire, otherwise the outer abort
   // preempts a formatted error.
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 async function postJson(path: string, body: unknown, opts: PostJsonOpts = {}): Promise<Response> {

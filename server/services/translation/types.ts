@@ -27,7 +27,7 @@ export type TranslateBatchFn = (input: TranslateBatchInput) => Promise<string[]>
 
 export interface TranslationServiceDeps {
   readonly translateBatch: TranslateBatchFn;
-  readonly workspaceRoot?: string;
+  readonly workspaceRoot?: string | undefined;
 }
 
 export interface TranslationService {

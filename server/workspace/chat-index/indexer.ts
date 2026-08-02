@@ -44,14 +44,14 @@ export interface IndexerDeps {
   // even when the summariser is unchanged — e.g. the summariser
   // prompt was edited and existing summaries are stale by design,
   // not by content.
-  force?: boolean;
+  force?: boolean | undefined;
   // Chat-index mode from `AppSettings.chatIndex` (default "off"). "off"
   // short-circuits `indexSession` before any I/O; "haiku"/"sonnet"
   // selects the model passed to the summariser. Injected from the
   // callers (turn-finish hook, backfill scheduler, manual rebuild,
   // startup force) so a single settings load happens at trigger time
   // rather than N times inside the indexer.
-  mode?: "off" | "haiku" | "sonnet";
+  mode?: "off" | "haiku" | "sonnet" | undefined;
 }
 
 // --- manifest I/O ---------------------------------------------------
@@ -229,9 +229,9 @@ export function safeSessionIdOrNull(sessionId: string): string | null {
 // --- session metadata ----------------------------------------------
 
 interface SessionMeta {
-  roleId?: string;
-  startedAt?: string;
-  origin?: string;
+  roleId?: string | undefined;
+  startedAt?: string | undefined;
+  origin?: string | undefined;
 }
 
 // Origins the chat-index summarizer intentionally skips (#1944). `system`

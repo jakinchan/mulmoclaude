@@ -38,7 +38,7 @@ export interface ClassifyInput {
   // Optional pre-computed contentRef for WebSearch — the caller saves
   // the result file first (in `writeSearch.ts`) and passes the
   // workspace-relative path in here.
-  searchContentRef?: string;
+  searchContentRef?: string | undefined;
 }
 
 export function classifyToolResult(input: ClassifyInput): Classification {

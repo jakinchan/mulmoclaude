@@ -19,10 +19,12 @@ import { TOOL_NAME } from "./definition";
 // equivalent Component types and blow the stack (TS2321).
 const pkg = formPlugin as unknown as ToolPlugin<FormData, FormData, FormArgs>;
 
+// A slot the package doesn't export stays ABSENT rather than becoming an
+// explicit `undefined` — `ToolPlugin` treats the two differently.
 const presentFormPlugin: ToolPlugin<FormData, FormData, FormArgs> = {
   ...pkg,
-  viewComponent: wrapWithScope("form", pkg.viewComponent),
-  previewComponent: wrapWithScope("form", pkg.previewComponent),
+  ...(pkg.viewComponent ? { viewComponent: wrapWithScope("form", pkg.viewComponent) } : {}),
+  ...(pkg.previewComponent ? { previewComponent: wrapWithScope("form", pkg.previewComponent) } : {}),
 };
 export { TOOL_NAME };
 

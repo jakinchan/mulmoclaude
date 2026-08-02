@@ -161,7 +161,9 @@ function prepareUserStdioServer(spec: Extract<McpServerSpec, { type: "stdio" }>,
     }
     return arg;
   });
-  return { ...spec, args };
+  // Keep `args` absent when the source spec declared none — the prepared spec
+  // is serialized into the MCP config the agent reads.
+  return { ...spec, ...(args !== undefined ? { args } : {}) };
 }
 
 export interface PreparedUserServers {
@@ -470,14 +472,14 @@ export interface CliArgsParams {
    *  the CLI even starts (#2078). */
   systemPromptPath: string;
   activePlugins: string[];
-  claudeSessionId?: string;
-  mcpConfigPath?: string;
+  claudeSessionId?: string | undefined;
+  mcpConfigPath?: string | undefined;
   // Web UI-managed extension of the allowed-tools list. Merged with
   // BASE_ALLOWED_TOOLS and the mcp__mulmoclaude__ plugin names.
-  extraAllowedTools?: string[];
+  extraAllowedTools?: string[] | undefined;
   // Reasoning effort (#1323). When undefined, the flag is omitted
   // and Claude picks its own default.
-  effortLevel?: EffortLevel;
+  effortLevel?: EffortLevel | undefined;
 }
 
 export function buildCliArgs(params: CliArgsParams): string[] {

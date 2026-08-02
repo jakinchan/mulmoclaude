@@ -22,8 +22,8 @@ const props = withDefaults(
     /** Name the file had on the user's machine, when the upload carried
      *  one (#2308). The chip shows this instead of the stored hex
      *  basename; the path is still what every fetch uses. */
-    filename?: string;
-    variant?: Variant;
+    filename?: string | undefined;
+    variant?: Variant | undefined;
   }>(),
   { variant: "thumb" },
 );

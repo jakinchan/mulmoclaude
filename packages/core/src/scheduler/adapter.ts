@@ -182,7 +182,7 @@ export async function applyScheduleOverride(taskId: string, schedule: SystemTask
 }
 
 /** Query execution logs — used by API routes. */
-export async function getSchedulerLogs(opts: { since?: string; taskId?: string; limit?: number }): Promise<TaskLogEntry[]> {
+export async function getSchedulerLogs(opts: { since?: string | undefined; taskId?: string | undefined; limit?: number | undefined }): Promise<TaskLogEntry[]> {
   return queryLog(logsDir(), opts, logDeps);
 }
 

@@ -25,11 +25,11 @@ export interface RelayParams {
    *  Forwarded to the host app's startChat callback as
    *  `bridgeOptions`. Empty when the bridge didn't send any.
    *  See plans/done/feat-bridge-options-passthrough.md. */
-  bridgeOptions?: Readonly<Record<string, string | number | boolean>>;
+  bridgeOptions?: Readonly<Record<string, string | number | boolean>> | undefined;
   /** Called for each text chunk as the agent generates it. Used by
    *  the socket transport to stream text to the bridge in real time
    *  (Phase C of #268). */
-  onChunk?: (text: string) => void;
+  onChunk?: ((text: string) => void) | undefined;
 }
 
 export type RelayResult = { kind: "ok"; reply: string } | { kind: "error"; status: number; message: string };

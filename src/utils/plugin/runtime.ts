@@ -104,7 +104,7 @@ export interface MakeBrowserPluginRuntimeDeps {
    *  plain string URLs — kept opaque here, narrowed at the consumer
    *  via `pluginEndpoints<E>(scope)`. See `BrowserPluginRuntime.endpoints`
    *  in `gui-chat-protocol@>=0.3.1` for the contract. */
-  endpoints?: Readonly<Record<string, unknown>>;
+  endpoints?: Readonly<Record<string, unknown>> | undefined;
 }
 
 export function makeBrowserPluginRuntime(deps: MakeBrowserPluginRuntimeDeps): BrowserPluginRuntime {
@@ -127,6 +127,7 @@ export function makeBrowserPluginRuntime(deps: MakeBrowserPluginRuntimeDeps): Br
     // shape via `useRuntime<TheirShape>()` and read `runtime.endpoints!`
     // without a cast. No coercion needed at this construction site —
     // the host populates the field opaquely; each consumer narrows.
-    endpoints,
+    // A plugin with no endpoint group leaves the key absent.
+    ...(endpoints !== undefined ? { endpoints } : {}),
   };
 }
