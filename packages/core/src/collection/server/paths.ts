@@ -8,6 +8,7 @@ import { getWorkspaceRoot } from "./host";
 // The character rules live in ../core/ids so the isomorphic schema validator
 // (../core/schemaZ) gates on the SAME patterns these sanitisers do.
 import { SAFE_SLUG_PATTERN, SAFE_RECORD_ID_PATTERN } from "../core/ids";
+import { isErrorWithCode } from "@mulmoclaude/common";
 
 export const SCHEMA_FILE = "schema.json";
 
@@ -49,8 +50,7 @@ function realpathClosestAncestor(absPath: string): string | null {
     try {
       return realpathSync(cursor);
     } catch (err) {
-      const error = err as { code?: string };
-      if (error.code === "ENOENT") {
+      if (isErrorWithCode(err) && err.code === "ENOENT") {
         cursor = path.dirname(cursor);
         continue;
       }

@@ -27,6 +27,7 @@ import type { CollectionQuery, CollectionQueryAggregate } from "../core/queryZ";
 import { compileJsonlQuery } from "./csvQuery";
 import { cacheDir, normalizeCsvValue, queryCsv } from "./csvStore";
 import { log } from "./host";
+import { isErrorWithCode } from "@mulmoclaude/common";
 
 /** SQL semantics for an aggregate-only query over ZERO rows: one scalar
  *  row (`count` = 0, everything else NULL) — the same shape the CSV path
@@ -95,7 +96,7 @@ export async function runQueryOverRows(rows: CollectionItem[], query: Collection
     // (other than "never created") is only logged: throwing here would
     // mask the query's own error.
     await unlink(jsonlPath).catch((err: unknown) => {
-      if ((err as { code?: string }).code !== "ENOENT") log.warn("collections", "temp JSONL cleanup failed", { path: jsonlPath, error: String(err) });
+      if (!isErrorWithCode(err) || err.code !== "ENOENT") log.warn("collections", "temp JSONL cleanup failed", { path: jsonlPath, error: String(err) });
     });
   }
 }

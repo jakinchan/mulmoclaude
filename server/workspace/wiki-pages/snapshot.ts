@@ -26,6 +26,7 @@ import { shortId } from "../../utils/id.js";
 import { workspacePath as defaultWorkspacePath } from "../workspace.js";
 import { WORKSPACE_DIRS } from "../paths.js";
 import type { WikiPageEditor, WikiWriteMeta } from "./io.js";
+import { isErrorWithCode } from "../../utils/types.js";
 
 export const SNAPSHOT_RETAIN_COUNT = 100;
 export const SNAPSHOT_RETAIN_DAYS = 180;
@@ -164,7 +165,7 @@ async function historyDirIsSafe(dir: string): Promise<boolean> {
 }
 
 function isErrnoCode(err: unknown, code: string): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === code;
+  return isErrorWithCode(err) && err.code === code;
 }
 
 /** Write a snapshot file for a page that just changed. The
