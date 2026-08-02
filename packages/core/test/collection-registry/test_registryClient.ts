@@ -32,7 +32,9 @@ function makeLoader(results: FetchIndexResult[]) {
   let calls = 0;
   const load = (): Promise<FetchIndexResult> => {
     calls += 1;
-    return Promise.resolve(results[Math.min(index++, results.length - 1)]);
+    const result = results[Math.min(index++, results.length - 1)];
+    if (!result) throw new Error("makeLoader requires a non-empty result list");
+    return Promise.resolve(result);
   };
   return { load, calls: () => calls };
 }

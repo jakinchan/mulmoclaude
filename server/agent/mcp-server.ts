@@ -121,9 +121,20 @@ const mcpToolDefs: Record<string, ToolDef> = Object.fromEntries(
 // builds tsx with cjs output, where TLA fails at parse time.
 // Instead, the stdin handler awaits `runtimeReady` before serving
 // `tools/list` / `tools/call`, so requests arriving early just wait.
+// Both views are derived from the same plugin barrel, so every def has an
+// endpoint; a def without one is dropped rather than published half-wired.
+function pluginToolEntries(): [name: string, tool: ToolDef][] {
+  const entries: [string, ToolDef][] = [];
+  for (const def of PLUGIN_DEFS) {
+    const endpoint = TOOL_ENDPOINTS[def.name];
+    if (endpoint !== undefined) entries.push([def.name, fromPackage(def, endpoint)]);
+  }
+  return entries;
+}
+
 const ALL_TOOLS: Record<string, ToolDef> = {
   ...mcpToolDefs,
-  ...Object.fromEntries(PLUGIN_DEFS.map((def) => [def.name, fromPackage(def, TOOL_ENDPOINTS[def.name])])),
+  ...Object.fromEntries(pluginToolEntries()),
 };
 
 // Host-internal MCP tools the CLI invokes directly via flags

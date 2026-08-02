@@ -27,6 +27,7 @@ import { log } from "../../system/logger/index.js";
 import { EVENT_TYPES } from "../../../src/types/events.js";
 import { extractAndAppendMemory } from "./memoryExtractor.js";
 import { isRecord } from "../../utils/types.js";
+import { splitIsoDate } from "../../utils/date.js";
 
 // Truncate per-event content so an oversized tool result (e.g. base64 image) doesn't blow past the CLI's context window.
 const MAX_EVENT_CONTENT_CHARS = 600;
@@ -299,8 +300,9 @@ async function callSummarizeForDay(date: string, input: DailyArchivistInput, sum
 
 async function writeDailySummaryForDate(workspaceRoot: string, date: string, rawMarkdown: string): Promise<void> {
   // Rewrite /workspace-absolute links into true-relative links from the daily summary's location (same for topic files).
-  const [yearPart, monthPart, dayPart] = date.split("-");
-  const dailyFileWsPath = path.posix.join(WORKSPACE_DIRS.summaries, "daily", yearPart, monthPart, `${dayPart}.md`);
+  const parts = splitIsoDate(date);
+  if (parts === null) throw new Error(`[journal] writeDailySummaryForDate: expected YYYY-MM-DD, got "${date}"`);
+  const dailyFileWsPath = path.posix.join(WORKSPACE_DIRS.summaries, "daily", parts.year, parts.month, `${parts.day}.md`);
   const content = rewriteWorkspaceLinks(dailyFileWsPath, rawMarkdown);
   await writeDailySummary(date, content, workspaceRoot);
 }

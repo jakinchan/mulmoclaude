@@ -51,7 +51,7 @@ interface Launch {
 interface Harness {
   lifecycle: ReturnType<typeof createStartLifecycle>;
   spawnCalls: WhisperModelName[];
-  launches: Launch[];
+  launchAt: (index: number) => Launch;
 }
 
 function makeHarness(): Harness {
@@ -71,7 +71,13 @@ function makeHarness(): Harness {
     waitReady: (proc) => gateByProc.get(proc)?.promise ?? Promise.reject(new Error("waitReady for unknown proc")),
     logger: NOOP_LOGGER,
   });
-  return { lifecycle, spawnCalls, launches };
+  // A missing launch means spawnServer was never called that many times — fail there, not on `.gate` of undefined.
+  const launchAt = (index: number): Launch => {
+    const launch = launches[index];
+    assert.ok(launch, `expected a launch at index ${index}, got ${launches.length}`);
+    return launch;
+  };
+  return { lifecycle, spawnCalls, launchAt };
 }
 
 describe("createStartLifecycle", () => {
@@ -83,7 +89,7 @@ describe("createStartLifecycle", () => {
     await flushMicrotasks(); // let the single start reach spawn
     assert.equal(harness.spawnCalls.length, 1);
 
-    harness.launches[0].gate.resolve();
+    harness.launchAt(0).gate.resolve();
     const [sidecarA, sidecarB] = await Promise.all([first, second]);
     assert.equal(sidecarA, sidecarB);
     assert.equal(sidecarA.model, "base");
@@ -95,7 +101,7 @@ describe("createStartLifecycle", () => {
 
     const pending = harness.lifecycle.ensureSidecar("base");
     await flushMicrotasks();
-    harness.launches[0].gate.resolve();
+    harness.launchAt(0).gate.resolve();
     const active = await pending;
     assert.equal(active.proc.killed, false);
 
@@ -108,7 +114,7 @@ describe("createStartLifecycle", () => {
 
     const pending = harness.lifecycle.ensureSidecar("base");
     await flushMicrotasks(); // let the start register its in-flight child
-    const [firstLaunch] = harness.launches;
+    const firstLaunch = harness.launchAt(0);
 
     harness.lifecycle.shutdown(); // bumps the cancellation token + kills the in-flight child
     firstLaunch.gate.resolve(); // readiness resolves, but this start is now stale
@@ -120,10 +126,10 @@ describe("createStartLifecycle", () => {
     const retry = harness.lifecycle.ensureSidecar("base");
     await flushMicrotasks();
     assert.equal(harness.spawnCalls.length, 2);
-    harness.launches[1].gate.resolve();
+    harness.launchAt(1).gate.resolve();
     const active = await retry;
     assert.notEqual(active.proc, firstLaunch.proc);
-    assert.equal(active.proc, harness.launches[1].proc);
+    assert.equal(active.proc, harness.launchAt(1).proc);
   });
 
   it("shuts down a live sidecar of a different model before starting the new one", async () => {
@@ -131,7 +137,7 @@ describe("createStartLifecycle", () => {
 
     const pBase = harness.lifecycle.ensureSidecar("base");
     await flushMicrotasks();
-    harness.launches[0].gate.resolve();
+    harness.launchAt(0).gate.resolve();
     const base = await pBase;
     assert.equal(base.model, "base");
     assert.equal(base.proc.killed, false);
@@ -141,7 +147,7 @@ describe("createStartLifecycle", () => {
     await flushMicrotasks();
     assert.equal(harness.spawnCalls.length, 2);
 
-    harness.launches[1].gate.resolve();
+    harness.launchAt(1).gate.resolve();
     const small = await pSmall;
     assert.equal(small.model, "small");
     assert.notEqual(small.proc, base.proc);
@@ -152,16 +158,16 @@ describe("createStartLifecycle", () => {
 
     const pending = harness.lifecycle.ensureSidecar("base");
     await flushMicrotasks();
-    harness.launches[0].gate.reject(new Error("boom"));
+    harness.launchAt(0).gate.reject(new Error("boom"));
 
     await assert.rejects(pending, /whisper-server failed to start: boom/);
-    assert.equal(harness.launches[0].proc.killed, true);
+    assert.equal(harness.launchAt(0).proc.killed, true);
 
     // The failed start left no in-flight `starting` behind — a retry spawns again.
     const retry = harness.lifecycle.ensureSidecar("base");
     await flushMicrotasks();
     assert.equal(harness.spawnCalls.length, 2);
-    harness.launches[1].gate.resolve();
+    harness.launchAt(1).gate.resolve();
     assert.equal((await retry).model, "base");
   });
 
@@ -200,11 +206,14 @@ describe("createStartLifecycle", () => {
 
     assert.equal(children.length, 1);
     const [child] = children;
+    const [gate] = gates;
+    assert.ok(child);
+    assert.ok(gate);
     assert.equal(child.killed, false);
     lifecycle.shutdown(); // reaches the in-flight child with no await gap
     assert.equal(child.killed, true);
 
-    gates[0].resolve(); // let waitReady settle so the (now-stale) start reaches its cancellation check
+    gate.resolve(); // let waitReady settle so the (now-stale) start reaches its cancellation check
     await assert.rejects(pending, /whisper-server start cancelled/);
   });
 

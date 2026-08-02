@@ -54,8 +54,8 @@ export function resolveLinkTarget(target: string, fileSlugs: ReadonlySet<string>
  *  lint "broken link", not a graph edge). */
 export function pageOutgoingSlugs(fromSlug: string, content: string, fileSlugs: ReadonlySet<string>, slugByTitle: ReadonlyMap<string, string>): string[] {
   const out = new Set<string>();
-  for (const match of content.matchAll(WIKI_LINK_PATTERN)) {
-    const { target } = parseWikiLink(match[1]);
+  for (const [, body = ""] of content.matchAll(WIKI_LINK_PATTERN)) {
+    const { target } = parseWikiLink(body);
     const resolved = resolveLinkTarget(target, fileSlugs, slugByTitle);
     if (resolved !== null && resolved !== fromSlug) out.add(resolved);
   }

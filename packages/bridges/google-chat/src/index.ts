@@ -99,17 +99,22 @@ interface JwtParts {
 }
 
 function parseJwtParts(token: string): JwtParts | null {
-  const parts = token.split(".");
-  if (parts.length !== 3) return null;
+  // A JWS compact serialization is EXACTLY three segments. Both a short
+  // token and a longer one (a five-segment JWE, or an attacker appending
+  // `.junk`) are rejected outright — never parsed from their first three
+  // segments, which would let the signed input disagree with the token.
+  const [headerSegment, payloadSegment, signatureSegment, ...extraSegments] = token.split(".");
+  if (headerSegment === undefined || payloadSegment === undefined || signatureSegment === undefined) return null;
+  if (extraSegments.length > 0) return null;
   try {
-    const header: unknown = JSON.parse(base64UrlDecode(parts[0]).toString());
-    const payload: unknown = JSON.parse(base64UrlDecode(parts[1]).toString());
+    const header: unknown = JSON.parse(base64UrlDecode(headerSegment).toString());
+    const payload: unknown = JSON.parse(base64UrlDecode(payloadSegment).toString());
     if (!isRecord(header) || !isRecord(payload)) return null;
     return {
       header,
       payload,
-      signatureInput: `${parts[0]}.${parts[1]}`,
-      signature: base64UrlDecode(parts[2]),
+      signatureInput: `${headerSegment}.${payloadSegment}`,
+      signature: base64UrlDecode(signatureSegment),
     };
   } catch {
     return null;

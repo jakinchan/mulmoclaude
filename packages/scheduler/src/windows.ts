@@ -13,8 +13,10 @@ const MS_PER_DAY = 86_400_000;
 
 /** Parse "HH:MM" to milliseconds since midnight (UTC). */
 export function parseTimeToMs(time: string): number {
-  const [hh, mm] = time.split(":").map(Number);
-  return hh * MS_PER_HOUR + mm * MS_PER_MIN;
+  // A missing segment yields NaN (`Number(undefined)`), which is how a
+  // malformed `time` has always surfaced to callers.
+  const [hours, minutes] = time.split(":");
+  return Number(hours) * MS_PER_HOUR + Number(minutes) * MS_PER_MIN;
 }
 
 /**

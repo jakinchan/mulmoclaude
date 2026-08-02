@@ -65,7 +65,7 @@ export function isValidAccountCode(code: string): boolean {
 
 export function typeForCode(code: string): AccountType | null {
   if (!isValidAccountCode(code)) return null;
-  const leading = Number.parseInt(code[0], 10);
+  const leading = Number.parseInt(code.charAt(0), 10);
   return ACCOUNT_TYPES.find((type) => ACCOUNT_TYPE_PREFIX[type] === leading) ?? null;
 }
 

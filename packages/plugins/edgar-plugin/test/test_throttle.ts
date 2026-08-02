@@ -8,31 +8,48 @@ import assert from "node:assert/strict";
 
 import { MIN_INTERVAL_MS, throttledSlot } from "../src/edgar";
 
+type Interval = { start: number; end: number };
+
+const WORK_DURATION_MS = 10;
+const GAP_SLACK_MS = 5;
+
+/** Folds over adjacent pairs; the seed keeps the first element from being compared with nothing. */
+const forEachAdjacentPair = (intervals: Interval[], visit: (previous: Interval, current: Interval, index: number) => void): void => {
+  intervals.reduce<Interval | undefined>((previous, current, index) => {
+    if (previous) visit(previous, current, index);
+    return current;
+  }, undefined);
+};
+
+const assertNoOverlap = (intervals: Interval[]): void =>
+  forEachAdjacentPair(intervals, (previous, current, index) => {
+    assert.ok(
+      current.start >= previous.end,
+      `interval ${index} (${current.start}–${current.end}) overlaps interval ${index - 1} (${previous.start}–${previous.end})`,
+    );
+  });
+
+const assertGapsAtLeastMinInterval = (intervals: Interval[]): void =>
+  forEachAdjacentPair(intervals, (previous, current, index) => {
+    const gap = current.start - previous.start;
+    assert.ok(gap >= MIN_INTERVAL_MS - GAP_SLACK_MS, `gap ${gap}ms between starts ${index - 1}→${index} is below MIN_INTERVAL_MS (${MIN_INTERVAL_MS}ms)`);
+  });
+
 describe("edgar throttledSlot — concurrency safety", () => {
   it("serialises N parallel callers (no overlap, gaps ≥ MIN_INTERVAL_MS)", async () => {
-    const intervals: { start: number; end: number }[] = [];
+    const intervals: Interval[] = [];
     const startedAt = Date.now();
 
     const work = async (): Promise<void> => {
       const start = Date.now() - startedAt;
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, WORK_DURATION_MS));
       intervals.push({ start, end: Date.now() - startedAt });
     };
 
     await Promise.all([throttledSlot(work), throttledSlot(work), throttledSlot(work), throttledSlot(work), throttledSlot(work)]);
 
-    for (let i = 1; i < intervals.length; i++) {
-      assert.ok(
-        intervals[i].start >= intervals[i - 1].end,
-        `interval ${i} (${intervals[i].start}–${intervals[i].end}) overlaps interval ${i - 1} (${intervals[i - 1].start}–${intervals[i - 1].end})`,
-      );
-    }
-
-    const slack = 5;
-    for (let i = 1; i < intervals.length; i++) {
-      const gap = intervals[i].start - intervals[i - 1].start;
-      assert.ok(gap >= MIN_INTERVAL_MS - slack, `gap ${gap}ms between starts ${i - 1}→${i} is below MIN_INTERVAL_MS (${MIN_INTERVAL_MS}ms)`);
-    }
+    assertNoOverlap(intervals);
+    assertGapsAtLeastMinInterval(intervals);
   });
 
   it("a thrown handler does not poison the chain", async () => {

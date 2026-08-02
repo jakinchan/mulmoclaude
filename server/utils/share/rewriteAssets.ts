@@ -93,7 +93,7 @@ function rewriteCssUrls(css: string, map: (ref: string) => string): string {
   });
 }
 
-function isSrcsetWs(char: string): boolean {
+function isSrcsetWs(char: string | undefined): boolean {
   return char === " " || char === "\t" || char === "\n" || char === "\r" || char === "\f";
 }
 

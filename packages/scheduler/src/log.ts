@@ -47,27 +47,36 @@ export async function queryLog(
   const filePath = logFilePathFor(logsDir, opts.date ?? new Date());
   if (!deps.exists(filePath)) return [];
 
-  let raw: string;
-  try {
-    raw = await deps.readFile(filePath);
-  } catch {
-    return [];
-  }
-
+  const raw = await readLogFile(filePath, deps);
   const entries: TaskLogEntry[] = [];
-  const lines = raw.split("\n").filter(Boolean);
-  // Reverse so newest first.
-  for (let i = lines.length - 1; i >= 0 && entries.length < limit; i--) {
-    try {
-      const entry: TaskLogEntry = JSON.parse(lines[i]);
-      if (sinceMs > 0 && new Date(entry.startedAt).getTime() < sinceMs) {
-        continue;
-      }
-      if (opts.taskId && entry.taskId !== opts.taskId) continue;
-      entries.push(entry);
-    } catch {
-      // skip malformed lines
-    }
+  for (const line of raw.split("\n").filter(Boolean).reverse()) {
+    if (entries.length >= limit) break;
+    const entry = parseLogLine(line);
+    if (entry && matchesFilters(entry, sinceMs, opts.taskId)) entries.push(entry);
   }
   return entries;
+}
+
+/** An unreadable log reads as an empty one — the caller's contract is
+ *  "recent entries", not "prove the file exists". */
+async function readLogFile(filePath: string, deps: LogDeps): Promise<string> {
+  try {
+    return await deps.readFile(filePath);
+  } catch {
+    return "";
+  }
+}
+
+function parseLogLine(line: string): TaskLogEntry | null {
+  try {
+    return JSON.parse(line);
+  } catch {
+    return null;
+  }
+}
+
+function matchesFilters(entry: TaskLogEntry, sinceMs: number, taskId: string | undefined): boolean {
+  if (sinceMs > 0 && new Date(entry.startedAt).getTime() < sinceMs) return false;
+  if (taskId && entry.taskId !== taskId) return false;
+  return true;
 }

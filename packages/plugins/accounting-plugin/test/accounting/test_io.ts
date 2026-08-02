@@ -75,9 +75,13 @@ describe("config.json", () => {
     };
     await writeConfig(legacy as never, root);
     const read = await readConfig(root);
-    assert.equal(read?.books[0].fiscalYearEnd, 3); // "Q1" → March close
-    assert.equal(read?.books[1].fiscalYearEnd, 8); // already a month — untouched
-    assert.equal(read?.books[2].fiscalYearEnd, undefined); // absent stays absent
+    const [legacyBook, modernBook, unsetBook] = read?.books ?? [];
+    assert.ok(legacyBook);
+    assert.ok(modernBook);
+    assert.ok(unsetBook);
+    assert.equal(legacyBook.fiscalYearEnd, 3); // "Q1" → March close
+    assert.equal(modernBook.fiscalYearEnd, 8); // already a month — untouched
+    assert.equal(unsetBook.fiscalYearEnd, undefined); // absent stays absent
   });
 });
 
@@ -103,8 +107,12 @@ describe("journal append + read", () => {
     const may = await readJournalMonth("default", "2026-05", root);
     assert.equal(apr.entries.length, 2);
     assert.equal(may.entries.length, 1);
-    assert.equal(apr.entries[0].id, "entry-a");
-    assert.equal(may.entries[0].id, "entry-c");
+    const [firstApr] = apr.entries;
+    const [firstMay] = may.entries;
+    assert.ok(firstApr);
+    assert.ok(firstMay);
+    assert.equal(firstApr.id, "entry-a");
+    assert.equal(firstMay.id, "entry-c");
   });
   it("survives many appends (no torn writes)", async () => {
     const root = makeTmp();
@@ -206,8 +214,13 @@ describe("journal append + read", () => {
     await appendJournal("default", entry, root);
     const apr = await readJournalMonth("default", "2026-04", root);
     assert.equal(apr.entries.length, 1);
-    assert.equal(apr.entries[0].lines[0].taxRegistrationId, "T1234567890123");
-    assert.equal(apr.entries[0].lines[1].taxRegistrationId, undefined);
+    const [storedEntry] = apr.entries;
+    assert.ok(storedEntry);
+    const [taxedLine, plainLine] = storedEntry.lines;
+    assert.ok(taxedLine);
+    assert.ok(plainLine);
+    assert.equal(taxedLine.taxRegistrationId, "T1234567890123");
+    assert.equal(plainLine.taxRegistrationId, undefined);
     // The on-disk JSONL must not carry a "taxRegistrationId":""
     // sentinel for the line that didn't set it — JSON.stringify
     // drops undefined keys, which is the contract callers rely on

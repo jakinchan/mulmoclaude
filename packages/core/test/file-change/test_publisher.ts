@@ -94,7 +94,9 @@ test("no-op until configured; falls back to Date.now() when stat fails", async (
   try {
     await publishFileChange("missing-file.txt"); // stat fails → Date.now() fallback, still publishes
     assert.equal(events.length, 1);
-    assert.ok(events[0].mtimeMs > 0);
+    const [published] = events;
+    assert.ok(published);
+    assert.ok(published.mtimeMs > 0);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }

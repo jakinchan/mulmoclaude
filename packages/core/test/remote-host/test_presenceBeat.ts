@@ -45,7 +45,13 @@ const makeBeat = (overrides: Partial<PresenceBeatDeps> = {}) => {
     now: () => clock.nowMs,
     ...overrides,
   });
-  return { beat, clock, writes, stale, errors };
+  // A missing write means the beat never attempted one — fail there, not on `.reject` of undefined.
+  const writeAt = (index: number): WriteRecord => {
+    const write = writes[index];
+    assert.ok(write, `expected a write at index ${index}, got ${writes.length}`);
+    return write;
+  };
+  return { beat, clock, writes, writeAt, stale, errors };
 };
 
 describe("createPresenceBeat", () => {
@@ -75,17 +81,17 @@ describe("createPresenceBeat", () => {
   });
 
   it("reports a rejected write with its reason", async () => {
-    const { beat, writes, errors } = makeBeat();
+    const { beat, writeAt, errors } = makeBeat();
     beat.announce(true);
-    writes[0].reject(new Error("permission-denied"));
+    writeAt(0).reject(new Error("permission-denied"));
     await settle();
     assert.deepEqual(errors, ["permission-denied"]);
   });
 
   it("a rejected write does not count as an acknowledgement", async () => {
-    const { beat, clock, writes, stale } = makeBeat();
+    const { beat, clock, writeAt, stale } = makeBeat();
     beat.announce(true);
-    writes[0].reject(new Error("unavailable"));
+    writeAt(0).reject(new Error("unavailable"));
     await settle();
 
     clock.nowMs += STALE_AFTER_MS;
@@ -94,10 +100,10 @@ describe("createPresenceBeat", () => {
   });
 
   it("an acknowledgement resets the age, so a recovered channel stays online", async () => {
-    const { beat, clock, writes, stale } = makeBeat();
+    const { beat, clock, writes, writeAt, stale } = makeBeat();
     beat.announce(true);
     clock.nowMs += STALE_AFTER_MS - 1;
-    writes[0].resolve();
+    writeAt(0).resolve();
     await settle();
 
     // Another full window minus a tick since that ack: still fresh.
@@ -129,9 +135,9 @@ describe("createPresenceBeat", () => {
   });
 
   it("reports a non-Error rejection as text rather than dropping it", async () => {
-    const { beat, writes, errors } = makeBeat();
+    const { beat, writeAt, errors } = makeBeat();
     beat.announce(true);
-    writes[0].reject("just a string");
+    writeAt(0).reject("just a string");
     await settle();
     assert.deepEqual(errors, ["just a string"]);
   });
@@ -160,9 +166,9 @@ describe("createPresenceBeat — a broken observer must not take the host down",
   });
 
   it("survives an onError that throws (an unhandled rejection would end the process)", async () => {
-    const { beat, writes } = makeBeat({ onError: boom });
+    const { beat, writes, writeAt } = makeBeat({ onError: boom });
     beat.announce(true);
-    writes[0].reject(new Error("permission-denied"));
+    writeAt(0).reject(new Error("permission-denied"));
     await settle();
     assert.equal(writes.length, 1);
   });

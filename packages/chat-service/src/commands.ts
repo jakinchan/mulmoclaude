@@ -331,7 +331,8 @@ export function createCommandHandler(opts: {
       return { reply: `Unknown command: ${text}\n\n${buildHelpText(skills)}` };
     }
 
-    const [command, ...args] = text.split(/\s+/);
+    // `split` always yields at least one element, so the default is unreachable.
+    const [command = "", ...args] = text.split(/\s+/);
 
     switch (command) {
       case "/reset":

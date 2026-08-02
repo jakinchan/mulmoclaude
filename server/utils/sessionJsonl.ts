@@ -5,7 +5,8 @@ import { isRecord } from "./types.js";
 
 export type SessionJsonlEntry = Record<string, unknown>;
 
-function parseEntryLine(line: string): SessionJsonlEntry | null {
+function parseEntryLine(line: string | undefined): SessionJsonlEntry | null {
+  if (line === undefined) return null;
   try {
     const entry: unknown = JSON.parse(line);
     return isRecord(entry) ? entry : null;

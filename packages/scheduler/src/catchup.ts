@@ -75,8 +75,29 @@ export function computeCatchUpPlan(
 
 // ── Internal ─────────────────────────────────────────────────────
 
-function applyPolicy(task: CatchUpTask, windows: number[], maxCatchUp: number): { runs: CatchUpRun[]; skipped?: CatchUpPlan["skipped"][number] } {
-  const toIso = (ms: number) => new Date(ms).toISOString();
+interface PolicyOutcome {
+  runs: CatchUpRun[];
+  skipped?: CatchUpPlan["skipped"][number];
+}
+
+const toIso = (ms: number) => new Date(ms).toISOString();
+
+function catchUpRun(task: CatchUpTask, windowMs: number): CatchUpRun {
+  return {
+    taskId: task.id,
+    taskName: task.name,
+    context: {
+      scheduledFor: toIso(windowMs),
+      trigger: TASK_TRIGGERS.catchUp,
+    },
+  };
+}
+
+function applyPolicy(task: CatchUpTask, windows: number[], maxCatchUp: number): PolicyOutcome {
+  const firstWindow = windows[0];
+  const lastWindow = windows[windows.length - 1];
+  // No missed windows contributes nothing, mirroring the caller's `continue`.
+  if (firstWindow === undefined || lastWindow === undefined) return { runs: [] };
 
   if (task.missedRunPolicy === MISSED_RUN_POLICIES.skip) {
     return {
@@ -84,38 +105,17 @@ function applyPolicy(task: CatchUpTask, windows: number[], maxCatchUp: number): 
       skipped: {
         taskId: task.id,
         windowCount: windows.length,
-        firstWindow: toIso(windows[0]),
-        lastWindow: toIso(windows[windows.length - 1]),
+        firstWindow: toIso(firstWindow),
+        lastWindow: toIso(lastWindow),
       },
     };
   }
 
   if (task.missedRunPolicy === MISSED_RUN_POLICIES.runOnce) {
     // Use the LATEST missed window — the most relevant to catch up on.
-    return {
-      runs: [
-        {
-          taskId: task.id,
-          taskName: task.name,
-          context: {
-            scheduledFor: toIso(windows[windows.length - 1]),
-            trigger: TASK_TRIGGERS.catchUp,
-          },
-        },
-      ],
-    };
+    return { runs: [catchUpRun(task, lastWindow)] };
   }
 
   // "run-all" — one run per window, oldest first, capped.
-  const capped = windows.slice(0, maxCatchUp);
-  return {
-    runs: capped.map((w) => ({
-      taskId: task.id,
-      taskName: task.name,
-      context: {
-        scheduledFor: toIso(w),
-        trigger: TASK_TRIGGERS.catchUp,
-      },
-    })),
-  };
+  return { runs: windows.slice(0, maxCatchUp).map((windowMs) => catchUpRun(task, windowMs)) };
 }

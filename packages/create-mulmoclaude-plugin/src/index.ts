@@ -30,7 +30,8 @@ interface CliResult {
 
 export async function runCli(argv: readonly string[], cwd: string, write: (output: string) => void): Promise<CliResult> {
   const positional = argv.filter((arg) => !arg.startsWith("-"));
-  if (positional.length === 0) {
+  const [packageName] = positional;
+  if (packageName === undefined) {
     write(`${USAGE}\n`);
     return { exitCode: 1 };
   }
@@ -39,7 +40,6 @@ export async function runCli(argv: readonly string[], cwd: string, write: (outpu
     write(`${USAGE}\n`);
     return { exitCode: 1 };
   }
-  const [packageName] = positional;
   const validation = validatePluginName(packageName);
   if (!validation.ok) {
     write(`Invalid package name: ${validation.reason}\n`);

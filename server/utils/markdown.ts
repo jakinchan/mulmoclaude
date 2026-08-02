@@ -35,8 +35,10 @@ export function rewriteMarkdownLinks(input: string, rewrite: (href: string) => s
   const parts: string[] = [];
   let i = 0;
   while (i < input.length) {
-    if (input[i] !== "[") {
-      parts.push(input[i]);
+    const char = input[i];
+    if (char === undefined) break;
+    if (char !== "[") {
+      parts.push(char);
       i++;
       continue;
     }

@@ -155,7 +155,9 @@ function parseWriteSegments(relPath: string): { parentSegments: string[]; leaf: 
   if (!relPath || relPath.includes("\0") || path.isAbsolute(relPath) || WINDOWS_DRIVE_RE.test(relPath)) return null;
   const segments = relPath.split(/[/\\]/);
   if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return null;
-  return { parentSegments: segments.slice(0, -1), leaf: segments[segments.length - 1] };
+  const leaf = segments[segments.length - 1];
+  if (leaf === undefined) return null;
+  return { parentSegments: segments.slice(0, -1), leaf };
 }
 
 // `path.relative(root, candidate)` returns a string starting with

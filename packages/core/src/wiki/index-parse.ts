@@ -45,12 +45,8 @@ const HASHTAG_PATTERN = /(?:^|\s)#([\p{L}\p{N}][\p{L}\p{N}_-]*)/gu;
  *  Only matches at word boundaries so mid-word `#` (e.g. anchor
  *  URLs) is left alone. */
 export function extractHashTags(text: string): { description: string; tags: string[] } {
-  const tags: string[] = [];
   HASHTAG_PATTERN.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = HASHTAG_PATTERN.exec(text)) !== null) {
-    tags.push(match[1].toLowerCase());
-  }
+  const tags = [...text.matchAll(HASHTAG_PATTERN)].flatMap(([, tag]) => (tag ? [tag.toLowerCase()] : []));
   const description = text.replace(HASHTAG_PATTERN, "").replace(/\s+/g, " ").trim();
   const deduped = [...new Set(tags)].sort();
   return { description, tags: deduped };
@@ -147,7 +143,7 @@ export function extractSlugFromBulletHref(rawHref: string): string {
 function parseBulletLinkRow(trimmed: string): WikiPageEntry | null {
   const match = BULLET_LINK_PATTERN.exec(trimmed);
   if (!match) return null;
-  const title = match[1].trim();
+  const title = match[1]?.trim() ?? "";
   const href = match[2] ?? "";
   const raw = match[3]?.trim() ?? "";
   const { description, tags } = extractHashTags(raw);
@@ -168,7 +164,7 @@ function parseBulletWikiLinkRow(trimmed: string): WikiPageEntry | null {
   // the DISPLAY half. Pre-#1297 the parser slugified the full
   // `target|display` body, which collapses `|` to "" and
   // produces a wrong slug — Codex review on PR #1312.
-  const { target, display } = parseWikiLink(match[1]);
+  const { target, display } = parseWikiLink(match[1] ?? "");
   const title = (display || target).trim();
   const slug = target ? wikiSlugify(target) : wikiSlugify(title);
   const raw = match[2]?.trim() ?? "";

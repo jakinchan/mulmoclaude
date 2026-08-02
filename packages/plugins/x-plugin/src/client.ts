@@ -190,7 +190,9 @@ export function formatTweet(tweet: XTweet, author?: XUser, url?: string): string
 /** Extract a numeric tweet id from a full x.com/twitter.com status URL or a
  *  bare id. Returns null when neither form matches. */
 export function extractTweetId(url: string): string | null {
-  const match = url.match(/status\/(\d+)/);
-  if (match) return match[1];
+  // The capture group is mandatory, so it is present whenever the URL
+  // matched; a URL that didn't match falls through to the bare-id check.
+  const [, idFromUrl] = url.match(/status\/(\d+)/) ?? [];
+  if (idFromUrl !== undefined) return idFromUrl;
   return /^\d+$/.test(url) ? url : null;
 }

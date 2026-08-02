@@ -13,7 +13,7 @@ import type { CollectionFieldSpec, CollectionItem, CollectionSchema, DynamicIcon
 /** The record with the greatest `String(record[field])` (localeCompare) —
  *  ties keep the first-seen record (stable left-to-right `reduce`). */
 // Seedless `reduce` is safe here: the sole caller (selectDynamicRecord) returns
-// on `pool.length === 0` before this line, so an empty pool never arrives.
+// null on an empty pool before this line, so an empty pool never arrives.
 function latestByField(pool: CollectionItem[], field: string): CollectionItem {
   return pool.reduce((latest, candidate) => (fieldText(candidate[field]).localeCompare(fieldText(latest[field])) > 0 ? candidate : latest));
 }
@@ -37,9 +37,10 @@ export function selectDynamicRecord(
 ): CollectionItem | null {
   const { where } = source;
   const pool = where ? records.filter((record) => matchesWhere(where, record, recordsById)) : records;
-  if (pool.length === 0) return null;
-  if (source.from === "first" || source.from === "when") return pool[0];
-  return orderBy ? latestByField(pool, orderBy) : pool[pool.length - 1];
+  const [first] = pool;
+  if (!first) return null;
+  if (source.from === "first" || source.from === "when") return first;
+  return orderBy ? latestByField(pool, orderBy) : (pool[pool.length - 1] ?? null);
 }
 
 /** Map a resolved source record to the effective icon: `spec.fallback`

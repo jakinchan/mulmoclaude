@@ -32,7 +32,9 @@ describe("findBrokenLinksInPage — [[slug|alias]] regression", () => {
     const fileSlugs = new Set(["other-page"]);
     const issues = findBrokenLinksInPage("anchor.md", content, fileSlugs);
     assert.equal(issues.length, 1);
-    assert.match(issues[0], /Broken link.*anchor\.md.*does-not-exist/);
+    const [issue] = issues;
+    assert.ok(issue);
+    assert.match(issue, /Broken link.*anchor\.md.*does-not-exist/);
   });
 
   it("emits a dedicated 'empty target' diagnostic for `[[|alias]]`", () => {
@@ -43,7 +45,9 @@ describe("findBrokenLinksInPage — [[slug|alias]] regression", () => {
     const fileSlugs = new Set<string>();
     const issues = findBrokenLinksInPage("a.md", content, fileSlugs);
     assert.equal(issues.length, 1);
-    assert.match(issues[0], /empty target/);
+    const [issue] = issues;
+    assert.ok(issue);
+    assert.match(issue, /empty target/);
   });
 
   it("flags links whose plain target slugifies to empty (e.g. pure non-ASCII)", () => {
@@ -54,7 +58,9 @@ describe("findBrokenLinksInPage — [[slug|alias]] regression", () => {
     const fileSlugs = new Set<string>();
     const issues = findBrokenLinksInPage("a.md", content, fileSlugs);
     assert.equal(issues.length, 1);
-    assert.match(issues[0], /empty target/);
+    const [issue] = issues;
+    assert.ok(issue);
+    assert.match(issue, /empty target/);
   });
 });
 
@@ -87,7 +93,9 @@ describe("findTagDrift", () => {
     ]);
     const issues = findTagDrift(entries, frontmatter);
     assert.equal(issues.length, 1);
-    assert.match(issues[0], /Tag drift.*a\.md/);
+    const [issue] = issues;
+    assert.ok(issue);
+    assert.match(issue, /Tag drift.*a\.md/);
   });
 
   it("ignores entries with no frontmatter map (covered by findMissingFiles)", () => {

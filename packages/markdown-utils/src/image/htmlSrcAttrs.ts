@@ -42,7 +42,7 @@ export const SRCSET_TAG_ATTRS: Readonly<Record<string, readonly string[]>> = {
   source: ["srcset"],
 };
 
-function isSrcsetWs(char: string): boolean {
+function isSrcsetWs(char: string | undefined): boolean {
   return char === " " || char === "\t" || char === "\n" || char === "\f" || char === "\r";
 }
 
@@ -198,9 +198,8 @@ const ATTR_ITER_RE = /(\s)([A-Za-z][\w:-]*)(?:(\s*=\s*)("([^"]*)"|'([^']*)'|([^\
 export function transformResolvableUrlsInHtml(html: string, transform: (url: string) => string | null): string {
   if (!html) return html;
   return html.replace(RESOLVABLE_TAG_OUTER_RE, (tag) => {
-    const tagNameMatch = TAG_NAME_RE.exec(tag);
-    if (!tagNameMatch) return tag;
-    const tagName = tagNameMatch[1].toLowerCase();
+    const tagName = TAG_NAME_RE.exec(tag)?.[1]?.toLowerCase();
+    if (tagName === undefined) return tag;
     const resolvableAttrs = RESOLVABLE_TAG_ATTRS[tagName];
     const srcsetAttrs = SRCSET_TAG_ATTRS[tagName];
     if (!resolvableAttrs && !srcsetAttrs) return tag;

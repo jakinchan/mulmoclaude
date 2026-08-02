@@ -170,27 +170,34 @@ function requireWriteJson(): WriteJson {
   return config.writeJson;
 }
 
-function applyBatchMutations(batch: Waiter[], state: NotifierFile): MutationResult[] {
+/** A waiter carried alongside the outcome of its own mutation, so settling can
+ *  never pair a result with the wrong caller's promise. */
+interface SettledMutation {
+  waiter: Waiter;
+  result: MutationResult;
+}
+
+function applyBatchMutations(batch: Waiter[], state: NotifierFile): SettledMutation[] {
   return batch.map((waiter) => {
     try {
-      return { ok: true, outcome: waiter.mutate(state) };
+      return { waiter, result: { ok: true, outcome: waiter.mutate(state) } };
     } catch (err) {
-      return { ok: false, error: err };
+      return { waiter, result: { ok: false, error: err } };
     }
   });
 }
 
-function collectEvents(results: MutationResult[]): NotifierEvent[] {
+function collectEvents(settled: SettledMutation[]): NotifierEvent[] {
   const events: NotifierEvent[] = [];
-  for (const result of results) {
+  for (const { result } of settled) {
     if (result.ok && result.outcome !== null) events.push(result.outcome.event);
   }
   return events;
 }
 
-function collectHistoryEntries(results: MutationResult[]): NotifierHistoryEntry[] {
+function collectHistoryEntries(settled: SettledMutation[]): NotifierHistoryEntry[] {
   const entries: NotifierHistoryEntry[] = [];
-  for (const result of results) {
+  for (const { result } of settled) {
     if (result.ok && result.outcome !== null && result.outcome.historyEntry) {
       entries.push(result.outcome.historyEntry);
     }
@@ -198,13 +205,12 @@ function collectHistoryEntries(results: MutationResult[]): NotifierHistoryEntry[
   return entries;
 }
 
-function settleBatch(batch: Waiter[], results: MutationResult[]): void {
+function settleBatch(settled: SettledMutation[]): void {
   // Resolves come AFTER any emits so subscribers see the event
   // before the caller's `await` returns.
-  for (let index = 0; index < batch.length; index += 1) {
-    const result = results[index];
-    if (result.ok) batch[index].resolve();
-    else batch[index].reject(result.error);
+  for (const { waiter, result } of settled) {
+    if (result.ok) waiter.resolve();
+    else waiter.reject(result.error);
   }
 }
 
@@ -229,9 +235,9 @@ async function processBatch(batch: Waiter[]): Promise<void> {
     rejectBatch(batch, err);
     return;
   }
-  const results = applyBatchMutations(batch, state);
-  const events = collectEvents(results);
-  const historyEntries = collectHistoryEntries(results);
+  const settled = applyBatchMutations(batch, state);
+  const events = collectEvents(settled);
+  const historyEntries = collectHistoryEntries(settled);
 
   if (events.length > 0) {
     try {
@@ -253,7 +259,7 @@ async function processBatch(batch: Waiter[]): Promise<void> {
     }
     for (const event of events) emit(event);
   }
-  settleBatch(batch, results);
+  settleBatch(settled);
 }
 
 async function drain(): Promise<void> {

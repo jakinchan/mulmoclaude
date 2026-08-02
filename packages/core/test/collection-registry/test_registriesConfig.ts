@@ -20,9 +20,11 @@ describe("parseRegistriesConfig — basic acceptance", () => {
   it("accepts a well-formed single-entry array", () => {
     const result = parseRegistriesConfig([validEntry()]);
     assert.equal(result.length, 1);
-    assert.equal(result[0].name, "myorg");
-    assert.equal(result[0].indexUrl, "https://example.test/myorg/index.json");
-    assert.equal(result[0].rawBaseUrl, "https://example.test/myorg-raw");
+    const [registry] = result;
+    assert.ok(registry);
+    assert.equal(registry.name, "myorg");
+    assert.equal(registry.indexUrl, "https://example.test/myorg/index.json");
+    assert.equal(registry.rawBaseUrl, "https://example.test/myorg-raw");
   });
 
   it("normalizes a trailing slash on rawBaseUrl", () => {
@@ -30,7 +32,9 @@ describe("parseRegistriesConfig — basic acceptance", () => {
     // produce a double slash. Strip it once at parse time so the rest of the
     // pipeline doesn't need to think about it.
     const result = parseRegistriesConfig([validEntry({ rawBaseUrl: "https://example.test/myorg-raw///" })]);
-    assert.equal(result[0].rawBaseUrl, "https://example.test/myorg-raw");
+    const [registry] = result;
+    assert.ok(registry);
+    assert.equal(registry.rawBaseUrl, "https://example.test/myorg-raw");
   });
 
   it("returns the entries in source order — the Discover view shows them in config order", () => {
@@ -118,7 +122,9 @@ describe("parseRegistriesConfig — drops invalid entries (rest still load)", ()
     // Asymmetric on purpose — indexUrl is just fetched; only rawBaseUrl gets joined.
     const result = parseRegistriesConfig([validEntry({ indexUrl: "https://example.test/index.json?v=1" })]);
     assert.equal(result.length, 1);
-    assert.equal(result[0].indexUrl, "https://example.test/index.json?v=1");
+    const [registry] = result;
+    assert.ok(registry);
+    assert.equal(registry.indexUrl, "https://example.test/index.json?v=1");
   });
 
   it("dedupes on name (first wins, later duplicates dropped)", () => {
@@ -132,7 +138,9 @@ describe("parseRegistriesConfig — drops invalid entries (rest still load)", ()
       result.map((reg) => reg.name),
       ["dup", "other"],
     );
-    assert.equal(result[0].indexUrl, "https://example.test/first/index.json");
+    const [winner] = result;
+    assert.ok(winner);
+    assert.equal(winner.indexUrl, "https://example.test/first/index.json");
   });
 
   it("drops a non-object entry without breaking the array", () => {

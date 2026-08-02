@@ -78,7 +78,7 @@ export const composeMessage = (slug: string, itemId: string, message: string): s
 // (`/<slug>`, `id=<itemId>`), so a whitespace-containing or non-string value
 // would break the command parse (e.g. `/   hello`). Accept only a trimmed,
 // whitespace-free string; anything else ⇒ "" so the caller rejects it.
-const asToken = (value: JsonValue): string => {
+const asToken = (value: JsonValue | undefined): string => {
   if (typeof value !== "string") return "";
   const trimmed = value.trim();
   return /\s/.test(trimmed) ? "" : trimmed;

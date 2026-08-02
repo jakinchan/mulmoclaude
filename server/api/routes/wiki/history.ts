@@ -45,9 +45,9 @@ function restoreReason(stamp: string): string {
 // snapshot-event metadata, not part of the page itself, and
 // keeping them in the diff would always flag a difference.
 async function loadPreviousSnapshotContent(slug: string): Promise<string | null> {
-  const recent = await listSnapshots(slug, { workspaceRoot: workspacePath });
-  if (recent.length === 0) return null;
-  const latest = await readSnapshot(slug, recent[0].stamp, { workspaceRoot: workspacePath });
+  const [mostRecent] = await listSnapshots(slug, { workspaceRoot: workspacePath });
+  if (mostRecent === undefined) return null;
+  const latest = await readSnapshot(slug, mostRecent.stamp, { workspaceRoot: workspacePath });
   if (latest === null) return null;
   return serializeWithFrontmatter(stripSnapshotMeta(latest.meta), latest.body);
 }

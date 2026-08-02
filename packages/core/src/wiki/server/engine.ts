@@ -114,15 +114,18 @@ export async function readWikiPage(workspace: string, pageName: string): Promise
   return { filePath, content, exists: Boolean(filePath), resolvedTitle };
 }
 
+/** Page body, or "" when the file vanished between indexing and reading. */
+async function readPageBody(pagesDir: string, fileName: string): Promise<string> {
+  return (await readTextSafe(path.join(pagesDir, fileName))) ?? "";
+}
+
 /** Read every page + the index and build the page→page link graph.
  *  No cache: the graph is requested explicitly and a content edit does
  *  not advance the pagesDir mtime the page index caches on. */
 export async function loadWikiGraph(workspace: string): Promise<WikiGraph> {
   const { pagesDir, indexFile } = wikiDirs(workspace);
   const { slugs } = await getPageIndex(pagesDir);
-  const fileEntries = [...slugs.entries()];
-  const contents = await Promise.all(fileEntries.map(async ([, fileName]) => (await readTextSafe(path.join(pagesDir, fileName))) ?? ""));
-  const pages = fileEntries.map(([slug], i) => ({ slug, content: contents[i] }));
+  const pages = await Promise.all([...slugs.entries()].map(async ([slug, fileName]) => ({ slug, content: await readPageBody(pagesDir, fileName) })));
   const indexEntries = parseIndexEntries(readFileOrEmpty(indexFile));
   return buildWikiGraph(pages, indexEntries);
 }
@@ -136,20 +139,18 @@ export async function collectLintIssues(workspace: string): Promise<string[]> {
   }
   const pageEntries = parseIndexEntries(readFileOrEmpty(indexFile));
   const indexedSlugs = new Set(pageEntries.map((entry) => entry.slug));
-  const pageFiles = [...slugs.values()];
   const fileSlugs = new Set(slugs.keys());
+  const bodies = await Promise.all([...slugs.values()].map(async (fileName) => ({ fileName, content: await readPageBody(pagesDir, fileName) })));
 
   const issues: string[] = [];
   issues.push(...findOrphanPages(fileSlugs, indexedSlugs));
   issues.push(...findMissingFiles(pageEntries, fileSlugs));
-  const contents = await Promise.all(pageFiles.map(async (fileName) => (await readTextSafe(path.join(pagesDir, fileName))) ?? ""));
   const frontmatterTagsBySlug = new Map<string, string[]>();
-  for (let i = 0; i < pageFiles.length; i++) {
-    issues.push(...findBrokenLinksInPage(pageFiles[i], contents[i], fileSlugs));
+  for (const { fileName, content } of bodies) {
+    issues.push(...findBrokenLinksInPage(fileName, content, fileSlugs));
     // Lowercase the key so a `MyPage.md` filename matches an
     // `entry.slug` of `mypage`; `findTagDrift` lowercases the lookup.
-    const slug = pageFiles[i].replace(/\.md$/i, "").toLowerCase();
-    frontmatterTagsBySlug.set(slug, parseFrontmatterTags(contents[i]));
+    frontmatterTagsBySlug.set(fileName.replace(/\.md$/i, "").toLowerCase(), parseFrontmatterTags(content));
   }
   issues.push(...findTagDrift(pageEntries, frontmatterTagsBySlug));
   return issues;

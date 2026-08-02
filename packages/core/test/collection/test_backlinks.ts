@@ -48,7 +48,9 @@ test("a record referenced in multiple table rows still appears once", () => {
   // chapterMulti lists `hero` in two of its three rows.
   const rows = backlinkRows({ via: "characters.character" }, "hero", [chapterMulti]);
   assert.equal(rows.length, 1, "one source record → one backlink row, not one-per-matching-row");
-  assert.equal(rows[0].id, "ch-1");
+  const [row] = rows;
+  assert.ok(row);
+  assert.equal(row.id, "ch-1");
 });
 
 test("dotted via is fail-soft: absent / non-array table field, or rows missing the column, match nothing", () => {

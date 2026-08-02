@@ -76,6 +76,10 @@ function convertXlsx(data: string): string {
   const parts: string[] = [];
   for (const name of workbook.SheetNames) {
     const sheet = workbook.Sheets[name];
+    // A name listed in `SheetNames` with no entry in `Sheets` is a malformed
+    // workbook. Throw so `tryConvertXlsx` reports the whole attachment as
+    // skipped-with-a-reason, rather than silently handing back partial data.
+    if (!sheet) throw new Error(`sheet "${name}" is listed but missing from the workbook`);
     const csv = XLSX.utils.sheet_to_csv(sheet);
     if (workbook.SheetNames.length > 1) {
       parts.push(`## Sheet: ${name}\n\n${csv}`);

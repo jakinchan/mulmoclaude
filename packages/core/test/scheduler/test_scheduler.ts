@@ -249,7 +249,9 @@ test("initScheduler registers system tasks with the task-manager and exposes the
     assert.deepEqual(registered, ["system:journal"]);
     const states = getSchedulerTasks();
     assert.equal(states.length, 1);
-    assert.equal(states[0].id, "system:journal");
+    const [journalState] = states;
+    assert.ok(journalState);
+    assert.equal(journalState.id, "system:journal");
     // state.json directory was created under the injected workspace root.
     assert.ok(existsSync(path.join(root, "config", "scheduler")));
   } finally {
@@ -328,8 +330,10 @@ test("recordExternalRun persists state + a log entry, readable via getSchedulerT
 
     const logs = await getSchedulerLogs({ taskId: "skill.news-filter" });
     assert.equal(logs.length, 1);
-    assert.equal(logs[0].trigger, "scheduled");
-    assert.equal(logs[0].chatSessionId, "chat-123");
+    const [scheduledLog] = logs;
+    assert.ok(scheduledLog);
+    assert.equal(scheduledLog.trigger, "scheduled");
+    assert.equal(scheduledLog.chatSessionId, "chat-123");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -355,9 +359,10 @@ test("recordExternalRun records a failed dispatch as an error run", async () => 
     assert.equal(state.lastRunResult, "error");
     assert.equal(state.lastErrorMessage, "too many background sessions");
     assert.equal(state.consecutiveFailures, 1);
-    const logs = await getSchedulerLogs({ taskId: "user.abc" });
-    assert.equal(logs[0].result, "error");
-    assert.equal(logs[0].errorMessage, "too many background sessions");
+    const [errorLog] = await getSchedulerLogs({ taskId: "user.abc" });
+    assert.ok(errorLog);
+    assert.equal(errorLog.result, "error");
+    assert.equal(errorLog.errorMessage, "too many background sessions");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -90,9 +90,8 @@ export async function migrateLegacyMemory(workspaceRoot: string, classify: Memor
   const result = emptyResult(false);
   const usedSlugs = new Set<string>();
 
-  for (let index = 0; index < candidates.length; index += 1) {
+  for (const [index, candidate] of candidates.entries()) {
     const classification = classifications[index];
-    const candidate = candidates[index];
     if (!classification) {
       result.skippedByClassifier += 1;
     } else {
@@ -139,8 +138,10 @@ async function classifyInParallel(classify: MemoryClassifier, candidates: readon
     while (true) {
       const index = nextIndex;
       nextIndex += 1;
-      if (index >= candidates.length) return;
-      results[index] = await safeClassify(classify, candidates[index]);
+      const candidate = candidates[index];
+      // Absent element == the shared cursor ran past the end.
+      if (candidate === undefined) return;
+      results[index] = await safeClassify(classify, candidate);
     }
   };
   const workers = Array.from({ length: Math.min(CLASSIFY_CONCURRENCY, candidates.length) }, () => worker());

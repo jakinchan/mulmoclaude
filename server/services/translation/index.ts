@@ -90,7 +90,11 @@ export function createTranslationService(deps: TranslationServiceDeps): Translat
       throw new Error(`[translation] translateBatch returned ${translated.length} translations for ${misses.length} sentences`);
     }
     const fresh = new Map<string, string>();
-    misses.forEach((sentence, index) => fresh.set(sentence, translated[index]));
+    misses.forEach((sentence, index) => {
+      // Length parity is asserted above, so an absent slot cannot occur.
+      const translation = translated[index];
+      if (translation !== undefined) fresh.set(sentence, translation);
+    });
     const next = mergeTranslations(dict, req.targetLanguage, fresh);
     await saveDictionary(req.namespace, next, workspaceRoot);
     return { translations: assembleResult(req.sentences, cached, fresh) };

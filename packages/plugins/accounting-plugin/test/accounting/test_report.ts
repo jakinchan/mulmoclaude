@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { aggregateBalances, buildBalanceSheet, buildLedger, buildProfitLoss, sortedBalancesFromMap } from "../../src/server/report.js";
 import { makeEntry, makeVoidEntries } from "../../src/server/journal.js";
-import type { Account } from "../../src/shared/types.js";
+import type { Account, Ledger, LedgerRow } from "../../src/shared/types.js";
 
 const ACCOUNTS: Account[] = [
   { code: "1000", name: "Cash", type: "asset" },
@@ -18,6 +18,13 @@ function findAccount(code: string): Account {
   const acct = ACCOUNTS.find((account) => account.code === code);
   if (!acct) throw new Error(`fixture missing account ${code}`);
   return acct;
+}
+
+/** Every ledger asserted on below is built from a fixture that posts to the account, so an empty ledger is a failure. */
+function ledgerRowAt(ledger: Ledger, index: number): LedgerRow {
+  const row = ledger.rows.at(index);
+  if (!row) throw new Error(`ledger has no row at index ${index}`);
+  return row;
 }
 
 describe("sortedBalancesFromMap", () => {
@@ -219,8 +226,8 @@ describe("buildLedger", () => {
     const cash = findAccount("1000");
     const ledger = buildLedger({ account: cash, entries: [entryA, entryB] });
     assert.equal(ledger.rows.length, 2);
-    assert.equal(ledger.rows[0].runningBalance, 100);
-    assert.equal(ledger.rows[1].runningBalance, 70);
+    assert.equal(ledgerRowAt(ledger, 0).runningBalance, 100);
+    assert.equal(ledgerRowAt(ledger, 1).runningBalance, 70);
     assert.equal(ledger.closingBalance, 70);
   });
 
@@ -240,12 +247,12 @@ describe("buildLedger", () => {
     });
     const taxReceivable: Account = { code: "1400", name: "Sales Tax Receivable", type: "asset" };
     const taxLedger = buildLedger({ account: taxReceivable, entries: [purchase] });
-    assert.equal(taxLedger.rows[0].memo, "Starbucks Tokyo — coffee · 仮払消費税 10%");
+    assert.equal(ledgerRowAt(taxLedger, 0).memo, "Starbucks Tokyo — coffee · 仮払消費税 10%");
 
     // The "Coffee (net)" expense ledger row gets the same prefix.
     const coffeeExpense: Account = { code: "5900", name: "Coffee", type: "expense" };
     const coffeeLedger = buildLedger({ account: coffeeExpense, entries: [purchase] });
-    assert.equal(coffeeLedger.rows[0].memo, "Starbucks Tokyo — coffee · Coffee (net)");
+    assert.equal(ledgerRowAt(coffeeLedger, 0).memo, "Starbucks Tokyo — coffee · Coffee (net)");
 
     // No-line-memo case: the line memo is absent, so the row falls
     // back cleanly to the entry memo with no separator.
@@ -259,7 +266,7 @@ describe("buildLedger", () => {
     });
     const office: Account = { code: "5000", name: "Office", type: "expense" };
     const officeLedger = buildLedger({ account: office, entries: [plain] });
-    assert.equal(officeLedger.rows[0].memo, "Office supplies");
+    assert.equal(ledgerRowAt(officeLedger, 0).memo, "Office supplies");
 
     // Identity-collapse: same string on both sides shouldn't render twice.
     const dup = makeEntry({
@@ -272,7 +279,7 @@ describe("buildLedger", () => {
     });
     const cash = findAccount("1000");
     const cashLedger = buildLedger({ account: cash, entries: [dup] });
-    assert.equal(cashLedger.rows[0].memo, "Cash deposit");
+    assert.equal(ledgerRowAt(cashLedger, 0).memo, "Cash deposit");
   });
 
   it("surfaces taxRegistrationId per row when the source line carries one", () => {
@@ -284,12 +291,12 @@ describe("buildLedger", () => {
     const taxReceivable: Account = { code: "1400", name: "Input Tax Receivable", type: "asset" };
     const ledger = buildLedger({ account: taxReceivable, entries: [purchase] });
     assert.equal(ledger.rows.length, 1);
-    assert.equal(ledger.rows[0].taxRegistrationId, "T1234567890123");
+    assert.equal(ledgerRowAt(ledger, 0).taxRegistrationId, "T1234567890123");
 
     const cash = findAccount("1000");
     const cashLedger = buildLedger({ account: cash, entries: [purchase] });
     assert.equal(cashLedger.rows.length, 1);
-    assert.equal(cashLedger.rows[0].taxRegistrationId, undefined);
+    assert.equal(ledgerRowAt(cashLedger, 0).taxRegistrationId, undefined);
   });
 });
 

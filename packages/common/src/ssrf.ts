@@ -72,10 +72,11 @@ export function stripIpv6Brackets(hostname: string): string {
  *  `[::ffff:127.0.0.1]` as `::ffff:7f00:1`, so matching only the dotted form
  *  would wave the mapped loopback through any URL-sourced check. */
 function mappedIpv4Value(lower: string): number | null {
-  const dotted = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
-  if (dotted) return ipv4ToInt(dotted[1]);
+  const dotted = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower)?.[1];
+  if (dotted !== undefined) return ipv4ToInt(dotted);
   const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(lower);
-  if (hex) return Number.parseInt(hex[1], 16) * 0x10000 + Number.parseInt(hex[2], 16);
+  const [, high, low] = hex ?? [];
+  if (high !== undefined && low !== undefined) return Number.parseInt(high, 16) * 0x10000 + Number.parseInt(low, 16);
   return null;
 }
 
@@ -88,7 +89,7 @@ export function isBlockedIpv6(address: string): boolean {
   // IPv4-mapped re-enters the v4 rules.
   const mapped = mappedIpv4Value(lower);
   if (mapped !== null) return isBlockedIpv4Value(mapped);
-  const [head] = lower.split(":");
+  const [head = ""] = lower.split(":");
   if (head.length === 0) return false;
   const leading = Number.parseInt(head, 16);
   if (Number.isNaN(leading)) return false;

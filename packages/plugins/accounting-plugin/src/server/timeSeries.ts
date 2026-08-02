@@ -67,7 +67,10 @@ interface YmdParts {
 }
 
 function parseYmd(value: string): YmdParts {
-  const [year, month, day] = value.split("-").map((segment) => parseInt(segment, 10));
+  // Callers validate `YYYY-MM-DD` first, so the defaults are unreachable;
+  // they keep a malformed value degrading to NaN (what a non-numeric
+  // segment already produces) rather than to `undefined`.
+  const [year = Number.NaN, month = Number.NaN, day = Number.NaN] = value.split("-").map((segment) => parseInt(segment, 10));
   return { year, month, day };
 }
 

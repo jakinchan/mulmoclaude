@@ -65,11 +65,13 @@ async function sendMessage(chatId: string, text: string): Promise<void> {
   for (const chunk of chunks) {
     try {
       if (chatId.startsWith("stream:")) {
-        const parts = chatId.split(":");
+        // "stream:<id>[:<topic>]" — the `stream:` prefix guarantees an id
+        // segment, so the default only covers a bare "stream:" chatId.
+        const [, streamId = "", topic = "MulmoClaude"] = chatId.split(":");
         await zulipPost("/messages", {
           type: "stream",
-          to: parts[1],
-          topic: parts[2] ?? "MulmoClaude",
+          to: streamId,
+          topic,
           content: chunk,
         });
       } else {

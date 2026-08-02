@@ -33,6 +33,14 @@ function balancedLines(): JournalLine[] {
   ];
 }
 
+/** Every fixture below is a two-line entry, so a missing line is a test failure, not a branch. */
+function firstTwo<T>(items: T[]): [T, T] {
+  const [first, second] = items;
+  assert.ok(first);
+  assert.ok(second);
+  return [first, second];
+}
+
 describe("netBalance", () => {
   it("sums debit minus credit", () => {
     assert.equal(netBalance(balancedLines()), 0);
@@ -297,8 +305,10 @@ describe("makeEntry", () => {
   it("clones the lines array (caller can mutate input safely)", () => {
     const lines = balancedLines();
     const entry = makeEntry({ date: "2026-04-01", lines });
-    lines[0].debit = 999;
-    assert.equal(entry.lines[0].debit, 100);
+    const [mutatedLine] = firstTwo(lines);
+    mutatedLine.debit = 999;
+    const [clonedLine] = firstTwo(entry.lines);
+    assert.equal(clonedLine.debit, 100);
   });
   it("trims taxRegistrationId and preserves it on the persisted line", () => {
     const entry = makeEntry({
@@ -308,8 +318,9 @@ describe("makeEntry", () => {
         { accountCode: "4000", credit: 100 },
       ],
     });
-    assert.equal(entry.lines[0].taxRegistrationId, "T1234567890123");
-    assert.equal(entry.lines[1].taxRegistrationId, undefined);
+    const [taxedLine, plainLine] = firstTwo(entry.lines);
+    assert.equal(taxedLine.taxRegistrationId, "T1234567890123");
+    assert.equal(plainLine.taxRegistrationId, undefined);
   });
   it("normalizes empty / whitespace-only taxRegistrationId to absent", () => {
     const entry = makeEntry({
@@ -319,8 +330,9 @@ describe("makeEntry", () => {
         { accountCode: "4000", credit: 100, taxRegistrationId: "   " },
       ],
     });
-    assert.equal(entry.lines[0].taxRegistrationId, undefined);
-    assert.equal(entry.lines[1].taxRegistrationId, undefined);
+    const [emptyIdLine, blankIdLine] = firstTwo(entry.lines);
+    assert.equal(emptyIdLine.taxRegistrationId, undefined);
+    assert.equal(blankIdLine.taxRegistrationId, undefined);
   });
 });
 
@@ -330,9 +342,10 @@ describe("makeVoidEntries", () => {
     const { reverse, marker } = makeVoidEntries(original, "typo", "2026-04-30");
     assert.equal(reverse.kind, "void");
     assert.equal(reverse.voidedEntryId, original.id);
-    assert.equal(reverse.lines[0].credit, 100);
-    assert.equal(reverse.lines[0].debit, undefined);
-    assert.equal(reverse.lines[1].debit, 100);
+    const [reversedDebit, reversedCredit] = firstTwo(reverse.lines);
+    assert.equal(reversedDebit.credit, 100);
+    assert.equal(reversedDebit.debit, undefined);
+    assert.equal(reversedCredit.debit, 100);
     assert.equal(marker.kind, "void-marker");
     assert.equal(marker.voidedEntryId, original.id);
     assert.equal(marker.lines.length, 0);
@@ -372,8 +385,9 @@ describe("makeVoidEntries", () => {
       ],
     });
     const { reverse } = makeVoidEntries(original, undefined, "2026-04-30");
-    assert.equal(reverse.lines[0].taxRegistrationId, "T1234567890123");
-    assert.equal(reverse.lines[1].taxRegistrationId, undefined);
+    const [taxedReverseLine, plainReverseLine] = firstTwo(reverse.lines);
+    assert.equal(taxedReverseLine.taxRegistrationId, "T1234567890123");
+    assert.equal(plainReverseLine.taxRegistrationId, undefined);
   });
 });
 

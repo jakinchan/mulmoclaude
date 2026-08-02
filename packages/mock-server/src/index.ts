@@ -37,40 +37,70 @@ function parseSlowMs(raw: string): number {
   return n;
 }
 
-function parseArgs(argv: string[]): MockServerOptions {
-  const opts: MockServerOptions = {
-    port: 3001,
-    token: "mock-test-token",
-    slowMs: 0,
-    alwaysError: false,
-    rejectAuth: false,
-    verbose: false,
-  };
+const DEFAULT_OPTIONS: MockServerOptions = {
+  port: 3001,
+  token: "mock-test-token",
+  slowMs: 0,
+  alwaysError: false,
+  rejectAuth: false,
+  verbose: false,
+};
 
-  for (let i = 2; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--port" && argv[i + 1]) {
-      opts.port = parsePort(argv[++i]);
-    } else if (arg === "--token" && argv[i + 1]) {
-      opts.token = argv[++i];
-    } else if (arg === "--slow" && argv[i + 1]) {
-      opts.slowMs = parseSlowMs(argv[++i]);
-    } else if (arg === "--error") {
-      opts.alwaysError = true;
-    } else if (arg === "--reject-auth") {
-      opts.rejectAuth = true;
-    } else if (arg === "--verbose" || arg === "-v") {
-      opts.verbose = true;
-    } else if (arg === "--log-file" && argv[i + 1]) {
-      opts.logFile = argv[++i];
-    } else if (arg === "--help" || arg === "-h") {
-      printHelp();
-      process.exit(0);
-    } else if (arg.startsWith("-")) {
-      failUsage(`unknown option: ${arg}`);
-    }
+interface FlagOutcome {
+  patch: Partial<MockServerOptions>;
+  /** How many following argv entries this flag swallowed as its value. */
+  consumed: number;
+}
+
+const NO_PATCH: FlagOutcome = { patch: {}, consumed: 0 };
+
+function parseValueFlag(flag: string, value: string): FlagOutcome | null {
+  if (flag === "--port") return { patch: { port: parsePort(value) }, consumed: 1 };
+  if (flag === "--token") return { patch: { token: value }, consumed: 1 };
+  if (flag === "--slow") return { patch: { slowMs: parseSlowMs(value) }, consumed: 1 };
+  if (flag === "--log-file") return { patch: { logFile: value }, consumed: 1 };
+  return null;
+}
+
+function parseBareFlag(flag: string): FlagOutcome | null {
+  if (flag === "--error") return { patch: { alwaysError: true }, consumed: 0 };
+  if (flag === "--reject-auth") return { patch: { rejectAuth: true }, consumed: 0 };
+  if (flag === "--verbose" || flag === "-v") return { patch: { verbose: true }, consumed: 0 };
+  if (flag === "--help" || flag === "-h") {
+    printHelp();
+    process.exit(0);
   }
-  return opts;
+  return null;
+}
+
+// A value flag whose value is missing (or empty) is not treated as a
+// value flag at all — it falls through to the unknown-option error,
+// which is what `--port` with nothing after it did before.
+function parseFlag(flag: string, next: string | undefined): FlagOutcome {
+  const withValue = next ? parseValueFlag(flag, next) : null;
+  if (withValue) return withValue;
+  const bare = parseBareFlag(flag);
+  if (bare) return bare;
+  if (flag.startsWith("-")) failUsage(`unknown option: ${flag}`);
+  return NO_PATCH;
+}
+
+interface ArgScan {
+  opts: MockServerOptions;
+  /** Entries already claimed as a preceding flag's value. */
+  skip: number;
+}
+
+function parseArgs(argv: readonly string[]): MockServerOptions {
+  const flags = argv.slice(2);
+  return flags.reduce<ArgScan>(
+    (scan, flag, index) => {
+      if (scan.skip > 0) return { ...scan, skip: scan.skip - 1 };
+      const { patch, consumed } = parseFlag(flag, flags[index + 1]);
+      return { opts: { ...scan.opts, ...patch }, skip: consumed };
+    },
+    { opts: DEFAULT_OPTIONS, skip: 0 },
+  ).opts;
 }
 
 function printHelp(): void {

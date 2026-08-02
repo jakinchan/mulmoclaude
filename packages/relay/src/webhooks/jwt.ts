@@ -42,16 +42,21 @@ function decodeSegment(segment: string): unknown {
 
 // null means "not a well-formed JWT" — callers treat that as a rejection.
 export function parseJwt(token: string): ParsedJwt | null {
-  const parts = token.split(".");
-  if (parts.length !== 3) return null;
+  // A JWS compact serialization is EXACTLY three segments. Both a short
+  // token and a longer one (a five-segment JWE, or an attacker appending
+  // `.junk`) are rejected outright — never parsed from their first three
+  // segments, which would let the signed input disagree with the token.
+  const [headerSegment, payloadSegment, signatureSegment, ...extraSegments] = token.split(".");
+  if (headerSegment === undefined || payloadSegment === undefined || signatureSegment === undefined) return null;
+  if (extraSegments.length > 0) return null;
   try {
-    const header = decodeSegment(parts[0]);
-    const payload = decodeSegment(parts[1]);
+    const header = decodeSegment(headerSegment);
+    const payload = decodeSegment(payloadSegment);
     // RFC 7519 requires both segments to be JSON objects. A scalar or array
     // would read as "every claim absent" in the per-platform validators —
     // a rejection either way, just a later and less obvious one.
     if (!isRecord(header) || !isRecord(payload)) return null;
-    return { header, payload, signInput: `${parts[0]}.${parts[1]}`, sig: b64UrlDecode(parts[2]) };
+    return { header, payload, signInput: `${headerSegment}.${payloadSegment}`, sig: b64UrlDecode(signatureSegment) };
   } catch {
     return null;
   }

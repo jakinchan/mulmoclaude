@@ -416,6 +416,9 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
       { operation: "beat-audio", onContextMissing: () => ({ ok: true, audio: null }) },
       async ({ context }) => {
         const beat = context.studio.script.beats[beatIndex];
+        // Probe contract: a beat index the script doesn't have soft-fails
+        // like a beat with nothing generated yet, never a server error.
+        if (!beat) return { ok: true, audio: null };
         const audioPath = getBeatAudioPathOrUrl(beat.text ?? "", context, beat, context.lang);
         if (!audioPath || !existsSync(audioPath)) return { ok: true, audio: null };
         return { ok: true, audio: await fileToDataUri(audioPath, "audio/mpeg") };
@@ -513,7 +516,11 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
         } as Parameters<typeof generateBeatAudio>[2]);
 
         const beat = context.studio.script.beats[beatIndex];
-        const audioPath = context.studio.beats[beatIndex]?.audioFile ?? getBeatAudioPathOrUrl(beat.text ?? "", context, beat, context.lang);
+        // The generated file still wins when present, so a beat index the
+        // script doesn't have only skips the path-derivation fallback and
+        // lands on the "audio was not generated" branch below.
+        const generatedFile = context.studio.beats[beatIndex]?.audioFile;
+        const audioPath = generatedFile ?? (beat ? getBeatAudioPathOrUrl(beat.text ?? "", context, beat, context.lang) : undefined);
 
         if (!audioPath || !existsSync(audioPath)) {
           // Logic-flow failure (not an exception) — emit a targeted

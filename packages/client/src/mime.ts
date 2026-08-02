@@ -68,7 +68,9 @@ export interface ParsedDataUrl {
 export function parseDataUrl(dataUrl: string): ParsedDataUrl | null {
   const match = dataUrl.match(/^data:([^;,]+)(?:;[^,]*)?;base64,(.+)$/);
   if (!match) return null;
-  return { mimeType: match[1], data: match[2] };
+  const [, mimeType, data] = match;
+  if (mimeType === undefined || data === undefined) return null;
+  return { mimeType, data };
 }
 
 /** Build a `data:<mime>;base64,<data>` string from components. */
