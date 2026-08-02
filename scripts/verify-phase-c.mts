@@ -33,7 +33,7 @@ async function main(): Promise<void> {
     const token = meta?.content ?? "";
     const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     if (!r.ok) return null;
-    const body = (await r.json()) as { plugins: Array<{ toolName: string }> };
+    const body = (await r.json()) as { plugins: { toolName: string }[] };
     return body.plugins.map((p) => p.toolName);
   });
 
@@ -44,7 +44,7 @@ async function main(): Promise<void> {
     const meta = document.querySelector('meta[name="mulmoclaude-auth"]') as HTMLMetaElement | null;
     const token = meta?.content ?? "";
     const r = await fetch("/api/plugins/runtime/list", { headers: { Authorization: `Bearer ${token}` } });
-    const body = (await r.json()) as { plugins: Array<{ assetBase: string; toolName: string }> };
+    const body = (await r.json()) as { plugins: { assetBase: string; toolName: string }[] };
     const results: { toolName: string; viewModuleStatus: number; cssStatus: number }[] = [];
     for (const p of body.plugins) {
       const viewResp = await fetch(`${p.assetBase}/dist/vue.js`);
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
       const meta = document.querySelector('meta[name="mulmoclaude-auth"]') as HTMLMetaElement | null;
       const token = meta?.content ?? "";
       const list = await fetch("/api/plugins/runtime/list", { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json());
-      const first = list.plugins[0];
+      const [first] = list.plugins;
       if (!first) return { error: "no plugins" };
       // Dynamic import via the same path the runtime loader used
       const mod = await import(/* @vite-ignore */ `${first.assetBase}/dist/vue.js`);
@@ -78,9 +78,9 @@ async function main(): Promise<void> {
       const pluginVue = await import("vue"); // same URL via importmap → same module instance
       return {
         toolName: first.toolName,
-        hasPlugin: !!plugin,
-        hasViewComponent: !!plugin?.viewComponent,
-        hasPreviewComponent: !!plugin?.previewComponent,
+        hasPlugin: Boolean(plugin),
+        hasViewComponent: Boolean(plugin?.viewComponent),
+        hasPreviewComponent: Boolean(plugin?.previewComponent),
         sameVueIdentity: hostVue === pluginVue,
         hostVueVersion: hostVue.version,
       };
