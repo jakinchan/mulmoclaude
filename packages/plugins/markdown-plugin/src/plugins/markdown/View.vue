@@ -135,10 +135,19 @@
           <template v-else>
             <textarea ref="editorRef" v-model="editableMarkdown" class="markdown-editor" spellcheck="false" @scroll="syncPreviewScroll"></textarea>
             <div class="editor-actions">
-              <label class="live-toggle">
-                <input v-model="livePreview" type="checkbox" />
-                {{ t("pluginMarkdown.livePreview") }}
-              </label>
+              <div class="toggle-group">
+                <label class="live-toggle">
+                  <input v-model="livePreview" type="checkbox" />
+                  {{ t("pluginMarkdown.livePreview") }}
+                </label>
+                <!-- Auto save rides on live preview: without it the viewer
+                     already shows what is on disk, so writing behind the
+                     user's back would buy nothing and cost the Cancel. -->
+                <label v-if="livePreview && canPersist" class="live-toggle">
+                  <input v-model="autoSave" type="checkbox" />
+                  {{ t("pluginMarkdown.autoSave") }}
+                </label>
+              </div>
               <!-- Grouped so `.editor-actions` still sees two children and its
                    space-between keeps meaning what it does in the marp panel. -->
               <div class="action-buttons">
@@ -347,7 +356,34 @@ watch([editableMarkdown, livePreview, editing], ([text, live, open], previous) =
   }, LIVE_PREVIEW_DEBOUNCE_MS);
 });
 
-onUnmounted(() => clearTimeout(liveTimer));
+// Auto save (opt-in, only offered alongside live preview): the buffer is
+// written to disk on a debounce so the document keeps up with the typing
+// without an Apply. Off by default — a write is not undoable, and the panel
+// is also used to try things out. Only file-backed documents can persist;
+// inline legacy content has no on-disk twin to save to.
+const AUTO_SAVE_DEBOUNCE_MS = 1500;
+const canPersist = computed(() => documentPathOf(props.selectedResult.data) !== null);
+const autoSave = ref(false);
+const autoSaveActive = computed(() => autoSave.value && livePreview.value && editing.value && canPersist.value);
+let autoSaveTimer: ReturnType<typeof setTimeout> | undefined;
+// Writes are chained rather than fired in parallel: two overlapping PUTs of the
+// same path can land out of order, leaving disk on the older buffer.
+let autoSaveChain: Promise<unknown> = Promise.resolve();
+
+watch([editableMarkdown, autoSaveActive], () => {
+  clearTimeout(autoSaveTimer);
+  // Closing the editor / unticking either box flips `autoSaveActive` and lands
+  // here, so a pending write is dropped before Cancel discards the draft.
+  if (!autoSaveActive.value || !hasChanges.value) return;
+  autoSaveTimer = setTimeout(() => {
+    autoSaveChain = autoSaveChain.then(() => persistMarkdown(editableMarkdown.value));
+  }, AUTO_SAVE_DEBOUNCE_MS);
+});
+
+onUnmounted(() => {
+  clearTimeout(liveTimer);
+  clearTimeout(autoSaveTimer);
+});
 
 // What the viewer renders. Deliberately NOT what `marpMode` and the
 // task-checkbox walker read: those stay on `markdownContent`, so typing marp
@@ -536,10 +572,13 @@ async function downloadPdf() {
   await rawDownloadPdf({ markdown: markdownContent.value, filename });
 }
 
-async function applyMarkdown() {
+// Shared write path for Apply and auto save. Returns false when nothing was
+// written, so Apply can keep the panel open on failure while auto save just
+// leaves the error banner up and retries on the next keystroke.
+async function persistMarkdown(text: string): Promise<boolean> {
   const raw = props.selectedResult.data?.markdown;
   const filePath = documentPathOf(props.selectedResult.data);
-  if (!raw && !filePath) return;
+  if (!raw && !filePath) return false;
 
   saveError.value = null;
 
@@ -551,7 +590,7 @@ async function applyMarkdown() {
     saving.value = true;
     pendingSelfSaves.value += 1;
     try {
-      await dispatch({ kind: "saveDoc", path: filePath, markdown: editableMarkdown.value });
+      await dispatch({ kind: "saveDoc", path: filePath, markdown: text });
     } catch (err) {
       // Roll back the self-save expectation — no pubsub event will
       // arrive for a failed save, so the counter would otherwise stay
@@ -560,28 +599,33 @@ async function applyMarkdown() {
       // Store the raw error; the template formats it via t() so locale
       // switches re-render without double-translating.
       saveError.value = err instanceof Error ? err.message : String(err);
-      return;
+      return false;
     } finally {
       saving.value = false;
     }
   }
 
   // Update local state
-  markdownContent.value = editableMarkdown.value;
+  markdownContent.value = text;
 
   // Emit update to parent (clears pdfPath since content changed)
   const updatedResult: ToolResult<MarkdownToolData> = {
     ...props.selectedResult,
     data: {
       ...props.selectedResult.data,
-      markdown: filePath ?? editableMarkdown.value,
+      markdown: filePath ?? text,
       pdfPath: undefined,
     },
   };
   emit("updateResult", updatedResult);
+  return true;
+}
 
-  // Close the edit panel
-  closeEditor();
+async function applyMarkdown() {
+  if (await persistMarkdown(editableMarkdown.value)) {
+    // Close the edit panel
+    closeEditor();
+  }
 }
 
 // ── Inline task-list checkbox toggle (#775) ──────────────────────
@@ -977,6 +1021,13 @@ watch(
   font-weight: 400;
   color: #333;
   cursor: pointer;
+}
+
+.toggle-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .action-buttons {

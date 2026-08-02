@@ -12,6 +12,7 @@ export interface Messages {
   pdfFailedShort: string;
   editSource: string;
   livePreview: string;
+  autoSave: string;
   saving: string;
   applyChanges: string;
   cancel: string;
