@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/line",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "LINE bridge for MulmoBridge — connect a LINE bot to MulmoClaude",
   "type": "module",
   "main": "./dist/index.js",

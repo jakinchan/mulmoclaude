@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/viber",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Viber bridge for MulmoBridge — Public Account chatbot via webhook + REST",
   "type": "module",
   "main": "./dist/index.js",

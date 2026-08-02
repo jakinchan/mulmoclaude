@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/line-works",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "LINE Works bridge for MulmoBridge — enterprise LINE (separate API from the consumer product)",
   "type": "module",
   "main": "./dist/index.js",
