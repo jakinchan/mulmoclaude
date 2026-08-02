@@ -7,7 +7,7 @@ import eslintConfigPrettier from "eslint-config-prettier";
 import prettierPlugin from "eslint-plugin-prettier";
 import sonarjs from "eslint-plugin-sonarjs";
 
-export default [
+const packagesConfig = [
   eslint.configs.recommended,
   sonarjs.configs.recommended,
   ...tseslint.configs.recommended,
@@ -20,10 +20,7 @@ export default [
       // inline assert. Demoted to warn so reviewers still see it
       // without blocking CI.
       "sonarjs/assertions-in-tests": "warn",
-      "@typescript-eslint/no-unused-vars": [
-        "error",
-        { argsIgnorePattern: "^__", varsIgnorePattern: "^__" },
-      ],
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^__", varsIgnorePattern: "^__" }],
       // Workspace-package boundary restriction (C2 / #1141 family).
       // Each package should be self-contained and reachable from the
       // rest of the repo only through its declared package name
@@ -67,3 +64,5 @@ export default [
   },
   eslintConfigPrettier,
 ];
+
+export default packagesConfig;

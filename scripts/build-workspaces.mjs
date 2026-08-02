@@ -150,7 +150,8 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const workspaces = findWorkspaces(args);
   if (workspaces.length === 0) {
-    console.error(`[build-workspaces] no packages matching scope=${args.scope}` + (args.nameSuffix ? ` suffix=${args.nameSuffix}` : "") + ` under ${args.relDir}`);
+    const suffixNote = args.nameSuffix ? ` suffix=${args.nameSuffix}` : "";
+    console.error(`[build-workspaces] no packages matching scope=${args.scope}${suffixNote} under ${args.relDir}`);
     process.exit(1);
   }
   console.log(`[build-workspaces] building ${workspaces.length} package(s) in parallel under ${args.relDir}: ${workspaces.join(", ")}`);

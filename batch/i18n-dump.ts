@@ -43,11 +43,7 @@ async function main(): Promise<void> {
   await mkdir(outDir, { recursive: true });
   await Promise.all(
     Object.entries(locales).map(([locale, dict]) =>
-      writeFile(
-        path.join(outDir, `${locale}.json`),
-        JSON.stringify(serializableDictionary(dict), null, 2) + "\n",
-        "utf8",
-      ),
+      writeFile(path.join(outDir, `${locale}.json`), `${JSON.stringify(serializableDictionary(dict), null, 2)}\n`, "utf8"),
     ),
   );
   console.log(`i18n JSON dumped to ${path.relative(repoRoot, outDir)}/`);
