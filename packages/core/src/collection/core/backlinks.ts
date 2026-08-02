@@ -6,6 +6,8 @@
 // single-implementation rule `deriveAll` follows for formulas. No zod,
 // no I/O; safe for the browser barrel.
 
+import { isRecord, isUnknownArray } from "@mulmoclaude/common";
+
 import { whenMatches } from "./actionVisible";
 import { fieldTextOrNull } from "./fieldText";
 import type { CollectionFieldSpec, CollectionItem } from "./schema";
@@ -43,8 +45,8 @@ export function viaMatches(via: string, item: CollectionItem, recordId: string):
   const tableField = via.slice(0, dot);
   const refColumn = via.slice(dot + 1);
   const rows = item[tableField];
-  if (!Array.isArray(rows)) return false;
-  return rows.some((row) => fieldTextOrNull((row as CollectionItem)?.[refColumn]) === recordId);
+  if (!isUnknownArray(rows)) return false;
+  return rows.some((row) => isRecord(row) && fieldTextOrNull(row[refColumn]) === recordId);
 }
 
 /** The SOURCE records whose `via` field stores `recordId` (compared as
