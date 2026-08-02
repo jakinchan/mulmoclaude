@@ -61,10 +61,22 @@ const describeNonJson = (value: unknown): string => {
   return `a ${typeof value}`;
 };
 
+/** Anything carrying its own JSON form — `Date` above all — must be asked for
+ *  it rather than walked, because walking a `Date`'s own enumerable keys finds
+ *  none and flattens the timestamp to `{}`. This is the step `JSON.stringify`
+ *  performs before it recurses, and the channel used to get it for free. */
+const hasToJson = (value: object): value is { toJSON: () => unknown } => "toJSON" in value && typeof value.toJSON === "function";
+
+const jsonRepresentationOf = (value: object): unknown => (hasToJson(value) ? value.toJSON() : value);
+
 /** Rebuild `value` as JSON, or throw naming the property that cannot be. */
 function toJsonValue(value: unknown, path: string): JsonValue {
   if (Array.isArray(value)) return toJsonItems(value, path);
-  if (isRecord(value)) return toJsonEntries(value, path);
+  if (isRecord(value)) {
+    const represented = jsonRepresentationOf(value);
+    if (represented !== value) return toJsonValue(represented, path);
+    return toJsonEntries(value, path);
+  }
   return toJsonScalar(value, path);
 }
 

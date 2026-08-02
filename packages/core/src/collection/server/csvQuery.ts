@@ -59,7 +59,10 @@ function whereFragment(cond: CollectionQueryWhere): { sql: string; params: CsvQu
     const lhs = textual ? asText : column;
     return { sql: `${lhs} IN (${values.map(() => "?").join(", ")})`, params: values };
   }
-  if (cond.op === "contains") return { sql: `contains(${asText}, ?)`, params: [String(cond.value)] };
+  // `String()` stays — `contains` matches against text, so a numeric needle is
+  // searched by its text form — but an array must fail here like it does on
+  // every other scalar op, not silently become the needle "1,2".
+  if (cond.op === "contains") return { sql: `contains(${asText}, ?)`, params: [String(scalarValue(cond))] };
   const operator = { eq: "=", ne: "<>", gt: ">", gte: ">=", lt: "<", lte: "<=" }[cond.op];
   const lhs = typeof cond.value === "string" && (cond.op === "eq" || cond.op === "ne") ? asText : column;
   return { sql: `${lhs} ${operator} ?`, params: [scalarValue(cond)] };
