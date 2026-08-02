@@ -84,7 +84,9 @@ describe("getProfile — fresh fetch + cache write", () => {
     if (!result.ok) throw new Error("unreachable");
     assert.equal(result.profile.product, "premium");
     assert.equal(result.profile.displayName, "Test User");
-    assert.equal(handle.calls[0].url, "https://api.spotify.com/v1/me");
+    const [profileCall] = handle.calls;
+    assert.ok(profileCall);
+    assert.equal(profileCall.url, "https://api.spotify.com/v1/me");
     // profile.json should be written.
     assert.ok(handle.store.has("profile.json"));
   });

@@ -74,6 +74,18 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
+function callAt(calls: CallRecord[], index: number): CallRecord {
+  const call = calls[index];
+  assert.ok(call, `expected runtime.fetch call #${index}`);
+  return call;
+}
+
+function entryAt<T>(entries: T[], index: number): T {
+  const entry = entries[index];
+  assert.ok(entry, `expected a normalised entry at index ${index}`);
+  return entry;
+}
+
 describe("fetchLiked", () => {
   it("calls /v1/me/tracks with the requested limit and normalises the response", async () => {
     const handle = makeFakeRuntime([
@@ -88,9 +100,9 @@ describe("fetchLiked", () => {
     const result = await fetchLiked({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, 25);
     assert.equal(result.ok, true);
     if (!result.ok) throw new Error("unreachable");
-    assert.equal(handle.calls[0].url, "https://api.spotify.com/v1/me/tracks?limit=25");
+    assert.equal(callAt(handle.calls, 0).url, "https://api.spotify.com/v1/me/tracks?limit=25");
     assert.equal(result.data.length, 2);
-    assert.equal(result.data[0].name, "Track A");
+    assert.equal(entryAt(result.data, 0).name, "Track A");
   });
 
   it("forwards client errors instead of throwing", async () => {
@@ -119,9 +131,9 @@ describe("fetchPlaylists", () => {
     assert.equal(result.ok, true);
     if (!result.ok) throw new Error("unreachable");
     assert.equal(handle.calls.length, 1);
-    assert.equal(handle.calls[0].url, "https://api.spotify.com/v1/me/playlists?limit=50&offset=0");
+    assert.equal(callAt(handle.calls, 0).url, "https://api.spotify.com/v1/me/playlists?limit=50&offset=0");
     assert.equal(result.data.length, 2);
-    assert.equal(result.data[0].trackCount, 10);
+    assert.equal(entryAt(result.data, 0).trackCount, 10);
   });
 
   it("walks pages while Spotify returns a `next` URL", async () => {
@@ -140,8 +152,8 @@ describe("fetchPlaylists", () => {
     assert.equal(result.ok, true);
     if (!result.ok) throw new Error("unreachable");
     assert.equal(handle.calls.length, 2);
-    assert.equal(handle.calls[0].url, "https://api.spotify.com/v1/me/playlists?limit=50&offset=0");
-    assert.equal(handle.calls[1].url, "https://api.spotify.com/v1/me/playlists?limit=50&offset=50");
+    assert.equal(callAt(handle.calls, 0).url, "https://api.spotify.com/v1/me/playlists?limit=50&offset=0");
+    assert.equal(callAt(handle.calls, 1).url, "https://api.spotify.com/v1/me/playlists?limit=50&offset=50");
     assert.equal(result.data.length, 2);
     assert.deepEqual(
       result.data.map((entry) => entry.id),
@@ -156,7 +168,7 @@ describe("fetchPlaylistTracks", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await fetchPlaylistTracks({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, "p1?weird/id", 60);
     assert.equal(result.ok, true);
-    assert.equal(handle.calls[0].url, "https://api.spotify.com/v1/playlists/p1%3Fweird%2Fid/tracks?limit=60");
+    assert.equal(callAt(handle.calls, 0).url, "https://api.spotify.com/v1/playlists/p1%3Fweird%2Fid/tracks?limit=60");
   });
 });
 
@@ -171,8 +183,8 @@ describe("fetchRecent", () => {
     const result = await fetchRecent({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, 50);
     assert.equal(result.ok, true);
     if (!result.ok) throw new Error("unreachable");
-    assert.equal(handle.calls[0].url, "https://api.spotify.com/v1/me/player/recently-played?limit=50");
-    assert.equal(result.data[0].playedAt, "2026-05-05T10:00:00.000Z");
+    assert.equal(callAt(handle.calls, 0).url, "https://api.spotify.com/v1/me/player/recently-played?limit=50");
+    assert.equal(entryAt(result.data, 0).playedAt, "2026-05-05T10:00:00.000Z");
   });
 });
 

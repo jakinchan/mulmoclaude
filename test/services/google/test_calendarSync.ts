@@ -17,6 +17,7 @@ function stubFetch(pages: { status?: number; body?: unknown }[]): void {
   globalThis.fetch = (async (url: string | URL) => {
     requestedUrls.push(String(url));
     const page = pages[Math.min(call, pages.length - 1)];
+    assert.ok(page, "stubFetch needs at least one queued page");
     call += 1;
     const status = page.status ?? 200;
     return new Response(JSON.stringify(page.body ?? {}), { status, headers: { "Content-Type": "application/json" } });
@@ -44,6 +45,7 @@ describe("syncCalendarEvents (#2095)", () => {
     stubFetch([{ body: { items: [], nextSyncToken: "tok-1" } }]);
     await syncCalendarEvents("access-token", {});
     const [url] = requestedUrls;
+    assert.ok(url);
     assert.ok(url.includes("showDeleted=true"), `expected showDeleted, got: ${url}`);
     assert.ok(url.includes("singleEvents=true"), `expected singleEvents, got: ${url}`);
     assert.ok(!url.includes("timeMin"), `timeMin is forbidden with syncToken, got: ${url}`);
@@ -53,12 +55,16 @@ describe("syncCalendarEvents (#2095)", () => {
   it("omits syncToken on a full sync and sends it on an incremental one", async () => {
     stubFetch([{ body: { items: [], nextSyncToken: "tok-1" } }]);
     await syncCalendarEvents("access-token", {});
-    assert.ok(!requestedUrls[0].includes("syncToken"), "first sync must not send a token");
+    const [fullSyncUrl] = requestedUrls;
+    assert.ok(fullSyncUrl);
+    assert.ok(!fullSyncUrl.includes("syncToken"), "first sync must not send a token");
 
     requestedUrls = [];
     stubFetch([{ body: { items: [], nextSyncToken: "tok-2" } }]);
     await syncCalendarEvents("access-token", { syncToken: "tok-1" });
-    assert.ok(requestedUrls[0].includes("syncToken=tok-1"), `expected the stored token, got: ${requestedUrls[0]}`);
+    const [incrementalUrl] = requestedUrls;
+    assert.ok(incrementalUrl);
+    assert.ok(incrementalUrl.includes("syncToken=tok-1"), `expected the stored token, got: ${incrementalUrl}`);
   });
 
   it("returns the token from the LAST page and accumulates events across pages", async () => {
@@ -71,14 +77,19 @@ describe("syncCalendarEvents (#2095)", () => {
     );
     assert.equal(result.nextSyncToken, "tok-final");
     assert.equal(result.fullResyncRequired, false);
-    assert.ok(requestedUrls[1].includes("pageToken=p2"), "second page must carry the page token");
+    const [, secondPageUrl] = requestedUrls;
+    assert.ok(secondPageUrl);
+    assert.ok(secondPageUrl.includes("pageToken=p2"), "second page must carry the page token");
   });
 
   it("surfaces deletions as cancelled events rather than dropping them", async () => {
     stubFetch([{ body: { items: [event("gone", "cancelled"), event("kept")], nextSyncToken: "tok" } }]);
     const result = await syncCalendarEvents("access-token", { syncToken: "old" });
-    assert.equal(result.events.filter((entry) => entry.status === "cancelled").length, 1);
-    assert.equal(result.events.filter((entry) => entry.status === "cancelled")[0].id, "gone");
+    const cancelled = result.events.filter((entry) => entry.status === "cancelled");
+    assert.equal(cancelled.length, 1);
+    const [cancelledEvent] = cancelled;
+    assert.ok(cancelledEvent);
+    assert.equal(cancelledEvent.id, "gone");
   });
 
   it("maps an expired token (410 GONE) to fullResyncRequired instead of throwing", async () => {
@@ -97,6 +108,8 @@ describe("syncCalendarEvents (#2095)", () => {
   it("targets the requested calendar, url-encoded", async () => {
     stubFetch([{ body: { items: [], nextSyncToken: "tok" } }]);
     await syncCalendarEvents("access-token", { calendarId: "team cal@group.calendar.google.com" });
-    assert.ok(requestedUrls[0].includes(encodeURIComponent("team cal@group.calendar.google.com")), `got: ${requestedUrls[0]}`);
+    const [url] = requestedUrls;
+    assert.ok(url);
+    assert.ok(url.includes(encodeURIComponent("team cal@group.calendar.google.com")), `got: ${url}`);
   });
 });

@@ -51,10 +51,12 @@ const unresolvedImports = (entry: string): MissingImport[] => {
     seen.add(file);
     const source = readFileSync(file, "utf8");
     for (const match of source.matchAll(IMPORT_PATTERN)) {
-      if (isTypeOnly(match[1])) continue;
-      const target = resolve(dirname(file), match[1]);
+      const [, specifier] = match;
+      assert.ok(specifier !== undefined, `IMPORT_PATTERN matched without a specifier in ${file}`);
+      if (isTypeOnly(specifier)) continue;
+      const target = resolve(dirname(file), specifier);
       if (existsSync(target)) queue.push(target);
-      else missing.push({ from: file, specifier: match[1] });
+      else missing.push({ from: file, specifier });
     }
   }
   return missing;

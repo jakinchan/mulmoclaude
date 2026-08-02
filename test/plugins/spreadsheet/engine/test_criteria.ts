@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { parseCriteria } from "../../../../src/plugins/spreadsheet/engine/registry.ts";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 describe("parseCriteria — text is matched case-insensitively", () => {
   it("matches regardless of case", () => {
@@ -76,7 +77,7 @@ describe("COUNTIF through the engine", () => {
     const rows = values.map((value) => [{ v: value }]);
     rows.push([{ v: `=COUNTIF(A1:A${values.length}, "${criteria}")` }]);
     const sheet: SheetData = { name: "S", data: rows };
-    return new SpreadsheetEngine().calculate(sheet).data[values.length][0];
+    return cellAt(new SpreadsheetEngine().calculate(sheet).data, values.length, 0);
   };
 
   it("counts a case-differing match", () => {

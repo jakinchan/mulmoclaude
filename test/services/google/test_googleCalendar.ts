@@ -157,7 +157,9 @@ describe("collectCalendarPages", () => {
     const seenTokens: (string | undefined)[] = [];
     const calendars = await collectCalendarPages(async (pageToken) => {
       seenTokens.push(pageToken);
-      return pages[seenTokens.length - 1];
+      const page = pages[seenTokens.length - 1];
+      assert.ok(page, `no stub page queued for request #${seenTokens.length}`);
+      return page;
     });
     assert.deepEqual(
       calendars.map((cal) => cal.id),

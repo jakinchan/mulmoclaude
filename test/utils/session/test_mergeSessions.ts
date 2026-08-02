@@ -64,6 +64,14 @@ function makeUserTextResult(message: string): ToolResultComplete {
   } as unknown as ToolResultComplete;
 }
 
+/** Narrows a positional lookup: a list too short to hold `index` is a test
+ *  failure, so this throws rather than handing back `undefined`. */
+function entryAt<T>(list: T[], index: number): T {
+  const entry = list[index];
+  assert.ok(entry, `expected a session entry at index ${index}`);
+  return entry;
+}
+
 describe("compareSessionsByRecency", () => {
   it("returns negative when a is more recently updated", () => {
     const sessA = makeSummary({ updatedAt: "2026-04-12T10:00:00.000Z" });
@@ -114,10 +122,11 @@ describe("mergeSessionLists — basic cases", () => {
     });
     const result = mergeSessionLists([live], []);
     assert.equal(result.length, 1);
-    assert.equal(result[0].id, "live-1");
-    assert.equal(result[0].preview, "hello");
-    assert.equal(result[0].summary, undefined);
-    assert.equal(result[0].keywords, undefined);
+    const merged = entryAt(result, 0);
+    assert.equal(merged.id, "live-1");
+    assert.equal(merged.preview, "hello");
+    assert.equal(merged.summary, undefined);
+    assert.equal(merged.keywords, undefined);
   });
 });
 
@@ -135,12 +144,13 @@ describe("mergeSessionLists — live + server overlap", () => {
     });
     const result = mergeSessionLists([live], [server]);
     assert.equal(result.length, 1, "session should not be duplicated");
-    assert.equal(result[0].id, "both");
+    const merged = entryAt(result, 0);
+    assert.equal(merged.id, "both");
     // Server preview wins over first-user-message heuristic — the
     // AI-generated title is more informative
-    assert.equal(result[0].preview, "server preview");
+    assert.equal(merged.preview, "server preview");
     // updatedAt comes from the live side (it's the fresher source)
-    assert.equal(result[0].updatedAt, "2026-04-12T10:00:00.000Z");
+    assert.equal(merged.updatedAt, "2026-04-12T10:00:00.000Z");
   });
 
   it("carries over server summary + keywords to the live entry", () => {
@@ -152,9 +162,10 @@ describe("mergeSessionLists — live + server overlap", () => {
       keywords: ["plan", "project"],
     });
     const result = mergeSessionLists([live], [server]);
-    assert.equal(result[0].preview, "Plan a project");
-    assert.equal(result[0].summary, "User wants help planning.");
-    assert.deepEqual(result[0].keywords, ["plan", "project"]);
+    const merged = entryAt(result, 0);
+    assert.equal(merged.preview, "Plan a project");
+    assert.equal(merged.summary, "User wants help planning.");
+    assert.deepEqual(merged.keywords, ["plan", "project"]);
   });
 
   it("falls back to first-user-message when server preview is empty", () => {
@@ -164,14 +175,14 @@ describe("mergeSessionLists — live + server overlap", () => {
     });
     const server = makeSummary({ id: "both", preview: "" });
     const result = mergeSessionLists([live], [server]);
-    assert.equal(result[0].preview, "hello from live");
+    assert.equal(entryAt(result, 0).preview, "hello from live");
   });
 
   it("uses empty preview when neither server nor live has text", () => {
     const live = makeActive({ id: "both", toolResults: [] });
     const server = makeSummary({ id: "both", preview: "" });
     const result = mergeSessionLists([live], [server]);
-    assert.equal(result[0].preview, "");
+    assert.equal(entryAt(result, 0).preview, "");
   });
 });
 
@@ -319,8 +330,8 @@ describe("applySessionDiff — sort + immutability", () => {
     const cache = [makeSummary({ id: "old", updatedAt: "2026-04-10T00:00:00.000Z" })];
     const diff = [makeSummary({ id: "new", updatedAt: "2026-04-17T00:00:00.000Z" })];
     const out = applySessionDiff(cache, diff, []);
-    assert.equal(out[0].id, "new");
-    assert.equal(out[1].id, "old");
+    assert.equal(entryAt(out, 0).id, "new");
+    assert.equal(entryAt(out, 1).id, "old");
   });
 
   it("does not mutate cache or diff inputs", () => {

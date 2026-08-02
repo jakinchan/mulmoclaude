@@ -56,7 +56,11 @@ describe("buildImagePlaceholderReplacement", () => {
 
 describe("IMAGE_PLACEHOLDER regex", () => {
   function findAll(markdown: string): string[] {
-    return [...markdown.matchAll(IMAGE_PLACEHOLDER)].map((match) => match[1]);
+    return [...markdown.matchAll(IMAGE_PLACEHOLDER)].map((match) => {
+      const [, alt] = match;
+      assert.ok(alt !== undefined, "IMAGE_PLACEHOLDER must capture the alt text");
+      return alt;
+    });
   }
 
   it("matches the plain form `![alt](__too_be_replaced_image_path__)`", () => {

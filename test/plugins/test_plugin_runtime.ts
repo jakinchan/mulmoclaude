@@ -163,8 +163,10 @@ describe("makePluginRuntime — scoped tasks (Phase 1 of Encore plan)", () => {
     });
     const tasks = taskManager.listTasks();
     assert.equal(tasks.length, 1);
-    assert.equal(tasks[0].id, pluginTaskId("@example/foo"));
-    assert.equal(tasks[0].id, "plugin:@example/foo");
+    const [task] = tasks;
+    assert.ok(task);
+    assert.equal(task.id, pluginTaskId("@example/foo"));
+    assert.equal(task.id, "plugin:@example/foo");
   });
 
   it("forwards the schedule verbatim", () => {
@@ -176,6 +178,7 @@ describe("makePluginRuntime — scoped tasks (Phase 1 of Encore plan)", () => {
       run: async () => undefined,
     });
     const [task] = taskManager.listTasks();
+    assert.ok(task);
     assert.deepEqual(task.schedule, { type: "daily", time: "09:00" });
   });
 
@@ -384,7 +387,9 @@ describe("makePluginRuntime — scoped logger payload", () => {
     const runtime = makeTestRuntime("@example/foo");
     runtime.log.warn("msg-none");
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].data, undefined);
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.data, undefined);
   });
 
   it("does not wrap an Error payload — it is already a record", () => {
@@ -392,7 +397,9 @@ describe("makePluginRuntime — scoped logger payload", () => {
     const failure = Object.assign(new Error("boom"), { code: "ENOENT" });
     runtime.log.error("msg-error", failure);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].data, failure);
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.data, failure);
   });
 
   it("scopes the prefix per plugin", () => {

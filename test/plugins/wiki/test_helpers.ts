@@ -28,6 +28,12 @@ function taskRoot(count: number): { root: HTMLElement; inputs: HTMLInputElement[
   return { root, inputs: [...root.querySelectorAll<HTMLInputElement>("input.md-task")] };
 }
 
+function taskInput(inputs: HTMLInputElement[], index: number): HTMLInputElement {
+  const input = inputs[index];
+  assert.ok(input, `expected a task checkbox at index ${index}`);
+  return input;
+}
+
 describe("renderWikiLinks", () => {
   it("replaces a simple wiki link", () => {
     assert.equal(renderWikiLinks("See [[Home]] for details."), 'See <span class="wiki-link" data-page="Home">Home</span> for details.');
@@ -279,35 +285,35 @@ describe("computeToggledContent", () => {
   it("toggles an unchecked task on", () => {
     const content = "- [ ] first\n- [x] second";
     const { root, inputs } = taskRoot(2);
-    const result = computeToggledContent(inputs[0], root, content);
+    const result = computeToggledContent(taskInput(inputs, 0), root, content);
     assert.deepEqual(result, { status: "toggled", content: "- [x] first\n- [x] second" });
   });
 
   it("toggles a checked task off", () => {
     const content = "- [ ] first\n- [x] second";
     const { root, inputs } = taskRoot(2);
-    const result = computeToggledContent(inputs[1], root, content);
+    const result = computeToggledContent(taskInput(inputs, 1), root, content);
     assert.deepEqual(result, { status: "toggled", content: "- [ ] first\n- [ ] second" });
   });
 
   it("leaves non-task lines and untoggled tasks untouched", () => {
     const content = "intro\n- [ ] a\nmiddle\n- [ ] b\noutro";
     const { root, inputs } = taskRoot(2);
-    const result = computeToggledContent(inputs[0], root, content);
+    const result = computeToggledContent(taskInput(inputs, 0), root, content);
     assert.deepEqual(result, { status: "toggled", content: "intro\n- [x] a\nmiddle\n- [ ] b\noutro" });
   });
 
   it("preserves the frontmatter prefix when toggling the body", () => {
     const content = "---\ntitle: T\n---\n\n- [ ] task";
     const { root, inputs } = taskRoot(1);
-    const result = computeToggledContent(inputs[0], root, content);
+    const result = computeToggledContent(taskInput(inputs, 0), root, content);
     assert.deepEqual(result, { status: "toggled", content: "---\ntitle: T\n---\n\n- [x] task" });
   });
 
   it("reports a mismatch when the DOM task count differs from the source", () => {
     const content = "- [ ] a\n- [ ] b";
     const { root, inputs } = taskRoot(1);
-    const result = computeToggledContent(inputs[0], root, content);
+    const result = computeToggledContent(taskInput(inputs, 0), root, content);
     assert.deepEqual(result, { status: "mismatch" });
   });
 

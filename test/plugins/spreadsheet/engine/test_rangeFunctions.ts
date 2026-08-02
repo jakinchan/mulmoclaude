@@ -5,6 +5,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 /** A single column of numbers with `formula` beside the first cell. */
 const column = (values: number[], formula: string): SheetData => ({
@@ -12,7 +13,7 @@ const column = (values: number[], formula: string): SheetData => ({
   data: values.map((value, index) => (index === 0 ? [{ v: value }, { v: formula }] : [{ v: value }])),
 });
 
-const result = (values: number[], formula: string): unknown => new SpreadsheetEngine().calculate(column(values, formula)).data[0][1];
+const result = (values: number[], formula: string): unknown => cellAt(new SpreadsheetEngine().calculate(column(values, formula)).data, 0, 1);
 
 describe("range references that used to return 0", () => {
   it("sums an absolute range", () => {

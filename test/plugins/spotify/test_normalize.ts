@@ -15,6 +15,12 @@ import {
   normaliseTrackList,
 } from "../../../packages/plugins/spotify-plugin/src/normalize.js";
 
+function entryAt<T>(entries: T[], index: number): T {
+  const entry = entries[index];
+  assert.ok(entry, `expected a normalised entry at index ${index}`);
+  return entry;
+}
+
 describe("normaliseTrack", () => {
   it("collapses a full Spotify track to the View-friendly shape", () => {
     const result = normaliseTrack({
@@ -90,14 +96,14 @@ describe("normaliseTrackList", () => {
       "track",
     );
     assert.equal(result.length, 2);
-    assert.equal(result[0].id, "a");
-    assert.equal(result[1].name, "Liked B");
+    assert.equal(entryAt(result, 0).id, "a");
+    assert.equal(entryAt(result, 1).name, "Liked B");
   });
 
   it("walks `items[]` without a wrapper when trackPath is `self`", () => {
     const result = normaliseTrackList({ items: [{ id: "p", name: "Direct" }] }, "self");
     assert.equal(result.length, 1);
-    assert.equal(result[0].id, "p");
+    assert.equal(entryAt(result, 0).id, "p");
   });
 
   it("drops items that fail validation rather than crashing the list", () => {
@@ -108,7 +114,7 @@ describe("normaliseTrackList", () => {
       "track",
     );
     assert.equal(result.length, 1);
-    assert.equal(result[0].name, "Good");
+    assert.equal(entryAt(result, 0).name, "Good");
   });
 
   it("returns [] for non-record inputs", () => {
@@ -127,8 +133,8 @@ describe("normaliseRecentlyPlayed", () => {
       ],
     });
     assert.equal(result.length, 2);
-    assert.equal(result[0].playedAt, "2026-05-05T10:00:00.000Z");
-    assert.equal(result[1].track.name, "T2");
+    assert.equal(entryAt(result, 0).playedAt, "2026-05-05T10:00:00.000Z");
+    assert.equal(entryAt(result, 1).track.name, "T2");
   });
 
   it("drops entries whose track fails validation", () => {
@@ -139,12 +145,12 @@ describe("normaliseRecentlyPlayed", () => {
       ],
     });
     assert.equal(result.length, 1);
-    assert.equal(result[0].track.id, "a");
+    assert.equal(entryAt(result, 0).track.id, "a");
   });
 
   it("uses empty string when played_at is missing", () => {
     const result = normaliseRecentlyPlayed({ items: [{ track: { id: "a", name: "T" } }] });
-    assert.equal(result[0].playedAt, "");
+    assert.equal(entryAt(result, 0).playedAt, "");
   });
 });
 
@@ -282,7 +288,7 @@ describe("normalisePlaylistList", () => {
       items: [{ id: "ok", name: "Real" }, { id: "no-name" }, null],
     });
     assert.equal(result.length, 1);
-    assert.equal(result[0].id, "ok");
+    assert.equal(entryAt(result, 0).id, "ok");
   });
 });
 

@@ -8,10 +8,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 const evaluate = (rows: (string | number)[][], row: number, col: number): unknown => {
   const sheet: SheetData = { name: "S", data: rows.map((cells) => cells.map((value) => ({ v: value }))) };
-  return new SpreadsheetEngine().calculate(sheet).data[row][col];
+  return cellAt(new SpreadsheetEngine().calculate(sheet).data, row, col);
 };
 
 describe("IF evaluates a nested function branch, whatever the function", () => {

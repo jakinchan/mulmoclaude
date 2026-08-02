@@ -14,6 +14,7 @@ function sequence(...ids: string[]): () => string {
   let index = 0;
   return () => {
     const picked = ids[Math.min(index, ids.length - 1)];
+    if (picked === undefined) throw new Error("sequence() needs at least one id");
     index++;
     return picked;
   };

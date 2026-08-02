@@ -109,7 +109,9 @@ describe("createTaskSaveQueue — failure + generation invalidation", () => {
     queue.queueSave("page-a", "c1");
     await flush();
     assert.equal(harness.errors.length, 1);
-    assert.match(harness.errors[0], /Wiki save failed \(500\)/);
+    const [firstError] = harness.errors;
+    assert.ok(firstError);
+    assert.match(firstError, /Wiki save failed \(500\)/);
     assert.equal(harness.refreshCalls, 1);
     assert.equal(harness.successes, 0);
   });

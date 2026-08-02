@@ -6,13 +6,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 /** Calculate `formula` in the cell just below a single column of `values`. */
 const evalOverColumn = (values: (string | number)[], formula: string): unknown => {
   const data: { v: string | number }[][] = values.map((value) => [{ v: value }]);
   data.push([{ v: formula }]);
   const result = new SpreadsheetEngine().calculate({ name: "S", data });
-  return result.data[data.length - 1][0];
+  return cellAt(result.data, data.length - 1, 0);
 };
 
 // {2,4,4,4,5,5,7,9}: mean 5, Σ(x-μ)² = 32.

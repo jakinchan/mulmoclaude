@@ -90,7 +90,9 @@ describe("writeWindowsMessages", () => {
       assert.equal(text, renderNodeMissingText("ja"));
       // Guards the encoding end to end: a codepage guess would turn the
       // Japanese title into mojibake in the one dialog that matters.
-      assert.ok(text.split("\n")[0].length > 0);
+      const [titleLine] = text.split("\n");
+      assert.ok(titleLine !== undefined, "decoded text has no first line");
+      assert.ok(titleLine.length > 0);
     });
   });
 

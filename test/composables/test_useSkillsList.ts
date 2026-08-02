@@ -52,7 +52,9 @@ describe("useSkillsList — happy path", () => {
     const { skills, error, refresh } = useSkillsList();
     await refresh();
     assert.equal(skills.value.length, 2);
-    assert.equal(skills.value[0].name, "alpha");
+    const [firstSkill] = skills.value;
+    assert.ok(firstSkill);
+    assert.equal(firstSkill.name, "alpha");
     assert.equal(error.value, null);
   });
 });

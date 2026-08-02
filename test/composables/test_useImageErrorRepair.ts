@@ -191,7 +191,9 @@ function makeSource(opts: { srcset?: string | undefined; src?: string | undefine
     attrs,
     dataset: {},
     getAttribute(name) {
-      return Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null;
+      if (!Object.prototype.hasOwnProperty.call(attrs, name)) return null;
+      const value = attrs[name];
+      return value === undefined ? null : value;
     },
     setAttribute(name, value) {
       attrs[name] = value;

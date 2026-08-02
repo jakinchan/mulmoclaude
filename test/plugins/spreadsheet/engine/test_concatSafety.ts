@@ -8,6 +8,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { maskStringLiterals, isSafeConcatExpression, SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 describe("maskStringLiterals", () => {
   it("empties a double- or single-quoted literal, keeping the quotes", () => {
@@ -77,7 +78,7 @@ describe("isSafeConcatExpression", () => {
 
 describe("string concatenation through the engine (#2376)", () => {
   const concat = (cellValue: string): unknown =>
-    new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: cellValue }, { v: '=A1&"!"' }]] } satisfies SheetData).data[0][1];
+    cellAt(new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: cellValue }, { v: '=A1&"!"' }]] } satisfies SheetData).data, 0, 1);
 
   // The plain case that was already broken: a `!` in the appended string made
   // the whole concat fail the allowlist and return the raw formula text.
@@ -103,6 +104,6 @@ describe("string concatenation through the engine (#2376)", () => {
   // raw formula text instead of the joined value (Codex review).
   it("appends a literal to a boolean cell value", () => {
     const sheet: SheetData = { name: "S", data: [[{ v: "=1=1" }, { v: '=A1&"!"' }]] };
-    assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][1], "true!");
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1), "true!");
   });
 });

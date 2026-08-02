@@ -83,7 +83,8 @@ describe("cli-flags cliFlagHelpLines", () => {
     for (const line of cliFlagHelpLines().split("\n")) {
       const match = line.match(/^ {2}(\S+) +(\S.*)$/);
       assert.ok(match, `line shape: ${JSON.stringify(line)}`);
-      const helpText = match === null ? "" : match[2];
+      const [, , helpText] = match;
+      assert.ok(helpText !== undefined, `no help text captured: ${JSON.stringify(line)}`);
       assert.equal(line.indexOf(helpText), 2 + width + 2, "help column constant");
     }
   });

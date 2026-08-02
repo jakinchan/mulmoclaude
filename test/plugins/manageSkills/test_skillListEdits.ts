@@ -8,16 +8,20 @@ const make = (name: string, description = ""): SkillSummary => ({ name, descript
 describe("updateSkillDescription", () => {
   it("replaces only the matching skill's description", () => {
     const input = [make("a", "old-a"), make("b", "old-b")];
-    const out = updateSkillDescription(input, "b", "new-b");
-    assert.equal(out[1].description, "new-b");
-    assert.equal(out[0].description, "old-a");
+    const [first, second] = updateSkillDescription(input, "b", "new-b");
+    assert.ok(first);
+    assert.ok(second);
+    assert.equal(second.description, "new-b");
+    assert.equal(first.description, "old-a");
   });
 
   it("does not mutate the input array or its objects", () => {
     const input = [make("a", "old-a")];
     const out = updateSkillDescription(input, "a", "new-a");
     assert.notEqual(out, input);
-    assert.equal(input[0].description, "old-a", "original object untouched");
+    const [original] = input;
+    assert.ok(original);
+    assert.equal(original.description, "old-a", "original object untouched");
   });
 
   it("returns an equivalent list when the name is absent", () => {
@@ -27,7 +31,9 @@ describe("updateSkillDescription", () => {
 
   it("is case-sensitive", () => {
     const input = [make("Foo", "orig")];
-    assert.equal(updateSkillDescription(input, "foo", "changed")[0].description, "orig");
+    const [unchanged] = updateSkillDescription(input, "foo", "changed");
+    assert.ok(unchanged);
+    assert.equal(unchanged.description, "orig");
   });
 
   it("handles an empty list", () => {

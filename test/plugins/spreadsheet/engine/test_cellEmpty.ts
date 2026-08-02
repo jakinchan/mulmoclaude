@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { isEmptyCell } from "../../../../src/plugins/spreadsheet/engine/cellEmpty.ts";
 import type { SpreadsheetCell } from "../../../../src/plugins/spreadsheet/engine/types.ts";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 describe("isEmptyCell — empty", () => {
   it("treats an absent cell as empty", () => {
@@ -65,7 +66,7 @@ describe("blank cells are not values in an aggregate (#2358)", () => {
     name: "S",
     data: [[{ v: 10 }, { v: formula }], [{ v: 20 }], [{ v: 30 }], [{ v: "" }], [{ v: null } as unknown as SpreadsheetCell]],
   });
-  const run = (formula: string): unknown => new SpreadsheetEngine().calculate(withBlanks(formula)).data[0][1];
+  const run = (formula: string): unknown => cellAt(new SpreadsheetEngine().calculate(withBlanks(formula)).data, 0, 1);
 
   it("excludes blanks from AVERAGE's denominator", () => {
     assert.equal(run("=AVERAGE(A1:A5)"), 20, "not 15, which counts the two blanks as 0");
@@ -90,12 +91,12 @@ describe("blank cells are not values in an aggregate (#2358)", () => {
   // though a blank does not.
   it("still counts a stored zero", () => {
     const sheet: SheetData = { name: "S", data: [[{ v: 10 }, { v: "=COUNT(A1:A3)" }], [{ v: 0 }], [{ v: 20 }]] };
-    assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][1], 3);
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1), 3);
   });
 
   it("averages a stored zero in, but not a blank", () => {
     const sheet: SheetData = { name: "S", data: [[{ v: 6 }, { v: "=AVERAGE(A1:A3)" }], [{ v: 0 }], [{ v: "" }]] };
-    assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][1], 3, "(6 + 0) / 2, the blank excluded");
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1), 3, "(6 + 0) / 2, the blank excluded");
   });
 });
 
@@ -117,6 +118,6 @@ describe("blanks stay in the raw range so criteria and values stay aligned", () 
     // A1=10, A3=20, A4=30 are >5; their B values are 100, 300, 400 → 800.
     // If the blank A2 shifted the value range, B would misalign and the sum
     // would be wrong.
-    assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][2], 800);
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 2), 800);
   });
 });

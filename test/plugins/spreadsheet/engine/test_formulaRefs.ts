@@ -324,8 +324,10 @@ describe("extractCellReferences — boundary / precision", () => {
     // still produce a valid integer.
     const refs = extractCellReferences("=A1048576");
     assert.equal(refs.length, 1);
-    assert.equal(refs[0].row, 1048575);
-    assert.equal(refs[0].col, 0);
+    const [ref] = refs;
+    assert.ok(ref);
+    assert.equal(ref.row, 1048575);
+    assert.equal(ref.col, 0);
   });
 });
 

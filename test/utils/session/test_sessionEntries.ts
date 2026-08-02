@@ -9,6 +9,14 @@ import type { ToolResultComplete } from "gui-chat-protocol/vue";
 
 // --- parseSessionEntries ------------------------------------------
 
+/** Narrows a positional lookup: a shorter list than the test expects is a
+ *  failure, so this throws instead of yielding `undefined`. */
+function resultAt(results: ToolResultComplete[], index: number): ToolResultComplete {
+  const result = results[index];
+  assert.ok(result, `expected a tool result at index ${index}`);
+  return result;
+}
+
 describe("parseSessionEntries", () => {
   it("returns empty array for empty input", () => {
     assert.deepEqual(parseSessionEntries([]), []);
@@ -34,7 +42,7 @@ describe("parseSessionEntries", () => {
     ];
     const out = parseSessionEntries(entries);
     assert.equal(out.length, 1);
-    assert.equal(out[0].toolName, "text-response");
+    assert.equal(resultAt(out, 0).toolName, "text-response");
   });
 
   it("converts assistant text entries", () => {
@@ -47,7 +55,7 @@ describe("parseSessionEntries", () => {
     ];
     const out = parseSessionEntries(entries);
     assert.equal(out.length, 1);
-    assert.equal(out[0].toolName, "text-response");
+    assert.equal(resultAt(out, 0).toolName, "text-response");
   });
 
   it("passes tool_result entries through verbatim", () => {
@@ -79,9 +87,9 @@ describe("parseSessionEntries", () => {
     ];
     const out = parseSessionEntries(entries);
     assert.equal(out.length, 3);
-    assert.equal(out[0].toolName, "text-response");
+    assert.equal(resultAt(out, 0).toolName, "text-response");
     assert.equal(out[1], toolResult);
-    assert.equal(out[2].toolName, "text-response");
+    assert.equal(resultAt(out, 2).toolName, "text-response");
   });
 
   it("skips entries that are neither text nor tool_result", () => {
@@ -106,13 +114,13 @@ describe("parseSessionEntries", () => {
   it("does NOT mark seededByPlugin when sessionOrigin is undefined", () => {
     const entries: SessionEntry[] = [{ source: "user", type: "text", message: "hi" }];
     const out = parseSessionEntries(entries, undefined);
-    assert.equal((out[0].data as Record<string, unknown>).seededByPlugin, undefined);
+    assert.equal((resultAt(out, 0).data as Record<string, unknown>).seededByPlugin, undefined);
   });
 
   it("does NOT mark seededByPlugin for non-plugin origins", () => {
     const entries: SessionEntry[] = [{ source: "user", type: "text", message: "hi" }];
     const out = parseSessionEntries(entries, "scheduler");
-    assert.equal((out[0].data as Record<string, unknown>).seededByPlugin, undefined);
+    assert.equal((resultAt(out, 0).data as Record<string, unknown>).seededByPlugin, undefined);
   });
 
   it("marks the FIRST user turn with seededByPlugin when origin is plugin:<pkg>", () => {
@@ -121,8 +129,8 @@ describe("parseSessionEntries", () => {
       { source: "assistant", type: "text", message: "Have you received your W-2?" },
     ];
     const out = parseSessionEntries(entries, "plugin:@mulmoclaude/encore-plugin");
-    const userData = out[0].data as Record<string, unknown>;
-    const assistantData = out[1].data as Record<string, unknown>;
+    const userData = resultAt(out, 0).data as Record<string, unknown>;
+    const assistantData = resultAt(out, 1).data as Record<string, unknown>;
     assert.equal(userData.seededByPlugin, "@mulmoclaude/encore-plugin");
     // Assistant turn must NOT be marked.
     assert.equal(assistantData.seededByPlugin, undefined);
@@ -135,15 +143,15 @@ describe("parseSessionEntries", () => {
       { source: "user", type: "text", message: "second user reply" },
     ];
     const out = parseSessionEntries(entries, "plugin:@mulmoclaude/encore-plugin");
-    assert.equal((out[0].data as Record<string, unknown>).seededByPlugin, "@mulmoclaude/encore-plugin");
-    assert.equal((out[2].data as Record<string, unknown>).seededByPlugin, undefined);
+    assert.equal((resultAt(out, 0).data as Record<string, unknown>).seededByPlugin, "@mulmoclaude/encore-plugin");
+    assert.equal((resultAt(out, 2).data as Record<string, unknown>).seededByPlugin, undefined);
   });
 
   it("rejects plugin:<empty-pkg> as a non-plugin origin", () => {
     const entries: SessionEntry[] = [{ source: "user", type: "text", message: "hi" }];
     // `plugin:` with empty pkg should not match the plugin-tag regex.
     const out = parseSessionEntries(entries, "plugin:" as never);
-    assert.equal((out[0].data as Record<string, unknown>).seededByPlugin, undefined);
+    assert.equal((resultAt(out, 0).data as Record<string, unknown>).seededByPlugin, undefined);
   });
 
   // --- meta-row fallback for sessionOrigin (Codex review on PR #1237) -
@@ -156,7 +164,7 @@ describe("parseSessionEntries", () => {
       { source: "user", type: "text", message: "seed" },
     ];
     const out = parseSessionEntries(entries);
-    assert.equal((out[0].data as Record<string, unknown>).seededByPlugin, "@mulmoclaude/encore-plugin");
+    assert.equal((resultAt(out, 0).data as Record<string, unknown>).seededByPlugin, "@mulmoclaude/encore-plugin");
   });
 
   it("explicit sessionOrigin wins over session_meta.origin", () => {
@@ -168,13 +176,13 @@ describe("parseSessionEntries", () => {
       { source: "user", type: "text", message: "seed" },
     ];
     const out = parseSessionEntries(entries, "plugin:@b/p");
-    assert.equal((out[0].data as Record<string, unknown>).seededByPlugin, "@b/p");
+    assert.equal((resultAt(out, 0).data as Record<string, unknown>).seededByPlugin, "@b/p");
   });
 
   it("does NOT fall back when meta.origin is missing", () => {
     const entries: SessionEntry[] = [{ type: "session_meta", roleId: "general" } as SessionEntry, { source: "user", type: "text", message: "seed" }];
     const out = parseSessionEntries(entries);
-    assert.equal((out[0].data as Record<string, unknown>).seededByPlugin, undefined);
+    assert.equal((resultAt(out, 0).data as Record<string, unknown>).seededByPlugin, undefined);
   });
 
   it("ignores malformed meta.origin (not a SessionOrigin)", () => {
@@ -183,7 +191,7 @@ describe("parseSessionEntries", () => {
       { source: "user", type: "text", message: "seed" },
     ];
     const out = parseSessionEntries(entries);
-    assert.equal((out[0].data as Record<string, unknown>).seededByPlugin, undefined);
+    assert.equal((resultAt(out, 0).data as Record<string, unknown>).seededByPlugin, undefined);
   });
 });
 

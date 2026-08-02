@@ -5,13 +5,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine, renderOperand, findCellRefs, endOfStringLiteral, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt, rowAt } from "./cellAccess.ts";
 
 /** A single column of values, with `formula` in the cell beside the first. */
 function columnSheet(values: (string | number)[], formula: string): SheetData {
   return { name: "S", data: values.map((value, index) => (index === 0 ? [{ v: value }, { v: formula }] : [{ v: value }])) };
 }
 
-const evaluate = (sheet: SheetData): unknown => new SpreadsheetEngine().calculate(sheet).data[0][1];
+const evaluate = (sheet: SheetData): unknown => cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1);
 
 describe("cell reference substitution — prefix collisions", () => {
   // A global string replace rewrote every occurrence of the shorter reference
@@ -35,7 +36,7 @@ describe("cell reference substitution — prefix collisions", () => {
   // the substring sense, and the old replace did not care about boundaries.
   it("does not let B1 rewrite AB1", () => {
     const sheet: SheetData = { name: "S", data: [[{ v: 0 }, { v: 2 }, { v: "=B1+AB1" }]] };
-    assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][2], 2, "AB1 is empty, so the sum is B1 alone");
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 2), 2, "AB1 is empty, so the sum is B1 alone");
   });
 
   it("handles several colliding references in one formula", () => {
@@ -51,7 +52,7 @@ describe("a lone reference returns the cell value unchanged", () => {
   // review): `=A1` on `say "hi"` came back `say \"hi\"`.
   it("returns text with quotes and backslashes intact", () => {
     const sheet: SheetData = { name: "S", data: [[{ v: 'say "hi"' }, { v: "=A1" }, { v: "=$A$1" }]] };
-    const [row] = new SpreadsheetEngine().calculate(sheet).data;
+    const row = rowAt(new SpreadsheetEngine().calculate(sheet).data, 0);
     assert.equal(row[1], 'say "hi"');
     assert.equal(row[2], 'say "hi"', "absolute form too");
   });
@@ -62,30 +63,30 @@ describe("a lone reference returns the cell value unchanged", () => {
   it("takes the fast path despite surrounding whitespace", () => {
     for (const formula of ["= A1", "=A1 ", "=  A1  "]) {
       const sheet: SheetData = { name: "S", data: [[{ v: 'say "hi"' }, { v: formula }]] };
-      assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][1], 'say "hi"', `${formula} should return the value verbatim`);
+      assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1), 'say "hi"', `${formula} should return the value verbatim`);
     }
   });
 
   it("still substitutes when whitespace surrounds a reference inside an expression", () => {
     const sheet: SheetData = { name: "S", data: [[{ v: 3 }, { v: "= A1 + 1" }]] };
-    assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][1], 4);
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1), 4);
   });
 
   it("returns a backslash-bearing string intact", () => {
     const sheet: SheetData = { name: "S", data: [[{ v: "C:\\path" }, { v: "=A1" }]] };
-    assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][1], "C:\\path");
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1), "C:\\path");
   });
 
   it("returns a number, not its string form", () => {
     const sheet: SheetData = { name: "S", data: [[{ v: 42 }, { v: "=A1" }]] };
-    assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][1], 42);
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1), 42);
   });
 
   // The fast path is only for a formula that is EXACTLY one reference; the
   // moment it is part of an expression the substitution path takes over.
   it("does not take the fast path when the reference is part of an expression", () => {
     const sheet: SheetData = { name: "S", data: [[{ v: 3 }, { v: "=A1+1" }]] };
-    assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][1], 4);
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1), 4);
   });
 });
 

@@ -9,10 +9,12 @@ import assert from "node:assert/strict";
 // Imported through the barrel, not the class module: `engine/index.ts` is what
 // registers the built-in functions, so a direct import leaves DAY() unknown.
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt, rowAt } from "./cellAccess.ts";
 
 const sheetWith = (value: string): SheetData => ({ name: "S", data: [[{ v: value }]] });
 
-const renderedCell = (value: string, preferDDMMYYYY: boolean): unknown => new SpreadsheetEngine({ preferDDMMYYYY }).calculate(sheetWith(value)).data[0][0];
+const renderedCell = (value: string, preferDDMMYYYY: boolean): unknown =>
+  cellAt(new SpreadsheetEngine({ preferDDMMYYYY }).calculate(sheetWith(value)).data, 0, 0);
 
 describe("date order reaches the cell", () => {
   // The whole point: the same text means different days in different places,
@@ -29,8 +31,8 @@ describe("date order reaches the cell", () => {
     const dayFirst = new SpreadsheetEngine({ preferDDMMYYYY: true }).calculate(sheetWith("03/04/2025"));
     // Same displayed text, different underlying dates — which is exactly what a
     // user in each locale expects to see.
-    assert.equal(monthFirst.data[0][0], "03/04/2025");
-    assert.equal(dayFirst.data[0][0], "03/04/2025");
+    assert.equal(cellAt(monthFirst.data, 0, 0), "03/04/2025");
+    assert.equal(cellAt(dayFirst.data, 0, 0), "03/04/2025");
   });
 
   // Month-name formats are exercised in test_formatter.ts; this only needs the
@@ -64,7 +66,7 @@ describe("date order reaches the cell", () => {
 
 describe("date order reaches formulas", () => {
   const formulaResult = (cells: string[], preferDDMMYYYY: boolean): unknown =>
-    new SpreadsheetEngine({ preferDDMMYYYY }).calculate({ name: "S", data: [cells.map((cell) => ({ v: cell }))] }).data[0].at(-1);
+    rowAt(new SpreadsheetEngine({ preferDDMMYYYY }).calculate({ name: "S", data: [cells.map((cell) => ({ v: cell }))] }).data, 0).at(-1);
 
   // `DAY()` reads the serial, so it reports which number the parser took as the
   // day — the clearest observable difference between the two settings.
