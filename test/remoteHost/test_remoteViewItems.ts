@@ -66,7 +66,9 @@ describe("createRemoteViewItems", () => {
     if (result.kind !== "ok") return;
     assert.equal(result.inlined, 2);
     assert.equal(result.omitted, 0);
-    assert.match(String(result.page.items[0].photo), /^data:image\/jpeg;base64,/);
+    const [item] = result.page.items;
+    assert.ok(item);
+    assert.match(String(item.photo), /^data:image\/jpeg;base64,/);
   });
 
   it("does not inline a declared field the projection dropped", async () => {
@@ -75,7 +77,9 @@ describe("createRemoteViewItems", () => {
     assert.equal(result.kind, "ok");
     if (result.kind !== "ok") return;
     assert.equal(result.inlined, 0);
-    assert.equal(result.page.items[0].photo, undefined); // dropped by projection, nothing to inline
+    const [item] = result.page.items;
+    assert.ok(item);
+    assert.equal(item.photo, undefined); // dropped by projection, nothing to inline
   });
 
   it("ignores a declared field that is not image-type", async () => {
@@ -85,8 +89,10 @@ describe("createRemoteViewItems", () => {
     assert.equal(result.kind, "ok");
     if (result.kind !== "ok") return;
     assert.equal(result.inlined, 0);
-    assert.equal(result.page.items[0].note, "n1"); // untouched
-    assert.equal(result.page.items[0].photo, "images/a.png"); // photo not declared → left as path
+    const [item] = result.page.items;
+    assert.ok(item);
+    assert.equal(item.note, "n1"); // untouched
+    assert.equal(item.photo, "images/a.png"); // photo not declared → left as path
   });
 
   it("stops inlining once the page byte budget is exceeded, leaving the rest as paths", async () => {
@@ -98,8 +104,11 @@ describe("createRemoteViewItems", () => {
     if (result.kind !== "ok") return;
     assert.equal(result.inlined, 1);
     assert.equal(result.omitted, 1);
-    assert.equal(result.page.items[0].photo, big); // inlined
-    assert.equal(result.page.items[1].photo, "images/b.png"); // left as path (over budget)
+    const [firstItem, secondItem] = result.page.items;
+    assert.ok(firstItem);
+    assert.ok(secondItem);
+    assert.equal(firstItem.photo, big); // inlined
+    assert.equal(secondItem.photo, "images/b.png"); // left as path (over budget)
   });
 
   it("serves host-resolved computed fields (ref-crossing derived, etc.) the resolver produced", async () => {

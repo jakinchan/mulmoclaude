@@ -36,7 +36,8 @@ function getPostHandler(router: Router): (req: Request, res: Response) => void {
   const internals = router as unknown as RouterInternals;
   for (const layer of internals.stack) {
     if (layer.route && layer.route.path === API_ROUTES.hooks.log) {
-      return layer.route.stack[0].handle;
+      const [first] = layer.route.stack;
+      if (first) return first.handle;
     }
   }
   throw new Error(`POST ${API_ROUTES.hooks.log} handler not found in router stack`);
@@ -101,19 +102,23 @@ describe("POST /api/hooks/log", () => {
     const res = await callHandler({ namespace: "skill-bridge", message: "mirrored foo" });
     assert.equal(res.statusCode, 204);
     assert.equal(captured.length, 1);
-    assert.equal(captured[0].level, "info");
+    const [entry] = captured;
+    assert.ok(entry);
+    assert.equal(entry.level, "info");
     // The `hook:` prefix lets the user grep for hook-side noise
     // separately from server-side `skill-bridge` log lines (if a
     // server module ever uses that namespace).
-    assert.equal(captured[0].namespace, "hook:skill-bridge");
-    assert.equal(captured[0].message, "mirrored foo");
+    assert.equal(entry.namespace, "hook:skill-bridge");
+    assert.equal(entry.message, "mirrored foo");
   });
 
   it("honours explicit level and forwards data", async () => {
     const res = await callHandler({ namespace: "skill-bridge", message: "mirror failed", level: "error", data: { slug: "foo", op: "write" } });
     assert.equal(res.statusCode, 204);
-    assert.equal(captured[0].level, "error");
-    assert.deepEqual(captured[0].data, { slug: "foo", op: "write" });
+    const [entry] = captured;
+    assert.ok(entry);
+    assert.equal(entry.level, "error");
+    assert.deepEqual(entry.data, { slug: "foo", op: "write" });
   });
 
   it("rejects missing namespace / message with 400", async () => {
@@ -130,6 +135,8 @@ describe("POST /api/hooks/log", () => {
     // info so the log line still shows up.
     const res = await callHandler({ namespace: "x", message: "y", level: "debug" });
     assert.equal(res.statusCode, 204);
-    assert.equal(captured[0].level, "info");
+    const [entry] = captured;
+    assert.ok(entry);
+    assert.equal(entry.level, "info");
   });
 });

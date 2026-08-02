@@ -143,12 +143,14 @@ describe("appendSnapshot — write + retrieve", () => {
     assert.equal(snapshots.length, 1);
     // Public stamp is `<filenameStamp>-<shortId>` to disambiguate
     // same-millisecond writes (codex iter-1).
-    assert.equal(snapshots[0].stamp, "2026-04-28T01-23-45-789Z-fixedid");
-    assert.equal(snapshots[0].editor, "user");
-    assert.equal(snapshots[0].reason, "first save");
-    assert.equal(snapshots[0].ts, "2026-04-28T01:23:45.789Z");
+    const [snapshot] = snapshots;
+    assert.ok(snapshot);
+    assert.equal(snapshot.stamp, "2026-04-28T01-23-45-789Z-fixedid");
+    assert.equal(snapshot.editor, "user");
+    assert.equal(snapshot.reason, "first save");
+    assert.equal(snapshot.ts, "2026-04-28T01:23:45.789Z");
 
-    const single = await readSnapshot(SLUG, snapshots[0].stamp, { workspaceRoot });
+    const single = await readSnapshot(SLUG, snapshot.stamp, { workspaceRoot });
     assert.ok(single, "expected snapshot to round-trip");
     assert.equal(single.body, "body\n");
     assert.equal(single.meta.title, "hi");
@@ -340,7 +342,9 @@ describe("snapshot reads — symlink protection", () => {
 
     const summaries = await listSnapshots(slug, { workspaceRoot });
     assert.equal(summaries.length, 1, "symlink should be filtered out");
-    assert.equal(summaries[0].stamp, `${realStamp}-real0000`);
+    const [summary] = summaries;
+    assert.ok(summary);
+    assert.equal(summary.stamp, `${realStamp}-real0000`);
 
     await rm(workspaceRoot, { recursive: true, force: true });
   });
@@ -430,7 +434,9 @@ describe("appendSnapshot via writeWikiPage — integration", () => {
     assert.equal(snapshots.length, 2, "two saves with different bodies → two snapshots");
 
     // The newest snapshot's body should match the second save.
-    const newest = await readSnapshot("hello", snapshots[0].stamp, { workspaceRoot });
+    const [newestSummary] = snapshots;
+    assert.ok(newestSummary);
+    const newest = await readSnapshot("hello", newestSummary.stamp, { workspaceRoot });
     assert.ok(newest);
     assert.equal(newest.body, "updated body\n");
 

@@ -142,8 +142,8 @@ function stripNotificationId(url: URL): string {
  *  toHaveURL assertion. Returns undefined for non-chat targets. */
 function extractChatSessionId(navigateTarget: string | undefined): string | undefined {
   if (!navigateTarget) return undefined;
-  const match = navigateTarget.match(/^\/chat\/([^/?#]+)/);
-  return match ? decodeURIComponent(match[1]) : undefined;
+  const [, sessionId] = navigateTarget.match(/^\/chat\/([^/?#]+)/) ?? [];
+  return sessionId === undefined ? undefined : decodeURIComponent(sessionId);
 }
 
 test.describe("notification bell — navigation", () => {
@@ -265,9 +265,17 @@ async function primeNotifierHistory(page: Page, history: readonly NotifierHistor
 
 test.describe("notification bell — history more / less toggle", () => {
   const HISTORY_INITIAL_VISIBLE = 5;
+  const HISTORY_OVERFLOW_TOTAL = 8;
+  // The tail entry is built on its own so assertions can name it
+  // directly instead of indexing the generated array.
+  const buildOverflowHistory = (): { history: NotifierHistoryFixture[]; tail: NotifierHistoryFixture } => {
+    const tail = buildHistoryEntry(HISTORY_OVERFLOW_TOTAL - 1);
+    const head = Array.from({ length: HISTORY_OVERFLOW_TOTAL - 1 }, (_, index) => buildHistoryEntry(index));
+    return { history: [...head, tail], tail };
+  };
 
   test("hides entries beyond the initial cap behind a toggle", async ({ page }) => {
-    const history = Array.from({ length: 8 }, (_, index) => buildHistoryEntry(index));
+    const { history } = buildOverflowHistory();
     await mockAllApis(page, { sessions: [] });
     await primeNotifierHistory(page, history);
 
@@ -276,11 +284,11 @@ test.describe("notification bell — history more / less toggle", () => {
     await expect(page.getByTestId("notification-panel")).toBeVisible();
 
     // First 5 entries render; the rest are hidden until expanded.
-    for (let index = 0; index < HISTORY_INITIAL_VISIBLE; index += 1) {
-      await expect(page.getByTestId(`notification-history-${history[index].id}`)).toBeVisible();
+    for (const entry of history.slice(0, HISTORY_INITIAL_VISIBLE)) {
+      await expect(page.getByTestId(`notification-history-${entry.id}`)).toBeVisible();
     }
-    for (let index = HISTORY_INITIAL_VISIBLE; index < history.length; index += 1) {
-      await expect(page.getByTestId(`notification-history-${history[index].id}`)).toHaveCount(0);
+    for (const entry of history.slice(HISTORY_INITIAL_VISIBLE)) {
+      await expect(page.getByTestId(`notification-history-${entry.id}`)).toHaveCount(0);
     }
 
     const toggle = page.getByTestId("notification-history-toggle");
@@ -294,13 +302,13 @@ test.describe("notification bell — history more / less toggle", () => {
     await expect(toggle).not.toHaveText(/3/);
 
     await toggle.click();
-    for (let index = HISTORY_INITIAL_VISIBLE; index < history.length; index += 1) {
-      await expect(page.getByTestId(`notification-history-${history[index].id}`)).toHaveCount(0);
+    for (const entry of history.slice(HISTORY_INITIAL_VISIBLE)) {
+      await expect(page.getByTestId(`notification-history-${entry.id}`)).toHaveCount(0);
     }
   });
 
   test("collapses again after closing and reopening the popup", async ({ page }) => {
-    const history = Array.from({ length: 8 }, (_, index) => buildHistoryEntry(index));
+    const { history, tail } = buildOverflowHistory();
     await mockAllApis(page, { sessions: [] });
     await primeNotifierHistory(page, history);
 
@@ -308,7 +316,7 @@ test.describe("notification bell — history more / less toggle", () => {
     await page.getByTestId("notification-bell").click();
     await page.getByTestId("notification-history-toggle").click();
     // Confirm we're expanded before the close-reopen cycle.
-    await expect(page.getByTestId(`notification-history-${history[7].id}`)).toBeVisible();
+    await expect(page.getByTestId(`notification-history-${tail.id}`)).toBeVisible();
 
     // Click outside the bell to close (App-level outside-click handler).
     await page.mouse.click(10, 10);
@@ -317,18 +325,19 @@ test.describe("notification bell — history more / less toggle", () => {
     await page.getByTestId("notification-bell").click();
     await expect(page.getByTestId("notification-panel")).toBeVisible();
     // The hidden tail entry should be gone again — state reset on close.
-    await expect(page.getByTestId(`notification-history-${history[7].id}`)).toHaveCount(0);
+    await expect(page.getByTestId(`notification-history-${tail.id}`)).toHaveCount(0);
     await expect(page.getByTestId("notification-history-toggle")).toBeVisible();
   });
 
   test("toggle is absent when history is at or under the initial cap", async ({ page }) => {
-    const history = Array.from({ length: HISTORY_INITIAL_VISIBLE }, (_, index) => buildHistoryEntry(index));
+    const firstEntry = buildHistoryEntry(0);
+    const history = [firstEntry, ...Array.from({ length: HISTORY_INITIAL_VISIBLE - 1 }, (_, index) => buildHistoryEntry(index + 1))];
     await mockAllApis(page, { sessions: [] });
     await primeNotifierHistory(page, history);
 
     await page.goto("/files");
     await page.getByTestId("notification-bell").click();
-    await expect(page.getByTestId(`notification-history-${history[0].id}`)).toBeVisible();
+    await expect(page.getByTestId(`notification-history-${firstEntry.id}`)).toBeVisible();
     await expect(page.getByTestId("notification-history-toggle")).toHaveCount(0);
   });
 
@@ -345,14 +354,14 @@ function buildHistoryEntryWithBody(index: number, body: string, navigateTarget?:
 
 test.describe("notification bell — history body expansion", () => {
   test("clicking a history row with body expands and collapses the body", async ({ page }) => {
-    const history = [buildHistoryEntryWithBody(0, "Detailed body text for testing")];
+    const entry = buildHistoryEntryWithBody(0, "Detailed body text for testing");
     await mockAllApis(page, { sessions: [] });
-    await primeNotifierHistory(page, history);
+    await primeNotifierHistory(page, [entry]);
 
     await page.goto("/todos");
     await page.getByTestId("notification-bell").click();
 
-    const row = page.getByTestId(`notification-history-${history[0].id}`);
+    const row = page.getByTestId(`notification-history-${entry.id}`);
     await expect(row).toBeVisible();
     await expect(page.getByTestId("notification-history-body")).toHaveCount(0);
 
@@ -365,13 +374,13 @@ test.describe("notification bell — history body expansion", () => {
   });
 
   test("expanded body state resets when the panel closes", async ({ page }) => {
-    const history = [buildHistoryEntryWithBody(0, "Body resets on close")];
+    const entry = buildHistoryEntryWithBody(0, "Body resets on close");
     await mockAllApis(page, { sessions: [] });
-    await primeNotifierHistory(page, history);
+    await primeNotifierHistory(page, [entry]);
 
     await page.goto("/todos");
     await page.getByTestId("notification-bell").click();
-    await page.getByTestId(`notification-history-${history[0].id}`).click();
+    await page.getByTestId(`notification-history-${entry.id}`).click();
     await expect(page.getByTestId("notification-history-body")).toBeVisible();
 
     await page.mouse.click(10, 10);
@@ -387,15 +396,16 @@ test.describe("notification bell — history body expansion", () => {
     // doesn't. Expanding both proves the icon ONLY surfaces for the
     // row that carries the link — covering presence + absence in one
     // fixture without paying the panel-open overhead twice.
-    const history = [buildHistoryEntryWithBody(0, "Body with link", "/calendar"), buildHistoryEntryWithBody(1, "Body without link")];
+    const linkedEntry = buildHistoryEntryWithBody(0, "Body with link", "/calendar");
+    const unlinkedEntry = buildHistoryEntryWithBody(1, "Body without link");
     await mockAllApis(page, { sessions: [] });
-    await primeNotifierHistory(page, history);
+    await primeNotifierHistory(page, [linkedEntry, unlinkedEntry]);
 
     await page.goto("/todos");
     await page.getByTestId("notification-bell").click();
 
-    const withLink = page.getByTestId(`notification-history-${history[0].id}`);
-    const withoutLink = page.getByTestId(`notification-history-${history[1].id}`);
+    const withLink = page.getByTestId(`notification-history-${linkedEntry.id}`);
+    const withoutLink = page.getByTestId(`notification-history-${unlinkedEntry.id}`);
     // Collapsed: no navigate icon visible anywhere.
     await expect(page.getByTestId("notification-history-navigate")).toHaveCount(0);
 
@@ -413,14 +423,13 @@ test.describe("notification bell — history body expansion", () => {
 
   test("history row without body or navigateTarget has no expand button", async ({ page }) => {
     const { body: __noBody, ...withoutBody } = buildHistoryEntry(0);
-    const history = [withoutBody];
     await mockAllApis(page, { sessions: [] });
-    await primeNotifierHistory(page, history);
+    await primeNotifierHistory(page, [withoutBody]);
 
     await page.goto("/todos");
     await page.getByTestId("notification-bell").click();
 
-    const row = page.getByTestId(`notification-history-${history[0].id}`);
+    const row = page.getByTestId(`notification-history-${withoutBody.id}`);
     await expect(row).toBeVisible();
     await expect(row.getByTestId("notification-history-expand")).toHaveCount(0);
   });

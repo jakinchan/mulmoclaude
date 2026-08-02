@@ -63,9 +63,11 @@ describe("listMarpThemes", () => {
     await writeFile(path.join(themesDir, "corporate.css"), "section { background: navy; }", "utf-8");
     const out = listMarpThemes();
     assert.equal(out.length, 1);
-    assert.equal(out[0].name, "corporate");
-    assert.match(out[0].css, /^\/\* @theme corporate \*\//);
-    assert.match(out[0].css, /section \{ background: navy; \}/);
+    const [theme] = out;
+    assert.ok(theme);
+    assert.equal(theme.name, "corporate");
+    assert.match(theme.css, /^\/\* @theme corporate \*\//);
+    assert.match(theme.css, /section \{ background: navy; \}/);
   });
 
   it("ignores files whose name does not pass the slug validator", async () => {

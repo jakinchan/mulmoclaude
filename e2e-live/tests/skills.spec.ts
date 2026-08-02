@@ -393,6 +393,9 @@ test.describe("skills (real LLM / static)", () => {
       // because we have a UI gate (`skill-item-<slug>` visibility)
       // that masks the fast-path race waitForAssistantTurn guards.
       const [runSlug] = createdSlugs;
+      if (runSlug === undefined) {
+        throw new Error("collectL32MarkedSlugs returned no marker-bearing slug — the length assertion above should have failed first");
+      }
       await openSkillsPanel(page);
       const skillRow = page.getByTestId(`skill-item-${runSlug}`);
       await expect(

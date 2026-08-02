@@ -82,9 +82,11 @@ describe("memory/llm-classifier — makeLlmMemoryClassifier", () => {
     const verdict = await classifier(candidate);
     assert.deepEqual(verdict, { type: "preference", description: "yarn only" });
     assert.equal(summarized.length, 1);
-    assert.match(summarized[0].user, /yarn を使う/);
-    assert.match(summarized[0].user, /Preferences/);
-    assert.match(summarized[0].system, /preference/);
+    const [call] = summarized;
+    assert.ok(call);
+    assert.match(call.user, /yarn を使う/);
+    assert.match(call.user, /Preferences/);
+    assert.match(call.system, /preference/);
   });
 
   it("returns null when the summarize callback throws", async () => {

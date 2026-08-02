@@ -241,17 +241,25 @@ describe("pushSessionEvent — malformed payload fields", () => {
     pushSessionEvent("s1", { type: EVENT_TYPES.toolCall, toolUseId: "t1", toolName: "Bash", args: { cmd: "ls" } });
     pushSessionEvent("s1", { type: EVENT_TYPES.toolCallResult, toolUseId: "t1", content: "out" });
     assert.equal(history().length, 1);
-    assert.equal(history()[0].toolUseId, "t1");
-    assert.equal(history()[0].toolName, "Bash");
-    assert.equal(history()[0].result, "out");
+    const [call] = history();
+    assert.ok(call);
+    assert.equal(call.toolUseId, "t1");
+    assert.equal(call.toolName, "Bash");
+    assert.equal(call.result, "out");
   });
 
   it("leaves result undefined when tool_call_result content is absent or not a string", () => {
     pushSessionEvent("s1", { type: EVENT_TYPES.toolCall, toolUseId: "t1", toolName: "Bash", args: {} });
     pushSessionEvent("s1", { type: EVENT_TYPES.toolCallResult, toolUseId: "t1" });
-    assert.equal(history()[0].result, undefined);
+    // Re-read after each push — the second assertion must see the
+    // state the SECOND event produced, not a hoisted snapshot.
+    const [afterAbsentContent] = history();
+    assert.ok(afterAbsentContent);
+    assert.equal(afterAbsentContent.result, undefined);
     pushSessionEvent("s1", { type: EVENT_TYPES.toolCallResult, toolUseId: "t1", content: { nested: true } });
-    assert.equal(history()[0].result, undefined);
+    const [afterNonStringContent] = history();
+    assert.ok(afterNonStringContent);
+    assert.equal(afterNonStringContent.result, undefined);
   });
 
   it("falls back to an empty statusMessage when status.message is absent or not a string", () => {

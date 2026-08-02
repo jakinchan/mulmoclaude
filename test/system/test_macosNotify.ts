@@ -74,10 +74,14 @@ describe("pushToMacosReminderWithDeps — spawn arguments", () => {
     respond(0);
     await promise;
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].command, "osascript");
-    assert.equal(calls[0].args[0], "-e");
-    assert.match(calls[0].args[1] as string, /on run argv/);
-    assert.match(calls[0].args[1] as string, /tell application "Reminders"/);
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.command, "osascript");
+    const [flag, script] = call.args;
+    assert.equal(flag, "-e");
+    assert.ok(script);
+    assert.match(script, /on run argv/);
+    assert.match(script, /tell application "Reminders"/);
   });
 
   it("forwards title and body as argv (Unicode-safe path)", async () => {
@@ -90,9 +94,12 @@ describe("pushToMacosReminderWithDeps — spawn arguments", () => {
     respond(0);
     await promise;
     // argv layout: [-e, SCRIPT, --, title, body]
-    assert.equal(calls[0].args[2], "--");
-    assert.equal(calls[0].args[3], 'Title with "quotes" and \\backslash and 日本語');
-    assert.equal(calls[0].args[4], "Body line 1\nBody line 2 — 文字化け確認");
+    const [call] = calls;
+    assert.ok(call);
+    const [, , separator, title, body] = call.args;
+    assert.equal(separator, "--");
+    assert.equal(title, 'Title with "quotes" and \\backslash and 日本語');
+    assert.equal(body, "Body line 1\nBody line 2 — 文字化け確認");
   });
 
   it("sends an empty-string body when none is supplied", async () => {
@@ -100,7 +107,9 @@ describe("pushToMacosReminderWithDeps — spawn arguments", () => {
     const promise = pushToMacosReminderWithDeps({ spawner, platform: "darwin", disabled: false }, "Title only");
     respond(0);
     await promise;
-    assert.equal(calls[0].args[4], "");
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.args[4], "");
   });
 });
 

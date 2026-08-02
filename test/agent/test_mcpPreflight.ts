@@ -151,8 +151,10 @@ describe("preflightUserServers", () => {
     const result = preflightUserServers(userServers);
     assert.deepEqual(Object.keys(result.ready).sort(), ["my-custom", "notion"]);
     assert.equal(result.skipped.length, 1);
-    assert.equal(result.skipped[0].serverId, "slack");
-    assert.deepEqual(result.skipped[0].missing.sort(), ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"]);
+    const [skipped] = result.skipped;
+    assert.ok(skipped);
+    assert.equal(skipped.serverId, "slack");
+    assert.deepEqual(skipped.missing.sort(), ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"]);
   });
 });
 
@@ -194,7 +196,9 @@ describe("logPreflightResult — snapshot diffing (Codex review on #1355)", () =
       logPreflightResult(notionSkipped, "agent-run");
       logPreflightResult(notionSkipped, "agent-run");
       assert.equal(calls.length, 1);
-      assert.equal(calls[0].serverId, "notion");
+      const [call] = calls;
+      assert.ok(call);
+      assert.equal(call.serverId, "notion");
     } finally {
       restore();
     }
@@ -225,7 +229,9 @@ describe("logPreflightResult — snapshot diffing (Codex review on #1355)", () =
       logPreflightResult(skipResult("slack", ["SLACK_BOT_TOKEN"]), "agent-run");
       logPreflightResult(skipResult("slack", ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"]), "agent-run");
       assert.equal(calls.length, 2);
-      assert.deepEqual(calls[1].missing, ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"]);
+      const [, secondCall] = calls;
+      assert.ok(secondCall);
+      assert.deepEqual(secondCall.missing, ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"]);
     } finally {
       restore();
     }

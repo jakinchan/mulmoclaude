@@ -34,12 +34,14 @@ describe("buildAllowedConfigMounts", () => {
   });
 
   it("maps names to stable host paths under the given home", () => {
-    const allowed = buildAllowedConfigMounts("/fake/home");
-    assert.equal(allowed.gh.hostPath, path.join("/fake/home", ".config", "gh"));
-    assert.equal(allowed.gh.containerPath, "/home/node/.config/gh");
-    assert.equal(allowed.gh.kind, "dir");
-    assert.equal(allowed.gitconfig.hostPath, path.join("/fake/home", ".gitconfig"));
-    assert.equal(allowed.gitconfig.kind, "file");
+    const { gh, gitconfig } = buildAllowedConfigMounts("/fake/home");
+    assert.ok(gh);
+    assert.ok(gitconfig);
+    assert.equal(gh.hostPath, path.join("/fake/home", ".config", "gh"));
+    assert.equal(gh.containerPath, "/home/node/.config/gh");
+    assert.equal(gh.kind, "dir");
+    assert.equal(gitconfig.hostPath, path.join("/fake/home", ".gitconfig"));
+    assert.equal(gitconfig.kind, "file");
   });
 });
 
@@ -71,21 +73,27 @@ describe("resolveMountNames", () => {
     assert.equal(out.unknown.length, 0);
     assert.equal(out.resolved.length, 0);
     assert.equal(out.missing.length, 1);
-    assert.equal(out.missing[0].name, "gh");
+    const [missing] = out.missing;
+    assert.ok(missing);
+    assert.equal(missing.name, "gh");
   });
 
   it("resolves a present dir", () => {
     const home = makeFixtureHome({ gh: true });
     const out = resolveMountNames(["gh"], buildAllowedConfigMounts(home));
     assert.equal(out.resolved.length, 1);
-    assert.equal(out.resolved[0].name, "gh");
+    const [resolved] = out.resolved;
+    assert.ok(resolved);
+    assert.equal(resolved.name, "gh");
   });
 
   it("resolves a present file", () => {
     const home = makeFixtureHome({ gitconfig: true });
     const out = resolveMountNames(["gitconfig"], buildAllowedConfigMounts(home));
     assert.equal(out.resolved.length, 1);
-    assert.equal(out.resolved[0].name, "gitconfig");
+    const [resolved] = out.resolved;
+    assert.ok(resolved);
+    assert.equal(resolved.name, "gitconfig");
   });
 
   it("rejects dir when host path is a file and vice versa", () => {
@@ -113,11 +121,14 @@ describe("configMountArgs", () => {
     const home = makeFixtureHome({ gh: true, gitconfig: true });
     const { resolved } = resolveMountNames(["gh", "gitconfig"], buildAllowedConfigMounts(home));
     const args = configMountArgs(resolved);
-    assert.equal(args[0], "-v");
-    assert.match(args[1], /:\/home\/node\/\.config\/gh:ro$/);
-    assert.equal(args[2], "-v");
-    assert.match(args[3], /:\/home\/node\/\.gitconfig:ro$/);
     assert.equal(args.length, 4);
+    const [ghFlag, ghMount, gitconfigFlag, gitconfigMount] = args;
+    assert.ok(ghMount);
+    assert.ok(gitconfigMount);
+    assert.equal(ghFlag, "-v");
+    assert.match(ghMount, /:\/home\/node\/\.config\/gh:ro$/);
+    assert.equal(gitconfigFlag, "-v");
+    assert.match(gitconfigMount, /:\/home\/node\/\.gitconfig:ro$/);
   });
 
   it("empty input → empty args", () => {

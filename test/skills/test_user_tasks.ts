@@ -40,7 +40,9 @@ describe("loadUserTasks", () => {
     writeFileSync(path.join(root, "config", "scheduler", "tasks.json"), JSON.stringify(data));
     const tasks = loadUserTasks(root);
     assert.equal(tasks.length, 1);
-    assert.equal(tasks[0].name, "Test");
+    const [task] = tasks;
+    assert.ok(task);
+    assert.equal(task.name, "Test");
   });
 
   it("returns empty array for corrupted JSON", () => {
@@ -165,7 +167,9 @@ describe("applyUpdate", () => {
     const result = applyUpdate([...baseTasks], "t1", { name: "Updated" });
     assert.equal(result.kind, "ok");
     if (result.kind === "ok") {
-      assert.equal(result.tasks[0].name, "Updated");
+      const [task] = result.tasks;
+      assert.ok(task);
+      assert.equal(task.name, "Updated");
     }
   });
 
@@ -173,7 +177,9 @@ describe("applyUpdate", () => {
     const result = applyUpdate([...baseTasks], "t1", { enabled: false });
     assert.equal(result.kind, "ok");
     if (result.kind === "ok") {
-      assert.equal(result.tasks[0].enabled, false);
+      const [task] = result.tasks;
+      assert.ok(task);
+      assert.equal(task.enabled, false);
     }
   });
 
@@ -189,7 +195,9 @@ describe("applyUpdate", () => {
     assert.equal(result.kind, "ok");
     if (result.kind === "ok") {
       // Schedule unchanged
-      assert.equal(result.tasks[0].schedule.type, SCHEDULE_TYPES.daily);
+      const [task] = result.tasks;
+      assert.ok(task);
+      assert.equal(task.schedule.type, SCHEDULE_TYPES.daily);
     }
   });
 });

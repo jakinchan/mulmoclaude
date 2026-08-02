@@ -26,6 +26,7 @@ describe("redactSettings", () => {
 
   it("withholds the plaintext Google Maps key", () => {
     const [entry] = redactSettings({ googleMapsApiKey: SECRET }, ["googleMapsApiKey"]);
+    assert.ok(entry);
     assert.equal(entry.value, REDACTED_PRESENT);
     assert.equal(entry.redacted, true);
     assert.ok(!entry.value.includes(SECRET));
@@ -35,6 +36,7 @@ describe("redactSettings", () => {
     // The regression that matters most: a future `AppSettings` field reaches
     // this function before anyone adds it to SAFE_SETTINGS_KEYS.
     const [entry] = redactSettings({ someFutureToken: SECRET }, ["someFutureToken"]);
+    assert.ok(entry);
     assert.equal(entry.value, REDACTED_PRESENT);
     assert.equal(entry.redacted, true);
   });
@@ -50,13 +52,16 @@ describe("redactSettings", () => {
     // A settings object parsed from JSON still inherits `constructor`; `in`
     // would report it present and the report would gain a phantom line.
     const [entry] = redactSettings({}, ["constructor"]);
+    assert.ok(entry);
     assert.equal(entry.value, REDACTED_ABSENT);
   });
 
   it("renders non-string values as JSON", () => {
-    const rendered = redactSettings({ extraAllowedTools: ["mcp__claude_ai_Gmail"], pushEnabled: false }, ["extraAllowedTools", "pushEnabled"]);
-    assert.equal(rendered[0].value, '["mcp__claude_ai_Gmail"]');
-    assert.equal(rendered[1].value, "false");
+    const [toolsEntry, pushEntry] = redactSettings({ extraAllowedTools: ["mcp__claude_ai_Gmail"], pushEnabled: false }, ["extraAllowedTools", "pushEnabled"]);
+    assert.ok(toolsEntry);
+    assert.ok(pushEntry);
+    assert.equal(toolsEntry.value, '["mcp__claude_ai_Gmail"]');
+    assert.equal(pushEntry.value, "false");
   });
 
   it("still returns a string for values JSON cannot represent", () => {

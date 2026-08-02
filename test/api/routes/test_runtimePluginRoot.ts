@@ -157,8 +157,10 @@ describe("POST /api/plugins/runtime/:pkg/dispatch — call signature", () => {
       });
       assert.equal(res.status, 200, await res.text());
       assert.equal(calls.length, 1);
-      assert.deepEqual(calls[0].args, { areaCode: "130000" }, "args must arrive as the SECOND parameter");
-      assert.ok(calls[0].context !== undefined, "context must be a defined value (empty object is fine), not omitted");
+      const [call] = calls;
+      assert.ok(call);
+      assert.deepEqual(call.args, { areaCode: "130000" }, "args must arrive as the SECOND parameter");
+      assert.ok(call.context !== undefined, "context must be a defined value (empty object is fine), not omitted");
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
@@ -204,7 +206,9 @@ describe("GET /api/plugins/runtime/oauth-callback/:alias", () => {
       assert.match(res.headers.get("content-type") ?? "", /text\/html/);
       assert.match(await res.text(), /Connected!/);
       assert.equal(calls.length, 1);
-      assert.deepEqual(calls[0].args, {
+      const [call] = calls;
+      assert.ok(call);
+      assert.deepEqual(call.args, {
         kind: "oauthCallback",
         code: "auth-code-123",
         state: "state-xyz",
@@ -262,7 +266,9 @@ describe("GET /api/plugins/runtime/oauth-callback/:alias", () => {
       const { port } = server.address() as AddressInfo;
       const res = await fetch(`http://127.0.0.1:${port}/api/plugins/runtime/oauth-callback/fixture-alias?error=access_denied`);
       assert.equal(res.status, 400);
-      assert.deepEqual(calls[0].args, { kind: "oauthCallback", code: undefined, state: undefined, error: "access_denied" });
+      const [call] = calls;
+      assert.ok(call);
+      assert.deepEqual(call.args, { kind: "oauthCallback", code: undefined, state: undefined, error: "access_denied" });
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
@@ -318,8 +324,10 @@ describe("GET /api/plugins/runtime/oauth-callback/:alias", () => {
     // second's alias is dropped.
     assert.equal(result.registered.length, 2);
     assert.equal(result.oauthAliasCollisions.length, 1);
-    assert.equal(result.oauthAliasCollisions[0].plugin.name, "@fixture/second");
-    assert.equal(result.oauthAliasCollisions[0].alias, "shared");
-    assert.equal(result.oauthAliasCollisions[0].existingPlugin, "@fixture/first");
+    const [collision] = result.oauthAliasCollisions;
+    assert.ok(collision);
+    assert.equal(collision.plugin.name, "@fixture/second");
+    assert.equal(collision.alias, "shared");
+    assert.equal(collision.existingPlugin, "@fixture/first");
   });
 });

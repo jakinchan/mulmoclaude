@@ -104,11 +104,13 @@ describe("handleRelayMessage", () => {
     await handleRelayMessage(JSON.stringify(validMessage), { relay, logger, sendResponse });
 
     assert.equal(captured.length, 1);
-    assert.equal(captured[0].transportId, "relay");
-    assert.equal(captured[0].externalChatId, "line__c-1");
-    assert.equal(captured[0].text, "hello");
-    assert.equal(typeof captured[0].bridgeOptions, "object");
-    assert.notEqual(captured[0].bridgeOptions, null);
+    const [params] = captured;
+    assert.ok(params);
+    assert.equal(params.transportId, "relay");
+    assert.equal(params.externalChatId, "line__c-1");
+    assert.equal(params.text, "hello");
+    assert.equal(typeof params.bridgeOptions, "object");
+    assert.notEqual(params.bridgeOptions, null);
 
     assert.deepEqual(responses, [{ platform: "line", chatId: "c-1", text: "pong", replyToken: "tok-1" }]);
   });
@@ -121,8 +123,10 @@ describe("handleRelayMessage", () => {
     await handleRelayMessage(JSON.stringify(validMessage), { relay, logger, sendResponse });
 
     assert.equal(responses.length, 1);
-    assert.equal(responses[0].text, "Error: nope");
-    assert.equal(responses[0].replyToken, "tok-1");
+    const [response] = responses;
+    assert.ok(response);
+    assert.equal(response.text, "Error: nope");
+    assert.equal(response.replyToken, "tok-1");
   });
 
   it("relay throws → sends the fallback error reply and logs the failure", async () => {
@@ -151,7 +155,9 @@ describe("handleRelayMessage", () => {
     await handleRelayMessage(JSON.stringify(noToken), { relay, logger, sendResponse });
 
     assert.equal(responses.length, 1);
-    assert.equal(responses[0].replyToken, undefined);
+    const [response] = responses;
+    assert.ok(response);
+    assert.equal(response.replyToken, undefined);
   });
 });
 
@@ -164,7 +170,7 @@ function scriptedTrySend(results: boolean[]) {
   let idx = 0;
   const trySend = (response: RelayResponseLike): boolean => {
     seen.push(response);
-    const result = idx < results.length ? results[idx] : false;
+    const result = results[idx] ?? false;
     idx += 1;
     return result;
   };
@@ -253,8 +259,12 @@ describe("createResponseQueue", () => {
 
     queue.flush();
     assert.equal(delivered.length, QUEUE_CAP);
-    assert.equal(delivered[0].chatId, "c-2");
-    assert.equal(delivered[QUEUE_CAP - 1].chatId, `c-${QUEUE_CAP + 1}`);
+    const [oldestDelivered] = delivered;
+    const newestDelivered = delivered[QUEUE_CAP - 1];
+    assert.ok(oldestDelivered);
+    assert.ok(newestDelivered);
+    assert.equal(oldestDelivered.chatId, "c-2");
+    assert.equal(newestDelivered.chatId, `c-${QUEUE_CAP + 1}`);
     assert.ok(!delivered.some((res) => res.chatId === "c-1"));
   });
 
@@ -392,7 +402,9 @@ describe("attemptSocketSend", () => {
     const state: RelayState = { socket: socket as unknown as RelayState["socket"], reconnectMs: 1000, reconnectTimer: null, stopped: false };
     const result = attemptSocketSend(state, makeResp(7), logger, () => {});
     assert.equal(result, true);
-    assert.deepEqual(JSON.parse(socket.sent[0]), makeResp(7));
+    const [sentPayload] = socket.sent;
+    assert.ok(sentPayload);
+    assert.deepEqual(JSON.parse(sentPayload), makeResp(7));
   });
 
   it("re-enqueues via onEnqueue when the async send callback reports an error and state.stopped is false", () => {

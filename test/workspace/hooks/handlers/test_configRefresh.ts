@@ -49,7 +49,9 @@ describe("handleConfigRefresh", () => {
       tool_input: { file_path: path.join(workspace, ".claude", "skills", "foo", "SKILL.md") },
     });
     assert.equal(captured.length, 1);
-    assert.ok(captured[0].endsWith("/api/config/refresh"));
+    const [refreshUrl] = captured;
+    assert.ok(refreshUrl);
+    assert.ok(refreshUrl.endsWith("/api/config/refresh"));
   });
 
   it("fires refresh on config/scheduler/tasks.json", async () => {
@@ -58,7 +60,9 @@ describe("handleConfigRefresh", () => {
       tool_input: { file_path: path.join(workspace, "config", "scheduler", "tasks.json") },
     });
     assert.equal(captured.length, 1);
-    assert.ok(captured[0].endsWith("/api/config/refresh"));
+    const [refreshUrl] = captured;
+    assert.ok(refreshUrl);
+    assert.ok(refreshUrl.endsWith("/api/config/refresh"));
   });
 
   it("does NOT fire on data/skills/<slug>/SKILL.md (skillBridge owns that)", async () => {

@@ -290,6 +290,7 @@ describe("memory/topic-migrate — edge cases", () => {
         const match = /interest\/([^.]+)\.md/.exec(line);
         assert.ok(match, `line should reference a real file: ${line}`);
         const [, slug] = match;
+        assert.ok(slug);
         assert.ok(slug.length <= 60, `slug "${slug}" exceeds the 60-char cap`);
         const filePath = path.join(interestDir, `${slug}.md`);
         const content = await readFile(filePath, "utf-8");

@@ -51,7 +51,9 @@ describe("createGetCollection", () => {
   it("resolves record-local derived formulas before paging", async () => {
     const handler = createGetCollection(collectionDeps([{ id: "r0", won: 2 } as unknown as { id: string }]));
     const result = (await handler({ slug: "clients" })) as { items: { id: string; points?: number }[] };
-    assert.equal(result.items[0].points, 6);
+    const [item] = result.items;
+    assert.ok(item);
+    assert.equal(item.points, 6);
   });
 
   it("throws when the collection is not found", async () => {
@@ -86,7 +88,9 @@ describe("createGetCollection", () => {
     const seenAt = new Date("2026-01-02T03:04:05.000Z");
     const handler = createGetCollection(collectionDeps([{ id: "r0", seenAt } as unknown as { id: string }]));
     const result = (await handler({ slug: "clients" })) as { items: { seenAt: string }[] };
-    assert.equal(result.items[0].seenAt, seenAt.toISOString());
+    const [item] = result.items;
+    assert.ok(item);
+    assert.equal(item.seenAt, seenAt.toISOString());
   });
 });
 
@@ -187,7 +191,9 @@ describe("createListFeeds", () => {
       workspaceRoot: "/ws",
     };
     const result = (await createListFeeds(deps)({})) as { feeds: { kind: string; schedule: string }[] };
-    assert.equal(result.feeds[0].kind, "rss");
-    assert.equal(result.feeds[0].schedule, "on-demand");
+    const [feed] = result.feeds;
+    assert.ok(feed);
+    assert.equal(feed.kind, "rss");
+    assert.equal(feed.schedule, "on-demand");
   });
 });

@@ -130,8 +130,10 @@ describe("createMcpFailureMonitor — threshold + notification", () => {
       monitor.track(toolCallResult(`id-${String(callIndex)}`, true));
     }
     assert.equal(publishes.length, 1, "exactly one bell entry per server");
-    assert.equal(publishes[0].id, "mcp-failure-notion");
-    assert.match(publishes[0].body, /notion/);
+    const [entry] = publishes;
+    assert.ok(entry);
+    assert.equal(entry.id, "mcp-failure-notion");
+    assert.match(entry.body, /notion/);
     assert.equal(warns.length, 1);
   });
 
@@ -194,7 +196,9 @@ describe("createMcpFailureMonitor — per-server isolation", () => {
       monitor.track(toolCallResult(`g-${String(i)}`, false));
     }
     assert.equal(publishes.length, 1);
-    assert.equal(publishes[0].id, "mcp-failure-notion");
+    const [entry] = publishes;
+    assert.ok(entry);
+    assert.equal(entry.id, "mcp-failure-notion");
   });
 
   it("interleaved failures across servers don't interfere", () => {
@@ -213,7 +217,9 @@ describe("createMcpFailureMonitor — per-server isolation", () => {
     monitor.track(toolCallResult("n3", true));
     // notion crossed threshold (3), github only at 2
     assert.equal(publishes.length, 1);
-    assert.equal(publishes[0].id, "mcp-failure-notion");
+    const [entry] = publishes;
+    assert.ok(entry);
+    assert.equal(entry.id, "mcp-failure-notion");
   });
 });
 

@@ -56,9 +56,8 @@ export const STAGING_SKILL_WRITE_PATH_RE = /(?:^|[/\\])data[/\\]skills[/\\]([a-z
  * run.
  */
 export function stagingSkillSlugFromWritePath(filePath: string, hostWorkspaceRoot: string): string | null {
-  const match = STAGING_SKILL_WRITE_PATH_RE.exec(filePath);
-  if (!match) return null;
-  const [, slug] = match;
+  const [, slug] = STAGING_SKILL_WRITE_PATH_RE.exec(filePath) ?? [];
+  if (slug === undefined) return null;
   // Re-validate against the canonical server rule (the kebab regex
   // does not enforce the 1-120 char bound `isValidSlug` adds).
   if (!isValidSlug(slug)) return null;

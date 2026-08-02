@@ -33,7 +33,9 @@ describe("photo-locations change publisher", () => {
     initPhotoLocationsChangePublisher(fakePubSub(sink));
     publishPhotoLocationsChanged();
     assert.equal(sink.length, 1);
-    assert.equal(sink[0].channel, PUBSUB_CHANNELS.locationsChanged);
+    const [published] = sink;
+    assert.ok(published);
+    assert.equal(published.channel, PUBSUB_CHANNELS.locationsChanged);
   });
 
   it("publishes on the exact channel the plugin META declares", () => {
@@ -90,6 +92,8 @@ describe("photo-locations change publisher — write-path integration", () => {
     const { capturePhotoLocationWithParser } = await import("../../server/workspace/photo-locations/index.js");
     await capturePhotoLocationWithParser(photoPath, "data/attachments/2026/07/pic.jpg", "image/jpeg", () => Promise.resolve(FAKE_GPS_EXIF));
     assert.equal(sink.length, 1, "a sidecar write should publish exactly one change event");
-    assert.equal(sink[0].channel, PUBSUB_CHANNELS.locationsChanged);
+    const [published] = sink;
+    assert.ok(published);
+    assert.equal(published.channel, PUBSUB_CHANNELS.locationsChanged);
   });
 });

@@ -48,9 +48,11 @@ describe("notify MCP tool — happy path", () => {
     const result = await tool.handler({ title: "Build done" });
     assert.match(result, /Notification sent: Build done/);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].title, "Build done");
-    assert.equal(calls[0].body, undefined);
-    assert.equal(calls[0].kind, NOTIFICATION_KINDS.push);
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.title, "Build done");
+    assert.equal(call.body, undefined);
+    assert.equal(call.kind, NOTIFICATION_KINDS.push);
   });
 
   it("appends the body line when supplied", async () => {
@@ -58,7 +60,9 @@ describe("notify MCP tool — happy path", () => {
     const tool = makeNotifyTool({ publish });
     const result = await tool.handler({ title: "Build done", body: "All 12 steps green" });
     assert.equal(result, "Notification sent: Build done\nAll 12 steps green");
-    assert.equal(calls[0].body, "All 12 steps green");
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.body, "All 12 steps green");
   });
 
   it("trims surrounding whitespace from title and body", async () => {
@@ -66,8 +70,10 @@ describe("notify MCP tool — happy path", () => {
     const tool = makeNotifyTool({ publish });
     const result = await tool.handler({ title: "  hi  ", body: "  there  " });
     assert.equal(result, "Notification sent: hi\nthere");
-    assert.equal(calls[0].title, "hi");
-    assert.equal(calls[0].body, "there");
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.title, "hi");
+    assert.equal(call.body, "there");
   });
 
   it("treats a whitespace-only body as missing", async () => {
@@ -75,7 +81,9 @@ describe("notify MCP tool — happy path", () => {
     const tool = makeNotifyTool({ publish });
     const result = await tool.handler({ title: "hi", body: "   " });
     assert.equal(result, "Notification sent: hi");
-    assert.equal(calls[0].body, undefined);
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.body, undefined);
   });
 });
 
@@ -85,7 +93,9 @@ describe("notify MCP tool — chat session linkback", () => {
     const tool = makeNotifyTool({ publish });
     await tool.handler({ title: "Build done" }, { sessionId: "sess-abc-123" });
     assert.equal(calls.length, 1);
-    assert.deepEqual(calls[0].action, {
+    const [call] = calls;
+    assert.ok(call);
+    assert.deepEqual(call.action, {
       type: NOTIFICATION_ACTION_TYPES.navigate,
       target: { view: NOTIFICATION_VIEWS.chat, sessionId: "sess-abc-123" },
     });
@@ -96,7 +106,9 @@ describe("notify MCP tool — chat session linkback", () => {
     const tool = makeNotifyTool({ publish });
     await tool.handler({ title: "Build done" });
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].action, undefined);
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.action, undefined);
   });
 
   it("omits the action when sessionId is empty string", async () => {
@@ -104,7 +116,9 @@ describe("notify MCP tool — chat session linkback", () => {
     const tool = makeNotifyTool({ publish });
     await tool.handler({ title: "Build done" }, { sessionId: "" });
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].action, undefined);
+    const [call] = calls;
+    assert.ok(call);
+    assert.equal(call.action, undefined);
   });
 });
 

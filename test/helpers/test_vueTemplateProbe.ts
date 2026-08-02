@@ -50,28 +50,33 @@ describe("findVHtmlBindings — element association", () => {
 
 describe("findVHtmlBindings — binding syntax variants", () => {
   it("recognises the long-form v-on:click", () => {
-    const bindings = findVHtmlBindings(sfc(`<div v-on:click="handleExternalLinkClick" v-html="body"></div>`));
-    assert.deepEqual(bindings[0].clickHandlers, ["handleExternalLinkClick"]);
+    const [binding] = findVHtmlBindings(sfc(`<div v-on:click="handleExternalLinkClick" v-html="body"></div>`));
+    assert.ok(binding);
+    assert.deepEqual(binding.clickHandlers, ["handleExternalLinkClick"]);
   });
 
   it("recognises a click handler carrying modifiers (@click.capture)", () => {
-    const bindings = findVHtmlBindings(sfc(`<div @click.capture="handleExternalLinkClick" v-html="body"></div>`));
-    assert.deepEqual(bindings[0].clickHandlers, ["handleExternalLinkClick"]);
+    const [binding] = findVHtmlBindings(sfc(`<div @click.capture="handleExternalLinkClick" v-html="body"></div>`));
+    assert.ok(binding);
+    assert.deepEqual(binding.clickHandlers, ["handleExternalLinkClick"]);
   });
 
   it("keeps the raw expression for an inline arrow handler", () => {
-    const bindings = findVHtmlBindings(sfc(`<div @click="(e) => handleExternalLinkClick(e)" v-html="body"></div>`));
-    assert.deepEqual(bindings[0].clickHandlers, ["(e) => handleExternalLinkClick(e)"]);
+    const [binding] = findVHtmlBindings(sfc(`<div @click="(e) => handleExternalLinkClick(e)" v-html="body"></div>`));
+    assert.ok(binding);
+    assert.deepEqual(binding.clickHandlers, ["(e) => handleExternalLinkClick(e)"]);
   });
 
   it("ignores non-click listeners on the v-html element", () => {
-    const bindings = findVHtmlBindings(sfc(`<div @mousedown="handleExternalLinkClick" @keyup="onKey" v-html="body"></div>`));
-    assert.deepEqual(bindings[0].clickHandlers, []);
+    const [binding] = findVHtmlBindings(sfc(`<div @mousedown="handleExternalLinkClick" @keyup="onKey" v-html="body"></div>`));
+    assert.ok(binding);
+    assert.deepEqual(binding.clickHandlers, []);
   });
 
   it("does not treat a dynamic event argument as a click binding", () => {
-    const bindings = findVHtmlBindings(sfc(`<div @[eventName]="handleExternalLinkClick" v-html="body"></div>`));
-    assert.deepEqual(bindings[0].clickHandlers, []);
+    const [binding] = findVHtmlBindings(sfc(`<div @[eventName]="handleExternalLinkClick" v-html="body"></div>`));
+    assert.ok(binding);
+    assert.deepEqual(binding.clickHandlers, []);
   });
 });
 
@@ -85,8 +90,9 @@ describe("findVHtmlBindings — empty / edge inputs", () => {
   });
 
   it("tolerates comments, text nodes and interpolation around the v-html element", () => {
-    const bindings = findVHtmlBindings(sfc(`<!-- note --> text {{ value }} <div v-html="body" @click="handleExternalLinkClick"></div>`));
-    assert.deepEqual(bindings[0].clickHandlers, ["handleExternalLinkClick"]);
+    const [binding] = findVHtmlBindings(sfc(`<!-- note --> text {{ value }} <div v-html="body" @click="handleExternalLinkClick"></div>`));
+    assert.ok(binding);
+    assert.deepEqual(binding.clickHandlers, ["handleExternalLinkClick"]);
   });
 
   it("reports a v-html element with no expression rather than skipping it", () => {

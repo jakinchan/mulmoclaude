@@ -488,9 +488,11 @@ describe("findTagDrift", () => {
     const frontmatter = new Map<string, string[]>([["foo", ["a", "b", "c"]]]);
     const issues = findTagDrift(entries, frontmatter);
     assert.equal(issues.length, 1);
-    assert.match(issues[0], /Tag drift.*foo\.md/);
-    assert.match(issues[0], /\[a, b, c\]/);
-    assert.match(issues[0], /\[a, b\]/);
+    const [issue] = issues;
+    assert.ok(issue);
+    assert.match(issue, /Tag drift.*foo\.md/);
+    assert.match(issue, /\[a, b, c\]/);
+    assert.match(issue, /\[a, b\]/);
   });
 
   it("flags empty index tags against non-empty frontmatter", () => {

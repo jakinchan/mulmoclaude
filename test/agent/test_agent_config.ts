@@ -175,7 +175,7 @@ describe("buildCliArgs", () => {
     const allowedIdx = args.indexOf("--allowedTools");
     assert.ok(allowedIdx >= 0, "--allowedTools flag must exist");
     const allowedStr = args[allowedIdx + 1];
-    assert.equal(typeof allowedStr, "string");
+    assert.ok(typeof allowedStr === "string", "--allowedTools must be followed by a value");
     assert.ok(allowedStr.includes("mcp__mulmoclaude__manageBookmarks"));
     assert.ok(allowedStr.includes("Bash"));
   });
@@ -186,6 +186,7 @@ describe("buildCliArgs", () => {
     // error + Glob fallback). See plans/done/fix-skill-tool-allowlist.md.
     const args = buildCliArgs({ systemPromptPath: "/tmp/sp.md", activePlugins: [] });
     const allowedStr = args[args.indexOf("--allowedTools") + 1];
+    assert.ok(typeof allowedStr === "string", "--allowedTools must be followed by a value");
     const tools = allowedStr.split(",");
     assert.ok(tools.includes("Skill"), `--allowedTools must list "Skill" (got: ${allowedStr})`);
   });
@@ -1015,6 +1016,7 @@ describe("buildCliArgs — extraAllowedTools", () => {
     });
     const idx = args.indexOf("--allowedTools");
     const list = args[idx + 1];
+    assert.ok(typeof list === "string", "--allowedTools must be followed by a value");
     assert.ok(list.includes("mcp__claude_ai_Gmail"));
     assert.ok(list.includes("mcp__claude_ai_Google_Calendar"));
   });

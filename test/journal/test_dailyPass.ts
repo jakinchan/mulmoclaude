@@ -486,7 +486,9 @@ describe("parseJsonlEvents", () => {
     const raw = ["", "not json", JSON.stringify({ source: "user", type: "text", message: "hi" }), "{", ""].join("\n");
     const out = parseJsonlEvents(raw, 10);
     assert.equal(out.length, 1);
-    assert.equal(out[0].excerpt.content, "hi");
+    const [event] = out;
+    assert.ok(event);
+    assert.equal(event.excerpt.content, "hi");
   });
 
   it("skips session_meta and claude_session_id entries", () => {
@@ -497,7 +499,9 @@ describe("parseJsonlEvents", () => {
     ].join("\n");
     const out = parseJsonlEvents(raw, 10);
     assert.equal(out.length, 1);
-    assert.equal(out[0].excerpt.content, "real");
+    const [event] = out;
+    assert.ok(event);
+    assert.equal(event.excerpt.content, "real");
   });
 
   it("honours the maxEvents cap", () => {
@@ -505,10 +509,15 @@ describe("parseJsonlEvents", () => {
     for (let i = 0; i < 20; i++) {
       lines.push(JSON.stringify({ source: "user", type: "text", message: `m${i}` }));
     }
-    const out = parseJsonlEvents(lines.join("\n"), 5);
-    assert.equal(out.length, 5);
-    assert.equal(out[0].excerpt.content, "m0");
-    assert.equal(out[4].excerpt.content, "m4");
+    const MAX_EVENTS = 5;
+    const out = parseJsonlEvents(lines.join("\n"), MAX_EVENTS);
+    assert.equal(out.length, MAX_EVENTS);
+    const [firstEvent] = out;
+    const lastEvent = out[MAX_EVENTS - 1];
+    assert.ok(firstEvent);
+    assert.ok(lastEvent);
+    assert.equal(firstEvent.excerpt.content, "m0");
+    assert.equal(lastEvent.excerpt.content, "m4");
   });
 
   it("returns excerpts with artifact paths populated via parseEntry", () => {
@@ -523,7 +532,9 @@ describe("parseJsonlEvents", () => {
     });
     const out = parseJsonlEvents(raw, 10);
     assert.equal(out.length, 1);
-    assert.deepEqual(out[0].artifactPaths, ["stories/x.json"]);
+    const [event] = out;
+    assert.ok(event);
+    assert.deepEqual(event.artifactPaths, ["stories/x.json"]);
   });
 
   it("skips non-object JSON values (null, arrays, primitives)", () => {
@@ -535,7 +546,9 @@ describe("parseJsonlEvents", () => {
     const raw = ["null", "[1,2,3]", '"just a string"', "42", "true", JSON.stringify({ source: "user", type: "text", message: "real" })].join("\n");
     const out = parseJsonlEvents(raw, 10);
     assert.equal(out.length, 1);
-    assert.equal(out[0].excerpt.content, "real");
+    const [event] = out;
+    assert.ok(event);
+    assert.equal(event.excerpt.content, "real");
   });
 });
 

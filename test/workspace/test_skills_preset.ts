@@ -151,10 +151,14 @@ describe("syncPresetSkills — slug guard", () => {
     });
     assert.deepEqual(result.copied, []);
     assert.equal(result.skipped.length, 1);
-    assert.match(result.skipped[0], /library/);
-    assert.match(result.skipped[0], /mc-/);
+    const [skipped] = result.skipped;
+    assert.ok(skipped);
+    assert.match(skipped, /library/);
+    assert.match(skipped, /mc-/);
     assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /library/);
+    const [warning] = warnings;
+    assert.ok(warning);
+    assert.match(warning, /library/);
     assert.equal(existsSync(path.join(destDir, "library")), false);
   });
 
@@ -163,8 +167,10 @@ describe("syncPresetSkills — slug guard", () => {
     const result = syncPresetSkills({ sourceDir, destDir });
     assert.deepEqual(result.copied, []);
     assert.equal(result.skipped.length, 1);
-    assert.match(result.skipped[0], /mc-empty/);
-    assert.match(result.skipped[0], /SKILL\.md/);
+    const [skipped] = result.skipped;
+    assert.ok(skipped);
+    assert.match(skipped, /mc-empty/);
+    assert.match(skipped, /SKILL\.md/);
   });
 
   it("skips a non-directory source entry", () => {
@@ -198,8 +204,10 @@ describe("syncPresetSkills — slug guard", () => {
     });
     assert.deepEqual(result.copied, []);
     assert.equal(result.skipped.length, 1);
-    assert.match(result.skipped[0], /mc-bad-shape/);
-    assert.match(result.skipped[0], /regular file/);
+    const [skipped] = result.skipped;
+    assert.ok(skipped);
+    assert.match(skipped, /mc-bad-shape/);
+    assert.match(skipped, /regular file/);
     assert.equal(warnings.length, 1);
   });
 });
@@ -222,9 +230,13 @@ describe("syncPresetSkills — source resilience", () => {
     assert.deepEqual(result.copied, []);
     assert.deepEqual(result.removed, []);
     assert.equal(result.skipped.length, 1);
-    assert.match(result.skipped[0], /non-directory/);
+    const [skipped] = result.skipped;
+    assert.ok(skipped);
+    assert.match(skipped, /non-directory/);
     assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /preset sync aborted/);
+    const [warning] = warnings;
+    assert.ok(warning);
+    assert.match(warning, /preset sync aborted/);
   });
 });
 
@@ -248,9 +260,13 @@ describe("syncPresetSkills — destination resilience", () => {
     assert.deepEqual(result.copied, []);
     assert.deepEqual(result.removed, []);
     assert.equal(result.skipped.length, 1);
-    assert.match(result.skipped[0], /non-directory/);
+    const [skipped] = result.skipped;
+    assert.ok(skipped);
+    assert.match(skipped, /non-directory/);
     assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /preset sync aborted/);
+    const [warning] = warnings;
+    assert.ok(warning);
+    assert.match(warning, /preset sync aborted/);
   });
 
   it("skips a slug whose dest slot is occupied by a regular file (regression: corruption-tolerant boot)", () => {
@@ -271,8 +287,10 @@ describe("syncPresetSkills — destination resilience", () => {
     // mc-foo is skipped (slot occupied), mc-bar still copies.
     assert.deepEqual(result.copied, ["mc-bar"]);
     assert.equal(result.skipped.length, 1);
-    assert.match(result.skipped[0], /mc-foo/);
-    assert.match(result.skipped[0], /non-directory/);
+    const [skipped] = result.skipped;
+    assert.ok(skipped);
+    assert.match(skipped, /mc-foo/);
+    assert.match(skipped, /non-directory/);
     assert.equal(warnings.length, 1);
     // mc-bar landed normally despite mc-foo's failure.
     assert.ok(existsSync(path.join(destDir, "mc-bar", "SKILL.md")));
@@ -369,7 +387,9 @@ describe("syncActivePresetSkills", () => {
     assert.ok(readFileSync(activeSkillPath, "utf-8").includes("NEW BODY"));
     const backups = readdirSync(path.join(activeDir, "mc-clients")).filter((entry) => entry.startsWith("SKILL.md.bak."));
     assert.equal(backups.length, 1, "expected exactly one .bak file alongside SKILL.md");
-    assert.equal(readFileSync(path.join(activeDir, "mc-clients", backups[0]), "utf-8"), "OLD BODY");
+    const [backup] = backups;
+    assert.ok(backup);
+    assert.equal(readFileSync(path.join(activeDir, "mc-clients", backup), "utf-8"), "OLD BODY");
   });
 
   it("is a no-op when the active copy already matches source (no .bak created)", () => {
@@ -479,8 +499,10 @@ describe("syncActivePresetSkills", () => {
       });
       assert.equal(result.updated.length, 0, "must not report success");
       assert.equal(result.skipped.length, 1);
-      assert.match(result.skipped[0], /mc-clients/);
-      assert.match(result.skipped[0], /symlink|escapes/);
+      const [skipped] = result.skipped;
+      assert.ok(skipped);
+      assert.match(skipped, /mc-clients/);
+      assert.match(skipped, /symlink|escapes/);
       // The outside file must remain untouched (no overwrite, no .bak rename).
       assert.equal(readFileSync(path.join(outsideDir, "SKILL.md"), "utf-8"), "ATTACKER WOULD LOVE TO READ/WRITE THIS");
       assert.deepEqual(

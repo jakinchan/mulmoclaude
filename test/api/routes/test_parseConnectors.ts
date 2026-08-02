@@ -21,9 +21,7 @@ describe("parseConnectors", () => {
     ].join("\n");
 
     const result = parseConnectors(stdout);
-    assert.equal(result.length, 1);
-    assert.equal(result[0].name, "Google Calendar");
-    assert.equal(result[0].connected, true);
+    assert.deepEqual(result, [{ name: "Google Calendar", connected: true }]);
   });
 
   it("returns empty array for empty input", () => {
@@ -65,13 +63,17 @@ describe("parseConnectors", () => {
     const stdout = ["claude.ai MalformedEntry", "claude.ai Gmail: https://gmail.example.com - ✓ Connected"].join("\n");
     const result = parseConnectors(stdout);
     assert.equal(result.length, 1);
-    assert.equal(result[0].name, "Gmail");
+    const [entry] = result;
+    assert.ok(entry);
+    assert.equal(entry.name, "Gmail");
   });
 
   it("handles trailing newlines", () => {
     const stdout = "claude.ai Gmail: https://gmail.example.com - ✓ Connected\n\n";
     const result = parseConnectors(stdout);
     assert.equal(result.length, 1);
-    assert.equal(result[0].name, "Gmail");
+    const [entry] = result;
+    assert.ok(entry);
+    assert.equal(entry.name, "Gmail");
   });
 });

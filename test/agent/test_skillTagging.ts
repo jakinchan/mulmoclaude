@@ -58,14 +58,18 @@ describe("applySkillEvent (#1218) — replace streamed assistant text in place",
     applySkillEvent(session, skillPayload);
 
     assert.equal(session.toolResults.length, 1, "no new card pushed when one was replaced in place");
-    assert.equal(session.toolResults[0].toolName, "skill");
-    assert.equal(session.toolResults[0].uuid, originalUuid, "uuid preserved so view bindings stay attached");
+    const [card] = session.toolResults;
+    assert.ok(card);
+    assert.equal(card.toolName, "skill");
+    assert.equal(card.uuid, originalUuid, "uuid preserved so view bindings stay attached");
   });
 
   it("pushes a new skill card when no streamed assistant text precedes it", () => {
     applySkillEvent(session, skillPayload);
     assert.equal(session.toolResults.length, 1);
-    assert.equal(session.toolResults[0].toolName, "skill");
+    const [card] = session.toolResults;
+    assert.ok(card);
+    assert.equal(card.toolName, "skill");
   });
 
   it("does NOT replace a trailing user text-response (would corrupt the user's message)", () => {
@@ -73,8 +77,11 @@ describe("applySkillEvent (#1218) — replace streamed assistant text in place",
     session.toolResults.push(userMsg);
     applySkillEvent(session, skillPayload);
     assert.equal(session.toolResults.length, 2, "user text stays, skill is appended");
-    assert.equal(session.toolResults[0].toolName, "text-response");
-    assert.equal(session.toolResults[1].toolName, "skill");
+    const [userCard, skillCard] = session.toolResults;
+    assert.ok(userCard);
+    assert.ok(skillCard);
+    assert.equal(userCard.toolName, "text-response");
+    assert.equal(skillCard.toolName, "skill");
   });
 
   it("does NOT replace a non-text-response trailing card (e.g. image / wiki result)", () => {
@@ -87,14 +94,18 @@ describe("applySkillEvent (#1218) — replace streamed assistant text in place",
     });
     applySkillEvent(session, skillPayload);
     assert.equal(session.toolResults.length, 2);
-    assert.equal(session.toolResults[1].toolName, "skill");
+    const [, skillCard] = session.toolResults;
+    assert.ok(skillCard);
+    assert.equal(skillCard.toolName, "skill");
   });
 
   it("populates the envelope's `data` with all skill metadata", () => {
     const streamed = makeTextResult("partial body", "assistant");
     session.toolResults.push(streamed);
     applySkillEvent(session, skillPayload);
-    const data = session.toolResults[0].data as Record<string, unknown>;
+    const [card] = session.toolResults;
+    assert.ok(card);
+    const data = card.data as Record<string, unknown>;
     assert.equal(data.skillName, "mc-library");
     assert.equal(data.skillScope, "project");
     assert.equal(data.skillDescription, "Personal book journal");
@@ -113,6 +124,8 @@ describe("applySkillEvent (#1218) — replace streamed assistant text in place",
     session.runStartIndex = 1;
     applySkillEvent(session, skillPayload);
     assert.equal(session.toolResults.length, 2);
-    assert.equal(session.selectedResultUuid, session.toolResults[1].uuid);
+    const [, skillCard] = session.toolResults;
+    assert.ok(skillCard);
+    assert.equal(session.selectedResultUuid, skillCard.uuid);
   });
 });

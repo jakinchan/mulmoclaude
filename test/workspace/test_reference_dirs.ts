@@ -44,8 +44,10 @@ describe("loadReferenceDirs — non-string fields", () => {
     writeConfig(root, [{ hostPath: target, label: { text: "nope" } }]);
     const entries = loadReferenceDirs(root);
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].label, path.basename(target));
-    assert.doesNotMatch(entries[0].label, /\[object Object\]/);
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.equal(entry.label, path.basename(target));
+    assert.doesNotMatch(entry.label, /\[object Object\]/);
   });
 
   it("falls back to the basename when label is an array", () => {
@@ -54,7 +56,9 @@ describe("loadReferenceDirs — non-string fields", () => {
     writeConfig(root, [{ hostPath: target, label: ["a", "b"] }]);
     const entries = loadReferenceDirs(root);
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].label, path.basename(target));
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.equal(entry.label, path.basename(target));
   });
 
   it("keeps a string label as-is", () => {
@@ -63,7 +67,9 @@ describe("loadReferenceDirs — non-string fields", () => {
     writeConfig(root, [{ hostPath: target, label: "docs" }]);
     const entries = loadReferenceDirs(root);
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].label, "docs");
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.equal(entry.label, "docs");
   });
 
   it("rejects an entry whose hostPath is an object", () => {

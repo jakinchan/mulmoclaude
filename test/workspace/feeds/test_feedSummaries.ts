@@ -36,30 +36,34 @@ describe("buildFeedSummaries", () => {
   });
 
   it("keeps a declared kind and still defaults the missing schedule", async () => {
-    const summaries = await buildFeedSummaries([feedNamed("blog", { kind: "atom" })], readerReturning(), WORKSPACE_ROOT);
+    const [summary] = await buildFeedSummaries([feedNamed("blog", { kind: "atom" })], readerReturning(), WORKSPACE_ROOT);
 
-    assert.equal(summaries[0].kind, "atom");
-    assert.equal(summaries[0].schedule, "on-demand");
+    assert.ok(summary);
+    assert.equal(summary.kind, "atom");
+    assert.equal(summary.schedule, "on-demand");
   });
 
   it("keeps a declared schedule and still defaults the missing kind", async () => {
-    const summaries = await buildFeedSummaries([feedNamed("hourly-feed", { schedule: "hourly" })], readerReturning(), WORKSPACE_ROOT);
+    const [summary] = await buildFeedSummaries([feedNamed("hourly-feed", { schedule: "hourly" })], readerReturning(), WORKSPACE_ROOT);
 
-    assert.equal(summaries[0].kind, "rss");
-    assert.equal(summaries[0].schedule, "hourly");
+    assert.ok(summary);
+    assert.equal(summary.kind, "rss");
+    assert.equal(summary.schedule, "hourly");
   });
 
   it("carries both through when the ingest block is complete", async () => {
-    const summaries = await buildFeedSummaries([feedNamed("papers", { kind: "http-json", schedule: "daily" })], readerReturning(), WORKSPACE_ROOT);
+    const [summary] = await buildFeedSummaries([feedNamed("papers", { kind: "http-json", schedule: "daily" })], readerReturning(), WORKSPACE_ROOT);
 
-    assert.equal(summaries[0].kind, "http-json");
-    assert.equal(summaries[0].schedule, "daily");
+    assert.ok(summary);
+    assert.equal(summary.kind, "http-json");
+    assert.equal(summary.schedule, "daily");
   });
 
   it("reports lastFetchedAt as null for a feed that was never fetched", async () => {
-    const summaries = await buildFeedSummaries([feedNamed("fresh")], readerReturning(), WORKSPACE_ROOT);
+    const [summary] = await buildFeedSummaries([feedNamed("fresh")], readerReturning(), WORKSPACE_ROOT);
 
-    assert.equal(summaries[0].lastFetchedAt, null);
+    assert.ok(summary);
+    assert.equal(summary.lastFetchedAt, null);
   });
 
   it("returns an empty list for zero feeds without calling the reader", async () => {

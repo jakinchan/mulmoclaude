@@ -51,8 +51,9 @@ describe("parseFaqEntries", () => {
   });
 
   it("repeats a field into a list", () => {
-    const entries = parseFaqEntries(["## Two helps", "help: a.md", "help: b.md"].join("\n"));
-    assert.deepEqual(entries[0].helps, ["a.md", "b.md"]);
+    const [entry] = parseFaqEntries(["## Two helps", "help: a.md", "help: b.md"].join("\n"));
+    assert.ok(entry);
+    assert.deepEqual(entry.helps, ["a.md", "b.md"]);
   });
 
   it("splits multiple entries at each heading", () => {
@@ -61,7 +62,9 @@ describe("parseFaqEntries", () => {
       entries.map((entry) => entry.symptom),
       ["First", "Second"],
     );
-    assert.deepEqual(entries[1].configKeys, ["two"]);
+    const [, second] = entries;
+    assert.ok(second);
+    assert.deepEqual(second.configKeys, ["two"]);
   });
 
   it("ignores the format example inside a fenced block", () => {
@@ -73,32 +76,39 @@ describe("parseFaqEntries", () => {
       entries.map((entry) => entry.symptom),
       ["Real symptom"],
     );
-    assert.deepEqual(entries[0].configKeys, ["real"]);
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.deepEqual(entry.configKeys, ["real"]);
   });
 
   it("drops pointer lines that appear before the first heading", () => {
     const entries = parseFaqEntries(["configKey: orphan", "## Later", "configKey: kept"].join("\n"));
     assert.equal(entries.length, 1);
-    assert.deepEqual(entries[0].configKeys, ["kept"]);
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.deepEqual(entry.configKeys, ["kept"]);
   });
 
   it("ignores prose that merely contains a colon", () => {
-    const entries = parseFaqEntries(["## Symptom", "Note: this sentence is prose, not a pointer.", "configKey: real"].join("\n"));
-    assert.deepEqual(entries[0].configKeys, ["real"]);
-    assert.deepEqual(entries[0].sources, []);
-    assert.deepEqual(entries[0].helps, []);
+    const [entry] = parseFaqEntries(["## Symptom", "Note: this sentence is prose, not a pointer.", "configKey: real"].join("\n"));
+    assert.ok(entry);
+    assert.deepEqual(entry.configKeys, ["real"]);
+    assert.deepEqual(entry.sources, []);
+    assert.deepEqual(entry.helps, []);
   });
 
   it("ignores a field with an empty value", () => {
-    const entries = parseFaqEntries(["## Symptom", "configKey:", "configKey:   "].join("\n"));
-    assert.deepEqual(entries[0].configKeys, []);
+    const [entry] = parseFaqEntries(["## Symptom", "configKey:", "configKey:   "].join("\n"));
+    assert.ok(entry);
+    assert.deepEqual(entry.configKeys, []);
   });
 
   it("does not resolve a field name through the prototype chain", () => {
     // `constructor: x` would hit Object.prototype if the field table were a
     // plain object literal, and push into an undefined list.
-    const entries = parseFaqEntries(["## Symptom", "constructor: boom", "toString: boom", "configKey: real"].join("\n"));
-    assert.deepEqual(entries[0].configKeys, ["real"]);
+    const [entry] = parseFaqEntries(["## Symptom", "constructor: boom", "toString: boom", "configKey: real"].join("\n"));
+    assert.ok(entry);
+    assert.deepEqual(entry.configKeys, ["real"]);
   });
 
   it("returns no entries for empty or heading-free input", () => {
@@ -111,13 +121,18 @@ describe("parseFaqEntries", () => {
     // point of `entryHasPointer`.
     const entries = parseFaqEntries("## Unverifiable\n\nJust prose.\n");
     assert.equal(entries.length, 1);
-    assert.equal(entryHasPointer(entries[0]), false);
+    const [entry] = entries;
+    assert.ok(entry);
+    assert.equal(entryHasPointer(entry), false);
   });
 
   it("accepts an entry with any single pointer kind", () => {
     const [byConfig] = parseFaqEntries("## A\nconfigKey: k");
     const [bySource] = parseFaqEntries("## B\nsource: s");
     const [byHelp] = parseFaqEntries("## C\nhelp: h.md");
+    assert.ok(byConfig);
+    assert.ok(bySource);
+    assert.ok(byHelp);
     assert.equal(entryHasPointer(byConfig), true);
     assert.equal(entryHasPointer(bySource), true);
     assert.equal(entryHasPointer(byHelp), true);
