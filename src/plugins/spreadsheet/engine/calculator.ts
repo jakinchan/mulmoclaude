@@ -5,9 +5,8 @@
  */
 
 import { formatCellForDisplay } from "./cellFormatting";
-import { columnToIndex } from "./parser";
 import { evaluateFormula as evaluateFormulaFn } from "./evaluator";
-import { expandRangeOrCell } from "./formulaRefs";
+import { expandRangeOrCell, parseSingleCellRef } from "./formulaRefs";
 import { parseDate, getDefaultDateFormat } from "./date-parser";
 import type { SheetData, CellValue, CalculatedSheet, CalculationError, FormulaInfo, SpreadsheetCell, CalculateOptions } from "./types";
 import { isObj } from "../../../utils/types";
@@ -20,6 +19,12 @@ import { isSpreadsheetErrorValue, spreadsheetError } from "./spreadsheet-errors"
 // whether it points at the sheet currently being calculated (which decides
 // whether recursive formula evaluation is allowed for the cell it lands on).
 type ResolvedSheetRef = { sheetData: (SpreadsheetCell | CellValue)[][]; ref: string; isCurrentSheet: boolean };
+
+// Where a cell sits in the grid CURRENTLY being calculated, carrying the row it
+// belongs to so a formula's result is written back without re-indexing. Only a
+// same-sheet cell has one: a cross-sheet read is resolved by that sheet's own
+// calculateSheet pass, so it has no position here to recurse from.
+type CellPosition = { cells: any[]; row: number; col: number };
 
 /**
  * Normalize malformed data structures
@@ -157,17 +162,17 @@ export function calculateSheet(sheet: SheetData, allSheets?: SheetData[], option
   // Evaluate one formula cell, guarding circular references, caching the result,
   // and turning a thrown failure into a typed errors[] entry plus the Excel
   // error value in the cell — never a swallowed bare string/number (#2359).
-  const resolveFormulaCell = (formulaText: string, row: number, col: number): CellValue => {
+  const resolveFormulaCell = (formulaText: string, { cells, row, col }: CellPosition): CellValue => {
     const cellKey = `${row},${col}`;
     if (calculating.has(cellKey)) {
       errors.push({ cell: { row, col }, formula: formulaText, error: "Circular reference detected", type: "circular" });
       return 0;
     }
-    if (evaluated.has(cellKey)) return calculated[row][col];
+    if (evaluated.has(cellKey)) return cells[col];
     calculating.add(cellKey);
     try {
       const result = evaluateFormula(formulaText.substring(1)); // drop leading "="
-      calculated[row][col] = result;
+      cells[col] = result;
       return result;
     } catch (error) {
       const { type, display } = classifyThrownError(error);
@@ -175,7 +180,7 @@ export function calculateSheet(sheet: SheetData, allSheets?: SheetData[], option
       // The error VALUE, not its text: a cell that reads this one must see a
       // real error, and the display pass renders it back to `#DIV/0!`.
       const errorValue = spreadsheetError(display);
-      calculated[row][col] = errorValue;
+      cells[col] = errorValue;
       return errorValue;
     } finally {
       calculating.delete(cellKey);
@@ -184,7 +189,7 @@ export function calculateSheet(sheet: SheetData, allSheets?: SheetData[], option
   };
 
   // Helper to extract raw value from cell with recursive formula evaluation
-  const getRawValue = (cell: any, row?: number, col?: number): CellValue => {
+  const getRawValue = (cell: any, position?: CellPosition): CellValue => {
     // Handle null/undefined cells - treat as 0
     if (cell === null || cell === undefined) return 0;
 
@@ -228,10 +233,7 @@ export function calculateSheet(sheet: SheetData, allSheets?: SheetData[], option
       if (typeof value === "string" && value.startsWith("=")) {
         // Only evaluatable when we know the cell's position (for recursion +
         // circular tracking); otherwise treat as 0.
-        if (row !== undefined && col !== undefined) {
-          return resolveFormulaCell(value, row, col);
-        }
-        return 0; // No position info, can't evaluate
+        return position ? resolveFormulaCell(value, position) : 0;
       }
       // Try to parse as number, but preserve original type on failure
       if (typeof value === "number") return value;
@@ -258,8 +260,12 @@ export function calculateSheet(sheet: SheetData, allSheets?: SheetData[], option
     const sheetMatch = fullRef.match(/^(?:'([^']+)'|([^!]+))!(.+)$/);
     if (!sheetMatch) return { sheetData: calculated, ref: fullRef, isCurrentSheet: true };
 
-    const targetSheetName = sheetMatch[1] || sheetMatch[2]; // Quoted or unquoted sheet name
-    const innerRef = sheetMatch[3]; // Reference part after the sheet name
+    // Exactly one of the two name branches participates; the reference part
+    // always does. A shortfall would mean the pattern and this read disagree, so
+    // it lands on the caller's "sheet not found" path rather than a guess.
+    const [, quotedName, plainName, innerRef] = sheetMatch;
+    const targetSheetName = quotedName ?? plainName;
+    if (targetSheetName === undefined || innerRef === undefined) return null;
 
     // Check cache first to prevent infinite loops
     const cached = sheetsCache.get(targetSheetName);
@@ -285,21 +291,16 @@ export function calculateSheet(sheet: SheetData, allSheets?: SheetData[], option
     if (!resolved) throw invalidRefError(ref); // Sheet not found → #REF!
     const { sheetData, ref: cellRef, isCurrentSheet } = resolved;
 
-    // Remove $ symbols for absolute references
-    const cleanRef = cellRef.replace(/\$/g, "");
-    const match = cleanRef.match(/^([A-Z]+)(\d+)$/);
-    if (!match) return 0;
+    // `$` symbols and the A1 shape are parsed by the shared single-cell reader.
+    const coord = parseSingleCellRef(cellRef);
+    if (!coord) return 0;
 
-    const col = columnToIndex(match[1]); // A=0, B=1, ..., Z=25, AA=26, etc.
-    const row = parseInt(match[2]) - 1; // 1-indexed to 0-indexed
+    const { row, col } = coord;
+    const gridRow = row >= 0 ? sheetData[row] : undefined;
+    if (!gridRow || col < 0 || col >= gridRow.length) return 0;
 
-    if (row < 0 || row >= sheetData.length || col < 0 || col >= sheetData[row].length) {
-      return 0;
-    }
-
-    const cell = sheetData[row][col];
-    // Pass row/col only if this is the current sheet (for recursive evaluation)
-    return getRawValue(cell, isCurrentSheet ? row : undefined, isCurrentSheet ? col : undefined);
+    // Pass the position only if this is the current sheet (for recursive evaluation)
+    return getRawValue(gridRow[col], isCurrentSheet ? { cells: gridRow, row, col } : undefined);
   };
 
   const collectRangeValues = (range: string, options: { numericOnly: boolean }): CellValue[] => {
@@ -312,10 +313,11 @@ export function calculateSheet(sheet: SheetData, allSheets?: SheetData[], option
 
     const values: CellValue[] = [];
     for (const { row, col } of coords) {
-      if (row >= 0 && row < sheetData.length && col >= 0 && col < sheetData[row].length) {
-        const cell = sheetData[row][col];
-        // Pass row/col only if current sheet (for recursive evaluation)
-        const rawValue = getRawValue(cell, isCurrentSheet ? row : undefined, isCurrentSheet ? col : undefined);
+      const gridRow = row >= 0 ? sheetData[row] : undefined;
+      if (gridRow && col >= 0 && col < gridRow.length) {
+        const cell = gridRow[col];
+        // Pass the position only if current sheet (for recursive evaluation)
+        const rawValue = getRawValue(cell, isCurrentSheet ? { cells: gridRow, row, col } : undefined);
 
         if (options.numericOnly) {
           // A blank cell is not a value. Dropping it from the NUMERIC list keeps
@@ -352,62 +354,58 @@ export function calculateSheet(sheet: SheetData, allSheets?: SheetData[], option
     });
   };
 
-  // Process all cells and calculate formulas
-  for (let rowIdx = 0; rowIdx < data.length; rowIdx++) {
-    for (let colIdx = 0; colIdx < data[rowIdx].length; colIdx++) {
-      const originalCell = data[rowIdx][colIdx];
-      const calculatedCell = calculated[rowIdx][colIdx];
+  // Compute one cell into its calculated row. A cell not in {v, f} format is
+  // left as-is (it is already a plain value).
+  const calculateCell = (originalCell: SpreadsheetCell, position: CellPosition): void => {
+    if (!isObj(originalCell) || !("v" in originalCell)) return;
+    const value = originalCell.v;
 
-      // Skip if cell was already calculated recursively
-      if (typeof calculatedCell === "number" && isObj(originalCell) && "f" in originalCell) {
-        // Cell was already evaluated - keep it as number for now
-        // Formatting will be applied at the end
-        continue;
-      }
-
-      // Handle cell format {v, f}
-      if (isObj(originalCell) && "v" in originalCell) {
-        const value = originalCell.v;
-
-        // Check if value is a formula (string starting with "=")
-        if (typeof value === "string" && value.startsWith("=")) {
-          // Track formula info
-          formulas.push({
-            cell: { row: rowIdx, col: colIdx },
-            formula: value,
-            dependencies: [], // TODO: Extract dependencies from formula
-            result: 0, // Will be updated below
-          });
-
-          // Route through the protected path so a thrown failure is classified
-          // into errors[] instead of escaping this loop, and a cell already
-          // resolved via another formula's recursion is read from cache (#2359).
-          const result = resolveFormulaCell(value, rowIdx, colIdx);
-
-          // Update formula result
-          formulas[formulas.length - 1].result = result;
-
-          // Store result as-is (formatting will be applied at the end)
-          calculated[rowIdx][colIdx] = result;
-        } else {
-          // Regular value cell (not a formula)
-          // Convert to plain value (important for range evaluation)
-          calculated[rowIdx][colIdx] = value;
-        }
-      }
-      // If cell is not in {v, f} format, leave it as-is (already a plain value)
+    // A plain value is copied through, so range evaluation reads it.
+    if (typeof value !== "string" || !value.startsWith("=")) {
+      position.cells[position.col] = value;
+      return;
     }
-  }
+
+    const info: FormulaInfo = {
+      cell: { row: position.row, col: position.col },
+      formula: value,
+      dependencies: [], // TODO: Extract dependencies from formula
+      result: 0, // Will be updated below
+    };
+    formulas.push(info);
+    // Route through the protected path so a thrown failure is classified into
+    // errors[] instead of escaping this walk, and a cell already resolved via
+    // another formula's recursion is read from cache (#2359).
+    info.result = resolveFormulaCell(value, position);
+    // Store result as-is (formatting will be applied at the end)
+    position.cells[position.col] = info.result;
+  };
+
+  // Walk every cell of the grid. `calculated` is built as a row-for-row copy of
+  // `data` and never resized, so a missing row cannot happen; skipping one keeps
+  // the walk total rather than asserting the invariant at each cell.
+  const forEachCell = (visit: (originalCell: SpreadsheetCell, position: CellPosition) => void): void => {
+    data.forEach((dataRow, row) => {
+      const cells = calculated[row];
+      if (!cells) return;
+      dataRow.forEach((originalCell, col) => visit(originalCell, { cells, row, col }));
+    });
+  };
+
+  // Process all cells and calculate formulas. A cell already evaluated through
+  // another formula's recursion keeps its number; formatting comes at the end.
+  forEachCell((originalCell, position) => {
+    const alreadyCalculated = typeof position.cells[position.col] === "number" && isObj(originalCell) && "f" in originalCell;
+    if (!alreadyCalculated) calculateCell(originalCell, position);
+  });
 
   // Final display-formatting pass: turn raw serials into presentation strings.
   // Skipped when this sheet is computed only to resolve a cross-sheet reference,
   // so the referencing cell reads the underlying value, not a display string.
   if (!skipFormatting) {
-    for (let rowIdx = 0; rowIdx < data.length; rowIdx++) {
-      for (let colIdx = 0; colIdx < data[rowIdx].length; colIdx++) {
-        calculated[rowIdx][colIdx] = formatCellForDisplay(data[rowIdx][colIdx], calculated[rowIdx][colIdx], preferDDMMYYYY);
-      }
-    }
+    forEachCell((originalCell, { cells, col }) => {
+      cells[col] = formatCellForDisplay(originalCell, cells[col], preferDDMMYYYY);
+    });
   }
 
   return {

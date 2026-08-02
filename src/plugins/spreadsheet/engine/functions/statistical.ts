@@ -2,7 +2,7 @@
  * Statistical Functions
  */
 
-import { functionRegistry, toNumber, parseCriteria, type FunctionContext, type FunctionHandler, type RangeGetter } from "../registry";
+import { functionRegistry, requiredArg, toNumber, parseCriteria, type FunctionContext, type FunctionHandler, type RangeGetter } from "../registry";
 import { computeAverage, computeMedian, computeMode, sampleStdev, sampleVariance } from "./statistical-math";
 import { DIV_ZERO_ERROR } from "../spreadsheet-errors";
 import { holdsNumber } from "../numericCoercion";
@@ -11,32 +11,19 @@ import type { CellValue } from "../types";
 // Excel accepts up to 255 arguments for its aggregate functions.
 const MAX_AGGREGATE_ARGS = 255;
 
-const isLetter = (char: string): boolean => /[A-Z]/i.test(char);
+// `A1`, `$A$1`, `AA100`: column letters then row digits, each half optionally
+// prefixed by `$`.
+const CELL_REFERENCE_PATTERN = /^\$?[A-Z]+\$?\d+$/i;
 
-const isCellReference = (segment: string): boolean => {
-  if (!segment) return false;
-  let index = 0;
-  if (segment[index] === "$") index++;
-  const colStart = index;
-  while (index < segment.length && isLetter(segment[index])) {
-    index++;
-  }
-  if (index === colStart) return false; // Require at least one column letter
-  if (segment[index] === "$") index++;
-  if (index >= segment.length) return false; // Require row digits
-  for (; index < segment.length; index++) {
-    const char = segment[index];
-    if (char < "0" || char > "9") {
-      return false;
-    }
-  }
-  return true;
-};
+const isCellReference = (segment: string): boolean => CELL_REFERENCE_PATTERN.test(segment);
+
+// Everything after the last `!` — the reference without its sheet name, or the
+// whole string when it carries none.
+const withoutSheetPrefix = (value: string): string => value.slice(value.lastIndexOf("!") + 1);
 
 const isRangeReference = (value: string): boolean => {
   if (!value) return false;
-  const rangePart = value.includes("!") ? value.split("!").slice(-1)[0] : value;
-  const [start, end] = rangePart.split(":");
+  const [start, end] = withoutSheetPrefix(value).split(":");
   if (!start || !end) return false;
   return isCellReference(start) && isCellReference(end);
 };
@@ -45,7 +32,7 @@ const isRangeReference = (value: string): boolean => {
 // evaluated as a scalar: the scalar path coerces a blank or text cell to 0, so
 // COUNT(A999) counted an empty cell as a value. The range path yields nothing
 // for a cell that holds nothing, which is what the count functions need.
-const isReference = (arg: string): boolean => isRangeReference(arg) || isCellReference(arg.includes("!") ? arg.split("!").slice(-1)[0] : arg);
+const isReference = (arg: string): boolean => isRangeReference(arg) || isCellReference(withoutSheetPrefix(arg));
 
 /** One value an argument contributed, tagged by where it came from. A range cell
  *  was already filtered by the range getter; a scalar is whatever the argument
@@ -126,51 +113,41 @@ const countaHandler: FunctionHandler = (args, context) => {
 };
 
 const countifHandler: FunctionHandler = (args, context) => {
-  const values = context.getRangeValuesRaw?.(args[0]) ?? context.getRangeValues(args[0]);
-  const criteria = args[1].trim();
-  const compareFn = parseCriteria(criteria);
-  return values.filter(compareFn).length;
+  const values = rawRangeReader(context)(requiredArg(context, args, 0));
+  return values.filter(parseCriteria(requiredArg(context, args, 1).trim())).length;
 };
 
+/** The criteria range, the matcher and the value range SUMIF and AVERAGEIF both
+ *  read. Both value ranges are RAW, not numeric-only: dropping blanks would
+ *  shift the value range out of alignment with the (raw) criteria range, so a
+ *  blank would pull a later row's number into an earlier match (#2358). */
+const readConditionalRanges = (args: string[], context: FunctionContext) => {
+  const criteriaRef = requiredArg(context, args, 0);
+  const readRaw = rawRangeReader(context);
+  const valueRef = args.length === 3 ? requiredArg(context, args, 2) : criteriaRef;
+  return {
+    criteriaRange: readRaw(criteriaRef),
+    valueRange: readRaw(valueRef),
+    matches: parseCriteria(requiredArg(context, args, 1).trim()),
+  };
+};
+
+/** Sum and count the values whose row in `criteriaRange` matches. The two
+ *  ranges stay row-aligned, so a matched row with no value contributes 0. */
+const aggregateMatchedRows = (criteriaRange: CellValue[], valueRange: CellValue[], matches: (value: CellValue) => boolean) =>
+  criteriaRange.reduce(
+    (totals, criteriaValue, index) => (matches(criteriaValue) ? { sum: totals.sum + toNumber(valueRange[index] ?? 0), count: totals.count + 1 } : totals),
+    { sum: 0, count: 0 },
+  );
+
 const sumifHandler: FunctionHandler = (args, context) => {
-  const criteriaRange = context.getRangeValuesRaw?.(args[0]) ?? context.getRangeValues(args[0]);
-  const criteria = args[1].trim();
-  // Raw, not numeric-only: dropping blanks here would shift the value range out
-  // of alignment with the (raw) criteria range, so a blank in sum_range would
-  // pull a later row's number into an earlier match (#2358 Codex review).
-  const sumRangeRef = args.length === 3 ? args[2] : args[0];
-  const sumRange = context.getRangeValuesRaw?.(sumRangeRef) ?? context.getRangeValues(sumRangeRef);
-
-  const compareFn = parseCriteria(criteria);
-
-  let sum = 0;
-  for (let i = 0; i < criteriaRange.length; i++) {
-    if (compareFn(criteriaRange[i])) {
-      sum += toNumber(sumRange[i] ?? 0);
-    }
-  }
-
-  return sum;
+  const { criteriaRange, valueRange, matches } = readConditionalRanges(args, context);
+  return aggregateMatchedRows(criteriaRange, valueRange, matches).sum;
 };
 
 const averageifHandler: FunctionHandler = (args, context) => {
-  const criteriaRange = context.getRangeValuesRaw?.(args[0]) ?? context.getRangeValues(args[0]);
-  const criteria = args[1].trim();
-  // Raw, to stay row-aligned with the criteria range (see SUMIF, #2358).
-  const avgRangeRef = args.length === 3 ? args[2] : args[0];
-  const avgRange = context.getRangeValuesRaw?.(avgRangeRef) ?? context.getRangeValues(avgRangeRef);
-
-  const compareFn = parseCriteria(criteria);
-
-  let sum = 0;
-  let count = 0;
-  for (let i = 0; i < criteriaRange.length; i++) {
-    if (compareFn(criteriaRange[i])) {
-      sum += toNumber(avgRange[i] ?? 0);
-      count++;
-    }
-  }
-
+  const { criteriaRange, valueRange, matches } = readConditionalRanges(args, context);
+  const { sum, count } = aggregateMatchedRows(criteriaRange, valueRange, matches);
   // Excel returns #DIV/0! when no cell matches (the average of nothing is
   // undefined), rather than a silent 0.
   return count > 0 ? sum / count : DIV_ZERO_ERROR;

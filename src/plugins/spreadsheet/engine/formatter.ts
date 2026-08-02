@@ -94,9 +94,9 @@ export const groupThousands = (digits: string): string =>
 /** Group the integer part of a formatted number ("1234567.89" → "1,234,567.89"),
  *  leaving any fractional part after the decimal point untouched. */
 export const addThousandSeparators = (formatted: string): string => {
-  const parts = formatted.split(".");
-  parts[0] = groupThousands(parts[0]);
-  return parts.join(".");
+  const [whole, ...fraction] = formatted.split(".");
+  if (whole === undefined) return formatted;
+  return [groupThousands(whole), ...fraction].join(".");
 };
 
 /**

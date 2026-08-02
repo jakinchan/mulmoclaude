@@ -13,11 +13,32 @@ export type RangeGetter = (range: string) => CellValue[];
 export type RawRangeGetter = (range: string) => CellValue[];
 
 export interface FunctionContext {
+  /** The registry name the formula invoked, so a handler can report a failure
+   *  the way the evaluator names it. */
+  functionName: string;
   getCellValue: CellGetter;
   getRangeValues: RangeGetter;
   getRangeValuesRaw?: RawRangeGetter | undefined;
   evaluateFormula: (formula: string) => CellValue;
 }
+
+/** The too-few-arguments error, raised by the evaluator from the registry's
+ *  `minArgs` before any handler runs — and by `requiredArg` for the argument a
+ *  handler actually reads, so both report one wording. */
+export const tooFewArgumentsError = (funcName: string, minArgs: number): Error =>
+  new Error(`${funcName} requires at least ${minArgs} argument${minArgs !== 1 ? "s" : ""}`);
+
+/** The argument at `index`, which the caller has already established is there —
+ *  the registry's `minArgs` for a mandatory argument, an `args.length` branch for
+ *  an optional one. An absent one means that guarantee is wrong, so it raises the
+ *  arity error the guarantee should have raised. Never a default value: a
+ *  substituted 0 or "" computes a plausible wrong answer, which is worse than
+ *  the error the formula deserves. */
+export const requiredArg = (context: FunctionContext, args: string[], index: number): string => {
+  const arg = args[index];
+  if (arg === undefined) throw tooFewArgumentsError(context.functionName, index + 1);
+  return arg;
+};
 
 export type FunctionHandler = (args: string[], context: FunctionContext) => CellValue;
 
@@ -88,6 +109,19 @@ const REGEXP_METACHARACTERS = /[.*+?^${}()|[\]\\]/;
 
 const escapeRegExpChar = (char: string): string => (REGEXP_METACHARACTERS.test(char) ? `\\${char}` : char);
 
+// One criteria token: `~x` (an escaped character) or any single character. The
+// escape branch needs a following character, so a TRAILING `~` falls through to
+// the single-character branch and stands for itself.
+const CRITERIA_TOKEN = /~([\s\S])|[\s\S]/g;
+
+const criteriaRegexSource = (pattern: string): string =>
+  pattern.replace(CRITERIA_TOKEN, (token, escaped: string | undefined) => {
+    if (escaped !== undefined) return escapeRegExpChar(escaped);
+    if (token === "*") return ".*";
+    if (token === "?") return ".";
+    return escapeRegExpChar(token);
+  });
+
 /**
  * Match text the way a spreadsheet criteria does: case-insensitively, with `*`
  * standing for any run of characters, `?` for exactly one, and `~` escaping the
@@ -95,21 +129,7 @@ const escapeRegExpChar = (char: string): string => (REGEXP_METACHARACTERS.test(c
  * "yes")` skipped a cell holding `Yes`, and `"A*"` was compared literally.
  */
 function textMatcher(pattern: string): (text: string) => boolean {
-  const source: string[] = [];
-  for (let index = 0; index < pattern.length; index++) {
-    const char = pattern[index];
-    if (char === "~" && index + 1 < pattern.length) {
-      source.push(escapeRegExpChar(pattern[index + 1]));
-      index++;
-    } else if (char === "*") {
-      source.push(".*");
-    } else if (char === "?") {
-      source.push(".");
-    } else {
-      source.push(escapeRegExpChar(char));
-    }
-  }
-  const regex = new RegExp(`^${source.join("")}$`, "iu");
+  const regex = new RegExp(`^${criteriaRegexSource(pattern)}$`, "iu");
   return (text) => regex.test(text);
 }
 
@@ -123,9 +143,8 @@ export function parseCriteria(criteria: string): (value: CellValue) => boolean {
 
   // Check for comparison operators
   // eslint-disable -- sonarjs/slow-regex
-  const opMatch = trimmedCriteria.match(/^([><=!]+)(.+)$/);
-  if (opMatch) {
-    const [, op, value] = opMatch;
+  const [, op, value] = trimmedCriteria.match(/^([><=!]+)(.+)$/) ?? [];
+  if (op !== undefined && value !== undefined) {
     const numValue = parseFloat(value);
 
     // `=` / `<>` compare like the bare criteria does — case-insensitive text

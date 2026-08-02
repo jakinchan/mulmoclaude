@@ -4,7 +4,7 @@
  * Evaluates spreadsheet formulas including functions, cell references, and arithmetic
  */
 
-import { functionRegistry } from "./registry";
+import { functionRegistry, tooFewArgumentsError } from "./registry";
 import type { CellValue } from "./types";
 import { parseDate } from "./date-parser";
 import { caretToPow, replaceConcatOperator, rewriteComparisonEq, isSafeArithmetic, isSafeComparison } from "./translateFormula";
@@ -124,8 +124,13 @@ function matchUnquotedRef(expr: string, start: number): string | null {
  *  constant, not a reference, and substituting it would turn `="A1"&"!"` into
  *  A1's value. A `'` opens either a `'Sheet'!A1` reference or a string literal —
  *  only the former is a reference; the latter is skipped like a `"` literal. */
-export function findCellRefs(expr: string): { ref: string; start: number }[] {
-  const cellRefs: { ref: string; start: number }[] = [];
+export interface CellRefSpan {
+  ref: string;
+  start: number;
+}
+
+export function findCellRefs(expr: string): CellRefSpan[] {
+  const cellRefs: CellRefSpan[] = [];
   let i = 0;
   while (i < expr.length) {
     const char = expr[i];
@@ -152,6 +157,15 @@ export function findCellRefs(expr: string): { ref: string; start: number }[] {
     i++;
   }
   return cellRefs;
+}
+
+/** Replace every reference span in `expr` with the text `render` gives for it,
+ *  walking BACK TO FRONT so the spans ahead of each edit stay valid. A global
+ *  string replace rewrote every occurrence of the shorter reference first, so
+ *  `=A1+A10` had its `A10` broken into `<A1's value>0` and produced a plausible
+ *  wrong number (#2357). */
+export function substituteCellRefs(expr: string, cellRefs: CellRefSpan[], render: (ref: string) => string): string {
+  return [...cellRefs].reverse().reduce((text, { ref, start }) => text.slice(0, start) + render(ref) + text.slice(start + ref.length), expr);
 }
 
 /**
@@ -267,10 +281,8 @@ export function evaluateFormula(formula: string, context: EvaluatorContext): Cel
 
   // Check if it's a SIMPLE function call (not a complex expression)
   // We need to ensure the formula is JUST a function, not "FUNC(...) + something"
-  const funcMatch = formula.match(/^([A-Z]+)\((.*)\)$/i);
-  if (funcMatch) {
-    const [, funcName, argsStr] = funcMatch;
-
+  const [, funcName, argsStr] = formula.match(/^([A-Z]+)\((.*)\)$/i) ?? [];
+  if (funcName !== undefined && argsStr !== undefined) {
     // Check that the closing paren is actually the end of the function
     // by counting parentheses in argsStr
     let parenDepth = 0;
@@ -296,7 +308,7 @@ export function evaluateFormula(formula: string, context: EvaluatorContext): Cel
 
       // Validate argument count
       if (func.minArgs !== undefined && args.length < func.minArgs) {
-        throw new Error(`${normalizedFuncName} requires at least ${func.minArgs} argument${func.minArgs !== 1 ? "s" : ""}`);
+        throw tooFewArgumentsError(normalizedFuncName, func.minArgs);
       }
       if (func.maxArgs !== undefined && args.length > func.maxArgs) {
         throw new Error(`${normalizedFuncName} accepts at most ${func.maxArgs} argument${func.maxArgs !== 1 ? "s" : ""}`);
@@ -304,6 +316,7 @@ export function evaluateFormula(formula: string, context: EvaluatorContext): Cel
 
       // Execute function with context
       return func.handler(args, {
+        functionName: normalizedFuncName,
         getCellValue: context.getCellValue,
         getRangeValues: context.getRangeValues,
         getRangeValuesRaw: context.getRangeValuesRaw,
@@ -333,8 +346,8 @@ export function evaluateFormula(formula: string, context: EvaluatorContext): Cel
 
   while (searchIndex < expr.length && iterations < maxIterations) {
     iterations++;
-    const funcNameMatch = expr.substring(searchIndex).match(/^([A-Z]+)\(/i);
-    if (!funcNameMatch) {
+    const [, funcName] = expr.substring(searchIndex).match(/^([A-Z]+)\(/i) ?? [];
+    if (funcName === undefined) {
       // No more functions found, move to next character
       searchIndex++;
       if (searchIndex >= expr.length) break;
@@ -342,7 +355,6 @@ export function evaluateFormula(formula: string, context: EvaluatorContext): Cel
     }
 
     const funcStartIndex = searchIndex;
-    const funcName = funcNameMatch[1];
     const argsStartIndex = searchIndex + funcName.length + 1;
 
     // Find matching closing parenthesis
@@ -402,21 +414,16 @@ export function evaluateFormula(formula: string, context: EvaluatorContext): Cel
   // holding `say "hi"` would come back `say \"hi\"`. Surrounding whitespace
   // (`= A1`, `=A1 `) is part of "nothing but one reference", so compare the
   // span against the trimmed expression rather than the raw one.
-  if (cellRefs.length === 1) {
-    const { ref, start } = cellRefs[0];
-    const before = expr.slice(0, start);
-    const after = expr.slice(start + ref.length);
+  const soleRef = cellRefs.length === 1 ? cellRefs[0] : undefined;
+  if (soleRef) {
+    const before = expr.slice(0, soleRef.start);
+    const after = expr.slice(soleRef.start + soleRef.ref.length);
     if (before.trim() === "" && after.trim() === "") {
-      return context.getCellValue(ref);
+      return context.getCellValue(soleRef.ref);
     }
   }
 
-  // Substitute by POSITION, back to front. A global string replace rewrote
-  // every occurrence of the shorter reference first, so `=A1+A10` had its
-  // `A10` broken into `<A1's value>0` and produced a plausible wrong number
-  // (#2357). Walking backwards keeps the earlier spans valid as we go.
-  for (let index = cellRefs.length - 1; index >= 0; index--) {
-    const { ref, start } = cellRefs[index];
+  expr = substituteCellRefs(expr, cellRefs, (ref) => {
     const value = context.getCellValue(ref);
     // A referenced cell holding an error poisons the whole expression:
     // rendering it would produce `"#DIV/0!"+1` garbage, so propagate the error
@@ -425,8 +432,8 @@ export function evaluateFormula(formula: string, context: EvaluatorContext): Cel
     // as an error, and arithmetic over it is never meaningful.
     const referencedErrorCode = errorCodeOf(value);
     if (referencedErrorCode !== null) throw propagatedError(referencedErrorCode);
-    expr = expr.slice(0, start) + renderOperand(value) + expr.slice(start + ref.length);
-  }
+    return renderOperand(value);
+  });
 
   // Parse date strings in arithmetic expressions (e.g., "06/01/2025" → serial number)
   // This allows formulas like =B3-"06/01/2025" to work correctly

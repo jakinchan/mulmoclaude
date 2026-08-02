@@ -54,7 +54,7 @@ export const parseNumberPattern = (pattern: string): NumberPattern | null => {
   if (hasUnsupportedLiteral(prefix) || hasUnsupportedLiteral(suffix)) return null;
 
   const [integerPart, decimalPart = "", ...extraParts] = core[0].split(".");
-  if (extraParts.length > 0) return null;
+  if (integerPart === undefined || extraParts.length > 0) return null;
 
   return {
     prefix,
@@ -75,7 +75,10 @@ const trimOptionalZeros = (decimals: string, minDecimals: number): string => {
 };
 
 const renderDigits = (absValue: number, pattern: NumberPattern): string => {
-  const [wholeDigits, decimalDigits = ""] = absValue.toFixed(pattern.maxDecimals).split(".");
+  const fixed = absValue.toFixed(pattern.maxDecimals);
+  const point = fixed.indexOf(".");
+  const wholeDigits = point === -1 ? fixed : fixed.slice(0, point);
+  const decimalDigits = point === -1 ? "" : fixed.slice(point + 1);
   const padded = wholeDigits.padStart(pattern.integerMinDigits, "0");
   const whole = pattern.useGrouping ? groupThousands(padded) : padded;
   const decimals = trimOptionalZeros(decimalDigits, pattern.minDecimals);

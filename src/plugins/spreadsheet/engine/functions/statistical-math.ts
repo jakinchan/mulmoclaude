@@ -29,9 +29,15 @@ export function computeAverage(values: number[]): number | SpreadsheetError {
  */
 export function computeMedian(values: number[]): number | SpreadsheetError {
   if (values.length === 0) return NUM_ERROR;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+  return arithmeticMean(middleValues([...values].sort((a, b) => a - b)));
+}
+
+/** The one or two values sitting in the middle of a sorted list — two when the
+ *  count is even, one when it is odd. Sliced rather than indexed, so the middle
+ *  of an empty list is simply nothing. */
+function middleValues(sorted: number[]): number[] {
+  const half = Math.floor(sorted.length / 2);
+  return sorted.slice(sorted.length % 2 === 0 ? half - 1 : half, half + 1);
 }
 
 /**
