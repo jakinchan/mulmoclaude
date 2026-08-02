@@ -291,7 +291,7 @@ function buildHistoryEntry(entry: NotifierEntry, terminalType: "cleared" | "canc
 export async function publish<TPluginData = unknown>(input: PublishInput<TPluginData>): Promise<{ id: string }> {
   // Validate at the engine boundary so plugin-runtime callers and
   // HTTP callers hit the same wall.
-  const validationError = validatePublishInput(input as PublishInput);
+  const validationError = validatePublishInput(input);
   if (validationError) {
     throw new Error(`notifier.publish: ${validationError}`);
   }
@@ -308,8 +308,8 @@ export async function publish<TPluginData = unknown>(input: PublishInput<TPlugin
     createdAt: new Date().toISOString(),
   };
   await enqueue((state) => {
-    state.entries[entryId] = entry as NotifierEntry;
-    return { event: { type: "published", entry: entry as NotifierEntry } };
+    state.entries[entryId] = entry;
+    return { event: { type: "published", entry } };
   });
   return { id: entryId };
 }

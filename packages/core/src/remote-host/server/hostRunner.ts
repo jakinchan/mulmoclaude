@@ -117,6 +117,9 @@ const writeError = (ref: DocumentReference, code: string, message: string) =>
 // Returns the method/params to run, or null if another handler already took it.
 const claimCommand = (firestore: Firestore, ref: DocumentReference): Promise<Claim | null> =>
   runTransaction(firestore, async (txn) => {
+    // Cast kept (#2692): `params` must satisfy `JsonObject`, and the only
+    // honest guard for that is a deep JSON walk whose rejection path would
+    // leave a malformed doc stuck in `queued` instead of erroring back.
     const data = (await txn.get(ref)).data() as Command | undefined;
     if (!data || data.status !== "queued") {
       return null;
@@ -232,6 +235,9 @@ const dispatchAddedCommands = (ctx: RunnerContext, snapshot: QuerySnapshot): voi
   snapshot
     .docChanges()
     .filter((change) => change.type === "added")
+    // Cast kept (#2692): this doc rides verbatim into the host's `onExpire`
+    // callback, so rebuilding it from checked fields would silently drop
+    // whatever else the remote wrote.
     .map((change) => ({ ref: change.doc.ref, command: change.doc.data() as Command }))
     .sort((left, right) => byCreatedAt(left.command, right.command))
     .forEach(({ ref, command }) => {

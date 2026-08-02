@@ -12,6 +12,7 @@
 // literals don't drift across the router definition, guards, views,
 // and tests.
 
+import { isRecord } from "@mulmoclaude/common";
 import { isSafeSlug } from "./slug.js";
 
 // URL segment used in `/wiki/:section/...`. Closed enum — the router
@@ -68,8 +69,8 @@ export function isSafeWikiSlug(value: unknown): value is string {
 // so the caller can decide what to do — the router guard redirects to
 // `/wiki`, the view watcher treats it as "render the index".
 export function readWikiRouteTarget(params: unknown): WikiTarget | null {
-  if (!params || typeof params !== "object") return null;
-  const { section, slug } = params as { section?: unknown; slug?: unknown };
+  if (!isRecord(params)) return null;
+  const { section, slug } = params;
 
   if (section === undefined || section === "") return { kind: "index" };
 

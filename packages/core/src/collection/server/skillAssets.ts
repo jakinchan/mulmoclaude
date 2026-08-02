@@ -15,7 +15,7 @@ import { isRegularFile, type IoOptions } from "./io";
 import { resolveTemplatePath, safeSlugName } from "./paths";
 import type { CollectionItem, CollectionSchema } from "../core/schema";
 import type { LoadedCollection } from "./discoveredCollection";
-import { isErrorWithCode } from "@mulmoclaude/common";
+import { isErrorWithCode, isRecord } from "@mulmoclaude/common";
 
 /** The shape `readSourceAwareFile` (and its public callers
  *  `readCustomViewHtml` / `readCustomViewI18n`) need from a loaded collection:
@@ -87,8 +87,8 @@ const EMPTY_I18N: CustomViewI18nResult = { locale: "", dict: {} };
 
 function pickLocaleBlock(parsed: Record<string, unknown>, locale: string): Record<string, string> | null {
   const block = parsed[locale];
-  if (!block || typeof block !== "object" || Array.isArray(block)) return null;
-  const entries = Object.entries(block as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  if (!isRecord(block)) return null;
+  const entries = Object.entries(block).filter((entry): entry is [string, string] => typeof entry[1] === "string");
   return Object.fromEntries(entries);
 }
 
@@ -113,8 +113,8 @@ export async function readCustomViewI18n(
   } catch {
     return EMPTY_I18N;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return EMPTY_I18N;
-  const obj = parsed as Record<string, unknown>;
+  if (!isRecord(parsed)) return EMPTY_I18N;
+  const obj = parsed;
   const primary = pickLocaleBlock(obj, locale);
   if (primary !== null && Object.keys(primary).length > 0) return { locale, dict: primary };
   if (locale !== I18N_FALLBACK_LOCALE) {

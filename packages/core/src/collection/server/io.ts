@@ -10,7 +10,7 @@ import { getWorkspaceRoot, log, publishCollectionChange } from "./host";
 import { writeFileAtomic } from "../../files/atomic.js";
 import { isContainedInRoot, itemFilePath, safeRecordId } from "./paths";
 import type { CollectionItem, CollectionSchema } from "../core/schema";
-import { isErrorWithCode } from "@mulmoclaude/common";
+import { isErrorWithCode, isRecord } from "@mulmoclaude/common";
 
 export interface IoOptions {
   /** Override the workspace root for containment checks. Default:
@@ -53,10 +53,7 @@ export async function isRegularFile(filePath: string): Promise<boolean> {
  *  null when it isn't a JSON object (array / scalar / null). */
 function parseRecordJson(raw: string): CollectionItem | null {
   const parsed: unknown = JSON.parse(raw);
-  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-    return parsed as CollectionItem;
-  }
-  return null;
+  return isRecord(parsed) ? parsed : null;
 }
 
 async function tryReadRecord(filePath: string): Promise<CollectionItem | null> {

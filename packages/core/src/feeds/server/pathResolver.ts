@@ -12,6 +12,8 @@
 // Any miss (wrong type, out-of-range index, absent key) yields
 // `undefined` rather than throwing — declarative configs fail soft.
 
+import { isRecord, isUnknownArray } from "@mulmoclaude/common";
+
 interface KeyToken {
   kind: "key";
   key: string;
@@ -49,13 +51,12 @@ function tokenize(path: string): PathToken[] {
 function step(current: unknown, token: PathToken): unknown {
   if (current === null || current === undefined) return undefined;
   if (token.kind === "key") {
-    if (typeof current !== "object" || Array.isArray(current)) return undefined;
-    const record = current as Record<string, unknown>;
+    if (!isRecord(current)) return undefined;
     // A `__proto__` / `constructor` / `toString` key must miss (→ undefined),
     // not read an inherited Object.prototype member into a `naturalKey`.
-    return Object.hasOwn(record, token.key) ? record[token.key] : undefined;
+    return Object.hasOwn(current, token.key) ? current[token.key] : undefined;
   }
-  return Array.isArray(current) ? current[token.index] : undefined;
+  return isUnknownArray(current) ? current[token.index] : undefined;
 }
 
 /** Resolve a dot/bracket path against `root`, or `undefined` on any miss. */
