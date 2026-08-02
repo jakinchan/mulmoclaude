@@ -11,6 +11,7 @@
 // approximation in the legacy `src/utils/format/frontmatter.ts`.
 
 import { FAILSAFE_SCHEMA, dump as yamlDump, load as yamlLoad } from "js-yaml";
+import { isRecord } from "@mulmoclaude/common";
 
 export interface ParsedMarkdown {
   /** Parsed YAML object. Empty `{}` when the document has no
@@ -136,8 +137,8 @@ function safeYamlLoad(text: string): Record<string, unknown> | null {
     // (e.g. `"hello"` parses to the string `"hello"`). Only accept
     // plain objects — anything else is a malformed header.
     if (loaded === null || loaded === undefined) return {};
-    if (typeof loaded !== "object" || Array.isArray(loaded)) return null;
-    return loaded as Record<string, unknown>;
+    if (!isRecord(loaded)) return null;
+    return loaded;
   } catch {
     return null;
   }

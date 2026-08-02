@@ -1,5 +1,5 @@
 import { marked } from "marked";
-import type { Token, Tokens } from "marked";
+import type { Token } from "marked";
 import { resolveImageSrc } from "./resolve";
 import { transformResolvableUrlsInHtml } from "./htmlSrcAttrs";
 
@@ -87,7 +87,10 @@ function extractBracketedAlt(raw: string): string | null {
   return null;
 }
 
-function rewriteImageToken(token: Tokens.Image, basePath: string): string | null {
+// Declares the four fields it reads rather than the whole `Tokens.Image`:
+// `type === "image"` leaves marked's open `Tokens.Generic` member in the
+// union, and every read below already tolerates a missing value.
+function rewriteImageToken(token: { href?: string; raw: string; text?: string; title?: string | null }, basePath: string): string | null {
   const href = (token.href ?? "").trim();
   if (href === "" || shouldSkip(href)) return null;
   const resolved = resolveWorkspacePath(basePath, href);
@@ -144,15 +147,24 @@ function isSkippable(token: Token): boolean {
   return token.type === "code" || token.type === "codespan";
 }
 
+// `Tokens.Generic` — the open member of marked's `Token` union — requires
+// only a string `type` and a string `raw`, so proving those two is enough
+// to call a value a `Token`.
+function isToken(value: unknown): value is Token {
+  if (typeof value !== "object" || value === null) return false;
+  return "type" in value && typeof value.type === "string" && "raw" in value && typeof value.raw === "string";
+}
+
+function toTokenArray(value: unknown): Token[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const candidates: unknown[] = value;
+  return candidates.every(isToken) ? candidates : null;
+}
+
 function getContainerChildren(token: Token): Token[] | null {
-  const container = token as { tokens?: Token[]; items?: Token[] };
-  if (Array.isArray(container.tokens) && container.tokens.length > 0) {
-    return container.tokens;
-  }
-  if (Array.isArray(container.items) && container.items.length > 0) {
-    return container.items;
-  }
-  return null;
+  const tokens: unknown = "tokens" in token ? token.tokens : undefined;
+  const items: unknown = "items" in token ? token.items : undefined;
+  return toTokenArray(tokens) ?? toTokenArray(items);
 }
 
 // Render a container's children back into the output, preserving any
@@ -161,7 +173,7 @@ function getContainerChildren(token: Token): Token[] | null {
 // Returns true if the container was rendered via its children, false
 // if the caller should fall back to emitting the parent's raw.
 function renderContainerChildren(raw: string, children: Token[], basePath: string, out: string[]): boolean {
-  const joined = children.map((token) => (token as { raw?: string }).raw ?? "").join("");
+  const joined = children.map((token) => token.raw).join("");
   if (joined === "") return false;
   const idx = raw.indexOf(joined);
   if (idx < 0) return false;
@@ -187,7 +199,7 @@ function renderToken(token: Token, basePath: string, out: string[]): void {
     return;
   }
   if (token.type === "image") {
-    const replacement = rewriteImageToken(token as Tokens.Image, basePath);
+    const replacement = rewriteImageToken(token, basePath);
     out.push(replacement ?? token.raw);
     return;
   }
@@ -195,13 +207,11 @@ function renderToken(token: Token, basePath: string, out: string[]): void {
     // Block / inline HTML — rewrite raw <img> tags inside before
     // emitting. Markdown image syntax (![alt](url)) is handled by the
     // image-token branch above; this branch covers the HTML-fallback
-    // path (#1011 Stage A). Fall back to verbatim raw if `raw` is
-    // unexpectedly missing — defensive against future marked changes.
-    const raw = (token as { raw?: string }).raw ?? "";
-    out.push(rewriteImgSrcAttrsInHtml(raw, basePath));
+    // path (#1011 Stage A).
+    out.push(rewriteImgSrcAttrsInHtml(token.raw, basePath));
     return;
   }
-  const raw = (token as { raw?: string }).raw ?? "";
+  const { raw } = token;
   const children = getContainerChildren(token);
   if (children && renderContainerChildren(raw, children, basePath, out)) {
     return;
