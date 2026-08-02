@@ -20,6 +20,10 @@ import assert from "node:assert/strict";
 import { findHostPluginCollisions, buildPluginAggregate, defineHostAggregate, filterPluginKeys, BUILT_IN_PLUGIN_METAS } from "../../src/plugins/metas.js";
 import { BUILT_IN_SERVER_BINDINGS } from "../../src/plugins/server.js";
 import type { PluginMeta } from "../../src/plugins/meta-types.js";
+// Type-only (no module side effects): the live aggregators are still loaded
+// via `await import(...)` inside the tests that need their runtime values.
+import type { ToolName } from "../../src/config/toolNames.js";
+import type { WorkspaceDirKey } from "../../server/workspace/paths.js";
 
 test("findHostPluginCollisions returns colliding keys", () => {
   const host = { agent: "/api/agent", roles: "/api/roles" };
@@ -253,4 +257,79 @@ test("__proto__ entry survives the full aggregate pipeline without polluting Obj
   // real Object.prototype, not the plugin's "data/x" string.
   const probe: Record<string, unknown> = {};
   assert.equal(Object.getPrototypeOf(probe), Object.prototype, "Object.prototype untouched");
+});
+
+// ────────────────────────────────────────────────────────────────
+// The declared merged type vs. the record that actually ships
+// ────────────────────────────────────────────────────────────────
+//
+// `defineHostAggregate` proves the HOST half of `merged` (it is a spread of
+// the caller's own `hostRecord`) but takes the PLUGIN half on the caller's
+// word: `buildPluginAggregate` walks `readonly PluginMeta[]`, which has
+// already widened every plugin's literal keys to `string`, so the compiler
+// cannot re-derive them from the value. The tests below are what checks that
+// claim — a key the type promises but the merge drops would otherwise reach
+// call sites as a silent `undefined` rather than a type error.
+
+/** Read a key out of a literal-keyed aggregator without indexing it by a
+ *  `string` (which the narrow key union rejects). */
+function lookup(record: object, key: string): unknown {
+  return new Map(Object.entries(record)).get(key);
+}
+
+test("every plugin META contribution reaches the live aggregators", async () => {
+  const toolNames = await import("../../src/config/toolNames.js");
+  const apiRoutes = await import("../../src/config/apiRoutes.js");
+  const pubsub = await import("../../src/config/pubsubChannels.js");
+  const paths = await import("../../server/workspace/paths.js");
+  // Widening assignment (not a cast): the aggregators consume the METAs
+  // through exactly this `readonly PluginMeta[]` view, so the optional
+  // dimensions read the same way here as they do in the pipeline.
+  const metas: readonly PluginMeta[] = BUILT_IN_PLUGIN_METAS;
+  for (const meta of metas) {
+    assert.equal(lookup(toolNames.TOOL_NAMES, meta.toolName), meta.toolName, `TOOL_NAMES.${meta.toolName}`);
+    for (const [key, value] of Object.entries(meta.workspaceDirs ?? {})) {
+      assert.equal(lookup(paths.WORKSPACE_DIRS, key), value, `WORKSPACE_DIRS.${key}`);
+    }
+    for (const [key, value] of Object.entries(meta.staticChannels ?? {})) {
+      assert.equal(lookup(pubsub.PUBSUB_CHANNELS, key), value, `PUBSUB_CHANNELS.${key}`);
+    }
+    if (meta.apiRoutes === undefined) continue;
+    const namespace = meta.apiNamespace ?? meta.toolName;
+    const group = lookup(apiRoutes.API_ROUTES, namespace);
+    assert.ok(group, `API_ROUTES.${namespace} present`);
+    for (const [key, spec] of Object.entries(meta.apiRoutes)) {
+      assert.deepEqual(lookup(Object(group), key), { method: spec.method, url: `/api/${namespace}${spec.path}` }, `API_ROUTES.${namespace}.${key}`);
+    }
+  }
+});
+
+// Compile-time half of the same contract: `yarn typecheck:test` fails if a
+// merged aggregator ever widens a literal to `string`. Widening type-checks
+// fine at every call site (a literal is assignable to `string`), so nothing
+// else in the suite would notice — but `WORKSPACE_PATHS.<key>` lookups and
+// `role.availablePlugins` typo-checking both rest on these staying narrow.
+type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
+type ToolNamesMap = (typeof import("../../src/config/toolNames.js"))["TOOL_NAMES"];
+type ApiRoutesMap = (typeof import("../../src/config/apiRoutes.js"))["API_ROUTES"];
+type PubSubMap = (typeof import("../../src/config/pubsubChannels.js"))["PUBSUB_CHANNELS"];
+type WorkspaceDirsMap = (typeof import("../../server/workspace/paths.js"))["WORKSPACE_DIRS"];
+
+test("merged aggregator types keep their string literals", () => {
+  // Plugin-contributed keys.
+  const pluginToolName: Exact<ToolNamesMap["manageAccounting"], "manageAccounting"> = true;
+  const pluginChannel: Exact<PubSubMap["accountingBooks"], "accounting:books"> = true;
+  const pluginDir: Exact<WorkspaceDirsMap["accountingBooks"], "data/accounting/books"> = true;
+  // Host-owned keys.
+  const hostToolName: Exact<ToolNamesMap["textResponse"], "text-response"> = true;
+  const hostRoute: Exact<ApiRoutesMap["health"], "/api/health"> = true;
+  const hostDir: Exact<WorkspaceDirsMap["chat"], "conversations/chat"> = true;
+  // Derived unions must never collapse to bare `string`.
+  const toolNameUnion: Exact<ToolName, string> = false;
+  const dirKeyUnion: Exact<WorkspaceDirKey, string> = false;
+  assert.deepEqual(
+    [pluginToolName, pluginChannel, pluginDir, hostToolName, hostRoute, hostDir, toolNameUnion, dirKeyUnion],
+    [true, true, true, true, true, true, false, false],
+  );
 });
