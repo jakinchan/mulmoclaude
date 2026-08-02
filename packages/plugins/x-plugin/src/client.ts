@@ -1,4 +1,4 @@
-import { errorMessage, toUtcIsoDate } from "@mulmoclaude/common";
+import { errorMessage, isRecord, isUnknownArray, toUtcIsoDate } from "@mulmoclaude/common";
 import { fetchWithTimeout, ONE_SECOND_MS, safeResponseText } from "./internal";
 
 const X_API_BASE = "https://api.twitter.com/2";
@@ -50,6 +50,94 @@ export function xBearerToken(): string | undefined {
   return process.env.X_BEARER_TOKEN;
 }
 
+const readString = (source: Record<string, unknown>, key: string): string | undefined => {
+  const value = source[key];
+  return typeof value === "string" ? value : undefined;
+};
+
+const readNumber = (source: Record<string, unknown>, key: string): number | undefined => {
+  const value = source[key];
+  return typeof value === "number" ? value : undefined;
+};
+
+function toXUser(value: unknown): XUser | null {
+  if (!isRecord(value)) return null;
+  const userId = readString(value, "id");
+  const name = readString(value, "name");
+  const username = readString(value, "username");
+  if (userId === undefined || name === undefined || username === undefined) return null;
+  return { id: userId, name, username };
+}
+
+function toNoteTweet(value: unknown): XTweet["note_tweet"] {
+  if (!isRecord(value)) return undefined;
+  const text = readString(value, "text");
+  return text === undefined ? undefined : { text };
+}
+
+function toArticle(value: unknown): XTweet["article"] {
+  if (!isRecord(value)) return undefined;
+  return { title: readString(value, "title"), plain_text: readString(value, "plain_text") };
+}
+
+function toPublicMetrics(value: unknown): XTweet["public_metrics"] {
+  if (!isRecord(value)) return undefined;
+  const like_count = readNumber(value, "like_count");
+  const retweet_count = readNumber(value, "retweet_count");
+  const reply_count = readNumber(value, "reply_count");
+  if (like_count === undefined || retweet_count === undefined || reply_count === undefined) return undefined;
+  return { like_count, retweet_count, reply_count };
+}
+
+function toXTweet(value: unknown): XTweet | null {
+  if (!isRecord(value)) return null;
+  const tweetId = readString(value, "id");
+  const text = readString(value, "text");
+  if (tweetId === undefined || text === undefined) return null;
+  return {
+    id: tweetId,
+    text,
+    author_id: readString(value, "author_id"),
+    created_at: readString(value, "created_at"),
+    note_tweet: toNoteTweet(value.note_tweet),
+    article: toArticle(value.article),
+    public_metrics: toPublicMetrics(value.public_metrics),
+  };
+}
+
+function toXErrors(value: unknown): { detail: string }[] | undefined {
+  if (!isUnknownArray(value)) return undefined;
+  return value.flatMap((item) => {
+    const detail = isRecord(item) ? readString(item, "detail") : undefined;
+    return detail === undefined ? [] : [{ detail }];
+  });
+}
+
+function toXIncludes(value: unknown): XApiResponse["includes"] {
+  if (!isRecord(value) || !isUnknownArray(value.users)) return undefined;
+  return { users: value.users.flatMap((user) => toXUser(user) ?? []) };
+}
+
+function toXMeta(value: unknown): XApiResponse["meta"] {
+  if (!isRecord(value)) return undefined;
+  const result_count = readNumber(value, "result_count");
+  return result_count === undefined ? undefined : { result_count };
+}
+
+/** Rebuild the response from the fields we can prove. Every member of
+ *  `XApiResponse` is optional, so an unrecognised body degrades to `{}`
+ *  and the tools report "not found" / "no results" instead of formatting
+ *  a half-shaped tweet. */
+export function parseXApiResponse(json: unknown): XApiResponse {
+  if (!isRecord(json)) return {};
+  return {
+    data: isUnknownArray(json.data) ? json.data.flatMap((item) => toXTweet(item) ?? []) : (toXTweet(json.data) ?? undefined),
+    includes: toXIncludes(json.includes),
+    errors: toXErrors(json.errors),
+    meta: toXMeta(json.meta),
+  };
+}
+
 export async function fetchX(path: string): Promise<XApiResponse> {
   const token = xBearerToken();
   if (!token) throw new Error("X_BEARER_TOKEN is not configured in .env");
@@ -71,7 +159,7 @@ export async function fetchX(path: string): Promise<XApiResponse> {
     throw new Error(`X API error ${response.status}: ${body}`);
   }
 
-  return response.json() as Promise<XApiResponse>;
+  return parseXApiResponse(await response.json());
 }
 
 // `text` caps at 280 chars; long-form Posts and Articles carry their real body
