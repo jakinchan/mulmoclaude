@@ -3,6 +3,9 @@ export type { MarkdownToolData, MarkdownArgs } from "../plugins/markdown/definit
 export { TOOL_DEFINITION } from "../plugins/markdown/definition";
 export { pluginCore, executeDocument } from "./plugin";
 export { executeMarkdown } from "../plugins/markdown/core";
+// Debounce + serialise + cancellation rules behind the editor's auto save.
+export { createAutoSaver } from "../plugins/markdown/autoSaver";
+export type { AutoSaver, AutoSaverOptions } from "../plugins/markdown/autoSaver";
 export type { MarkdownExecuteContext } from "../plugins/markdown/core";
 export type { MarkdownHostApp, MarkdownDispatchArgs, MarkdownDispatchResult, ExportPdfOptions, MarpThemeEntry } from "../plugins/markdown/contract";
 export { isMarkdownDispatchArgs } from "../plugins/markdown/contract";

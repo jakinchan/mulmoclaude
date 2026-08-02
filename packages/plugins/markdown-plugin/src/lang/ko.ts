@@ -9,6 +9,7 @@ const ko: Messages = {
   pdfFailedShort: "⚠ PDF 실패",
   editSource: "Markdown 원본 편집",
   livePreview: "실시간 미리보기",
+  autoSave: "자동 저장",
   saving: "저장 중...",
   applyChanges: "변경 사항 적용",
   cancel: "취소",

@@ -9,6 +9,7 @@ const de: Messages = {
   pdfFailedShort: "⚠ PDF fehlgeschlagen",
   editSource: "Markdown-Quelle bearbeiten",
   livePreview: "Live-Vorschau",
+  autoSave: "Automatisch speichern",
   saving: "Wird gespeichert...",
   applyChanges: "Änderungen übernehmen",
   cancel: "Abbrechen",

@@ -23,8 +23,8 @@ function resolveWorkspacePath(): string {
   try {
     const envPath = path.join(process.cwd(), '.env')
     const content = fs.readFileSync(envPath, 'utf-8')
-    const match = content.match(/^MULMOCLAUDE_WORKSPACE_PATH=(.+)$/m)
-    if (match) return match[1].trim()
+    const assigned = content.match(/^MULMOCLAUDE_WORKSPACE_PATH=(.+)$/m)?.[1]
+    if (assigned !== undefined) return assigned.trim()
   } catch {
     /* .env not present, fall through to default */
   }

@@ -133,12 +133,21 @@
         <div class="markdown-source">
           <button v-if="!editing" class="source-toggle" @click="openEditor">{{ t("pluginMarkdown.editSource") }}</button>
           <template v-else>
-            <textarea ref="editorRef" v-model="editableMarkdown" class="markdown-editor" spellcheck="false" @scroll="syncPreviewScroll"></textarea>
+            <textarea ref="editorRef" v-model="editableMarkdown" class="markdown-editor" spellcheck="false" @scroll="onEditorScroll"></textarea>
             <div class="editor-actions">
-              <label class="live-toggle">
-                <input v-model="livePreview" type="checkbox" />
-                {{ t("pluginMarkdown.livePreview") }}
-              </label>
+              <div class="toggle-group">
+                <label class="live-toggle">
+                  <input v-model="livePreview" type="checkbox" />
+                  {{ t("pluginMarkdown.livePreview") }}
+                </label>
+                <!-- Auto save rides on live preview: without it the viewer
+                     already shows what is on disk, so writing behind the
+                     user's back would buy nothing and cost the Cancel. -->
+                <label v-if="livePreview && canPersist" class="live-toggle">
+                  <input v-model="autoSave" type="checkbox" />
+                  {{ t("pluginMarkdown.autoSave") }}
+                </label>
+              </div>
               <!-- Grouped so `.editor-actions` still sees two children and its
                    space-between keeps meaning what it does in the marp panel. -->
               <div class="action-buttons">
@@ -166,6 +175,7 @@ import { marked } from "marked";
 import { formatScalarField, sanitizeMarkdownHtml, useMarkdownDoc, useClipboardCopy, useFileWatch } from "@mulmoclaude/core/plugin-vue";
 import type { ToolResult } from "gui-chat-protocol";
 import { documentPathOf, type MarkdownToolData } from "./definition";
+import { createAutoSaver } from "./autoSaver";
 import { rewriteMarkdownImageRefs } from "@mulmoclaude/markdown-utils/image/rewriteMarkdownImageRefs";
 import { findTaskLines, makeTasksInteractive, toggleTaskAt } from "@mulmoclaude/markdown-utils/markdown/taskList";
 import { mermaidExtension } from "@mulmoclaude/markdown-utils/markdown/mermaidExtension";
@@ -347,7 +357,43 @@ watch([editableMarkdown, livePreview, editing], ([text, live, open], previous) =
   }, LIVE_PREVIEW_DEBOUNCE_MS);
 });
 
-onUnmounted(() => clearTimeout(liveTimer));
+// Auto save (opt-in, only offered alongside live preview): the buffer is
+// written to disk on a debounce so the document keeps up with the typing
+// without an Apply. Off by default — a write is not undoable, and the panel
+// is also used to try things out. Only file-backed documents can persist;
+// inline legacy content has no on-disk twin to save to.
+const AUTO_SAVE_DEBOUNCE_MS = 1500;
+const canPersist = computed(() => documentPathOf(props.selectedResult.data) !== null);
+const autoSave = ref(false);
+const autoSaveActive = computed(() => autoSave.value && livePreview.value && editing.value && canPersist.value);
+// Debounce, serialisation and the "is this write still wanted?" rule live in
+// `createAutoSaver` (unit-tested there — the cancellation boundary is the part
+// worth pinning down). This view supplies the two predicates.
+const autoSaver = createAutoSaver<string | null>({
+  delayMs: AUTO_SAVE_DEBOUNCE_MS,
+  // Re-checked when a queued write finally runs, not just when it was queued:
+  // a write already handed to the chain waits behind an in-flight PUT and would
+  // otherwise still land — persisting text the user discarded with Cancel, or
+  // asked to stop persisting by unticking a box. The path check covers the
+  // other half: the user may have selected a different document meanwhile.
+  isWanted: (path) => autoSaveActive.value && documentPathOf(props.selectedResult.data) === path,
+  write: (text) => persistMarkdown(text),
+});
+
+watch([editableMarkdown, autoSaveActive], () => {
+  autoSaver.cancel();
+  // Closing the editor / unticking either box flips `autoSaveActive` and lands
+  // here, so a pending write is dropped before Cancel discards the draft.
+  if (!autoSaveActive.value || !hasChanges.value) return;
+  // Snapshot what is being saved and where — by the time the write runs,
+  // `editableMarkdown` and the selected document may both have moved on.
+  autoSaver.schedule(editableMarkdown.value, documentPathOf(props.selectedResult.data));
+});
+
+onUnmounted(() => {
+  clearTimeout(liveTimer);
+  autoSaver.cancel();
+});
 
 // What the viewer renders. Deliberately NOT what `marpMode` and the
 // task-checkbox walker read: those stay on `markdownContent`, so typing marp
@@ -366,8 +412,31 @@ const previewDoc = useMarkdownDoc(previewSource);
 const previewScrollRef = ref<HTMLElement | null>(null);
 const editorRef = ref<HTMLTextAreaElement | null>(null);
 
+// Whether the textarea has been scrolled since the editor opened. Until it has,
+// the viewer is left exactly where the reader put it: opening the editor shrinks
+// the viewer, and the browser keeps its absolute scrollTop, so re-deriving that
+// position from the editor's fraction against the new (shorter) range would
+// nudge the text the reader is looking at for no reason. The sync starts the
+// moment the editor actually becomes the side being driven.
+const editorScrolled = ref(false);
+
+// Set when we move the textarea ourselves (opening the editor at the viewer's
+// position). The resulting scroll event is indistinguishable from the user's,
+// and taking it as "the editor is being driven now" would trigger the very
+// nudge this flag exists to prevent.
+let suppressEditorScroll = false;
+
+function onEditorScroll(): void {
+  if (suppressEditorScroll) {
+    suppressEditorScroll = false;
+    return;
+  }
+  editorScrolled.value = true;
+  syncPreviewScroll();
+}
+
 function syncPreviewScroll(): void {
-  if (!livePreview.value || !editing.value) return;
+  if (!livePreview.value || !editing.value || !editorScrolled.value) return;
   const editor = editorRef.value;
   const preview = previewScrollRef.value;
   if (!editor || !preview) return;
@@ -383,6 +452,32 @@ function syncPreviewScroll(): void {
 // changes the viewer's scrollHeight, so the fraction that was right a keystroke
 // ago now points somewhere else.
 watch([liveBuffer, livePreview], () => void nextTick(syncPreviewScroll));
+
+// The same mapping the other way round, run once when the editor opens: the
+// textarea starts at the viewer's scroll fraction, so opening the source after
+// reading halfway down a document lands on the part being read rather than at
+// the top. Same proportional caveat as above — close, not line-accurate.
+// Returns null when the viewer isn't scrollable (or isn't mounted): there is no
+// position to carry over, and dividing by that range would be a division by zero.
+function previewScrollFraction(): number | null {
+  const preview = previewScrollRef.value;
+  if (!preview) return null;
+  const range = preview.scrollHeight - preview.clientHeight;
+  return range > 0 ? preview.scrollTop / range : null;
+}
+
+function applyEditorScrollFraction(fraction: number): void {
+  const editor = editorRef.value;
+  if (!editor) return;
+  const range = editor.scrollHeight - editor.clientHeight;
+  if (range <= 0) return;
+  const target = fraction * range;
+  // Only arm the suppression when the assignment will actually move the
+  // element — a no-op assignment fires no scroll event, and the flag would
+  // then swallow the user's first real scroll instead.
+  if (Math.round(target) !== Math.round(editor.scrollTop)) suppressEditorScroll = true;
+  editor.scrollTop = target;
+}
 
 function enterMarpSplitMode(): void {
   // Preserve any existing unsaved draft. The close (`close_fullscreen`)
@@ -498,7 +593,16 @@ function openEditor(): void {
   // The draft survives a close/reopen, so don't touch `editableMarkdown` here
   // — only `closeEditor` (and Cancel, which is the same thing) discards it.
   saveError.value = null;
+  // A fresh open is a fresh reader: the viewer keeps its position until this
+  // editor is scrolled, however the previous one was left.
+  editorScrolled.value = false;
+  // Read the viewer's position BEFORE the editor mounts: opening it shrinks the
+  // viewer, which moves its own scrollTop, so the fraction taken afterwards
+  // would be the post-shrink one rather than what the user was looking at.
+  const fraction = previewScrollFraction();
   editing.value = true;
+  if (fraction === null) return;
+  void nextTick(() => applyEditorScrollFraction(fraction));
 }
 
 // One teardown for both panels. The marp branch is still a <details>, and
@@ -536,52 +640,71 @@ async function downloadPdf() {
   await rawDownloadPdf({ markdown: markdownContent.value, filename });
 }
 
-async function applyMarkdown() {
-  const raw = props.selectedResult.data?.markdown;
-  const filePath = documentPathOf(props.selectedResult.data);
-  if (!raw && !filePath) return;
-
-  saveError.value = null;
-
-  // If file-based, save to server. The path is sent verbatim — it is
-  // whatever the tool call named (an `artifacts/documents/YYYY/MM/…` doc
-  // this tool wrote, a repo file, an absolute path), and the host is the
-  // layer that decides what it will write.
-  if (filePath) {
-    saving.value = true;
-    pendingSelfSaves.value += 1;
-    try {
-      await dispatch({ kind: "saveDoc", path: filePath, markdown: editableMarkdown.value });
-    } catch (err) {
-      // Roll back the self-save expectation — no pubsub event will
-      // arrive for a failed save, so the counter would otherwise stay
-      // high and silently absorb the next *remote* write.
-      pendingSelfSaves.value = Math.max(0, pendingSelfSaves.value - 1);
-      // Store the raw error; the template formats it via t() so locale
-      // switches re-render without double-translating.
-      saveError.value = err instanceof Error ? err.message : String(err);
-      return;
-    } finally {
-      saving.value = false;
-    }
+// Shared write path for Apply and auto save. Returns false when nothing was
+// written, so Apply can keep the panel open on failure while auto save just
+// leaves the error banner up and retries on the next keystroke.
+// The write itself. The path is sent verbatim — it is whatever the tool call
+// named (an `artifacts/documents/YYYY/MM/…` doc this tool wrote, a repo file,
+// an absolute path), and the host is the layer that decides what it will write.
+async function writeDoc(filePath: string, text: string): Promise<boolean> {
+  saving.value = true;
+  pendingSelfSaves.value += 1;
+  try {
+    await dispatch({ kind: "saveDoc", path: filePath, markdown: text });
+    return true;
+  } catch (err) {
+    // Roll back the self-save expectation — no pubsub event will
+    // arrive for a failed save, so the counter would otherwise stay
+    // high and silently absorb the next *remote* write.
+    pendingSelfSaves.value = Math.max(0, pendingSelfSaves.value - 1);
+    // Store the raw error; the template formats it via t() so locale
+    // switches re-render without double-translating.
+    saveError.value = err instanceof Error ? err.message : String(err);
+    return false;
+  } finally {
+    saving.value = false;
   }
+}
 
-  // Update local state
-  markdownContent.value = editableMarkdown.value;
-
-  // Emit update to parent (clears pdfPath since content changed)
-  const updatedResult: ToolResult<MarkdownToolData> = {
+// What the parent is told after a successful write (pdfPath is cleared because
+// the content it was rendered from is gone).
+function buildUpdatedResult(filePath: string | null, text: string): ToolResult<MarkdownToolData> {
+  return {
     ...props.selectedResult,
     data: {
       ...props.selectedResult.data,
-      markdown: filePath ?? editableMarkdown.value,
+      markdown: filePath ?? text,
       pdfPath: undefined,
     },
   };
-  emit("updateResult", updatedResult);
+}
 
-  // Close the edit panel
-  closeEditor();
+async function persistMarkdown(text: string): Promise<boolean> {
+  const raw = props.selectedResult.data?.markdown;
+  const filePath = documentPathOf(props.selectedResult.data);
+  if (!raw && !filePath) return false;
+
+  saveError.value = null;
+
+  if (filePath) {
+    if (!(await writeDoc(filePath, text))) return false;
+    // The user may have selected another document during the round trip. Every
+    // state mutation below belongs to the document that was written, so
+    // applying them now would put its content — and its path — on whatever is
+    // on screen instead. Same guard as `persistTaskMarkdown`.
+    if (documentPathOf(props.selectedResult.data) !== filePath) return false;
+  }
+
+  markdownContent.value = text;
+  emit("updateResult", buildUpdatedResult(filePath, text));
+  return true;
+}
+
+async function applyMarkdown() {
+  if (await persistMarkdown(editableMarkdown.value)) {
+    // Close the edit panel
+    closeEditor();
+  }
 }
 
 // ── Inline task-list checkbox toggle (#775) ──────────────────────
@@ -977,6 +1100,13 @@ watch(
   font-weight: 400;
   color: #333;
   cursor: pointer;
+}
+
+.toggle-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .action-buttons {
