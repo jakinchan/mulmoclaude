@@ -16,6 +16,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { OWNER_MARKER, provisionDispatcherHook, upsertDispatcherEntry } from "../../../server/workspace/hooks/provision.js";
+import { isRecord, isUnknownArray } from "../../../server/utils/types.js";
 
 interface HookEntry {
   matcher?: string;
@@ -206,25 +207,34 @@ describe("provisionDispatcherHook — descriptor-level stripping", () => {
   });
 });
 
+/** The provisioner models the settings tree as `Record<string, unknown>` (it is
+ *  the user's own file), so the assertions narrow the branch they read. */
+function postToolUseEntries(settings: Record<string, unknown>): unknown[] {
+  const { hooks } = settings;
+  const entries = isRecord(hooks) ? hooks.PostToolUse : undefined;
+  if (!isUnknownArray(entries)) assert.fail("settings.hooks.PostToolUse is not an array");
+  return entries;
+}
+
 describe("upsertDispatcherEntry — pure helper", () => {
   it("dedupes our own marker on repeated calls", () => {
     const first = upsertDispatcherEntry({});
     const second = upsertDispatcherEntry(first);
     // Both passes produce settings with exactly one dispatcher
     // entry — the helper recognises its own marker.
-    assert.equal((second.hooks?.PostToolUse as HookEntry[]).length, 1);
+    assert.equal(postToolUseEntries(second).length, 1);
   });
 
   it("normalises a malformed PostToolUse field without throwing", () => {
-    // Cast through `unknown` because the provisioner's `SettingsShape`
-    // is strictly typed but we want to feed in a corrupted on-disk
-    // shape (string instead of array) — exactly the scenario this
-    // test is meant to cover.
-    const settings = { hooks: { PostToolUse: "not-an-array" } } as unknown as Parameters<typeof upsertDispatcherEntry>[0];
-    const next = upsertDispatcherEntry(settings);
-    const entries = next.hooks?.PostToolUse as HookEntry[];
-    assert.ok(Array.isArray(entries));
+    // A corrupted on-disk shape (string instead of array) — exactly the
+    // scenario this test is meant to cover.
+    const next = upsertDispatcherEntry({ hooks: { PostToolUse: "not-an-array" } });
+    const entries = postToolUseEntries(next);
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].hooks?.[0]?.[OWNER_MARKER], true);
+    const [entry] = entries;
+    if (!isRecord(entry) || !isUnknownArray(entry.hooks)) assert.fail("dispatcher entry carries no hooks array");
+    const [descriptor] = entry.hooks;
+    if (!isRecord(descriptor)) assert.fail("dispatcher descriptor is not an object");
+    assert.equal(descriptor[OWNER_MARKER], true);
   });
 });

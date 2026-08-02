@@ -11,6 +11,8 @@
 // via gui-chat-protocol's `ToolContext.app`, which the generic runtime
 // path (scoped files/fetch only) doesn't carry.
 
+import { isObj, isRecord } from "../utils/types.js";
+
 export type BuiltinDispatchHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
 const registry = new Map<string, BuiltinDispatchHandler>();
@@ -28,8 +30,8 @@ const registry = new Map<string, BuiltinDispatchHandler>();
  *  belt-and-braces for a direct caller — a test, or another host wiring the
  *  registry up itself. */
 export function describeKind(payload: unknown): string {
-  if (payload === null || typeof payload !== "object") return JSON.stringify(payload) ?? String(payload);
-  return JSON.stringify((payload as { kind?: unknown }).kind) ?? "undefined";
+  if (!isObj(payload)) return JSON.stringify(payload) ?? String(payload);
+  return JSON.stringify(isRecord(payload) ? payload.kind : undefined) ?? "undefined";
 }
 
 /** Register a built-in plugin's dispatch handler under its scope name.

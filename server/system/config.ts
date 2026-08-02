@@ -186,15 +186,15 @@ function isPhotoExifSettings(value: unknown): value is { autoCapture: boolean } 
 }
 
 function isEffortLevel(value: unknown): value is EffortLevel {
-  return typeof value === "string" && (EFFORT_LEVELS as readonly string[]).includes(value);
+  return EFFORT_LEVELS.some((level) => level === value);
 }
 
 function isChatIndexMode(value: unknown): value is ChatIndexMode {
-  return typeof value === "string" && (CHAT_INDEX_MODES as readonly string[]).includes(value);
+  return CHAT_INDEX_MODES.some((mode) => mode === value);
 }
 
 function isJournalMode(value: unknown): value is JournalMode {
-  return typeof value === "string" && (JOURNAL_MODES as readonly string[]).includes(value);
+  return JOURNAL_MODES.some((mode) => mode === value);
 }
 
 function isVoiceInputSettings(value: unknown): value is { enabled: boolean; model?: string } {

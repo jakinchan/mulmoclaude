@@ -200,8 +200,7 @@ async function updateViaView(
   // (same as the page builder) so a record with large text/markdown fields can't
   // push the mutate result over the command-document cap — over budget, the field
   // stays a path (placeholder), never a doc-write failure.
-  const [enriched] = await deps.enrichItems(collection, [result.item]);
-  const item = enriched as RemoteViewItem;
+  const [item] = await deps.enrichItems(collection, [result.item]);
   // Enrichment can inflate the base item (an `embed` attaches a whole target
   // record, a computed field a large payload). If the base JSON already exceeds
   // the doc budget, no thumbnail-skipping can save it — the write DID persist,
@@ -213,7 +212,7 @@ async function updateViaView(
   if (imageFields.length > 0) {
     await inlineImages([item], imageFields, clampImageMaxEdge(view.imageMaxEdge), deps.resolveThumbnail, REMOTE_VIEW_ITEMS_MAX_BYTES - baseBytes);
   }
-  return { kind: "ok", op: "update", item: item as CollectionItem };
+  return { kind: "ok", op: "update", item };
 }
 
 export const mutateRemoteView = createMutateRemoteView({ storeFor, enrichItems, resolveThumbnail });
@@ -294,7 +293,7 @@ export const createRemoteViewItems =
     // resolve), toggles projected, embeds resolved. The phone gets plain resolved
     // scalars — no network, no dataUrl — so mobile numbers match desktop exactly.
     const items = await deps.listRecords(collection);
-    const derived = (await deps.enrichItems(collection, items)) as RemoteViewItem[];
+    const derived = await deps.enrichItems(collection, items);
     const page = pageFromItems(derived, request, collection.schema.primaryKey);
     // Resolving an `embed` column attaches a whole target record per row, so the
     // base (path-only) page JSON can itself blow the doc budget before a single

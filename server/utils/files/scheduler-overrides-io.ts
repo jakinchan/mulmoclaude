@@ -29,13 +29,10 @@ function overridesPath(root?: string): string {
   return path.join(root ?? workspacePath, WORKSPACE_FILES.schedulerOverrides);
 }
 
-// Filters out invalid entries with a warning.
-export function loadSchedulerOverrides(root?: string): ScheduleOverrides {
-  const raw = loadJsonFile<unknown>(overridesPath(root), {});
-  if (!isRecord(raw)) {
-    log.warn("scheduler-overrides", "overrides.json is not an object");
-    return {};
-  }
+/** Keep only the entries that parse as an override, warning about the rest.
+ *  Shared by the disk read and the PUT route so both accept exactly the same
+ *  shapes — a value that survives here is the only thing ever stored. */
+export function keepValidOverrides(raw: Record<string, unknown>): ScheduleOverrides {
   const result: ScheduleOverrides = {};
   for (const [key, value] of Object.entries(raw)) {
     if (isScheduleOverride(value)) {
@@ -45,6 +42,16 @@ export function loadSchedulerOverrides(root?: string): ScheduleOverrides {
     }
   }
   return result;
+}
+
+// Filters out invalid entries with a warning.
+export function loadSchedulerOverrides(root?: string): ScheduleOverrides {
+  const raw = loadJsonFile<unknown>(overridesPath(root), {});
+  if (!isRecord(raw)) {
+    log.warn("scheduler-overrides", "overrides.json is not an object");
+    return {};
+  }
+  return keepValidOverrides(raw);
 }
 
 export function saveSchedulerOverrides(overrides: ScheduleOverrides, root?: string): void {

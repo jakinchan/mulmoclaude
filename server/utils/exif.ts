@@ -123,13 +123,13 @@ const PARSE_OPTIONS = {
  *  for photos with a zeroed-out GPS block (sometimes seen on Android
  *  exports where the user opted out mid-stream); treating 0/0 as
  *  "no fix" avoids a useless pin in the middle of the Atlantic. */
-function isValidCoord(lat: unknown, lng: unknown): lat is number {
-  if (typeof lat !== "number" || typeof lng !== "number") return false;
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-  if (lat < VALID_LAT_MIN || lat > VALID_LAT_MAX) return false;
-  if (lng < VALID_LNG_MIN || lng > VALID_LNG_MAX) return false;
-  if (lat === 0 && lng === 0) return false;
-  return true;
+function validCoordPair(lat: unknown, lng: unknown): { lat: number; lng: number } | null {
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < VALID_LAT_MIN || lat > VALID_LAT_MAX) return null;
+  if (lng < VALID_LNG_MIN || lng > VALID_LNG_MAX) return null;
+  if (lat === 0 && lng === 0) return null;
+  return { lat, lng };
 }
 
 function pickString(raw: Record<string, unknown>, key: string): string | undefined {
@@ -191,9 +191,10 @@ function pickFiniteNumber(value: unknown, opts?: { min?: number; max?: number })
  *  → decimal), the rest are 1:1 tag renames. */
 function pickGps(record: Record<string, unknown>): Pick<PhotoExif, "lat" | "lng" | "altitude" | "hPositioningError" | "heading" | "speed"> {
   const out: Pick<PhotoExif, "lat" | "lng" | "altitude" | "hPositioningError" | "heading" | "speed"> = {};
-  if (isValidCoord(record.latitude, record.longitude)) {
-    out.lat = record.latitude as number;
-    out.lng = record.longitude as number;
+  const coord = validCoordPair(record.latitude, record.longitude);
+  if (coord) {
+    out.lat = coord.lat;
+    out.lng = coord.lng;
   }
   const altitude = pickFiniteNumber(record.GPSAltitude);
   if (altitude !== undefined) out.altitude = altitude;
