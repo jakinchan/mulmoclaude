@@ -65,7 +65,7 @@ export type Spawner = typeof spawn;
 
 function spawnDetachedOsCommand(command: string, args: readonly string[], label: string, spawner: Spawner): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    const child = spawner(command, args as string[], { detached: true, stdio: "ignore" });
+    const child = spawner(command, args, { detached: true, stdio: "ignore" });
     let settled = false;
     child.once("error", (err) => {
       if (settled) return;

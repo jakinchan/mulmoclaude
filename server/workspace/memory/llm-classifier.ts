@@ -15,7 +15,7 @@
 // is one-time and small — keep the request shape simple.
 
 import type { MemoryClassification, MemoryCandidate, MemoryClassifier } from "./migrate.js";
-import { isMemoryType, type MemoryType } from "./types.js";
+import { isMemoryType } from "./types.js";
 import { extractFirstObject, stripFenceAndWhitespace } from "./llm-json.js";
 
 import { ClaudeCliNotFoundError, type Summarize } from "../journal/archivist-cli.js";

@@ -8,6 +8,7 @@
 // serve identical page semantics — re-exported here for the handlers.
 import { clampLimit, clampOffset, readIdParam } from "@mulmoclaude/core/remote-view";
 import { deriveAll, type DerivableFieldSpec, type DerivableRecord } from "@mulmoclaude/core/collection";
+import { isRecord } from "../../utils/types.js";
 import type { JsonObject } from "../commandChannel.js";
 
 export { clampLimit, clampOffset, readIdParam };
@@ -18,7 +19,7 @@ export { clampLimit, clampOffset, readIdParam };
  *  channel, so formulas that dereference `ref` fields stay absent; the desktop
  *  phone-frame preview derives with the same empty cache (parity). */
 export const deriveItems = (schema: { fields?: Record<string, DerivableFieldSpec> }, items: unknown[]): DerivableRecord[] =>
-  items.map((item) => deriveAll({ fields: schema.fields ?? {} }, item as DerivableRecord, {}));
+  items.map((item) => deriveAll({ fields: schema.fields ?? {} }, isRecord(item) ? item : {}, {}));
 
 /** Build the paginated result.
  *

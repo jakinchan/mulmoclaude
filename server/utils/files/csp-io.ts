@@ -8,7 +8,7 @@
 import path from "node:path";
 import { WORKSPACE_FILES, workspacePath } from "../../workspace/paths.js";
 import { readTextSafeSync } from "./safe.js";
-import { sanitizeCspExtra, type CspExtraHosts, type CspDirective } from "../../../src/utils/html/previewCsp.js";
+import { sanitizeCspExtra, type CspExtraHosts } from "../../../src/utils/html/previewCsp.js";
 import { log } from "../../system/logger/index.js";
 
 function cspFilePath(workspaceRoot?: string): string {
@@ -31,9 +31,9 @@ export function readCspExtraSync(workspaceRoot?: string): CspExtraHosts {
 // custom view's scoped token/data (#1989).
 export function warnIfCspExtended(workspaceRoot?: string): void {
   const extra = readCspExtraSync(workspaceRoot);
-  const directives = Object.keys(extra) as CspDirective[];
+  const directives = Object.entries(extra);
   if (directives.length === 0) return;
-  const summary = directives.map((directive) => `${directive}=[${(extra[directive] ?? []).join(", ")}]`).join(" ");
+  const summary = directives.map(([directive, hosts]) => `${directive}=[${(hosts ?? []).join(", ")}]`).join(" ");
   log.warn("csp", `config/csp.json extends the sandbox CSP; every added host is a supply-chain / exfiltration surface: ${summary}`);
   const connectHosts = extra["connect-src"] ?? [];
   if (connectHosts.length > 0) {

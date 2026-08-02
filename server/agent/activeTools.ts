@@ -31,6 +31,7 @@ import type { ToolDefinition } from "gui-chat-protocol";
 import { mcpTools, isMcpToolEnabled } from "./mcp-tools/index.js";
 import { PLUGIN_DEFS, TOOL_ENDPOINTS } from "./plugin-names.js";
 import { getRuntimePlugins } from "../plugins/runtime-registry.js";
+import { hasStringProp } from "../utils/types.js";
 
 /** The MCP server id the parent registers via `--mcp-config` (see
  *  `buildMulmoclaudeServer` in `config.ts`). The Claude Agent SDK
@@ -70,12 +71,7 @@ export interface ActiveToolDescriptor {
 
 const FULL_PREFIX = `mcp__${MCP_SERVER_ID}__`;
 const fullNameFor = (toolName: string): string => `${FULL_PREFIX}${toolName}`;
-const promptFor = (def: ToolDefinition): string | undefined => {
-  if ("prompt" in def && typeof (def as { prompt?: unknown }).prompt === "string") {
-    return (def as { prompt: string }).prompt;
-  }
-  return undefined;
-};
+const promptFor = (def: ToolDefinition): string | undefined => (hasStringProp(def, "prompt") ? def.prompt : undefined);
 
 export function getActiveToolDescriptors(role: Role): ActiveToolDescriptor[] {
   const allowed = new Set<string>(role.availablePlugins);

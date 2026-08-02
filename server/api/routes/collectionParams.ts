@@ -9,6 +9,7 @@
 
 import type { CollectionItem } from "../../workspace/collections/index.js";
 import type { ViewCapability } from "../auth/viewToken.js";
+import { isRecord } from "../../utils/types.js";
 
 /** Parse a `read`/`write` capability list from a request body value.
  *  Anything else in the list is dropped rather than rejected — the result is
@@ -48,6 +49,5 @@ export function stringParam(value: unknown): string {
  *  otherwise pass a bare `typeof === "object"` check and be written as a
  *  record with numeric keys. */
 export function extractRecord(body: unknown): CollectionItem | null {
-  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
-  return body as CollectionItem;
+  return isRecord(body) ? body : null;
 }

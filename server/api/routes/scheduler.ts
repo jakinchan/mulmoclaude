@@ -20,7 +20,10 @@ export interface ScheduledItem {
   id: string;
   title: string;
   createdAt: number;
-  props: Record<string, string | number | boolean | null>;
+  /** `unknown` values, not scalars: `sanitizeProps` only ever inspects
+   *  `endDate`, so any other JSON the LLM sends survives verbatim. Every
+   *  reader re-checks the value's type before using it. */
+  props: Record<string, unknown>;
 }
 
 function loadItems(): ScheduledItem[] {

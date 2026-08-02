@@ -180,7 +180,7 @@ async function* readAgentEvents(proc: ClaudeProc, abortSignal?: AbortSignal): As
 
   let buffer = "";
   for await (const chunk of proc.stdout) {
-    buffer += (chunk as Buffer).toString();
+    buffer += String(chunk);
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
 

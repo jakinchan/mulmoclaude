@@ -107,13 +107,14 @@ async function onWorkerComplete(
 ): Promise<void> {
   clearRunning(collection.slug, key);
   const bellKey = `${collection.slug}\n${key}`;
+  const existingBell = failureBells.get(bellKey);
   try {
-    if (didError && !failureBells.has(bellKey)) {
+    if (didError && existingBell === undefined) {
       const body = `“${action.label}” on “${collection.schema.title}” (${collection.slug}) failed. Open the collection to retry.`;
       failureBells.set(bellKey, await deps.notifyFailure("Collection action failed", body, collection.slug));
     }
-    if (!didError && failureBells.has(bellKey)) {
-      await deps.clearNotification(failureBells.get(bellKey) as string);
+    if (!didError && existingBell !== undefined) {
+      await deps.clearNotification(existingBell);
       failureBells.delete(bellKey);
     }
   } catch (err) {
