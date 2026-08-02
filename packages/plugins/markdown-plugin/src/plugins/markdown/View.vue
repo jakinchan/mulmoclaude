@@ -420,6 +420,27 @@ function syncPreviewScroll(): void {
 // ago now points somewhere else.
 watch([liveBuffer, livePreview], () => void nextTick(syncPreviewScroll));
 
+// The same mapping the other way round, run once when the editor opens: the
+// textarea starts at the viewer's scroll fraction, so opening the source after
+// reading halfway down a document lands on the part being read rather than at
+// the top. Same proportional caveat as above — close, not line-accurate.
+// Returns null when the viewer isn't scrollable (or isn't mounted): there is no
+// position to carry over, and dividing by that range would be a division by zero.
+function previewScrollFraction(): number | null {
+  const preview = previewScrollRef.value;
+  if (!preview) return null;
+  const range = preview.scrollHeight - preview.clientHeight;
+  return range > 0 ? preview.scrollTop / range : null;
+}
+
+function applyEditorScrollFraction(fraction: number): void {
+  const editor = editorRef.value;
+  if (!editor) return;
+  const range = editor.scrollHeight - editor.clientHeight;
+  if (range <= 0) return;
+  editor.scrollTop = fraction * range;
+}
+
 function enterMarpSplitMode(): void {
   // Preserve any existing unsaved draft. The close (`close_fullscreen`)
   // button is labelled as "hide editor", not "discard" — silently
@@ -534,7 +555,13 @@ function openEditor(): void {
   // The draft survives a close/reopen, so don't touch `editableMarkdown` here
   // — only `closeEditor` (and Cancel, which is the same thing) discards it.
   saveError.value = null;
+  // Read the viewer's position BEFORE the editor mounts: opening it shrinks the
+  // viewer, which moves its own scrollTop, so the fraction taken afterwards
+  // would be the post-shrink one rather than what the user was looking at.
+  const fraction = previewScrollFraction();
   editing.value = true;
+  if (fraction === null) return;
+  void nextTick(() => applyEditorScrollFraction(fraction));
 }
 
 // One teardown for both panels. The marp branch is still a <details>, and
