@@ -18,6 +18,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { loadJsonFile } from "./json.js";
+import { hasStringProp } from "../types.js";
 import { WORKSPACE_PATHS } from "../../workspace/paths.js";
 
 export interface LedgerEntry {
@@ -32,11 +33,8 @@ export interface LedgerEntry {
   installedAt: string;
 }
 
-const isLedgerEntry = (value: unknown): value is LedgerEntry => {
-  if (typeof value !== "object" || value === null) return false;
-  const obj = value as Record<string, unknown>;
-  return typeof obj.name === "string" && typeof obj.version === "string" && typeof obj.tgz === "string" && typeof obj.installedAt === "string";
-};
+const isLedgerEntry = (value: unknown): value is LedgerEntry =>
+  hasStringProp(value, "name") && hasStringProp(value, "version") && hasStringProp(value, "tgz") && hasStringProp(value, "installedAt");
 
 const sanitiseLedger = (raw: unknown): LedgerEntry[] => {
   if (!Array.isArray(raw)) return [];

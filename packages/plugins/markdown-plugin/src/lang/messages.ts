@@ -11,6 +11,7 @@ export interface Messages {
   pdf: string;
   pdfFailedShort: string;
   editSource: string;
+  livePreview: string;
   saving: string;
   applyChanges: string;
   cancel: string;

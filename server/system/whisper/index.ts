@@ -9,15 +9,23 @@ import { createWhisper, resolveModelName, type ModelStatus, type WhisperModelNam
 import { WORKSPACE_PATHS } from "../../workspace/paths.js";
 import { depStatus } from "../optionalDeps.js";
 import { log } from "../logger/index.js";
+import { isRecord } from "../../utils/types.js";
 import type { AppSettings } from "../config.js";
 
 export { WHISPER_MODELS, DEFAULT_WHISPER_MODEL, isWhisperModelName, type WhisperModelName } from "@mulmoclaude/core/whisper";
 
+// `WhisperLogger` types its payload as `unknown` while the host sink stores a
+// record, so a non-record gets wrapped rather than dropped on the floor.
+const toLogData = (data: unknown): Record<string, unknown> | undefined => {
+  if (data === undefined) return undefined;
+  return isRecord(data) ? data : { value: data };
+};
+
 // Adapt the host's prefixed logger to the package's minimal logger interface.
 const whisperLogger: WhisperLogger = {
-  info: (message, data) => log.info("whisper", message, data as Record<string, unknown> | undefined),
-  warn: (message, data) => log.warn("whisper", message, data as Record<string, unknown> | undefined),
-  error: (message, data) => log.error("whisper", message, data as Record<string, unknown> | undefined),
+  info: (message, data) => log.info("whisper", message, toLogData(data)),
+  warn: (message, data) => log.warn("whisper", message, toLogData(data)),
+  error: (message, data) => log.error("whisper", message, toLogData(data)),
 };
 
 // One service instance for the process, pointed at the workspace models dir.

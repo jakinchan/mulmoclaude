@@ -39,6 +39,7 @@ import type { DuckDBInstance } from "@duckdb/node-api";
 import { compileCsvQuery, quoteIdent, readCsvArgs, type CsvQueryParam } from "./csvQuery";
 import { getWorkspaceRoot, log } from "./host";
 import { isContainedInRoot, safeRecordId } from "./paths";
+import { isErrorWithCode } from "@mulmoclaude/common";
 
 /** `list()` row cap. Over-cap files are truncated with a warn — the v1
  *  contract is "browse + per-record views", not full-table analytics. */
@@ -252,7 +253,7 @@ async function safeCsvStat(absPath: string, workspaceRoot: string): Promise<{ mt
   try {
     info = await lstat(absPath);
   } catch (err) {
-    if ((err as { code?: string }).code === "ENOENT") return null;
+    if (isErrorWithCode(err) && err.code === "ENOENT") return null;
     throw err;
   }
   if (!info.isFile()) {

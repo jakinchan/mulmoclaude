@@ -134,10 +134,9 @@ async function fetchAccessToken(): Promise<TokenCache> {
     throw new Error(`LINE Works token: ${res.status} ${text.slice(0, 200)}`);
   }
   const body: unknown = await res.json();
-  if (!body || typeof body !== "object") throw new Error("LINE Works token: unexpected response");
-  const record = body as Record<string, unknown>;
-  const accessToken = typeof record.access_token === "string" ? record.access_token : "";
-  const expiresIn = typeof record.expires_in === "number" ? record.expires_in : 3_600;
+  if (!isRecord(body)) throw new Error("LINE Works token: unexpected response");
+  const accessToken = typeof body.access_token === "string" ? body.access_token : "";
+  const expiresIn = typeof body.expires_in === "number" ? body.expires_in : 3_600;
   if (!accessToken) throw new Error("LINE Works token: missing access_token");
   return { accessToken, expiresAtMs: Date.now() + (expiresIn - TOKEN_REFRESH_MARGIN_SEC) * 1_000 };
 }

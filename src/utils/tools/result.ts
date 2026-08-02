@@ -101,7 +101,7 @@ export function makeSkillResult(entry: {
     skillPath: entry.skillPath,
     skillDescription: entry.skillDescription,
     body: entry.message,
-  };
+  } satisfies SkillResultData;
   return {
     uuid: uuidv4(),
     toolName: SKILL_TOOL_NAME,

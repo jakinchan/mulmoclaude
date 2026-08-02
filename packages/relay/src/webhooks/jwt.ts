@@ -6,6 +6,8 @@
 // validation and JWKS fetch/cache — only the parse and the crypto.subtle
 // signature check live here.
 
+import { isRecord } from "@mulmoclaude/common";
+
 export interface ParsedJwt {
   header: Record<string, unknown>;
   payload: Record<string, unknown>;
@@ -39,8 +41,11 @@ export function parseJwt(token: string): ParsedJwt | null {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   try {
-    const header = JSON.parse(new TextDecoder().decode(b64UrlDecode(parts[0]))) as Record<string, unknown>;
-    const payload = JSON.parse(new TextDecoder().decode(b64UrlDecode(parts[1]))) as Record<string, unknown>;
+    const header: unknown = JSON.parse(new TextDecoder().decode(b64UrlDecode(parts[0])));
+    const payload: unknown = JSON.parse(new TextDecoder().decode(b64UrlDecode(parts[1])));
+    // A segment that decodes to a bare array / string / number is not a JWT
+    // segment; rejecting here is the same outcome the claim checks would reach.
+    if (!isRecord(header) || !isRecord(payload)) return null;
     return { header, payload, signInput: `${parts[0]}.${parts[1]}`, sig: b64UrlDecode(parts[2]) };
   } catch {
     return null;

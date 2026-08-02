@@ -69,8 +69,7 @@ export async function readManifest(workspaceRoot: string): Promise<ChatIndexMani
 
 function isManifest(raw: unknown): raw is ChatIndexManifest {
   if (!isRecord(raw)) return false;
-  const manifestRecord = raw as Record<string, unknown>;
-  return manifestRecord.version === 1 && Array.isArray(manifestRecord.entries);
+  return raw.version === 1 && Array.isArray(raw.entries);
 }
 
 // In-process mutex serializing the read-modify-write sequence on
@@ -152,7 +151,7 @@ export async function readIndexedAtMs(workspaceRoot: string, sessionId: string):
     const raw = await readFile(indexEntryPathFor(workspaceRoot, safeId), "utf-8");
     const entry: unknown = JSON.parse(raw);
     if (!isRecord(entry)) return null;
-    const { indexedAt } = entry as Record<string, unknown>;
+    const { indexedAt } = entry;
     if (typeof indexedAt !== "string") return null;
     const parsed = Date.parse(indexedAt);
     return Number.isNaN(parsed) ? null : parsed;
@@ -255,11 +254,10 @@ async function readSessionMeta(workspaceRoot: string, sessionId: string): Promis
     const raw = await readFile(sessionMetaPathFor(workspaceRoot, safeId), "utf-8");
     const parsed: unknown = JSON.parse(raw);
     if (!isRecord(parsed)) return {};
-    const metaRecord = parsed as Record<string, unknown>;
     return {
-      roleId: typeof metaRecord.roleId === "string" ? metaRecord.roleId : undefined,
-      startedAt: typeof metaRecord.startedAt === "string" ? metaRecord.startedAt : undefined,
-      origin: typeof metaRecord.origin === "string" ? metaRecord.origin : undefined,
+      roleId: typeof parsed.roleId === "string" ? parsed.roleId : undefined,
+      startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : undefined,
+      origin: typeof parsed.origin === "string" ? parsed.origin : undefined,
     };
   } catch {
     return {};

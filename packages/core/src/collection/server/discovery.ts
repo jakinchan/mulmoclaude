@@ -16,6 +16,7 @@ import { CollectionSchemaZ } from "../core/schemaZ";
 import { SCHEMA_FILE, resolveDataDir, safeSlugName } from "./paths";
 import type { LoadedCollection } from "./discoveredCollection";
 import type { CollectionDetail, CollectionSchema, CollectionSource, CollectionSummary } from "../core/schema";
+import { isErrorWithCode } from "@mulmoclaude/common";
 
 // Re-exported for the existing `collection/server` importers (manageCollection's
 // putSchema, the registry importWriter) that validate schemas the same way
@@ -115,8 +116,7 @@ async function loadOneCollection(skillsRoot: string, slug: string, source: Colle
     if (!fileStat.isFile()) return null;
     raw = await readFile(schemaPath, "utf-8");
   } catch (err) {
-    const error = err as { code?: string };
-    if (error.code !== "ENOENT") {
+    if (!isErrorWithCode(err) || err.code !== "ENOENT") {
       log.warn("collections", "failed to read schema.json, skipping", { slug: safeName, path: schemaPath, error: String(err) });
     }
     return null;
@@ -165,8 +165,7 @@ async function collectFromDir(skillsRoot: string, source: CollectionSource, work
   try {
     entries = await readdir(skillsRoot);
   } catch (err) {
-    const error = err as { code?: string };
-    if (error.code === "ENOENT") return [];
+    if (isErrorWithCode(err) && err.code === "ENOENT") return [];
     log.warn("collections", "failed to list skills dir, returning empty", { root: skillsRoot, error: String(err) });
     return [];
   }

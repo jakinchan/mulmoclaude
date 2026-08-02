@@ -108,7 +108,7 @@ export function parseClusterMap(raw: string): ClusterMap | null {
   if (!isRecord(parsed)) return null;
   const out: ClusterMap = { preference: [], interest: [], fact: [], reference: [] };
   for (const type of ["preference", "interest", "fact", "reference"] as const) {
-    const list = (parsed as Record<string, unknown>)[type];
+    const list = parsed[type];
     if (!Array.isArray(list)) continue;
     for (const candidate of list) {
       const topic = normaliseTopic(candidate);
@@ -120,11 +120,10 @@ export function parseClusterMap(raw: string): ClusterMap | null {
 
 function normaliseTopic(value: unknown): ClusterTopic | null {
   if (!isRecord(value)) return null;
-  const obj = value as Record<string, unknown>;
-  const slug = resolveTopicSlug(obj.topic);
+  const slug = resolveTopicSlug(value.topic);
   if (!slug) return null;
-  const sections = normaliseSections(obj.sections);
-  const unsectionedBullets = normaliseBulletList(obj.unsectionedBullets);
+  const sections = normaliseSections(value.sections);
+  const unsectionedBullets = normaliseBulletList(value.unsectionedBullets);
   if (sections.length === 0 && unsectionedBullets.length === 0) return null;
   return {
     topic: slug,
@@ -157,11 +156,10 @@ function normaliseBulletList(value: unknown): string[] {
 
 function normaliseSection(value: unknown): ClusterSection | null {
   if (!isRecord(value)) return null;
-  const obj = value as Record<string, unknown>;
-  const heading = typeof obj.heading === "string" ? obj.heading.trim() : "";
+  const heading = typeof value.heading === "string" ? value.heading.trim() : "";
   if (heading.length === 0) return null;
-  if (!Array.isArray(obj.bullets)) return null;
-  const bullets = obj.bullets.filter((bullet): bullet is string => typeof bullet === "string" && bullet.trim().length > 0);
+  if (!Array.isArray(value.bullets)) return null;
+  const bullets = value.bullets.filter((bullet): bullet is string => typeof bullet === "string" && bullet.trim().length > 0);
   if (bullets.length === 0) return null;
   return { heading, bullets };
 }

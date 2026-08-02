@@ -673,7 +673,7 @@ async function handleAgentEvent(event: Awaited<ReturnType<typeof runAgent>> exte
     await setClaudeId(ctx.chatSessionId, event.id);
     return;
   }
-  pushSessionEvent(ctx.chatSessionId, event as Record<string, unknown>);
+  pushSessionEvent(ctx.chatSessionId, event);
 
   if (event.type === EVENT_TYPES.text) {
     // Accumulate text chunks instead of writing each one to jsonl.
@@ -802,12 +802,12 @@ async function writeSkillEntry(ctx: EventContext, skillName: string, body: strin
     skillDescription: resolved.description,
     message: skillPart,
   };
-  pushSessionEvent(ctx.chatSessionId, skillPayload as Record<string, unknown>);
+  pushSessionEvent(ctx.chatSessionId, skillPayload);
   await appendSessionLine(ctx.chatSessionId, JSON.stringify(skillPayload));
 
   if (replyPart) {
     const textPayload = { source: "assistant", type: EVENT_TYPES.text, message: replyPart };
-    pushSessionEvent(ctx.chatSessionId, textPayload as Record<string, unknown>);
+    pushSessionEvent(ctx.chatSessionId, textPayload);
     await appendSessionLine(ctx.chatSessionId, JSON.stringify(textPayload));
   }
 }

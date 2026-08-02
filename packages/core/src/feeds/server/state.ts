@@ -14,6 +14,7 @@ import path from "node:path";
 import type { CollectionSource } from "../../collection/index.js";
 import { log, requireFeedsHost } from "./host.js";
 import { feedStatePath, ingestStatePath } from "../paths.js";
+import { isErrorWithCode } from "@mulmoclaude/common";
 
 /** Minimal shape needed to locate a collection's state file. `LoadedCollection`
  *  satisfies it. */
@@ -66,8 +67,7 @@ export async function readFeedState(workspaceRoot: string, target: StateTarget):
     const raw = await readFile(stateFilePath(target, workspaceRoot), "utf-8");
     return normalizeState(slug, JSON.parse(raw) as Partial<FeedState>);
   } catch (err) {
-    const error = err as { code?: string };
-    if (error.code !== "ENOENT") {
+    if (!isErrorWithCode(err) || err.code !== "ENOENT") {
       log.warn("feeds", "failed to read feed state, using default", { slug, error: String(err) });
     }
     return defaultFeedState(slug);

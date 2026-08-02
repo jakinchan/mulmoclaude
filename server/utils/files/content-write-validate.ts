@@ -3,6 +3,7 @@
 
 import { errorMessage } from "../errors.js";
 import { previewSnippet } from "../logPreview.js";
+import { isRecord } from "../types.js";
 
 /** 1 MB — text content is embedded in a JSON response, so the cap is about
  *  what a payload can carry, not what the filesystem can hold. */
@@ -25,7 +26,7 @@ export type PutContentValidation =
  *  own properties, so this rejects nothing legitimate — it closes the door on a
  *  polluted `Object.prototype` supplying a `path` the caller never sent. */
 function ownField(body: unknown, key: string): unknown {
-  return typeof body === "object" && body !== null && Object.hasOwn(body, key) ? (body as Record<string, unknown>)[key] : undefined;
+  return isRecord(body) && Object.hasOwn(body, key) ? body[key] : undefined;
 }
 
 export function validatePutContentRequest(body: unknown): PutContentValidation {

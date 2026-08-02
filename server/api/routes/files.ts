@@ -21,6 +21,7 @@ import { log } from "../../system/logger/index.js";
 import { previewSnippet } from "../../utils/logPreview.js";
 import { publishFileChange } from "../../events/file-change.js";
 import { spawn } from "node:child_process";
+import { isErrorWithCode } from "../../utils/types.js";
 
 // Cross-platform "open this file with the host's default handler" that
 // never lets the path travel through a shell parser. Windows earlier
@@ -1009,7 +1010,7 @@ async function performCreateWrite(
       await writeFile(resolved.absPath, content, { flag: "wx" });
     }
   } catch (err) {
-    const { code } = err as { code?: string };
+    const code = isErrorWithCode(err) ? err.code : undefined;
     if (code === "EEXIST") {
       log.warn("files", "POST create: conflict", { pathPreview: previewSnippet(relPath) });
       sendError(res, 409, "File already exists");
@@ -1115,8 +1116,7 @@ export async function writeUploadWithRename(
       // the wrong file (or nothing).
       return { ok: true, relPath, absPath: resolved.absPath };
     } catch (err) {
-      const { code } = err as { code?: string };
-      if (code !== "EEXIST") return { ok: false, status: 500, message: errorMessage(err) };
+      if (!isErrorWithCode(err) || err.code !== "EEXIST") return { ok: false, status: 500, message: errorMessage(err) };
     }
   }
   return { ok: false, status: 409, message: "Could not find an unused filename" };

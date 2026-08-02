@@ -46,12 +46,11 @@ function isValidDailyTime(value: string): boolean {
 
 function isValidSchedule(scheduleValue: unknown): scheduleValue is LocalTaskSchedule {
   if (!isRecord(scheduleValue)) return false;
-  const scheduleRecord = scheduleValue as Record<string, unknown>;
-  if (scheduleRecord.type === SCHEDULE_TYPES.interval) {
-    return typeof scheduleRecord.intervalMs === "number" && scheduleRecord.intervalMs > 0;
+  if (scheduleValue.type === SCHEDULE_TYPES.interval) {
+    return typeof scheduleValue.intervalMs === "number" && scheduleValue.intervalMs > 0;
   }
-  if (scheduleRecord.type === SCHEDULE_TYPES.daily) {
-    return typeof scheduleRecord.time === "string" && isValidDailyTime(scheduleRecord.time);
+  if (scheduleValue.type === SCHEDULE_TYPES.daily) {
+    return typeof scheduleValue.time === "string" && isValidDailyTime(scheduleValue.time);
   }
   return false;
 }
@@ -66,30 +65,28 @@ export function validateAndCreate(input: unknown): ValidateResult {
   if (!isRecord(input)) {
     return { kind: "error", error: "request body required" };
   }
-  const obj = input as Record<string, unknown>;
-
-  if (typeof obj.name !== "string" || obj.name.trim().length === 0) {
+  if (typeof input.name !== "string" || input.name.trim().length === 0) {
     return { kind: "error", error: "name required" };
   }
-  if (typeof obj.prompt !== "string" || obj.prompt.trim().length === 0) {
+  if (typeof input.prompt !== "string" || input.prompt.trim().length === 0) {
     return { kind: "error", error: "prompt required" };
   }
-  if (!isValidSchedule(obj.schedule)) {
+  if (!isValidSchedule(input.schedule)) {
     return { kind: "error", error: "valid schedule required" };
   }
-  const missedRunPolicy = isValidMissedRunPolicy(obj.missedRunPolicy) ? obj.missedRunPolicy : MISSED_RUN_POLICIES.runOnce;
-  const roleId = typeof obj.roleId === "string" ? obj.roleId : DEFAULT_ROLE_ID;
+  const missedRunPolicy = isValidMissedRunPolicy(input.missedRunPolicy) ? input.missedRunPolicy : MISSED_RUN_POLICIES.runOnce;
+  const roleId = typeof input.roleId === "string" ? input.roleId : DEFAULT_ROLE_ID;
 
   const now = new Date().toISOString();
   const task: PersistedUserTask = {
     id: makeUuid(),
-    name: obj.name.trim(),
-    description: typeof obj.description === "string" ? obj.description.trim() : "",
-    schedule: obj.schedule,
+    name: input.name.trim(),
+    description: typeof input.description === "string" ? input.description.trim() : "",
+    schedule: input.schedule,
     missedRunPolicy,
     enabled: true,
     roleId,
-    prompt: obj.prompt.trim(),
+    prompt: input.prompt.trim(),
     createdAt: now,
     updatedAt: now,
   };

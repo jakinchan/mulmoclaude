@@ -29,7 +29,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { SimplePool, finalizeEvent, getPublicKey, nip04, nip19, type Event } from "nostr-tools";
 import { createBridgeClient, chunkText } from "@mulmobridge/client";
-import { parseCsvSet, parseCsvList } from "@mulmoclaude/common";
+import { isErrorWithCode, parseCsvList, parseCsvSet } from "@mulmoclaude/common";
 
 const TRANSPORT_ID = "nostr";
 const MAX_DM_LEN = 50_000;
@@ -227,7 +227,7 @@ async function loadCursor(): Promise<void> {
   } catch (err) {
     // ENOENT on first run is expected; anything else is worth surfacing
     // but not fatal — we fall back to the lookback window.
-    const code = typeof err === "object" && err !== null && "code" in err ? (err as { code: unknown }).code : undefined;
+    const code = isErrorWithCode(err) ? err.code : undefined;
     if (code !== "ENOENT") {
       console.warn(`[nostr] cursor load failed (${cursorFile}): ${err}`);
     }
