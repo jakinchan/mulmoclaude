@@ -42,6 +42,7 @@ import { publish as notifierPublish } from "../notifier/engine.js";
 import type { NotifierSeverity } from "../notifier/types.js";
 import { log } from "../system/logger/index.js";
 import { makeUuid } from "../utils/id.js";
+import { isRecord } from "../utils/types.js";
 
 // ── Public types ────────────────────────────────────────────────
 
@@ -83,9 +84,8 @@ export interface LegacyNotifierPluginData {
 }
 
 export function isLegacyNotifierPluginData(value: unknown): value is LegacyNotifierPluginData {
-  if (value === null || typeof value !== "object") return false;
-  const rec = value as Record<string, unknown>;
-  return rec.legacy === true && typeof rec.legacyId === "string" && typeof rec.kind === "string";
+  if (!isRecord(value)) return false;
+  return value.legacy === true && typeof value.legacyId === "string" && typeof value.kind === "string";
 }
 
 // ── Mapping helpers ─────────────────────────────────────────────

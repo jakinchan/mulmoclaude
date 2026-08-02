@@ -17,6 +17,7 @@
 
 import { readFile } from "fs/promises";
 import exifr from "exifr";
+import { isRecord } from "./types.js";
 
 /** Extracted, projected EXIF fields. All optional — most photos have
  *  some subset. Persisted as the sidecar JSON shape; consumers can
@@ -171,8 +172,8 @@ export async function readPhotoExif(absPath: string, parser: ExifParser = defaul
     // exists) and exifr "couldn't find any EXIF data" rejections.
     return null;
   }
-  if (!raw || typeof raw !== "object") return null;
-  return projectExif(raw as Record<string, unknown>);
+  if (!isRecord(raw)) return null;
+  return projectExif(raw);
 }
 
 /** Keep finite numbers in a 0…max range; otherwise undefined. Used
@@ -255,9 +256,8 @@ function readFlashFired(value: unknown): boolean | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return (value & 1) === 1;
   }
-  if (typeof value === "object" && value !== null) {
-    const obj = value as Record<string, unknown>;
-    const candidates = [obj.flashfired, obj.fired, obj.flash];
+  if (isRecord(value)) {
+    const candidates = [value.flashfired, value.fired, value.flash];
     for (const candidate of candidates) {
       if (typeof candidate === "boolean") return candidate;
     }

@@ -25,6 +25,7 @@ import type { Request, Response, NextFunction } from "express";
 import { getCurrentToken } from "./token.js";
 import { unauthorized } from "../../utils/httpError.js";
 import { ONE_HOUR_MS } from "../../utils/time.js";
+import { isRecord, isUnknownArray } from "../../utils/types.js";
 
 export type ViewCapability = "read" | "write";
 
@@ -94,18 +95,30 @@ export function verifyViewToken(token: string, nowMs: number = Date.now()): View
   const expectedBuf = Buffer.from(expectedSig);
   if (providedBuf.length !== expectedBuf.length) return null;
   if (!timingSafeEqual(providedBuf, expectedBuf)) return null;
-  let parsed: unknown;
+  const payload = decodePayload(payloadB64);
+  if (payload === null || nowMs >= payload.exp) return null;
+  return payload;
+}
+
+/** Decode the (already signature-verified) payload segment. The payload is
+ *  rebuilt field by field from what was actually checked, so a token minted by
+ *  a different version of this file can never smuggle an unvalidated shape
+ *  through. Expiry is the caller's check — this is pure decoding. */
+function decodePayload(payloadB64: string): ViewTokenPayload | null {
+  const parsed = parseJson(Buffer.from(payloadB64, "base64url").toString("utf8"));
+  if (!isRecord(parsed)) return null;
+  const { slug, caps, exp } = parsed;
+  if (typeof slug !== "string" || typeof exp !== "number") return null;
+  if (!isUnknownArray(caps) || !caps.every(isCapability)) return null;
+  return { slug, caps, exp };
+}
+
+function parseJson(text: string): unknown {
   try {
-    parsed = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
+    return JSON.parse(text);
   } catch {
     return null;
   }
-  if (!parsed || typeof parsed !== "object") return null;
-  const candidate = parsed as Record<string, unknown>;
-  if (typeof candidate.slug !== "string" || typeof candidate.exp !== "number") return null;
-  if (!Array.isArray(candidate.caps) || !candidate.caps.every(isCapability)) return null;
-  if (nowMs >= candidate.exp) return null;
-  return { slug: candidate.slug, caps: candidate.caps as ViewCapability[], exp: candidate.exp };
 }
 
 /** Express middleware factory guarding a `view-data` route: require a valid

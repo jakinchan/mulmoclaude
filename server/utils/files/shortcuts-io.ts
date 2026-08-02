@@ -6,6 +6,7 @@ import path from "node:path";
 import { WORKSPACE_FILES, workspacePath } from "../../workspace/paths.js";
 import { writeFileAtomic } from "./atomic.js";
 import { readTextSafe } from "./safe.js";
+import { isRecord } from "../types.js";
 import { SHORTCUT_KINDS, sameShortcut, type Shortcut, type ShortcutsFile } from "../../../src/types/shortcuts.js";
 
 const KINDS = new Set<string>(SHORTCUT_KINDS);
@@ -22,9 +23,8 @@ export function normalizeShortcuts(input: unknown): Shortcut[] {
   if (!Array.isArray(input)) return [];
   const out: Shortcut[] = [];
   for (const raw of input) {
-    if (typeof raw !== "object" || raw === null) continue;
-    const candidate = raw as Record<string, unknown>;
-    const { kind, slug, title, icon } = candidate;
+    if (!isRecord(raw)) continue;
+    const { kind, slug, title, icon } = raw;
     if (typeof kind !== "string" || !KINDS.has(kind)) continue;
     if (typeof slug !== "string" || slug.length === 0) continue;
     const entry: Shortcut = {

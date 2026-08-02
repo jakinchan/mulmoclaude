@@ -3,17 +3,19 @@
 // Centralizes patterns that were duplicated across route handlers
 // (3+ different ways to read `req.query.session`).
 
+import { isRecord } from "./types.js";
+
 // `query: object` so the helpers work with any Express Request
 // generic — `Request<Params, ResBody, ReqBody, Query>`. A narrow
 // `Query` generic like `{ path?: string }` isn't assignable to
 // `Record<string, unknown>` (no index signature), so we widen to
-// `object` and cast internally when reading a key.
+// `object` and narrow again when reading a key.
 interface HasQuery {
   query: object;
 }
 
 function readQueryKey(queryObj: object, key: string): unknown {
-  return (queryObj as Record<string, unknown>)[key];
+  return isRecord(queryObj) ? queryObj[key] : undefined;
 }
 
 /**
