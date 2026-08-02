@@ -181,13 +181,10 @@ function coerceFiscalYearEndInput(raw: unknown): FiscalYearEnd | undefined {
   return month;
 }
 
-/** Boundary checks shared by updateBook (name / country only —
- *  fiscalYearEnd is coerced + validated separately via
- *  `coerceFiscalYearEndInput`). Throws on the first failure so the
- *  surrounding function stays under the cognitive-complexity threshold;
- *  each rule is also unit-testable independently via the service entry
- *  point. */
-/** Throws on malformed input, and hands back the country to persist:
+/** Boundary checks for updateBook (name / country only — fiscalYearEnd is
+ *  coerced + validated separately via `coerceFiscalYearEndInput`). Throws on
+ *  the first failure so the surrounding function stays under the
+ *  cognitive-complexity threshold, and hands back the country to persist:
  *  `undefined` = the field was omitted, `""` = explicit clear. */
 function parseUpdateBookInput(input: { name?: string; country?: string }): SupportedCountryCode | "" | undefined {
   if (input.name !== undefined && (typeof input.name !== "string" || input.name.trim() === "")) {
