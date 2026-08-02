@@ -132,7 +132,7 @@ if (autoDisabledForTests && !env.disableMacosReminderNotifications && process.pl
 }
 
 export function pushToMacosReminder(title: string, body?: string): Promise<void> {
-  const platform = process.platform as Platform;
+  const platform: Platform = process.platform;
   // Off darwin the sink is a no-op, so don't pay for the synchronous
   // settings read just to reach the same answer.
   if (platform !== "darwin") return Promise.resolve();
