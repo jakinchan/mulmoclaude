@@ -69,6 +69,25 @@ describe("createGetCollection", () => {
     assert.equal(neg.offset, 0);
     assert.equal(neg.limit, 50); // DEFAULT_LIMIT
   });
+
+  // The page used to be asserted into JsonObject (#2692), so a record value the
+  // channel cannot carry reached Firestore as a mangled write. Walking it means
+  // the command doc gets an error naming the property instead.
+  it("names the property when a record holds something JSON cannot carry", async () => {
+    const handler = createGetCollection(collectionDeps([{ id: "r0", size: Number.NaN } as unknown as { id: string }]));
+    await assert.rejects(async () => {
+      await handler({ slug: "clients" });
+    }, /payload\.items\[0\]\.size is NaN, which JSON cannot represent/);
+  });
+
+  // A Date is the case JSON.stringify handles for free and a hand-walk would
+  // flatten to {}: it must serialise, not throw and not vanish.
+  it("keeps a Date in a record as its ISO string", async () => {
+    const seenAt = new Date("2026-01-02T03:04:05.000Z");
+    const handler = createGetCollection(collectionDeps([{ id: "r0", seenAt } as unknown as { id: string }]));
+    const result = (await handler({ slug: "clients" })) as { items: { seenAt: string }[] };
+    assert.equal(result.items[0].seenAt, seenAt.toISOString());
+  });
 });
 
 describe("createGetFeed", () => {
