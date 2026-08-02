@@ -16,6 +16,9 @@ const MAX_CALENDAR_LIST_PAGES = 40;
 // 2500 * 200 = 500k events, far beyond any real calendar's history.
 const EVENT_SYNC_PAGE_SIZE = 2500;
 const MAX_EVENT_SYNC_PAGES = 200;
+// `getCalendarMeta` reads the list envelope, never the events in it — one is
+// the smallest page Google accepts (0 is rejected).
+const CALENDAR_META_PAGE_SIZE = 1;
 // An expired/invalidated calendar syncToken.
 const HTTP_GONE = 410;
 const HTTP_NOT_FOUND = 404;
@@ -387,22 +390,41 @@ export async function collectCalendarPages(
   return calendars;
 }
 
+/** What a calendar absent from the user's list can still tell about itself. */
+export interface CalendarMeta {
+  /** IANA zone (`Asia/Tokyo`), `""` when Google omits it. */
+  timeZone: string;
+  /** `owner` / `writer` / `reader` / `freeBusyReader`, `""` when unreported. */
+  accessRole: string;
+}
+
+export const toCalendarMeta = (value: unknown): CalendarMeta => {
+  const record = asRecord(value);
+  return { timeZone: stringField(record, "timeZone"), accessRole: stringField(record, "accessRole") };
+};
+
+/** One calendar's zone and the caller's role on it, read by id rather than
+ *  looked up in the user's list.
+ *
+ *  `calendarList` only holds calendars the user has ADDED; a calendar shared
+ *  with them can be readable and writable by id without appearing there, and a
+ *  push still needs its zone to send an offset-less `dateTime`.
+ *
+ *  Deliberately `events.list` and NOT `calendars.get`: the latter takes only
+ *  full-calendar scopes (`calendar`, `calendar.readonly`, `calendar.calendars*`)
+ *  and this app asks for none of them, so it answers 403 for every account it
+ *  links (#2735). The events list carries the same `timeZone` — plus the
+ *  `accessRole` the calendar resource does not have — under `calendar.events`,
+ *  which the push already holds because it writes with it. One event is
+ *  requested because the page cannot be empty; the items are unused. */
+export async function getCalendarMeta(accessToken: string, calendarId: string | undefined): Promise<CalendarMeta> {
+  const params = new URLSearchParams({ maxResults: String(CALENDAR_META_PAGE_SIZE) });
+  return toCalendarMeta(await googleRequest(CALENDAR_API_LABEL, accessToken, `${eventsUrl(calendarId)}?${params.toString()}`));
+}
+
 /** The calendars the user has added/subscribed to (primary + secondary +
  *  shared), each with its id, name and colour, following pagination. Needs the
  *  calendar-list read scope (GOOGLE_CALENDARLIST_SCOPE). */
-/** One calendar's own resource, addressed by id rather than looked up in the
- *  user's list.
- *
- *  `calendarList` only holds calendars the user has ADDED; a calendar shared
- *  with them can be readable and writable by id without appearing there. This is
- *  how a push learns such a calendar's `timeZone`. Note the resource carries no
- *  `accessRole` — that is a calendarList property — so reachability here says
- *  nothing about writability. */
-export async function getCalendar(accessToken: string, calendarId: string | undefined): Promise<CalendarSummary> {
-  const url = `${CALENDAR_BASE_URL}/calendars/${encodeURIComponent(canonicalCalendarId(calendarId))}`;
-  return toCalendarSummary(await googleRequest(CALENDAR_API_LABEL, accessToken, url));
-}
-
 export async function listCalendars(accessToken: string): Promise<CalendarSummary[]> {
   return collectCalendarPages(async (pageToken) => {
     const params = new URLSearchParams({ maxResults: String(CALENDAR_LIST_PAGE_SIZE) });

@@ -738,6 +738,8 @@ matters to you — the check above is the way to rule it in or out.
 - **"Google sign-in service unreachable"** or **"Google sign-in service returned HTTP …"**.
 - **"multiple client_secret_*.json files found"**.
 - **"Google Calendar API: HTTP 403"** with a hint about enabling the API.
+- **"Google Calendar API: HTTP 403 — Request had insufficient authentication scopes"** when pushing
+  a collection to a calendar that is NOT in the account's own calendar list.
 - **"could not obtain a Google access token"** (grant revoked).
 - `calendarListCalendars` / non-primary calendar lookups fail with **HTTP 401/403 / insufficient scope**, or the list comes back empty even though the user has other calendars.
 
@@ -776,6 +778,14 @@ Two ways the link can be minted, and the tool picks automatically:
   (APIs & Services → Library — the error names it: "Google Calendar API", "Google Tasks API",
   or "Google Drive API"), then retry — no re-link needed. On the default (broker) flow this
   should not happen; report it rather than sending the user to the Console.
+- **403 "insufficient authentication scopes" pushing to a calendar not in the user's list** — on
+  hosts predating the #2735 fix (`@mulmoclaude/core` 1.13.0 and earlier) the push asked
+  `calendars.get` for that calendar's timezone, and NONE of the four scopes this app requests
+  grants that call, so it failed for every account ever linked. **Re-linking does not help** —
+  consent grants the same four scopes. Either update the host, or have the user **add the shared
+  calendar to their own Google Calendar list** (Other calendars → Subscribe), after which the push
+  reads its timezone and role from the list and never takes that path. A calendar the user has
+  already added was never affected.
 - **Drive shows nothing / "I can't find the user's file"** — not an error. The app holds the
   `drive.file` scope, so it can only ever see files IT created; the user's wider Drive is
   invisible by design. Say so plainly instead of implying an empty Drive.

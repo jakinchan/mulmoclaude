@@ -3,7 +3,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildEventPatch, calendarApiError, collectCalendarPages, toCalendarSummary, toEventSummary, type CalendarListPage } from "@mulmoclaude/core/google";
+import {
+  buildEventPatch,
+  calendarApiError,
+  collectCalendarPages,
+  toCalendarMeta,
+  toCalendarSummary,
+  toEventSummary,
+  type CalendarListPage,
+} from "@mulmoclaude/core/google";
 
 const emptyEvent = { id: "", summary: "", start: "", end: "", htmlLink: "", status: "", colorId: "", description: "", location: "" };
 
@@ -105,6 +113,33 @@ describe("toCalendarSummary", () => {
     const empty = { id: "", summary: "", description: "", primary: false, accessRole: "", backgroundColor: "", foregroundColor: "", colorId: "", timeZone: "" };
     assert.deepEqual(toCalendarSummary({}), empty);
     assert.deepEqual(toCalendarSummary(null), empty);
+  });
+});
+
+describe("toCalendarMeta", () => {
+  // What an unlisted calendar is judged on: the events.list envelope, since
+  // `calendars.get` takes scopes this app never requests (#2735).
+  it("reads the zone and the role off an events.list envelope", () => {
+    const meta = toCalendarMeta({
+      kind: "calendar#events",
+      summary: "Shared",
+      timeZone: "Asia/Tokyo",
+      accessRole: "writer",
+      items: [{ id: "ev1" }],
+    });
+    assert.deepEqual(meta, { timeZone: "Asia/Tokyo", accessRole: "writer" });
+  });
+
+  // `""` must stay distinguishable from a role Google DID report: the push
+  // turns it into `null` (unknown) and falls through, where a wrong non-empty
+  // value would refuse a calendar the user can write to.
+  it("fills empty strings for missing fields and tolerates a non-object payload", () => {
+    assert.deepEqual(toCalendarMeta({ items: [] }), { timeZone: "", accessRole: "" });
+    assert.deepEqual(toCalendarMeta(null), { timeZone: "", accessRole: "" });
+  });
+
+  it("ignores non-string field values", () => {
+    assert.deepEqual(toCalendarMeta({ timeZone: 9, accessRole: ["writer"] }), { timeZone: "", accessRole: "" });
   });
 });
 
