@@ -62,9 +62,9 @@ const toolDefinition: ToolDefinition = {
                   description: "Cell object with value and optional format. If value is a string starting with '=', it's treated as a formula.",
                   properties: {
                     v: {
-                      oneOf: [{ type: "string" }, { type: "number" }],
+                      oneOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }],
                       description:
-                        "Cell value. Can be text, number, date, or formula (string starting with '='). Examples: 'Revenue', 1500000, '01/15/2025', '=SUM(A1:A10)', '=B2-TODAY()'. Date strings like '01/15/2025' are automatically parsed to date serial numbers.",
+                        "Cell value. Can be text, number, boolean, date, or formula (string starting with '='). Examples: 'Revenue', 1500000, true, '01/15/2025', '=SUM(A1:A10)', '=B2-TODAY()'. Date strings like '01/15/2025' are automatically parsed to date serial numbers.",
                     },
                     f: {
                       type: "string",
