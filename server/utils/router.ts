@@ -10,14 +10,19 @@
 // string }>, res: Response) => void` binds with no coercion.
 
 import type { IRouter, RequestHandler } from "express";
-import type { ParamsDictionary, Query } from "express-serve-static-core";
 import type { ResolvedRoute } from "../../src/plugins/meta-types.js";
+
+// `RequestHandler`'s own defaults, read off Express's public type rather than
+// imported from `express-serve-static-core` — that sub-package is a transitive
+// type-only dep, and naming it makes the launcher's dependency scan fail.
+type DefaultParams = RequestHandler extends RequestHandler<infer P, infer __R, infer __B, infer __Q> ? P : never;
+type DefaultQuery = RequestHandler extends RequestHandler<infer __P, infer __R, infer __B, infer Q> ? Q : never;
 
 /** Register `handlers` on `router` using the verb + URL declared by
  *  `route`. The generics let callers keep their own `params` / `body` /
  *  `query` shapes; every handler in one call must agree on them, which
  *  is the same constraint Express itself imposes. */
-export function bindRoute<P = ParamsDictionary, ResBody = unknown, ReqBody = unknown, ReqQuery = Query>(
+export function bindRoute<P = DefaultParams, ResBody = unknown, ReqBody = unknown, ReqQuery = DefaultQuery>(
   router: IRouter,
   route: ResolvedRoute,
   ...handlers: RequestHandler<P, ResBody, ReqBody, ReqQuery>[]
