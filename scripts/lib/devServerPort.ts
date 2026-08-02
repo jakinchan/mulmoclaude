@@ -102,9 +102,7 @@ export const resolveServerPort = (sources: ServerPortSources = {}): PortResoluti
 
 /** Human-readable cause, so the dev console says what to do about it. */
 export const describeRejection = (reason: PortRejection): string =>
-  reason === "ephemeral"
-    ? "0 asks the OS for an ephemeral port, which nothing at config time can know"
-    : "not a port the server would accept";
+  reason === "ephemeral" ? "0 asks the OS for an ephemeral port, which nothing at config time can know" : "not a port the server would accept";
 
 /**
  * Refuse to start the dev server when the backend's port is unknowable.

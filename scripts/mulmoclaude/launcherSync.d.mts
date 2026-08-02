@@ -10,13 +10,7 @@ export interface WorkspacePackage {
   dependencies: Record<string, string>;
 }
 
-export type FindingKind =
-  | "root-launcher-mismatch"
-  | "workspace-source-drift"
-  | "workspace-lockstep"
-  | "peer-dep-violation"
-  | "peer-dep-lockstep"
-  | "skipped";
+export type FindingKind = "root-launcher-mismatch" | "workspace-source-drift" | "workspace-lockstep" | "peer-dep-violation" | "peer-dep-lockstep" | "skipped";
 
 export interface Finding {
   kind: FindingKind;

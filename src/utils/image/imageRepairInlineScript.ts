@@ -85,11 +85,11 @@ export function findRepairTarget(src: string): string | null {
  *  closes over no module-scope identifiers, so `Function.toString()`
  *  produces a self-contained body that runs unchanged in the iframe.
  *
- *  The shapes used inside (`HTMLImageElement`, `HTMLSourceElement`,
- *  `dataset`, `closest`, `querySelectorAll`) are all browser-native;
- *  the function is cast through unknown-shape probes rather than
- *  assuming a structurally-typed mock so the same body works in any
- *  iframe context. */
+ *  The shapes used inside (`dataset`, `src`, `closest`,
+ *  `querySelectorAll`) are described by the duck type `ElLike` below,
+ *  which real `HTMLImageElement` / `HTMLSourceElement` satisfy and a
+ *  plain test object can too — so the same body works in any iframe
+ *  context without assuming a particular DOM implementation. */
 // Duck-typed element shape the repair logic touches. Real `Element` /
 // `HTMLImageElement` / `HTMLSourceElement` etc. all satisfy this; tests
 // pass a plain object that does too.
@@ -163,23 +163,28 @@ function repairSource(src: ElLike, pattern: RegExp, patternEncoded: RegExp): voi
 // Public entry point: dispatch by tagName onto the right helper.
 // Pure (no module-scope closures); patterns come in by argument so the
 // stringified form runs unchanged inside the iframe's null-origin scope.
-export function repairImageErrorTarget(target: EventTarget | null, pattern: RegExp, patternEncoded: RegExp): void {
+// Declared against `ElLike`, not `EventTarget`: the only untyped caller is the
+// installer inside `IMAGE_REPAIR_INLINE_SCRIPT`, which is a template string the
+// compiler never sees, so typing this as `EventTarget` bought nothing and forced
+// every typed caller to coerce an element-shaped value into `EventTarget` and
+// back out again. A `target` that turns out not to be element-like simply fails
+// the `tagName` comparisons below and falls through.
+export function repairImageErrorTarget(target: ElLike | null, pattern: RegExp, patternEncoded: RegExp): void {
   if (!target) return;
-  const element = target as unknown as ElLike;
-  if (element.tagName === "IMG") {
-    repairImg(element, pattern, patternEncoded);
-    const pic = element.closest ? element.closest("picture") : null;
+  if (target.tagName === "IMG") {
+    repairImg(target, pattern, patternEncoded);
+    const pic = target.closest ? target.closest("picture") : null;
     if (pic && pic.querySelectorAll) {
       for (const source of pic.querySelectorAll("source")) repairSource(source, pattern, patternEncoded);
     }
     return;
   }
-  if (element.tagName === "SOURCE") {
-    repairSource(element, pattern, patternEncoded);
+  if (target.tagName === "SOURCE") {
+    repairSource(target, pattern, patternEncoded);
     return;
   }
-  if ((element.tagName === "AUDIO" || element.tagName === "VIDEO") && element.querySelectorAll) {
-    for (const source of element.querySelectorAll(":scope > source")) repairSource(source, pattern, patternEncoded);
+  if ((target.tagName === "AUDIO" || target.tagName === "VIDEO") && target.querySelectorAll) {
+    for (const source of target.querySelectorAll(":scope > source")) repairSource(source, pattern, patternEncoded);
   }
 }
 

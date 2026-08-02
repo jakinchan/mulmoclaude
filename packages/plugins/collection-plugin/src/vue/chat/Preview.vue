@@ -16,6 +16,7 @@ import { computed } from "vue";
 import { useCollectionI18n } from "../lang";
 import type { ToolResult } from "gui-chat-protocol";
 import type { PresentCollectionData } from "@mulmoclaude/core/collection";
+import { toPresentCollectionData } from "./presentCollectionData";
 
 const { t } = useCollectionI18n();
 
@@ -23,7 +24,7 @@ const props = defineProps<{
   result: ToolResult;
 }>();
 
-const data = computed<PresentCollectionData | null>(() => (props.result?.data ?? props.result?.jsonData ?? null) as PresentCollectionData | null);
+const data = computed<PresentCollectionData | null>(() => toPresentCollectionData(props.result?.data ?? props.result?.jsonData));
 
 const collectionSlug = computed<string>(() => data.value?.collectionSlug ?? "");
 const itemId = computed<string | undefined>(() => data.value?.itemId);

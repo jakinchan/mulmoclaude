@@ -66,13 +66,13 @@ export function enumerateWorkspacePackages(
   root: string,
   options?: {
     readFileImpl?: (filePath: string, encoding: "utf8") => Promise<string>;
-    readdirImpl?: (dirPath: string, options: { withFileTypes: true }) => Promise<Array<{ name: string; isDirectory(): boolean }>>;
+    readdirImpl?: (dirPath: string, options: { withFileTypes: true }) => Promise<{ name: string; isDirectory: () => boolean }[]>;
   },
 ): Promise<WorkspacePackage[]>;
 
 /** Pure BFS: transitive first-party (workspace) deps reachable from `rootName`,
  *  excluding the root itself. Third-party deps are naturally excluded. */
-export function computeFirstPartyClosure(packages: Array<{ name: string; deps: string[] }>, rootName: string): Set<string>;
+export function computeFirstPartyClosure(packages: { name: string; deps: string[] }[], rootName: string): Set<string>;
 
 /** Build an npm `file:` specifier from a native tarball path, normalising the
  *  platform separator to `/`. `sep` defaults to `path.sep`; pass it explicitly

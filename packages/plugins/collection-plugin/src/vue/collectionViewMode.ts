@@ -64,13 +64,19 @@ const SORT_STORAGE_KEY = "collection_sorts";
 
 const BUILT_IN_MODES: readonly BuiltInViewMode[] = ["table", "calendar", "kanban"];
 
+/** `Object.entries` of a value already narrowed to a non-array object, with the
+ *  values kept `unknown` so each store re-validates before storing. */
+function readEntries(source: object): [string, unknown][] {
+  return Object.entries(source);
+}
+
 /** A persisted mode is valid if it's a known built-in OR any `custom:<id>`
  *  key (the id is validated against the live schema at render time, so an
  *  unknown custom id simply collapses to the table there). Takes `unknown`
  *  and type-guards `string` first: a corrupted localStorage entry could hold a
  *  number/object, and calling `.startsWith` on that would throw. */
 function isValidViewMode(value: unknown): value is CollectionViewMode {
-  return typeof value === "string" && (BUILT_IN_MODES.includes(value as BuiltInViewMode) || value.startsWith("custom:"));
+  return typeof value === "string" && (BUILT_IN_MODES.some((mode) => mode === value) || value.startsWith("custom:"));
 }
 
 type ViewModeMap = Record<string, CollectionViewMode>;
@@ -82,7 +88,14 @@ function readAll(): ViewModeMap {
     const parsed: unknown = JSON.parse(raw);
     // Plain object only — an array would pass `typeof === "object"` and then
     // let writeCollectionViewMode write string keys onto it.
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as ViewModeMap) : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    // Same policy as the sort / flag-filter stores below: drop entries whose
+    // stored value no longer validates rather than handing them back.
+    const out: ViewModeMap = {};
+    for (const [slug, value] of readEntries(parsed)) {
+      if (isValidViewMode(value)) out[slug] = value;
+    }
+    return out;
   } catch {
     return {};
   }
@@ -110,8 +123,8 @@ type SortMap = Record<string, SortState>;
 
 function isSortState(value: unknown): value is SortState {
   if (!value || typeof value !== "object") return false;
-  const rec = value as Record<string, unknown>;
-  return typeof rec.field === "string" && (rec.direction === "asc" || rec.direction === "desc");
+  if (!("field" in value) || typeof value.field !== "string") return false;
+  return "direction" in value && (value.direction === "asc" || value.direction === "desc");
 }
 
 function readAllSorts(): SortMap {
@@ -124,7 +137,7 @@ function readAllSorts(): SortMap {
     // whose field was renamed away leaves a stale value) so callers only ever
     // see a well-formed SortState.
     const out: SortMap = {};
-    for (const [slug, value] of Object.entries(parsed as Record<string, unknown>)) {
+    for (const [slug, value] of readEntries(parsed)) {
       if (isSortState(value)) out[slug] = value;
     }
     return out;
@@ -172,7 +185,7 @@ function readAllFlagFilters(): Record<string, FlagFilterState> {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const out: Record<string, FlagFilterState> = {};
-    for (const [slug, value] of Object.entries(parsed as Record<string, unknown>)) {
+    for (const [slug, value] of readEntries(parsed)) {
       if (isFlagFilterState(value)) out[slug] = value;
     }
     return out;

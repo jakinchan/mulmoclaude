@@ -10,6 +10,12 @@
 import type { CollectionQuery, CollectionQueryAggregate, CollectionQueryWhere } from "../core/queryZ";
 import { DEFAULT_QUERY_ROWS } from "../core/queryZ";
 
+/** One value bound to a `?` placeholder. The DSL only ever compares
+ *  against JSON scalars, and these are exactly the `DuckDBValue`s the
+ *  driver accepts — typing the chain end-to-end is what lets `queryCsv`
+ *  hand them to `runAndReadAll` without coercion. */
+export type CsvQueryParam = string | number | boolean;
+
 /** Double-quote a SQL identifier (CSV column name / result alias). */
 export function quoteIdent(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
@@ -44,7 +50,7 @@ function aggregateExpr(aggregate: CollectionQueryAggregate): string {
  *  equality compares against `CAST(col AS VARCHAR)` so a sniffer-typed
  *  column still matches its textual value; numeric/boolean values compare
  *  natively (DuckDB coerces the column side). */
-function whereFragment(cond: CollectionQueryWhere): { sql: string; params: unknown[] } {
+function whereFragment(cond: CollectionQueryWhere): { sql: string; params: CsvQueryParam[] } {
   const column = quoteIdent(cond.field);
   const asText = `CAST(${column} AS VARCHAR)`;
   if (cond.op === "in") {
@@ -53,10 +59,23 @@ function whereFragment(cond: CollectionQueryWhere): { sql: string; params: unkno
     const lhs = textual ? asText : column;
     return { sql: `${lhs} IN (${values.map(() => "?").join(", ")})`, params: values };
   }
-  if (cond.op === "contains") return { sql: `contains(${asText}, ?)`, params: [String(cond.value)] };
+  // `String()` stays — `contains` matches against text, so a numeric needle is
+  // searched by its text form — but an array must fail here like it does on
+  // every other scalar op, not silently become the needle "1,2".
+  if (cond.op === "contains") return { sql: `contains(${asText}, ?)`, params: [String(scalarValue(cond))] };
   const operator = { eq: "=", ne: "<>", gt: ">", gte: ">=", lt: "<", lte: "<=" }[cond.op];
   const lhs = typeof cond.value === "string" && (cond.op === "eq" || cond.op === "ne") ? asText : column;
-  return { sql: `${lhs} ${operator} ?`, params: [cond.value] };
+  return { sql: `${lhs} ${operator} ?`, params: [scalarValue(cond)] };
+}
+
+/** `CollectionQueryZ` refines "`in` ⇔ array value", so an array reaching a
+ *  scalar op means the query was compiled without being validated first —
+ *  binding it would send an array to a single `?`. */
+function scalarValue(cond: CollectionQueryWhere): CsvQueryParam {
+  if (Array.isArray(cond.value)) {
+    throw new Error(`where condition on '${cond.field}' uses op '${cond.op}', which requires a scalar value, not an array`);
+  }
+  return cond.value;
 }
 
 /** Compile a validated query against `fromSql` (a table-function call
@@ -65,7 +84,7 @@ function whereFragment(cond: CollectionQueryWhere): { sql: string; params: unkno
  *  Callers MUST have run `CollectionQueryZ` first; this function trusts
  *  the shape (aliases already charset-checked, orderBy membership already
  *  enforced). */
-function compileQuery(query: CollectionQuery, fromSql: string): { sql: string; params: unknown[] } {
+function compileQuery(query: CollectionQuery, fromSql: string): { sql: string; params: CsvQueryParam[] } {
   const groupBy = query.groupBy ?? [];
   const aggregates = Object.entries(query.aggregates ?? {});
   const selectList = [...groupBy.map(quoteIdent), ...aggregates.map(([alias, aggregate]) => `${aggregateExpr(aggregate)} AS ${quoteIdent(alias)}`)];
@@ -80,7 +99,7 @@ function compileQuery(query: CollectionQuery, fromSql: string): { sql: string; p
 }
 
 /** Compile against a CSV file (the dataSource store's engine). */
-export function compileCsvQuery(query: CollectionQuery, primaryKey: string): { sql: string; params: unknown[] } {
+export function compileCsvQuery(query: CollectionQuery, primaryKey: string): { sql: string; params: CsvQueryParam[] } {
   return compileQuery(query, `read_csv(${readCsvArgs(primaryKey)})`);
 }
 
@@ -92,6 +111,6 @@ export function compileCsvQuery(query: CollectionQuery, primaryKey: string): { s
  *  inferred as a column and the query would binder-error on it (Codex P2
  *  on #2165). The full scan costs nothing extra here: aggregation reads
  *  the whole file anyway. */
-export function compileJsonlQuery(query: CollectionQuery): { sql: string; params: unknown[] } {
+export function compileJsonlQuery(query: CollectionQuery): { sql: string; params: CsvQueryParam[] } {
   return compileQuery(query, `read_json(?, format='newline_delimited', sample_size=-1)`);
 }

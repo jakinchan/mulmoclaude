@@ -17,7 +17,22 @@ const COMMAND_TIMEOUT_MS = 60_000;
 
 // package.json keys that change what npm serves. `devDependencies` and `scripts` do
 // not: they describe how the package is built here, not what a consumer receives.
-const RELEASE_MANIFEST_KEYS = ["version", "dependencies", "peerDependencies", "optionalDependencies", "exports", "files", "main", "module", "types", "typings", "bin", "engines", "sideEffects", "publishConfig"];
+const RELEASE_MANIFEST_KEYS = [
+  "version",
+  "dependencies",
+  "peerDependencies",
+  "optionalDependencies",
+  "exports",
+  "files",
+  "main",
+  "module",
+  "types",
+  "typings",
+  "bin",
+  "engines",
+  "sideEffects",
+  "publishConfig",
+];
 
 // `dist/` is the thing npm ships and is gitignored, so drift has to be judged from what
 // FEEDS it: `src/` (compiled) and `bin/` (copied). Everything else is taken from the
@@ -27,7 +42,12 @@ const RELEASE_MANIFEST_KEYS = ["version", "dependencies", "peerDependencies", "o
 const BUILD_INPUT_DIRS = ["src", "bin"];
 const shippedRoots = (pkg) =>
   (Array.isArray(pkg.files) ? pkg.files : [])
-    .map((entry) => entry.replace(/^\.\//, "").replace(/\/?\*+.*$/, "").replace(/\/$/, ""))
+    .map((entry) =>
+      entry
+        .replace(/^\.\//, "")
+        .replace(/\/?\*+.*$/, "")
+        .replace(/\/$/, ""),
+    )
     .filter(Boolean);
 
 const isReleasePath = (pkg, file) => {
