@@ -34,8 +34,6 @@ import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "n
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 
-import type { PluginMeta } from "../src/plugins/meta-types.js";
-
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const PLUGINS_DIR = path.join(REPO_ROOT, "src", "plugins");
@@ -100,20 +98,45 @@ function camelize(parts: readonly string[]): string {
   return parts.map((part, index) => (index === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1))).join("");
 }
 
-/** Load a META by dynamic-importing the meta file under tsx and
- *  reading the runtime object. Replaces the brittle regex-based
- *  string extraction (Codex iter 1 #1143): single quotes, varied
- *  indentation, computed values, or multi-line declarations would
- *  all silently miss `apiNamespace` / `mcpDispatch` and omit the
+/** The two META fields this codegen reads. Kept separate from
+ *  `PluginMeta` on purpose: a dynamically-imported module has been
+ *  checked by nothing at the point it is read, so the codegen
+ *  rebuilds exactly the fields it uses instead of claiming the
+ *  whole declared shape. */
+interface MetaDispatch {
+  apiNamespace: string | null;
+  mcpDispatch: string | null;
+}
+
+/** Own enumerable properties of an unknown value, as `unknown`-typed
+ *  entries — for a module namespace object those are its exports.
+ *  Non-objects yield no entries, so callers narrow by lookup rather
+ *  than by asserting a shape. */
+function ownFields(value: unknown): ReadonlyMap<string, unknown> {
+  if (typeof value !== "object" || value === null) return new Map();
+  return new Map(Object.entries(value));
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+/** Load a META's dispatch fields by dynamic-importing the meta file
+ *  under tsx and reading the runtime object. Replaces the brittle
+ *  regex-based string extraction (Codex iter 1 #1143): single quotes,
+ *  varied indentation, computed values, or multi-line declarations
+ *  would all silently miss `apiNamespace` / `mcpDispatch` and omit the
  *  server binding — the exact wiring footgun this codegen exists
  *  to eliminate. Reading the live object closes that gap because
  *  TypeScript itself is the parser. */
-async function loadMeta(absoluteMetaPath: string): Promise<PluginMeta> {
-  const mod = (await import(pathToFileURL(absoluteMetaPath).href)) as { META?: unknown };
-  if (!mod.META || typeof mod.META !== "object") {
+async function loadMetaDispatch(absoluteMetaPath: string): Promise<MetaDispatch> {
+  const mod: unknown = await import(pathToFileURL(absoluteMetaPath).href);
+  const meta = ownFields(mod).get("META");
+  if (typeof meta !== "object" || meta === null) {
     throw new Error(`Meta file ${absoluteMetaPath} does not export a top-level \`META\` object`);
   }
-  return mod.META as PluginMeta;
+  const fields = ownFields(meta);
+  return { apiNamespace: stringOrNull(fields.get("apiNamespace")), mcpDispatch: stringOrNull(fields.get("mcpDispatch")) };
 }
 
 async function findMetas(pluginDir: string): Promise<MetaEntry[]> {
@@ -122,7 +145,7 @@ async function findMetas(pluginDir: string): Promise<MetaEntry[]> {
   const metaFiles = files.filter((file) => file === "meta.ts" || (file.endsWith("Meta.ts") && file !== "Meta.ts"));
   const entries: MetaEntry[] = [];
   for (const file of metaFiles) {
-    const meta = await loadMeta(path.join(dir, file));
+    const dispatch = await loadMetaDispatch(path.join(dir, file));
     const role = file === "meta.ts" ? "" : file.replace(/Meta\.ts$/, "");
     const importName = role === "" ? `${pluginDir}Meta` : camelize([pluginDir, role, "meta"]);
     entries.push({
@@ -130,8 +153,8 @@ async function findMetas(pluginDir: string): Promise<MetaEntry[]> {
       file: `${pluginDir}/${file}`,
       importName,
       importPath: `../${pluginDir}/${file.replace(/\.ts$/, "")}`,
-      apiNamespace: meta.apiNamespace ?? null,
-      mcpDispatch: meta.mcpDispatch ?? null,
+      apiNamespace: dispatch.apiNamespace,
+      mcpDispatch: dispatch.mcpDispatch,
     });
   }
   return entries;
