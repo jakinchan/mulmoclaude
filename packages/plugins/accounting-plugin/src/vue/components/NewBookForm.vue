@@ -68,6 +68,7 @@ import {
   SUPPORTED_CURRENCY_CODES,
   localizedCurrencyName,
   SUPPORTED_COUNTRY_CODES,
+  isSupportedCountryCode,
   localizedCountryName,
   type SupportedCountryCode,
   DEFAULT_FISCAL_YEAR_END,
@@ -81,8 +82,8 @@ const { t, locale } = useAccountingI18n();
 function regionFromLocaleTag(tag: string): SupportedCountryCode | "" {
   try {
     const { region } = new Intl.Locale(tag).maximize();
-    if (region && (SUPPORTED_COUNTRY_CODES as readonly string[]).includes(region)) {
-      return region as SupportedCountryCode;
+    if (isSupportedCountryCode(region)) {
+      return region;
     }
   } catch {
     /* fall through */

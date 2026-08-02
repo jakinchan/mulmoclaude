@@ -187,10 +187,12 @@ function handleStartChat(body: { prompt?: unknown; role?: unknown }): void {
 
 function onWindowMessage(event: MessageEvent): void {
   if (event.source !== iframeEl.value?.contentWindow) return;
-  const msg = event.data as { type?: string; slug?: string; id?: unknown; mode?: unknown; prompt?: unknown; role?: unknown };
-  if (!msg || msg.slug !== props.slug) return;
-  if (msg.type === "mc-open-item") handleOpenItem(msg);
-  else if (msg.type === "mc-start-chat") handleStartChat(msg);
+  const msg: unknown = event.data;
+  if (typeof msg !== "object" || msg === null) return;
+  if (!("slug" in msg) || msg.slug !== props.slug) return;
+  const type = "type" in msg ? msg.type : undefined;
+  if (type === "mc-open-item") handleOpenItem({ id: "id" in msg ? msg.id : undefined, mode: "mode" in msg ? msg.mode : undefined });
+  else if (type === "mc-start-chat") handleStartChat({ prompt: "prompt" in msg ? msg.prompt : undefined, role: "role" in msg ? msg.role : undefined });
 }
 
 onMounted(() => window.addEventListener("message", onWindowMessage));

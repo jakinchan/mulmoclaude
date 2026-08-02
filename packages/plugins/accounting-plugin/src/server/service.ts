@@ -181,22 +181,24 @@ function coerceFiscalYearEndInput(raw: unknown): FiscalYearEnd | undefined {
   return month;
 }
 
-/** Boundary checks shared by updateBook (name / country only —
- *  fiscalYearEnd is coerced + validated separately via
- *  `coerceFiscalYearEndInput`). Throws on the first failure so the
- *  surrounding function stays under the cognitive-complexity threshold;
- *  each rule is also unit-testable independently via the service entry
- *  point. */
-function validateUpdateBookInput(input: { name?: string; country?: string }): void {
+/** Boundary checks for updateBook (name / country only — fiscalYearEnd is
+ *  coerced + validated separately via `coerceFiscalYearEndInput`). Throws on
+ *  the first failure so the surrounding function stays under the
+ *  cognitive-complexity threshold, and hands back the country to persist:
+ *  `undefined` = the field was omitted, `""` = explicit clear. */
+function parseUpdateBookInput(input: { name?: string; country?: string }): SupportedCountryCode | "" | undefined {
   if (input.name !== undefined && (typeof input.name !== "string" || input.name.trim() === "")) {
     throw new AccountingError(400, "name must be a non-empty string when supplied");
   }
+  const { country } = input;
   // Empty string is the explicit "clear the field" sentinel from the
   // settings UI; anything else has to land in the curated list, same
   // contract as createBook.
-  if (input.country !== undefined && input.country !== "" && !isSupportedCountryCode(input.country)) {
-    throw unsupportedCountryError(input.country);
+  if (country === undefined || country === "") return country;
+  if (!isSupportedCountryCode(country)) {
+    throw unsupportedCountryError(country);
   }
+  return country;
 }
 
 export async function createBook(
@@ -210,8 +212,9 @@ export async function createBook(
   // the UI dropdown, the role prompt's per-jurisdiction guidance, and
   // the on-disk JSON in sync. A typo from the LLM or an untrusted
   // client is rejected here rather than silently persisted.
-  if (input.country !== undefined && !isSupportedCountryCode(input.country)) {
-    throw unsupportedCountryError(input.country);
+  const { country } = input;
+  if (country !== undefined && !isSupportedCountryCode(country)) {
+    throw unsupportedCountryError(country);
   }
   const fiscalYearEnd = coerceFiscalYearEndInput(input.fiscalYearEnd) ?? DEFAULT_FISCAL_YEAR_END;
   const config = await loadOrInitConfig(workspaceRoot);
@@ -237,8 +240,7 @@ export async function createBook(
     id: bookId,
     name: input.name,
     currency: input.currency ?? DEFAULT_CURRENCY,
-    // Narrowed by the isSupportedCountryCode check above.
-    ...(input.country ? { country: input.country as SupportedCountryCode } : {}),
+    ...(country ? { country } : {}),
     fiscalYearEnd,
     createdAt: new Date().toISOString(),
   };
@@ -259,7 +261,7 @@ export async function updateBook(
   if (!target) {
     throw new AccountingError(404, `book ${JSON.stringify(input.bookId)} not found`);
   }
-  validateUpdateBookInput(input);
+  const country = parseUpdateBookInput(input);
   // Coerce + validate up front so a malformed value 400s before any
   // write (undefined = the field was omitted → leave it untouched).
   const fiscalYearEnd = coerceFiscalYearEndInput(input.fiscalYearEnd);
@@ -271,12 +273,12 @@ export async function updateBook(
   const next: BookSummary = {
     ...target,
     ...(input.name !== undefined ? { name: input.name } : {}),
-    ...(input.country !== undefined && input.country !== "" ? { country: input.country as SupportedCountryCode } : {}),
+    ...(country ? { country } : {}),
     ...(fiscalYearEnd !== undefined ? { fiscalYearEnd } : {}),
   };
   // Strip an explicitly-cleared country so the JSON file stays clean
   // (matches the createBook policy of omitting the field when unset).
-  if (input.country === "") delete next.country;
+  if (country === "") delete next.country;
   const nextConfig: AccountingConfig = {
     books: config.books.map((book) => (book.id === input.bookId ? next : book)),
   };
@@ -647,17 +649,19 @@ function ensureValidYmd(label: string, value: unknown): string {
 }
 
 function ensureMetric(value: unknown): TimeSeriesMetric {
-  if (typeof value !== "string" || !(TIME_SERIES_METRICS as readonly string[]).includes(value)) {
+  const metric = TIME_SERIES_METRICS.find((candidate) => candidate === value);
+  if (metric === undefined) {
     throw new AccountingError(400, `getTimeSeries: metric must be one of ${TIME_SERIES_METRICS.join(", ")}`);
   }
-  return value as TimeSeriesMetric;
+  return metric;
 }
 
 function ensureGranularity(value: unknown): TimeSeriesGranularity {
-  if (typeof value !== "string" || !(TIME_SERIES_GRANULARITIES as readonly string[]).includes(value)) {
+  const granularity = TIME_SERIES_GRANULARITIES.find((candidate) => candidate === value);
+  if (granularity === undefined) {
     throw new AccountingError(400, `getTimeSeries: granularity must be one of ${TIME_SERIES_GRANULARITIES.join(", ")}`);
   }
-  return value as TimeSeriesGranularity;
+  return granularity;
 }
 
 function resolveAccountCode(metric: TimeSeriesMetric, raw: unknown): string | undefined {

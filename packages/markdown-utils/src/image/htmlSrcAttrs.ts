@@ -208,22 +208,33 @@ export function transformResolvableUrlsInHtml(html: string, transform: (url: str
   });
 }
 
+interface AttrCaptures {
+  full: string;
+  leading: string;
+  name: string;
+  eqWithSpaces: string | undefined;
+  doubleQuoted: string | undefined;
+  singleQuoted: string | undefined;
+  bare: string | undefined;
+}
+
+// Named view of `ATTR_ITER_RE`'s capture list (group 4, the full quoted
+// value, is captured for clarity and skipped here). Groups that never
+// participate come back `undefined`; the three the regex always fills fall
+// back to `""` so a non-string can only ever blank the attribute, never
+// reach the rewriter as if it were text.
+function readAttrCaptures(captures: unknown[]): AttrCaptures {
+  const [full, leading, name, eqWithSpaces, , doubleQuoted, singleQuoted, bare] = captures.map((value) => (typeof value === "string" ? value : undefined));
+  return { full: full ?? "", leading: leading ?? "", name: name ?? "", eqWithSpaces, doubleQuoted, singleQuoted, bare };
+}
+
 function replaceAttrIfResolvable(
   captures: unknown[],
   resolvableAttrs: readonly string[],
   srcsetAttrs: readonly string[],
   transform: (url: string) => string | null,
 ): string {
-  const [full, leading, name, eqWithSpaces, , doubleQuoted, singleQuoted, bare] = captures as [
-    string,
-    string,
-    string,
-    string | undefined,
-    string | undefined,
-    string | undefined,
-    string | undefined,
-    string | undefined,
-  ];
+  const { full, leading, name, eqWithSpaces, doubleQuoted, singleQuoted, bare } = readAttrCaptures(captures);
   if (!eqWithSpaces) return full;
   const lowerName = name.toLowerCase();
   const isSrcset = srcsetAttrs.includes(lowerName);

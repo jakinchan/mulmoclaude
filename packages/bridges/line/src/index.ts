@@ -105,8 +105,8 @@ const app = createWebhookApp();
 const webhookRateLimit = createWebhookRateLimit();
 
 app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
-  const signature = req.headers["x-line-signature"] as string;
-  const bodyStr = req.body as string;
+  const signature = typeof req.headers["x-line-signature"] === "string" ? req.headers["x-line-signature"] : "";
+  const bodyStr = typeof req.body === "string" ? req.body : "";
 
   if (!signature || !verifyHmacSignature(bodyStr, signature, channelSecret)) {
     res.status(401).send("Invalid signature");
