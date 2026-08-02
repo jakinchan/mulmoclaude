@@ -28,7 +28,7 @@ export interface MemoryEntry {
 }
 
 export function isMemoryType(value: unknown): value is MemoryType {
-  return typeof value === "string" && (MEMORY_TYPES as readonly string[]).includes(value);
+  return MEMORY_TYPES.some((memoryType) => memoryType === value);
 }
 
 // Bound the alphanumeric portion of a slug. Long bullets in the

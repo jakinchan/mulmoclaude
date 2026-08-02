@@ -137,7 +137,7 @@ const SNAPSHOT_KEYS = ["_snapshot_ts", "_snapshot_editor", "_snapshot_session", 
 export function stripSnapshotMeta(meta: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(meta)) {
-    if ((SNAPSHOT_KEYS as readonly string[]).includes(key)) continue;
+    if (SNAPSHOT_KEYS.some((snapshotKey) => snapshotKey === key)) continue;
     out[key] = value;
   }
   return out;

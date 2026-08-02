@@ -12,6 +12,7 @@ import { mulmoScriptOps } from "../../plugins/mulmoscript-server.js";
 import { errorMessage } from "../../utils/errors.js";
 import { badRequest, notFound } from "../../utils/httpError.js";
 import { getOptionalStringQuery, getSessionQuery } from "../../utils/request.js";
+import { requestBodyRecord } from "../../utils/requestBody.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { bindRoute } from "../../utils/router.js";
 import { GENERATION_KINDS } from "../../../src/types/events.js";
@@ -142,7 +143,7 @@ bindRoute(router, API_ROUTES.mulmoScript.save, async (req: Request<object, objec
 // package execute they call: guard the wire path, run the execute, map a
 // failure onto the pre-extraction status, else 200. Share the shell.
 async function runGuardedUpdate(req: Request<object, object, unknown>, res: Response, execute: typeof executeUpdateBeat): Promise<void> {
-  const guard = mulmoScriptOps.guardStoryWirePath((req.body as { filePath?: unknown } | undefined)?.filePath);
+  const guard = mulmoScriptOps.guardStoryWirePath(requestBodyRecord(req.body).filePath);
   if (guard) {
     sendOpFailure(res, guard);
     return;

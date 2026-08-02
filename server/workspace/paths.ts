@@ -265,6 +265,10 @@ const WORKSPACE_DIRS_AGGREGATE = defineHostAggregate(BUILT_IN_PLUGIN_METAS, {
 export const WORKSPACE_DIRS_HOST_COLLISIONS: readonly HostPluginCollision[] = WORKSPACE_DIRS_AGGREGATE.hostCollisions;
 export const WORKSPACE_DIRS_INTRA_COLLISIONS: readonly IntraPluginCollision[] = WORKSPACE_DIRS_AGGREGATE.intraCollisions;
 
+// Cast kept (#2692): `defineHostAggregate` returns `Record<string, V>` by
+// design and documents that the caller owns the literal-preserving cast —
+// removing it means making that helper (in `src/plugins/metas.ts`, shared with
+// `apiRoutes.ts`) generic over the merged key set.
 export const WORKSPACE_DIRS = WORKSPACE_DIRS_AGGREGATE.merged as unknown as typeof HOST_WORKSPACE_DIRS & PluginWorkspaceDirsMap<BuiltInPluginMetas>;
 export { WORKSPACE_FILES };
 
@@ -279,15 +283,19 @@ export { WORKSPACE_FILES };
 // required (CodeRabbit #1125 review: previously plugins adding
 // `workspaceDirs` keys still needed a manual `WORKSPACE_PATHS`
 // patch-up to be reachable in absolute form).
-const WORKSPACE_DIR_PATHS = Object.fromEntries(Object.entries(WORKSPACE_DIRS).map(([key, relativePath]) => [key, path.join(workspacePath, relativePath)])) as {
-  readonly [K in keyof typeof WORKSPACE_DIRS]: string;
-};
+// Seeded from the source map so the result carries exactly its keys —
+// `Object.fromEntries` would widen them to a bare string index.
+function toAbsolutePaths<T extends Record<string, string>>(relativePaths: T, root: string): { readonly [K in keyof T]: string } {
+  const absolute: { -readonly [K in keyof T]: string } = { ...relativePaths };
+  for (const key in absolute) {
+    absolute[key] = path.join(root, relativePaths[key]);
+  }
+  return absolute;
+}
 
-const WORKSPACE_FILE_PATHS = Object.fromEntries(
-  Object.entries(WORKSPACE_FILES).map(([key, relativePath]) => [key, path.join(workspacePath, relativePath)]),
-) as {
-  readonly [K in keyof typeof WORKSPACE_FILES]: string;
-};
+const WORKSPACE_DIR_PATHS = toAbsolutePaths(WORKSPACE_DIRS, workspacePath);
+
+const WORKSPACE_FILE_PATHS = toAbsolutePaths(WORKSPACE_FILES, workspacePath);
 
 export const WORKSPACE_PATHS = {
   ...WORKSPACE_DIR_PATHS,
