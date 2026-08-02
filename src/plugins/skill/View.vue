@@ -48,11 +48,10 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { marked } from "marked";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import type { SkillData } from "./types";
 import { handleExternalLinkClick } from "@mulmoclaude/markdown-utils/dom/externalLink";
-import { sanitizeMarkdownHtml } from "../../utils/markdown/sanitize";
+import { renderMarkdownToSafeHtml } from "../../utils/markdown/renderMarkdown";
 import { useMermaidRenderer } from "../../utils/markdown/useMermaid";
 
 const { t } = useI18n();
@@ -67,7 +66,7 @@ const skillPath = computed(() => props.selectedResult.data?.skillPath ?? null);
 const skillDescription = computed(() => props.selectedResult.data?.skillDescription ?? null);
 const body = computed(() => props.selectedResult.data?.body ?? "");
 
-const renderedHtml = computed(() => sanitizeMarkdownHtml(marked(body.value, { breaks: true, gfm: true }) as string));
+const renderedHtml = computed(() => renderMarkdownToSafeHtml(body.value, { breaks: true, gfm: true }));
 
 const markdownContainerRef = ref<HTMLElement | null>(null);
 useMermaidRenderer(markdownContainerRef, renderedHtml);

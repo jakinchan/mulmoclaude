@@ -69,6 +69,7 @@ import { useI18n } from "vue-i18n";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import { getPlugin } from "../tools";
 import { formatSmartTime } from "../utils/format/date";
+import { isRecord } from "../utils/types";
 import CanvasViewToggle from "./CanvasViewToggle.vue";
 import CopyChatButton from "./CopyChatButton.vue";
 import type { LayoutMode } from "../utils/canvas/layoutMode";
@@ -99,10 +100,8 @@ function sourceLabel(result: ToolResultComplete): string {
   // `action` lives on the persisted tool-result (see #670b40a5
   // `feat(sidebar): use ToolResult.action for multi-feature labels`)
   // but is not yet declared on `ToolResultComplete` in
-  // `gui-chat-protocol`. Cast to a local view so vue-tsc accepts
-  // the access; runtime is unchanged (it was already returning
-  // `undefined` for results that don't carry one).
-  const { action } = result as { action?: unknown };
+  // `gui-chat-protocol`, so it is read off the record surface.
+  const action = isRecord(result) ? result.action : undefined;
   return typeof action === "string" && action.length > 0 ? `${result.toolName}(${action})` : result.toolName;
 }
 

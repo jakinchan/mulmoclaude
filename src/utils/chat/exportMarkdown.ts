@@ -65,18 +65,20 @@ function formatHHMM(epochMs: number): string {
   return `${hours}:${minutes}`;
 }
 
+// Own-property check via Object.prototype.hasOwnProperty so an
+// inherited key on the runtime ROLE_LABELS object (e.g. `toString`,
+// or anything that crawled in via Object.prototype pollution)
+// can't satisfy the gate and produce a `## undefined` speaker line
+// (#1065 review).
+function isRole(value: unknown): value is Role {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(ROLE_LABELS, value);
+}
+
 /** Narrow `data?.role` to a known speaker label. Defaults to "assistant". */
 function roleOf(result: ToolResultComplete): Role {
   const { data } = result;
-  // Own-property check via Object.prototype.hasOwnProperty so an
-  // inherited key on the runtime ROLE_LABELS object (e.g. `toString`,
-  // or anything that crawled in via Object.prototype pollution)
-  // can't satisfy the gate and produce a `## undefined` speaker line
-  // (#1065 review).
-  if (isRecord(data) && typeof data.role === "string" && Object.prototype.hasOwnProperty.call(ROLE_LABELS, data.role)) {
-    return data.role as Role;
-  }
-  return "assistant";
+  const role = isRecord(data) ? data.role : undefined;
+  return isRole(role) ? role : "assistant";
 }
 
 /** Pull the displayable text from a text-response result. Falls back to
@@ -114,7 +116,7 @@ function matchFenceRun(line: string): OpenFence | null {
   const match = FENCE_RUN_RE.exec(line);
   if (!match) return null;
   const [, run] = match;
-  return { char: run[0] as "`" | "~", len: run.length };
+  return { char: run.startsWith("`") ? "`" : "~", len: run.length };
 }
 
 /** A line closes `open` only when it uses the same fence char, has at

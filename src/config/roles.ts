@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ALL_TOOL_NAMES, TOOL_NAMES, type ToolName } from "./toolNames";
+import { ALL_TOOL_NAMES, TOOL_NAMES } from "./toolNames";
 
 // `availablePlugins` accepts every literal listed in `TOOL_NAMES`.
 // Compile time: roles.ts static definitions below get typed as
@@ -25,7 +25,10 @@ import { ALL_TOOL_NAMES, TOOL_NAMES, type ToolName } from "./toolNames";
 // Frontend create/update goes through a plugin-picker UI that only
 // emits names that are loaded right now, so the lenient parse
 // doesn't weaken create-time validation.
-const toolNameEnum = z.enum(ALL_TOOL_NAMES as readonly [ToolName, ...ToolName[]]);
+// Destructured into head + tail because `z.enum` needs a non-empty tuple,
+// which a `readonly ToolName[]` alone cannot express.
+const [firstToolName, ...otherToolNames] = ALL_TOOL_NAMES;
+const toolNameEnum = z.enum([firstToolName, ...otherToolNames]);
 const availablePluginsSchema = z
   .union([z.array(z.string()), z.array(toolNameEnum)])
   .transform((plugins) => plugins.filter((plugin) => typeof plugin === "string" && plugin.length > 0));

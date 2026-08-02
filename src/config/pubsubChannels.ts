@@ -182,6 +182,8 @@ export const PUBSUB_CHANNELS_INTRA_COLLISIONS: readonly IntraPluginCollision[] =
 
 /** Static pub/sub channel names. Factories for parameterised channels
  *  (e.g. `sessionChannel(id)`) live alongside as named helpers. */
+// Kept (#2692): the plugin half of this type is derived from META at compile
+// time, which no runtime check over the merged record can reproduce.
 export const PUBSUB_CHANNELS = PUBSUB_CHANNELS_AGGREGATE.merged as unknown as typeof HOST_STATIC_CHANNELS & PluginStaticChannelsMap<BuiltInPluginMetas>;
 
 export type StaticPubSubChannel = (typeof PUBSUB_CHANNELS)[keyof typeof PUBSUB_CHANNELS];

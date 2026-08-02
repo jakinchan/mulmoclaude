@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from "uuid";
 import { TOOL_NAME as PRESENT_COLLECTION_TOOL_NAME, type PresentCollectionData } from "@mulmoclaude/core/collection";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import type { ActiveSession } from "../../types/session";
+import { isRecord } from "../types";
 
 export interface CollectionSlashSeed {
   slug: string;
@@ -40,13 +41,14 @@ type SyntheticCollectionResult = ToolResultComplete<PresentCollectionData, Prese
   syntheticCollection: true;
 };
 
-function isSyntheticCollection(result: ToolResultComplete): result is SyntheticCollectionResult {
-  return (result as Partial<SyntheticCollectionResult>).syntheticCollection === true;
+function isSyntheticCollection(result: ToolResultComplete): boolean {
+  return isRecord(result) && result.syntheticCollection === true;
 }
 
 function collectionSlugOf(result: ToolResultComplete): string | undefined {
-  const data = (result.data ?? result.jsonData) as PresentCollectionData | undefined;
-  return data?.collectionSlug;
+  const data = result.data ?? result.jsonData;
+  if (!isRecord(data) || typeof data.collectionSlug !== "string") return undefined;
+  return data.collectionSlug;
 }
 
 /** True when the session already holds the agent's *real* presentCollection

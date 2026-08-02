@@ -4,6 +4,7 @@
 import { ref, computed, type CSSProperties } from "vue";
 import { usePubSub } from "./usePubSub";
 import { PUBSUB_CHANNELS } from "../config/pubsubChannels";
+import { isRecord } from "../utils/types";
 
 export function useDebugBeat() {
   const debugBeatColor = ref<string | null>(null);
@@ -11,12 +12,13 @@ export function useDebugBeat() {
 
   const { subscribe } = usePubSub();
   subscribe(PUBSUB_CHANNELS.debugBeat, (data) => {
-    const msg = data as { count: number; last?: boolean };
-    if (msg.last) {
+    if (!isRecord(data)) return;
+    if (data.last === true) {
       debugBeatColor.value = null;
-    } else {
-      debugBeatColor.value = msg.count % 2 === 0 ? "#3b82f6" : "#ef4444";
+      return;
     }
+    if (typeof data.count !== "number") return;
+    debugBeatColor.value = data.count % 2 === 0 ? "#3b82f6" : "#ef4444";
   });
 
   return { debugTitleStyle };

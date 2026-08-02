@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   formToRole,
   roleToForm,
+  parseCustomRoles,
+  parseManageRolesResult,
   parseQueriesText,
   validateRoleForm,
   isValidRoleId,
@@ -115,5 +117,57 @@ describe("validateRoleForm", () => {
 
   it("excludes the role's own id on rename", () => {
     assert.equal(validateRoleForm(form({ id: "self" }), "self", ["self"]), null);
+  });
+});
+
+describe("parseCustomRoles", () => {
+  const wireRole = { id: "analyst", name: "Analyst", icon: "insights", prompt: "You are an analyst.", availablePlugins: ["chart"] };
+
+  it("rebuilds a well-formed list and drops unknown fields", () => {
+    assert.deepEqual(parseCustomRoles([{ ...wireRole, isDebugRole: true }]), [wireRole]);
+  });
+
+  it("keeps queries only when it is a string list", () => {
+    assert.deepEqual(parseCustomRoles([{ ...wireRole, queries: ["a", "b"] }]), [{ ...wireRole, queries: ["a", "b"] }]);
+    assert.deepEqual(parseCustomRoles([{ ...wireRole, queries: [1] }]), [wireRole]);
+  });
+
+  it("accepts an empty list", () => {
+    assert.deepEqual(parseCustomRoles([]), []);
+  });
+
+  it("returns null for a non-array payload", () => {
+    assert.equal(parseCustomRoles(null), null);
+    assert.equal(parseCustomRoles({ customRoles: [] }), null);
+    assert.equal(parseCustomRoles(undefined), null);
+  });
+
+  it("returns null when any entry is malformed, so the caller keeps its list", () => {
+    assert.equal(parseCustomRoles([wireRole, { ...wireRole, name: 5 }]), null);
+    assert.equal(parseCustomRoles([{ ...wireRole, availablePlugins: "chart" }]), null);
+    assert.equal(parseCustomRoles(["analyst"]), null);
+  });
+});
+
+// `null` from this parser is the "keep the list you already have" signal.
+// The refreshList() call sites must not collapse it to `[]` — doing so blanks
+// the panel for anyone whose roles file has one hand-edited row (#2738 review).
+describe("parseManageRolesResult", () => {
+  const wireRole = { id: "analyst", name: "Analyst", icon: "insights", prompt: "You are an analyst.", availablePlugins: ["chart"] };
+
+  it("reads the list out of a manage response envelope", () => {
+    assert.deepEqual(parseManageRolesResult({ success: true, data: { customRoles: [wireRole] } }), [wireRole]);
+  });
+
+  it("reads an empty list as an empty list", () => {
+    assert.deepEqual(parseManageRolesResult({ success: true, data: { customRoles: [] } }), []);
+  });
+
+  it("returns null — not [] — when the envelope carries no usable list", () => {
+    assert.equal(parseManageRolesResult({ success: true }), null);
+    assert.equal(parseManageRolesResult({ success: true, data: {} }), null);
+    assert.equal(parseManageRolesResult({ success: true, data: { customRoles: [{ id: "analyst" }] } }), null);
+    assert.equal(parseManageRolesResult({ success: true, data: "roles" }), null);
+    assert.equal(parseManageRolesResult(null), null);
   });
 });

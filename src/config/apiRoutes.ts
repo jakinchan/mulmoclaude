@@ -496,4 +496,6 @@ const API_ROUTES_AGGREGATE = defineHostAggregate<ApiRoutesAggregateValue>(BUILT_
 export const API_ROUTES_HOST_COLLISIONS: readonly HostPluginCollision[] = API_ROUTES_AGGREGATE.hostCollisions;
 export const API_ROUTES_INTRA_COLLISIONS: readonly IntraPluginCollision[] = API_ROUTES_AGGREGATE.intraCollisions;
 
+// Kept (#2692): the plugin half of this type is derived from META at compile
+// time, which no runtime check over the merged record can reproduce.
 export const API_ROUTES = API_ROUTES_AGGREGATE.merged as unknown as typeof HOST_API_ROUTES & PluginApiRoutesMap<BuiltInPluginMetas>;
