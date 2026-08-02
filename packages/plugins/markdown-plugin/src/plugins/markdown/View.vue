@@ -175,6 +175,7 @@ import { marked } from "marked";
 import { formatScalarField, sanitizeMarkdownHtml, useMarkdownDoc, useClipboardCopy, useFileWatch } from "@mulmoclaude/core/plugin-vue";
 import type { ToolResult } from "gui-chat-protocol";
 import { documentPathOf, type MarkdownToolData } from "./definition";
+import { createAutoSaver } from "./autoSaver";
 import { rewriteMarkdownImageRefs } from "@mulmoclaude/markdown-utils/image/rewriteMarkdownImageRefs";
 import { findTaskLines, makeTasksInteractive, toggleTaskAt } from "@mulmoclaude/markdown-utils/markdown/taskList";
 import { mermaidExtension } from "@mulmoclaude/markdown-utils/markdown/mermaidExtension";
@@ -365,40 +366,33 @@ const AUTO_SAVE_DEBOUNCE_MS = 1500;
 const canPersist = computed(() => documentPathOf(props.selectedResult.data) !== null);
 const autoSave = ref(false);
 const autoSaveActive = computed(() => autoSave.value && livePreview.value && editing.value && canPersist.value);
-let autoSaveTimer: ReturnType<typeof setTimeout> | undefined;
-// Writes are chained rather than fired in parallel: two overlapping PUTs of the
-// same path can land out of order, leaving disk on the older buffer.
-let autoSaveChain: Promise<unknown> = Promise.resolve();
-
-// Re-checked when a queued write finally runs, not just when it was queued.
-// Clearing `autoSaveTimer` only cancels a write still waiting out the debounce;
-// one already handed to the chain waits behind an in-flight PUT and would
-// otherwise still land — persisting text the user discarded with Cancel, or
-// asked to stop persisting by unticking a box.
-function autoSaveStillWanted(path: string | null): boolean {
-  return autoSaveActive.value && documentPathOf(props.selectedResult.data) === path;
-}
+// Debounce, serialisation and the "is this write still wanted?" rule live in
+// `createAutoSaver` (unit-tested there — the cancellation boundary is the part
+// worth pinning down). This view supplies the two predicates.
+const autoSaver = createAutoSaver<string | null>({
+  delayMs: AUTO_SAVE_DEBOUNCE_MS,
+  // Re-checked when a queued write finally runs, not just when it was queued:
+  // a write already handed to the chain waits behind an in-flight PUT and would
+  // otherwise still land — persisting text the user discarded with Cancel, or
+  // asked to stop persisting by unticking a box. The path check covers the
+  // other half: the user may have selected a different document meanwhile.
+  isWanted: (path) => autoSaveActive.value && documentPathOf(props.selectedResult.data) === path,
+  write: (text) => persistMarkdown(text),
+});
 
 watch([editableMarkdown, autoSaveActive], () => {
-  clearTimeout(autoSaveTimer);
+  autoSaver.cancel();
   // Closing the editor / unticking either box flips `autoSaveActive` and lands
   // here, so a pending write is dropped before Cancel discards the draft.
   if (!autoSaveActive.value || !hasChanges.value) return;
-  // Snapshot what is being saved and where. The callback can run well after it
-  // was queued (the chain may still be draining an earlier write), by which
-  // time the user may have selected another document — `documentPathOf` would
-  // then name the NEW document while `editableMarkdown` still holds the old
-  // buffer, and the save would write one into the other.
-  const text = editableMarkdown.value;
-  const path = documentPathOf(props.selectedResult.data);
-  autoSaveTimer = setTimeout(() => {
-    autoSaveChain = autoSaveChain.then(() => (autoSaveStillWanted(path) ? persistMarkdown(text) : false));
-  }, AUTO_SAVE_DEBOUNCE_MS);
+  // Snapshot what is being saved and where — by the time the write runs,
+  // `editableMarkdown` and the selected document may both have moved on.
+  autoSaver.schedule(editableMarkdown.value, documentPathOf(props.selectedResult.data));
 });
 
 onUnmounted(() => {
   clearTimeout(liveTimer);
-  clearTimeout(autoSaveTimer);
+  autoSaver.cancel();
 });
 
 // What the viewer renders. Deliberately NOT what `marpMode` and the
