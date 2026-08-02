@@ -375,8 +375,15 @@ watch([editableMarkdown, autoSaveActive], () => {
   // Closing the editor / unticking either box flips `autoSaveActive` and lands
   // here, so a pending write is dropped before Cancel discards the draft.
   if (!autoSaveActive.value || !hasChanges.value) return;
+  // Snapshot what is being saved and where. The callback can run well after it
+  // was queued (the chain may still be draining an earlier write), by which
+  // time the user may have selected another document — `documentPathOf` would
+  // then name the NEW document while `editableMarkdown` still holds the old
+  // buffer, and the save would write one into the other.
+  const text = editableMarkdown.value;
+  const path = documentPathOf(props.selectedResult.data);
   autoSaveTimer = setTimeout(() => {
-    autoSaveChain = autoSaveChain.then(() => persistMarkdown(editableMarkdown.value));
+    autoSaveChain = autoSaveChain.then(() => (documentPathOf(props.selectedResult.data) === path ? persistMarkdown(text) : false));
   }, AUTO_SAVE_DEBOUNCE_MS);
 });
 
@@ -633,41 +640,33 @@ async function downloadPdf() {
 // Shared write path for Apply and auto save. Returns false when nothing was
 // written, so Apply can keep the panel open on failure while auto save just
 // leaves the error banner up and retries on the next keystroke.
-async function persistMarkdown(text: string): Promise<boolean> {
-  const raw = props.selectedResult.data?.markdown;
-  const filePath = documentPathOf(props.selectedResult.data);
-  if (!raw && !filePath) return false;
-
-  saveError.value = null;
-
-  // If file-based, save to server. The path is sent verbatim — it is
-  // whatever the tool call named (an `artifacts/documents/YYYY/MM/…` doc
-  // this tool wrote, a repo file, an absolute path), and the host is the
-  // layer that decides what it will write.
-  if (filePath) {
-    saving.value = true;
-    pendingSelfSaves.value += 1;
-    try {
-      await dispatch({ kind: "saveDoc", path: filePath, markdown: text });
-    } catch (err) {
-      // Roll back the self-save expectation — no pubsub event will
-      // arrive for a failed save, so the counter would otherwise stay
-      // high and silently absorb the next *remote* write.
-      pendingSelfSaves.value = Math.max(0, pendingSelfSaves.value - 1);
-      // Store the raw error; the template formats it via t() so locale
-      // switches re-render without double-translating.
-      saveError.value = err instanceof Error ? err.message : String(err);
-      return false;
-    } finally {
-      saving.value = false;
-    }
+// The write itself. The path is sent verbatim — it is whatever the tool call
+// named (an `artifacts/documents/YYYY/MM/…` doc this tool wrote, a repo file,
+// an absolute path), and the host is the layer that decides what it will write.
+async function writeDoc(filePath: string, text: string): Promise<boolean> {
+  saving.value = true;
+  pendingSelfSaves.value += 1;
+  try {
+    await dispatch({ kind: "saveDoc", path: filePath, markdown: text });
+    return true;
+  } catch (err) {
+    // Roll back the self-save expectation — no pubsub event will
+    // arrive for a failed save, so the counter would otherwise stay
+    // high and silently absorb the next *remote* write.
+    pendingSelfSaves.value = Math.max(0, pendingSelfSaves.value - 1);
+    // Store the raw error; the template formats it via t() so locale
+    // switches re-render without double-translating.
+    saveError.value = err instanceof Error ? err.message : String(err);
+    return false;
+  } finally {
+    saving.value = false;
   }
+}
 
-  // Update local state
-  markdownContent.value = text;
-
-  // Emit update to parent (clears pdfPath since content changed)
-  const updatedResult: ToolResult<MarkdownToolData> = {
+// What the parent is told after a successful write (pdfPath is cleared because
+// the content it was rendered from is gone).
+function buildUpdatedResult(filePath: string | null, text: string): ToolResult<MarkdownToolData> {
+  return {
     ...props.selectedResult,
     data: {
       ...props.selectedResult.data,
@@ -675,7 +674,26 @@ async function persistMarkdown(text: string): Promise<boolean> {
       pdfPath: undefined,
     },
   };
-  emit("updateResult", updatedResult);
+}
+
+async function persistMarkdown(text: string): Promise<boolean> {
+  const raw = props.selectedResult.data?.markdown;
+  const filePath = documentPathOf(props.selectedResult.data);
+  if (!raw && !filePath) return false;
+
+  saveError.value = null;
+
+  if (filePath) {
+    if (!(await writeDoc(filePath, text))) return false;
+    // The user may have selected another document during the round trip. Every
+    // state mutation below belongs to the document that was written, so
+    // applying them now would put its content — and its path — on whatever is
+    // on screen instead. Same guard as `persistTaskMarkdown`.
+    if (documentPathOf(props.selectedResult.data) !== filePath) return false;
+  }
+
+  markdownContent.value = text;
+  emit("updateResult", buildUpdatedResult(filePath, text));
   return true;
 }
 
