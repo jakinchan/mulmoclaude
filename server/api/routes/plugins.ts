@@ -2,6 +2,8 @@ import { Router, Request, Response } from "express";
 import { getSessionQuery } from "../../utils/request.js";
 import { latestToolResult } from "../../events/session-store/index.js";
 import { TOOL_NAMES } from "../../../src/config/toolNames.js";
+import { META as PRESENT_FORM_META } from "../../../src/plugins/presentForm/meta.js";
+import { META as PRESENT_COLLECTION_META } from "../../../src/plugins/presentCollection/meta.js";
 import type { ToolContext } from "gui-chat-protocol";
 import { executeMindMap } from "@gui-chat-plugin/mindmap";
 import { executeSpreadsheet, type SpreadsheetArgs } from "../../../src/plugins/spreadsheet/definition.js";
@@ -318,14 +320,14 @@ router.post(
 // putQuestions — quiz
 router.post(
   API_ROUTES.plugins.quiz,
-  wrapPluginExecute<Parameters<typeof executeQuiz>[1]>((req) => executeQuiz(SERVER_TOOL_CONTEXT, req.body)),
+  wrapPluginExecute<Parameters<typeof executeQuiz>[1]>((req) => executeQuiz(sessionToolContext(req, TOOL_NAMES.putQuestions), req.body)),
 );
 
 // presentForm — form
 bindRoute(
   router,
   API_ROUTES.form.dispatch,
-  wrapPluginExecute<Parameters<typeof executeForm>[1]>((req) => executeForm(SERVER_TOOL_CONTEXT, req.body)),
+  wrapPluginExecute<Parameters<typeof executeForm>[1]>((req) => executeForm(sessionToolContext(req, PRESENT_FORM_META.toolName), req.body)),
 );
 
 // presentCollection — render a collection (or one item) as an inline,
@@ -343,7 +345,7 @@ bindRoute(
 // filename, id, or enum value) can't be read as instructions once appended to
 // the LLM-facing result.
 async function dispatchPresentCollection(req: Request<object, unknown, PresentCollectionArgs>) {
-  const result = await executePresentCollection(SERVER_TOOL_CONTEXT, req.body);
+  const result = await executePresentCollection(sessionToolContext(req, PRESENT_COLLECTION_META.toolName), req.body);
   const slug = result.data?.collectionSlug;
   if (!slug) return result; // error result (no slug) — nothing to validate
   if (isAblated("validation")) return result; // evaluation-only: issue reporting ablated
@@ -386,7 +388,7 @@ bindRoute(
 // present3d — 3D visualization
 router.post(
   API_ROUTES.plugins.present3d,
-  wrapPluginExecute<Parameters<typeof executePresent3D>[1]>((req) => executePresent3D(SERVER_TOOL_CONTEXT, req.body)),
+  wrapPluginExecute<Parameters<typeof executePresent3D>[1]>((req) => executePresent3D(sessionToolContext(req, TOOL_NAMES.present3D), req.body)),
 );
 
 // mapControl — Google Map (showLocation / Places / Directions etc.)
@@ -396,7 +398,7 @@ router.post(
 // receives the API key as a prop sourced from `AppSettings`.
 router.post(
   API_ROUTES.plugins.googleMap,
-  wrapPluginExecute<Parameters<typeof executeMapControl>[1]>((req) => executeMapControl(SERVER_TOOL_CONTEXT, req.body)),
+  wrapPluginExecute<Parameters<typeof executeMapControl>[1]>((req) => executeMapControl(sessionToolContext(req, TOOL_NAMES.mapControl), req.body)),
 );
 
 // META aggregator diagnostics — boot-time host/plugin or plugin/plugin

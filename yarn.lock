@@ -1349,12 +1349,10 @@
     protobufjs "^7.5.3"
     yargs "^17.7.2"
 
-"@gui-chat-plugin/browse@^1.1.0":
-  version "1.1.0"
-  resolved "https://registry.yarnpkg.com/@gui-chat-plugin/browse/-/browse-1.1.0.tgz#178afd50e1786c942676d702c7baf538048080a4"
-  integrity sha512-nRo5Y07/LoxHgKcSs29vyo2wTXcOPfPeUn4RizarEbvYIIkp7SHEsOq3Kpqg2NoDJXwiRegTAED2PJgGrNWnjA==
-  dependencies:
-    gui-chat-protocol "^1.2.0"
+"@gui-chat-plugin/browse@^1.1.1":
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/@gui-chat-plugin/browse/-/browse-1.1.1.tgz#29ef08c6ce880a5134dd710e87af17ffcad1dbd5"
+  integrity sha512-+1J8Bw6Q4JZ7MtKaN/RjK8GFkoQjPNaIoP9d3efFOqir5pmrN0DqezWMzbNSAIf9CLX4RmoAQ6hxMyi8mMZrkw==
 
 "@gui-chat-plugin/camera@^1.1.0":
   version "1.1.0"
@@ -1368,10 +1366,10 @@
   dependencies:
     gui-chat-protocol "^1.2.0"
 
-"@gui-chat-plugin/mindmap@^1.2.0":
-  version "1.2.0"
-  resolved "https://registry.yarnpkg.com/@gui-chat-plugin/mindmap/-/mindmap-1.2.0.tgz#ab11345894eceb97b9b1e607ebf40de378ef7ae4"
-  integrity sha512-9tKya/Kt91TYyRYaogC8o6GCtXMbdo96OlQC+wHFcU7ibaRAoAFWNftlb9KkUxuagjMNq9FdUzaovc+0G0tgpQ==
+"@gui-chat-plugin/mindmap@^1.2.1":
+  version "1.2.1"
+  resolved "https://registry.yarnpkg.com/@gui-chat-plugin/mindmap/-/mindmap-1.2.1.tgz#b714c26c29a0dc616df65f53954b1f648d18a497"
+  integrity sha512-Mkfk54cguaxJRirYcApQfW9zpI2sSi8wpf+XkDcmaAo0f/26NtpTBnU1HPZvgd+NAghVzLecgQHvxH8rx1C4ww==
   dependencies:
     jspdf "^4.0.0"
 
