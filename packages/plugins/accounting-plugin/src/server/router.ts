@@ -100,6 +100,10 @@ async function handleGetReport(rest: ActionRest): Promise<unknown> {
   // the LLM repairs its own payload from this text.
   const periodRequired = (label: string) =>
     new AccountingError(400, `${label}: period is required — { kind: "month", period: "YYYY-MM" } or { kind: "range", from: "YYYY-MM-DD", to: "YYYY-MM-DD" }`);
+  // `ledger` treats an absent period as "full history", which would turn a
+  // period the caller DID send but got wrong into a silently wider answer
+  // than they asked for. Sent-but-unusable is an error for every kind (#2765).
+  if (rest.period !== undefined && !periodInput) throw periodRequired(`getReport ${kind || "(no kind)"}`);
   if (kind === "balance") {
     if (!periodInput) throw periodRequired("getReport balance");
     return getBalanceSheetReport({ bookId, period: periodInput });

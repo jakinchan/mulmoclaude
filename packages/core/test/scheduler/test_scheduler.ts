@@ -395,3 +395,45 @@ test("start(): a rejected tick is logged and later ticks keep running", async ()
   assert.ok(nowCalls >= 2, `interval stopped after the first rejection (${nowCalls} tick(s))`);
   assert.ok(errors.includes("tick failed"), `expected a "tick failed" log, got ${JSON.stringify(errors)}`);
 });
+
+// A daily task whose `time` isn't "HH:MM" is never due — safe, but until
+// #2765 it was also completely silent: no log, no error, and `registerTask`
+// accepted it. "The task I scheduled has never run once" is the worst
+// failure mode to have to debug from nothing. The manager now says so; it
+// still registers the task, because throwing would turn a consumer's
+// long-dead task into a boot crash.
+test("a daily task with a malformed time is reported, not silently dead (#2765)", async () => {
+  const errors: { message: string; data?: unknown }[] = [];
+  const manager = createTaskManager({
+    tickMs: 60_000,
+    now: () => new Date(Date.UTC(2026, 0, 1, 9, 0, 0)),
+    log: { info: () => {}, warn: () => {}, error: (message, data) => errors.push({ message, data }) },
+  });
+
+  const ran: string[] = [];
+  manager.registerTask({ id: "typo", schedule: { type: SCHEDULE_TYPES.daily, time: "9" }, run: async () => void ran.push("typo") });
+
+  assert.equal(errors.length, 1, "registering a malformed daily time must report it");
+  assert.match(errors[0]?.message ?? "", /never run|never fire/i);
+  assert.deepEqual(errors[0]?.data, { id: "typo", time: "9" });
+
+  // Behaviour is unchanged: still registered, still never due.
+  await manager.tick();
+  assert.deepEqual(ran, [], "a malformed daily time must stay never-due");
+});
+
+test("updateSchedule reports a malformed daily time too (#2765)", () => {
+  const errors: unknown[] = [];
+  const manager = createTaskManager({
+    tickMs: 60_000,
+    now: () => new Date(Date.UTC(2026, 0, 1, 9, 0, 0)),
+    log: { info: () => {}, warn: () => {}, error: (_message, data) => errors.push(data) },
+  });
+  manager.registerTask({ id: "ok", schedule: { type: SCHEDULE_TYPES.daily, time: "09:00" }, run: async () => {} });
+  assert.deepEqual(errors, [], "a well-formed time must not be reported");
+
+  // The override path (`applyScheduleOverride`) reaches this at run time, so
+  // checking only at registration would miss a bad value applied later.
+  manager.updateSchedule("ok", { type: SCHEDULE_TYPES.daily, time: "0900" });
+  assert.deepEqual(errors, [{ id: "ok", time: "0900" }]);
+});

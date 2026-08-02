@@ -144,3 +144,52 @@ describe("isDueAt", () => {
     assert.equal(isDueAt(schedule, hour(8, 0), 60_000), false);
   });
 });
+
+// A malformed `time` reaches this library unchecked: `TaskSchedule.time` is a
+// bare string on a published package, and only some hosts validate it. What
+// must never happen is one bad task taking the whole catch-up batch with it
+// (#2765) — `parseTimeToMs` yields NaN, and NaN comparisons are all false, so
+// the window loop used to run to its cap emitting NaN timestamps.
+describe("malformed daily/weekly time (#2765)", () => {
+  const malformed = ["9", "0900", "9:00 AM", ""];
+
+  it("never proposes a window for an unparseable time", () => {
+    for (const time of malformed) {
+      assert.equal(nextWindowAfter({ type: "daily" as const, time }, hour(0, 0)), null, `daily ${JSON.stringify(time)}`);
+      assert.equal(nextWindowAfter({ type: "weekly" as const, daysOfWeek: [0, 1, 2, 3, 4, 5, 6], time }, hour(0, 0)), null, `weekly ${JSON.stringify(time)}`);
+    }
+  });
+
+  // The blast-radius test: the old loop pushed `maxWindows` NaN entries
+  // because `NaN > untilMs` is false, and `new Date(NaN).toISOString()`
+  // downstream threw for every task in the batch.
+  it("lists no missed windows instead of filling the cap with NaN", () => {
+    for (const time of malformed) {
+      const windows = listMissedWindows({ type: "daily" as const, time }, hour(0, 0), hour(23, 0));
+      assert.deepEqual(windows, [], `daily ${JSON.stringify(time)}`);
+    }
+  });
+
+  it("is never due", () => {
+    for (const time of malformed) {
+      assert.equal(isDueAt({ type: "daily" as const, time }, hour(9, 0), 60_000), false, `daily ${JSON.stringify(time)}`);
+    }
+  });
+
+  // A well-formed time must keep working — the guard is about NaN, not about
+  // tightening what the library accepts.
+  it("leaves a well-formed time alone", () => {
+    assert.equal(nextWindowAfter({ type: "daily" as const, time: "08:00" }, hour(0, 0)), hour(8, 0));
+    assert.equal(listMissedWindows({ type: "daily" as const, time: "08:00" }, hour(0, 0), hour(23, 0)).length, 1);
+  });
+
+  // Pinned as KNOWN, not as desirable: these are malformed too, but they parse
+  // to a finite time (`Number("")` is 0), so they schedule a real window rather
+  // than escaping into NaN. Rejecting them would also reject `"08:00:00"`,
+  // which fires today at 08:00 — a working schedule that must not silently
+  // stop. Tightening the accepted FORMAT is a separate behaviour change.
+  it("still accepts malformed-but-finite times, at the time they compute to", () => {
+    assert.equal(nextWindowAfter({ type: "daily" as const, time: "::" }, hour(0, 0)), hour(0, 0));
+    assert.equal(nextWindowAfter({ type: "daily" as const, time: "08:00:00" }, hour(0, 0)), hour(8, 0));
+  });
+});

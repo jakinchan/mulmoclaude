@@ -88,3 +88,41 @@ describe("describeEntry", () => {
     assert.deepEqual(describeEntry({ id: 7, date: 20260105 }), { id: undefined, date: undefined });
   });
 });
+
+// The shape check ("is it a string?") was never a format check, so an LLM's
+// `{ kind: "month", period: "banana" }` reached the engine intact (#2765).
+// Two measured consequences: the balance sheet's `asOf` came back
+// `"banana-NaN"`, and `previousPeriod` returned `"0NaN-NaN"` — which
+// `getOrBuildSnapshot` then wrote to disk as `banana.json` / `0NaN-NaN.json`.
+// A malformed period now reads as absent, which is the state the router
+// already turns into a 400 naming both accepted shapes.
+describe("optionalReportPeriod — format (#2765)", () => {
+  it("reads a month period that isn't YYYY-MM as absent", () => {
+    for (const period of ["banana", "2026", "2026-1", "26-01", "2026-13", "2026-00", "2026-01-15", ""]) {
+      assert.equal(optionalReportPeriod({ kind: "month", period }), undefined, JSON.stringify(period));
+    }
+  });
+
+  it("reads a range bound that isn't YYYY-MM-DD as absent", () => {
+    // `endDateOfPeriod` returns `period.to` verbatim as the report's `asOf`,
+    // so an unchecked bound lands in the statement the same way.
+    assert.equal(optionalReportPeriod({ kind: "range", from: "2026-01-01", to: "banana" }), undefined);
+    assert.equal(optionalReportPeriod({ kind: "range", from: "2026-01", to: "2026-03-31" }), undefined);
+    assert.equal(optionalReportPeriod({ kind: "range", from: "2026-01-01", to: "2026-02-30" }), undefined);
+  });
+
+  it("still accepts every well-formed period", () => {
+    assert.deepEqual(optionalReportPeriod({ kind: "month", period: "2026-12" }), { kind: "month", period: "2026-12" });
+    assert.deepEqual(optionalReportPeriod({ kind: "range", from: "2026-01-01", to: "2026-12-31" }), {
+      kind: "range",
+      from: "2026-01-01",
+      to: "2026-12-31",
+    });
+    // Leap day — a calendar check must not reject a real date.
+    assert.deepEqual(optionalReportPeriod({ kind: "range", from: "2028-02-29", to: "2028-02-29" }), {
+      kind: "range",
+      from: "2028-02-29",
+      to: "2028-02-29",
+    });
+  });
+});
