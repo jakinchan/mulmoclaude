@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/email",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Email bridge for MulmoBridge — checks an IMAP mailbox and replies via SMTP",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,9 +22,9 @@
   "license": "MIT",
   "author": "Receptron Team",
   "dependencies": {
-    "@mulmobridge/client": "^1.0.1",
+    "@mulmobridge/client": "^1.0.2",
     "@mulmobridge/protocol": "^1.0.1",
-    "@mulmoclaude/common": "^1.1.1",
+    "@mulmoclaude/common": "^1.1.2",
     "dotenv": "^17.0.0",
     "imapflow": "^1.6.5",
     "mailparser": "^3.9.14",

@@ -1,6 +1,6 @@
 {
   "name": "@mulmoclaude/x-plugin",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "X (Twitter) API tools for MulmoClaude and MulmoTerminal — readXPost + searchX as MCP tools. Server-only; no Vue View.",
   "type": "module",
   "main": "./dist/index.js",
@@ -27,7 +27,7 @@
     "lint": "eslint src test"
   },
   "dependencies": {
-    "@mulmoclaude/common": "^1.1.1"
+    "@mulmoclaude/common": "^1.1.2"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

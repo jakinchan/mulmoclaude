@@ -37,7 +37,7 @@
     "lint": "eslint src test"
   },
   "dependencies": {
-    "@mulmoclaude/common": "^1.1.1",
+    "@mulmoclaude/common": "^1.1.2",
     "@mulmoclaude/core": "^2.0.0"
   },
   "peerDependencies": {

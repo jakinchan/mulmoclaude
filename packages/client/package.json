@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/client",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Socket.io client library for MulmoBridge — shared by all bridge implementations",
   "type": "module",
   "main": "./dist/index.js",
@@ -46,7 +46,7 @@
   "author": "Receptron Team",
   "dependencies": {
     "@mulmobridge/protocol": "^1.0.1",
-    "@mulmoclaude/common": "^1.1.1",
+    "@mulmoclaude/common": "^1.1.2",
     "socket.io-client": "^4.0.0"
   },
   "devDependencies": {
