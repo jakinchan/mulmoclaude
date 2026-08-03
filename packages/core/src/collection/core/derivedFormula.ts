@@ -328,12 +328,47 @@ class Parser {
 
 // ─── Evaluator ──────────────────────────────────────────────
 
-function evaluate(node: Node, ctx: FormulaContext): number {
-  if (node.kind === "num") return node.value;
-  if (node.kind === "ident") {
-    const raw = ctx.record[node.name];
-    return toFiniteNumber(raw);
+type LeafNode = Exclude<Node, { kind: "binop" }>;
+
+/** Post-order traversal step: either a subtree still to visit, or the operator
+ *  whose two operands are already on the value stack. */
+type EvalStep = { kind: "visit"; node: Node } | { kind: "apply"; operator: BinaryOperator };
+
+/** Walks the tree with an explicit stack. `a + b + c + …` folds
+ *  left-associatively, so the AST's left spine is as deep as the formula is
+ *  long — recursing here would let a long (but valid) user-written formula
+ *  blow the call stack, and the RangeError would escape `evaluateDerived`'s
+ *  null contract into the caller. */
+function evaluate(root: Node, ctx: FormulaContext): number {
+  const steps: EvalStep[] = [{ kind: "visit", node: root }];
+  const values: number[] = [];
+  for (let step = steps.pop(); step; step = steps.pop()) {
+    if (step.kind === "apply") {
+      values.push(applyPending(step.operator, values));
+    } else if (step.node.kind === "binop") {
+      const { operator, left, right } = step.node;
+      // Popped in reverse, so the left operand lands on `values` first.
+      steps.push({ kind: "apply", operator }, { kind: "visit", node: right }, { kind: "visit", node: left });
+    } else {
+      values.push(evaluateLeaf(step.node, ctx));
+    }
   }
+  const result = values.pop();
+  return result !== undefined && values.length === 0 ? result : Number.NaN;
+}
+
+function applyPending(operator: BinaryOperator, values: number[]): number {
+  const right = values.pop();
+  const left = values.pop();
+  // Both operands are pushed before their apply step, so a gap means a
+  // malformed traversal — fail soft to NaN like every other bad value.
+  if (left === undefined || right === undefined) return Number.NaN;
+  return applyBinop(operator, left, right);
+}
+
+function evaluateLeaf(node: LeafNode, ctx: FormulaContext): number {
+  if (node.kind === "num") return node.value;
+  if (node.kind === "ident") return toFiniteNumber(ctx.record[node.name]);
   if (node.kind === "ref") {
     // `<field>.<col>`: read `col` off the resolved target record the
     // caller put in ctx.refs. Unknown field / dangling slug → null →
@@ -342,16 +377,7 @@ function evaluate(node: Node, ctx: FormulaContext): number {
     if (!target) return Number.NaN;
     return toFiniteNumber(target[node.col]);
   }
-  if (node.kind === "binop") {
-    const left = evaluate(node.left, ctx);
-    const right = evaluate(node.right, ctx);
-    return applyBinop(node.operator, left, right);
-  }
-  if (node.kind === "sum") {
-    return evaluateSum(node.arg, ctx);
-  }
-  // Exhaustive — TS narrows above branches but throw keeps runtime honest.
-  throw new Error(`unknown node`);
+  return evaluateSum(node.arg, ctx);
 }
 
 function applyBinop(operator: BinaryOperator, left: number, right: number): number {
