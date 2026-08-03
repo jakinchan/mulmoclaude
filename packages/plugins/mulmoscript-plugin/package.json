@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@mulmoclaude/common": "^1.1.1",
-    "@mulmoclaude/core": "^1.14.0"
+    "@mulmoclaude/core": "^1.14.1"
   },
   "peerDependencies": {
     "@mulmocast/deck-web": "^1.1.1",

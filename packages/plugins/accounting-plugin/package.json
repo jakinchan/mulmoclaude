@@ -1,6 +1,6 @@
 {
   "name": "@mulmoclaude/accounting-plugin",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "description": "Double-entry accounting plugin for MulmoClaude and MulmoTerminal. Three surfaces: ./shared (isomorphic enums/meta, browser-safe), ./vue (chat View/Preview + canvas app), ./server (createAccountingRouter — the workspace-file-backed backend, wired via dependency injection so it pulls zero host-only infra).",
   "type": "module",
   "exports": {
@@ -38,7 +38,7 @@
   },
   "dependencies": {
     "@mulmoclaude/common": "^1.1.1",
-    "@mulmoclaude/core": "^1.14.0"
+    "@mulmoclaude/core": "^1.14.1"
   },
   "peerDependencies": {
     "express": "^5.2.1",
