@@ -893,5 +893,5 @@ what the user asked for.
 If a new chat has the same gap, the broker did not publish the tool at all.
 Ask the user for the server log around the session start — the broker prints
 `[mcp-server] publishing N tools: …` and, when a promised tool is missing,
-`[mcp-server] advertised but NOT published: …`. That second line, with the
-plugin-load errors above it, is what a bug report needs.
+`[mcp-server] advertised but NOT published (check plugin load above): …`. That
+second line, with the plugin-load errors above it, is what a bug report needs.

@@ -126,10 +126,18 @@ LOG_CONSOLE_ENABLED=false yarn dev
 LOG_FILE_DIR=/var/log/mulmoclaude LOG_FILE_MAX_FILES=30 yarn dev
 ```
 
-### Ship JSON to stdout (e.g. for a log collector)
+### Ship JSON to the console (e.g. for a log collector)
 
 ```bash
 LOG_CONSOLE_FORMAT=json LOG_FILE_ENABLED=false yarn dev
+```
+
+Default routing splits the records across both streams, so a collector reading
+only stdout silently drops every `warn` and `error` — the ones it most wants.
+Collect both, or put everything on one stream:
+
+```bash
+LOG_CONSOLE_FORMAT=json LOG_CONSOLE_STREAM=stderr LOG_FILE_ENABLED=false yarn dev
 ```
 
 ### Debug a flaky session

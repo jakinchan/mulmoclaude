@@ -14,7 +14,7 @@ The issue's hypothesis was that the MCP child fails to load runtime plugins.
 Driving the child the way the CLI does (`initialize` → `notifications/initialized` →
 `tools/list`), on both broker paths:
 
-```
+```text
 [stdout] [plugins/preset]  loaded requested=5 succeeded=5
 [stdout] [plugins/runtime] loaded requested=3 succeeded=3
 tools/list → google, presentDocument, handlePermission
@@ -78,12 +78,23 @@ is complete) advertises them.
 
 ## Verification
 
-- `test/agent/test_mcp_tools_list.ts` — the bounded wait publishes runtime tools when the
-  load resolves in time, still answers within the cap when it does not.
-- `test/system/test_logger.ts` — `LOG_CONSOLE_STREAM=stderr` keeps `info` off stdout;
-  default config keeps today's split.
-- `test/agent/test_agent_config.ts` — the broker env carries `LOG_CONSOLE_STREAM`.
-- Manual: re-run the stdio probe and confirm stdout is pure JSON-RPC.
+- `test/agent/test_mcp_smoke.ts` — spawns the broker with the env
+  `buildMulmoclaudeServer` actually ships and asserts stdout carries no non-JSON line;
+  asserts the published surface and the "advertised but NOT published" diagnostic on
+  stderr (`google` appearing there is itself the regression test for "the child does
+  load presets").
+- `test/agent/test_agent_config.ts` — the broker env carries `LOG_CONSOLE_STREAM` in both
+  native and Docker mode.
+- `test/logger/test_config.ts` / `test_sinks.ts` — `LOG_CONSOLE_STREAM` parsing, and no
+  level reaching stdout in `stderr` mode.
+- `test/utils/test_promise.ts` — `settleWithin` resolves early, treats a rejection as
+  settled, and gives up at the deadline.
+- Manual: re-run the stdio probe against the built bundle and confirm stdout is pure
+  JSON-RPC.
+
+The timing property itself (a runtime tool present in the FIRST `tools/list`) is left to
+the manual probe: asserting it in CI would make the test a race against the 2 s cap on a
+cold runner.
 
 ## Not done here
 

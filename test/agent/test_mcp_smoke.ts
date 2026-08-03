@@ -10,7 +10,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 
 import { ONE_SECOND_MS } from "../../server/utils/time.ts";
@@ -36,68 +36,78 @@ interface JsonRpcResponse {
   error?: { code: number; message: string };
 }
 
-interface BrokerRun {
-  responses: JsonRpcResponse[];
+interface BrokerStreams {
   /** Raw stdout, for asserting the JSON-RPC channel carries nothing else. */
   stdout: string;
   stderr: string;
+}
+
+interface BrokerRun extends BrokerStreams {
+  responses: JsonRpcResponse[];
+}
+
+/** The JSON-RPC messages in the broker's stdout. Non-JSON lines are skipped here
+ *  so a malformed line surfaces as "no responses" rather than a parse throw —
+ *  the stdout-purity test asserts their absence directly. */
+function parseJsonRpcResponses(stdout: string): JsonRpcResponse[] {
+  const parsed: JsonRpcResponse[] = [];
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      parsed.push(JSON.parse(line) as JsonRpcResponse);
+    } catch {
+      continue;
+    }
+  }
+  return parsed;
+}
+
+function captureStreams(child: ChildProcess): { text: BrokerStreams } {
+  const captured = { text: { stdout: "", stderr: "" } };
+  child.stdout?.on("data", (chunk: Buffer) => {
+    captured.text.stdout += chunk.toString();
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    captured.text.stderr += chunk.toString();
+  });
+  return captured;
+}
+
+function sendLines(child: ChildProcess, lines: string[]): void {
+  // Send all lines, then close stdin to signal EOF.
+  for (const line of lines) {
+    child.stdin?.write(`${line}\n`);
+  }
+  child.stdin?.end();
+}
+
+function brokerRunOrThrow(code: number | null, streams: BrokerStreams): BrokerRun {
+  if (code !== 0) throw new Error(`MCP server exited with code ${code}. stderr: ${streams.stderr.slice(0, 500)}`);
+  const responses = parseJsonRpcResponses(streams.stdout);
+  if (responses.length === 0) throw new Error(`MCP server produced no valid JSON-RPC responses. stdout: ${streams.stdout.slice(0, 500)}`);
+  return { responses, ...streams };
 }
 
 function runBroker(lines: string[], env: Record<string, string>, command = `"${TSX}" "${MCP_SERVER}"`): Promise<BrokerRun> {
   return new Promise((resolve, reject) => {
     // shell: true so Windows resolves .cmd wrappers in node_modules/.bin/.
     // Pass args as a single command string to avoid DEP0190 warning.
-    const child = spawn(command, {
-      cwd: PROJECT_ROOT,
-      env: { ...process.env, ...env },
-      stdio: ["pipe", "pipe", "pipe"],
-      shell: true,
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-
-    // Send all lines, then close stdin to signal EOF.
-    for (const line of lines) {
-      child.stdin.write(`${line}\n`);
-    }
-    child.stdin.end();
+    const child = spawn(command, { cwd: PROJECT_ROOT, env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "pipe"], shell: true });
+    const captured = captureStreams(child);
+    sendLines(child, lines);
 
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
-      reject(new Error(`MCP server timed out. stderr: ${stderr}`));
+      reject(new Error(`MCP server timed out. stderr: ${captured.text.stderr}`));
     }, 15 * ONE_SECOND_MS);
 
     child.on("close", (code) => {
       clearTimeout(timer);
-      const responses: JsonRpcResponse[] = stdout
-        .split("\n")
-        .filter((line) => line.trim())
-        .map((line) => {
-          try {
-            return JSON.parse(line) as JsonRpcResponse;
-          } catch {
-            return null;
-          }
-        })
-        .filter((resp): resp is JsonRpcResponse => resp !== null);
-
-      if (code !== 0) {
-        reject(new Error(`MCP server exited with code ${code}. stderr: ${stderr.slice(0, 500)}`));
-        return;
+      try {
+        resolve(brokerRunOrThrow(code, captured.text));
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error(String(err)));
       }
-      if (responses.length === 0) {
-        reject(new Error(`MCP server produced no valid JSON-RPC responses. stdout: ${stdout.slice(0, 500)}`));
-        return;
-      }
-      resolve({ responses, stdout, stderr });
     });
   });
 }
