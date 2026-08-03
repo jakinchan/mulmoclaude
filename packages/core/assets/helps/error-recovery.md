@@ -863,3 +863,35 @@ afterwards; the load happens once at boot.
 Do NOT tell the user to re-check the spelling in `.env`, add the key
 again, or move it elsewhere; the file is already correct, and it is being
 read. The conflict is the whole problem.
+
+## A tool your own instructions describe returns "No such tool available"
+
+### Symptoms
+
+- The Plugin Instructions section of your system prompt documents a tool
+  (`mcp__mulmoclaude__google`, `mcp__mulmoclaude__manageSpotify`, any
+  plugin-backed name), but calling it errors with `No such tool available`.
+- `ToolSearch select:<that name>` reports no matching deferred tool either.
+- Static tools in the same session (`presentDocument`, `presentForm`, …) work.
+
+### Cause
+
+The tool surface is published by a separate MCP broker process, and plugin-backed
+tools register there a moment after the session's tool list is first taken. A
+session that captured the list too early keeps one that lacks exactly those
+tools — while the system prompt, built in the server where the plugin IS
+registered, still describes them.
+
+### Fix
+
+Tell the user plainly that the tool is unavailable in THIS session and that
+starting a new chat re-takes the tool list. Do NOT invent a fallback: reading
+the account's stored credentials, shelling out to a provider CLI, or
+reconstructing the call by hand is worse than the missing tool, and it is not
+what the user asked for.
+
+If a new chat has the same gap, the broker did not publish the tool at all.
+Ask the user for the server log around the session start — the broker prints
+`[mcp-server] publishing N tools: …` and, when a promised tool is missing,
+`[mcp-server] advertised but NOT published: …`. That second line, with the
+plugin-load errors above it, is what a bug report needs.

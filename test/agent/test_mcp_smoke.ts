@@ -14,6 +14,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 
 import { ONE_SECOND_MS } from "../../server/utils/time.ts";
+import { buildMulmoclaudeServer } from "../../server/agent/config.ts";
 import { TOOL_NAMES } from "../../src/config/toolNames.ts";
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, "../..");
@@ -35,11 +36,18 @@ interface JsonRpcResponse {
   error?: { code: number; message: string };
 }
 
-function sendAndReceive(lines: string[], env: Record<string, string>): Promise<JsonRpcResponse[]> {
+interface BrokerRun {
+  responses: JsonRpcResponse[];
+  /** Raw stdout, for asserting the JSON-RPC channel carries nothing else. */
+  stdout: string;
+  stderr: string;
+}
+
+function runBroker(lines: string[], env: Record<string, string>, command = `"${TSX}" "${MCP_SERVER}"`): Promise<BrokerRun> {
   return new Promise((resolve, reject) => {
     // shell: true so Windows resolves .cmd wrappers in node_modules/.bin/.
     // Pass args as a single command string to avoid DEP0190 warning.
-    const child = spawn(`"${TSX}" "${MCP_SERVER}"`, {
+    const child = spawn(command, {
       cwd: PROJECT_ROOT,
       env: { ...process.env, ...env },
       stdio: ["pipe", "pipe", "pipe"],
@@ -89,9 +97,32 @@ function sendAndReceive(lines: string[], env: Record<string, string>): Promise<J
         reject(new Error(`MCP server produced no valid JSON-RPC responses. stdout: ${stdout.slice(0, 500)}`));
         return;
       }
-      resolve(responses);
+      resolve({ responses, stdout, stderr });
     });
   });
+}
+
+async function sendAndReceive(lines: string[], env: Record<string, string>): Promise<JsonRpcResponse[]> {
+  const { responses } = await runBroker(lines, env);
+  return responses;
+}
+
+const initializeRequest = JSON.stringify({
+  jsonrpc: "2.0",
+  id: 1,
+  method: "initialize",
+  params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "test", version: "0.0.0" } },
+});
+const initializedNotification = JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
+const toolsListRequest = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+
+function isJsonLine(line: string): boolean {
+  try {
+    JSON.parse(line);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 describe("MCP server subprocess smoke test", () => {
@@ -203,5 +234,50 @@ describe("MCP server subprocess smoke test", () => {
     // proving it fired before the request was attempted.
     assert.match(text, /name.{0,40}must be a non-empty string/i, `expected the name guard to fire, got: ${text.slice(0, 400)}`);
     assert.doesNotMatch(text, /\[object Object\]/, `the object name reached the API path: ${text.slice(0, 400)}`);
+  });
+
+  // stdout IS the protocol channel here, yet the shared `log` helper sends
+  // info/debug there by default — the plugin loaders' "loaded" lines landed
+  // between JSON-RPC messages on every boot (#2731). Only the parent knows the
+  // child's stdout is a protocol stream, so the env comes from
+  // `buildMulmoclaudeServer` rather than a hand-copied literal that could drift
+  // from it. The source broker is driven rather than `spec.command`, which
+  // prefers the `yarn build:mcp-broker` bundle: a stale bundle would fail this
+  // for a reason that has nothing to do with the source under test.
+  it("keeps stdout free of log lines when spawned with the parent's env", async () => {
+    const spec = buildMulmoclaudeServer({
+      chatSessionId: "test-stdout-purity",
+      port: 0,
+      activePlugins: [TOOL_NAMES.google],
+      useDocker: false,
+    });
+    const { stdout } = await runBroker([initializeRequest, initializedNotification, toolsListRequest], spec.env);
+
+    const junk = stdout
+      .split("\n")
+      .filter((line) => line.trim())
+      .filter((line) => !isJsonLine(line));
+    assert.deepEqual(junk, [], `non-JSON lines on the JSON-RPC channel: ${junk.join(" | ").slice(0, 400)}`);
+  });
+
+  // The parent describes every PLUGIN_NAMES entry to the LLM, so a name that
+  // resolves to no tool is a tool the agent is told to call and cannot. Before
+  // #2731 that state was invisible without hand-driving the broker over stdio.
+  it("reports the published surface and names anything advertised but not published", async () => {
+    const { stderr } = await runBroker([initializeRequest, initializedNotification, toolsListRequest], {
+      SESSION_ID: "test-published-surface",
+      PORT: "0",
+      PLUGIN_NAMES: `${TOOL_NAMES.google},noSuchPlugin`,
+      LOG_CONSOLE_STREAM: "stderr",
+    });
+
+    // `google` is a preset runtime plugin: its presence proves the child loads
+    // presets, which the issue's hypothesis said it did not.
+    assert.match(
+      stderr,
+      new RegExp(`publishing \\d+ tools: [^\\n]*\\b${TOOL_NAMES.google}\\b`),
+      `expected the published surface on stderr: ${stderr.slice(-600)}`,
+    );
+    assert.match(stderr, /advertised but NOT published[^\n]*noSuchPlugin/, `expected the missing-tool diagnostic: ${stderr.slice(-600)}`);
   });
 });

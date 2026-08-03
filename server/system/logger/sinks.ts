@@ -1,9 +1,9 @@
 import { appendFile } from "fs/promises";
 import path from "path";
-import type { ConsoleSinkConfig, FileSinkConfig, TelemetrySinkConfig } from "./config.js";
+import type { ConsoleSinkConfig, ConsoleStream, FileSinkConfig, TelemetrySinkConfig } from "./config.js";
 import { formatJson, formatText, formatTextColor } from "./formatters.js";
 import { dailyFileName, enforceMaxFiles, ensureDir } from "./rotation.js";
-import type { Formatter, LogRecord, Sink } from "./types.js";
+import type { Formatter, LogLevel, LogRecord, Sink } from "./types.js";
 
 function pickFormatter(kind: "text" | "json"): Formatter {
   return kind === "json" ? formatJson : formatText;
@@ -24,6 +24,22 @@ function colorEnabled(stream: { isTTY?: boolean }): boolean {
   return stream.isTTY === true;
 }
 
+/** Which console stream a record belongs on. Returns the name rather than the
+ *  stream so the routing is testable without patching `process.stdout`. */
+export function consoleStreamName(stream: ConsoleStream, level: LogLevel): "stdout" | "stderr" {
+  if (stream === "stderr") return "stderr";
+  return level === "error" || level === "warn" ? "stderr" : "stdout";
+}
+
+interface ConsoleTarget {
+  isTTY?: boolean;
+  write: (text: string) => boolean;
+}
+
+function pickStream(stream: ConsoleStream, level: LogLevel): ConsoleTarget {
+  return consoleStreamName(stream, level) === "stderr" ? process.stderr : process.stdout;
+}
+
 export function createConsoleSink(config: ConsoleSinkConfig): Sink {
   // Pre-resolve a (plain, colour) pair once. `text` may upgrade to the
   // ANSI variant per record based on which stream the record will hit;
@@ -36,7 +52,7 @@ export function createConsoleSink(config: ConsoleSinkConfig): Sink {
     name: "console",
     level: config.level,
     write(record: LogRecord) {
-      const stream = record.level === "error" || record.level === "warn" ? process.stderr : process.stdout;
+      const stream = pickStream(config.stream, record.level);
       const fmt = colorEnabled(stream) ? colored : plain;
       stream.write(`${fmt(record)}\n`);
     },

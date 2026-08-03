@@ -67,6 +67,7 @@ All are optional; omitted values fall back to the defaults table above.
 | `LOG_CONSOLE_FORMAT` | `text` / `json` | console |
 | `LOG_FILE_FORMAT` | `text` / `json` | file |
 | `LOG_CONSOLE_ENABLED` | `true` / `false` / `1` / `0` / `yes` / `no` | console |
+| `LOG_CONSOLE_STREAM` | `split` (default) / `stderr` | console — `split` sends warn+error to stderr and the rest to stdout; `stderr` sends everything to stderr |
 | `LOG_FILE_ENABLED` | same | file |
 | `LOG_FILE_DIR` | directory path | file sink output directory |
 | `LOG_FILE_MAX_FILES` | positive integer | rotation retention (default `14`) |
@@ -77,6 +78,11 @@ All are optional; omitted values fall back to the defaults table above.
 Invalid values (e.g. `LOG_LEVEL=chatty`) are silently ignored — the
 logger falls back to the default for that knob rather than crashing
 on startup.
+
+A process whose **stdout is a protocol channel** must set
+`LOG_CONSOLE_STREAM=stderr`, or an ordinary `log.info` lands in the middle of
+the protocol. The MCP broker is the one such process today; its parent sets the
+variable when it builds the child's spawn spec (`buildMulmoclaudeServer`).
 
 ## Rotation
 

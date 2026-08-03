@@ -7,10 +7,17 @@ export interface FileRotationConfig {
   maxFiles: number;
 }
 
+/** `split` sends warn/error to stderr and the rest to stdout; `stderr` sends
+ *  everything to stderr. A process whose stdout is a protocol channel — the MCP
+ *  broker speaks JSON-RPC there — must pick `stderr`, or an ordinary `log.info`
+ *  lands between (or inside) protocol messages. */
+export type ConsoleStream = "split" | "stderr";
+
 export interface ConsoleSinkConfig {
   enabled: boolean;
   level: LogLevel;
   format: LogFormat;
+  stream: ConsoleStream;
 }
 
 export interface FileSinkConfig {
@@ -40,7 +47,7 @@ const DEFAULT_MAX_FILES = 14;
 
 export const DEFAULT_CONFIG: LoggerConfig = {
   sinks: {
-    console: { enabled: true, level: "info", format: "text" },
+    console: { enabled: true, level: "info", format: "text", stream: "split" },
     file: {
       enabled: true,
       level: "debug",
@@ -70,6 +77,12 @@ function parseFormat(raw: string | undefined): LogFormat | undefined {
   return normalized === "text" || normalized === "json" ? normalized : undefined;
 }
 
+function parseConsoleStream(raw: string | undefined): ConsoleStream | undefined {
+  if (raw === undefined) return undefined;
+  const normalized = raw.toLowerCase();
+  return normalized === "split" || normalized === "stderr" ? normalized : undefined;
+}
+
 function parseBool(raw: string | undefined): boolean | undefined {
   if (raw === undefined) return undefined;
   const normalized = raw.toLowerCase();
@@ -97,6 +110,7 @@ export function resolveConfig(env: Env): LoggerConfig {
         enabled: parseBool(env.LOG_CONSOLE_ENABLED) ?? DEFAULT_CONFIG.sinks.console.enabled,
         level: consoleLevel ?? DEFAULT_CONFIG.sinks.console.level,
         format: parseFormat(env.LOG_CONSOLE_FORMAT) ?? DEFAULT_CONFIG.sinks.console.format,
+        stream: parseConsoleStream(env.LOG_CONSOLE_STREAM) ?? DEFAULT_CONFIG.sinks.console.stream,
       },
       file: {
         enabled: parseBool(env.LOG_FILE_ENABLED) ?? DEFAULT_CONFIG.sinks.file.enabled,

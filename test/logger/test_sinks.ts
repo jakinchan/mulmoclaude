@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
-import { createFileSink } from "../../server/system/logger/sinks.js";
+import { consoleStreamName, createFileSink } from "../../server/system/logger/sinks.js";
 import type { LogRecord } from "../../server/system/logger/types.js";
 
 function record(overrides: Partial<LogRecord> = {}): LogRecord {
@@ -15,6 +15,23 @@ function record(overrides: Partial<LogRecord> = {}): LogRecord {
     ...overrides,
   };
 }
+
+describe("consoleStreamName", () => {
+  it("splits by level by default", () => {
+    assert.equal(consoleStreamName("split", "info"), "stdout");
+    assert.equal(consoleStreamName("split", "debug"), "stdout");
+    assert.equal(consoleStreamName("split", "warn"), "stderr");
+    assert.equal(consoleStreamName("split", "error"), "stderr");
+  });
+
+  // The MCP broker speaks JSON-RPC on stdout, so a single `log.info` there
+  // corrupts the protocol stream (#2731).
+  it("keeps every level off stdout in stderr mode", () => {
+    for (const level of ["debug", "info", "warn", "error"] as const) {
+      assert.equal(consoleStreamName("stderr", level), "stderr", `${level} must not reach stdout`);
+    }
+  });
+});
 
 describe("createFileSink", () => {
   let dir: string;
