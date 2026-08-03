@@ -42,11 +42,13 @@ issue は sonarjs の実装(promise を除外する分岐)を引用している�
 ```ts
 const syncFn = (): number => 1;
 const asyncFn = async (): Promise<number> => 1;
-void syncFn();    // ← line 4
-void asyncFn();   // ← line 5
+export const probe = () => {
+  void syncFn(); // line 4
+  void asyncFn(); // line 5
+};
 ```
 
-```
+```text
 line 4 sev=2 :: Remove this use of the "void" operator.
 void-use findings in probe: 1
 ```
