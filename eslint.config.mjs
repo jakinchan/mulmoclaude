@@ -261,10 +261,12 @@ export default [
       // accumulated ~190 casts in production code (#2692). `never` is the
       // setting that matches the written rule.
       //
-      // Staged at `warn` while the backlog drains file by file; it graduates
-      // to `error` once production code is clean. Tests keep the permissive
-      // setting via the test override below.
-      "@typescript-eslint/consistent-type-assertions": ["warn", { assertionStyle: "never" }],
+      // `error` since the backlog drained: a new cast now fails CI, which is
+      // the whole point — the rule existed in prose for months and the count
+      // only ever went up. Tests keep the permissive setting via the test
+      // override below; the eight irreducible production casts are listed,
+      // one reason each, in the allowlist block at the end of this file.
+      "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
       "@typescript-eslint/no-require-imports": "error",
       "@typescript-eslint/prefer-enum-initializers": "error",
       "import/first": "error",
@@ -463,10 +465,10 @@ export default [
       // was therefore invisible to `consistent-type-assertions` — 18 of them
       // across host and plugin components (#2692). `vue/no-restricted-syntax`
       // is the one rule that does walk that AST, so the same ban is spelled
-      // here as a selector. `warn` matches the script-side severity; both
-      // graduate together.
+      // here as a selector. `error` matches the script-side severity; both
+      // graduated together once the template backlog reached zero.
       "vue/no-restricted-syntax": [
-        "warn",
+        "error",
         {
           selector: "TSAsExpression",
           message: "Do not use any type assertions — narrow in <script> and pass the result to the template.",
@@ -693,32 +695,43 @@ export default [
       "sonarjs/different-types-comparison": "off",
     },
   },
-  // Per-package ratchet for the `as`-cast ban (#2692). The rule is `warn`
-  // repo-wide while the backlog drains; these packages are already at ZERO,
-  // so a new cast in them is a regression rather than a known debt — and the
-  // only thing that stops the drained set from refilling behind the drain.
+  // The eight production casts the `as`-cast ban (#2692) could not remove.
+  // Each is here because the assertion is the LEAST bad option at that site,
+  // not because nobody got to it — the reasoning also sits at the call site.
   //
-  // Verified at zero when added; `packages/relay`'s last one went in the same
-  // PR. Extend this list as a directory reaches zero, and delete the block
-  // once the repo-wide setting itself graduates to `error`.
+  // Listed in config rather than as inline `eslint-disable` comments, per the
+  // issue: an allowlist is greppable, reviewable in one place, and cannot be
+  // added to without touching this file. **Its cost is granularity** — the
+  // rule is off for the whole FILE, so a NINTH cast added to one of these
+  // would not be flagged. Keep the entries pointed at small files, and drop
+  // an entry the moment its cast goes.
   {
     files: [
-      "packages/chat-service/**/*.ts",
-      "packages/client/**/*.ts",
-      "packages/common/**/*.ts",
-      "packages/create-mulmoclaude-plugin/**/*.ts",
-      "packages/mock-server/**/*.ts",
-      "packages/protocol/**/*.ts",
-      "packages/relay/**/*.ts",
-      "packages/scheduler/**/*.ts",
-      "packages/web-push/**/*.ts",
-      "packages/webhook-runtime/**/*.ts",
+      // Widens `Jsonify<T>` to the channel's `JsonObject` at the ONE place
+      // that reasoning is allowed to live; eight handlers used to re-argue it.
+      "packages/core/src/remote-host/index.ts",
+      // `doc.data() as Command`: narrowing it means narrowing the published
+      // `onExpire` signature MulmoTerminal also implements.
+      "packages/core/src/remote-host/server/hostRunner.ts",
+      // Persisted books are deliberately looser than their types (legacy
+      // `fiscalYearEnd: "Q1"`); a predicate would lock users out of them.
+      "packages/plugins/accounting-plugin/src/server/io.ts",
+      // `loadSchedulerItems` / `loadUserTasks` rewrite the file they read, so
+      // dropping unrecognised entries here would delete the user's data.
+      "server/utils/files/json.ts",
+      // `E` is the caller's generic — nothing inside can check it.
+      "src/plugins/api.ts",
+      // The single claimed step of the aggregator pipeline; the claim itself
+      // is checked against every live aggregator by test_meta_aggregation.ts.
+      "src/plugins/metas.ts",
+      // Proving `ToolDefinition.parameters` means shipping a JSON-Schema
+      // validator to the browser for a field nothing on this path reads.
+      "src/tools/runtimeLoader.ts",
+      // `T` belongs to the plugin; validating the payload is its job.
+      "src/utils/plugin/runtime.ts",
     ],
-    // Tests keep the permissive setting the test override below grants them;
-    // this block covers source only, so it must not reach `**/test/**`.
-    ignores: ["packages/*/test/**", "packages/*/**/*.test.ts"],
     rules: {
-      "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
+      "@typescript-eslint/consistent-type-assertions": "off",
     },
   },
   // Build + release scripts. `yarn lint` never reached them, so 21 files that
