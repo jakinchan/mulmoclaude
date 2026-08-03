@@ -19,14 +19,46 @@ interface MockSocket {
 // small gap between each send so Vue re-renders between events.
 const RENDER_GAP_MS = 20;
 
+// Flag the page sets to let a `startOnRelease` stream go. Read by polling
+// rather than pushed, because the stream is driven from Node while the
+// signal is raised in the browser.
+const RELEASE_FLAG = "__e2eReleaseStream";
+const RELEASE_POLL_MS = 25;
+const RELEASE_TIMEOUT_MS = 15_000;
+
 interface StreamOptions {
   // Delay before the first event is sent, after the client subscribes.
   // Use when the events must land AFTER an async transcript fetch has
   // populated the session, so they append rather than race the load.
   startDelayMs?: number;
+  // Hold the events until the test calls `releaseStream`. Prefer this over
+  // `startDelayMs` whenever the test's OWN setup has to finish first: a fixed
+  // delay is a race against that setup, and on a loaded machine the setup
+  // loses. `stack-sticky-bottom-scroll` failed exactly that way — the events
+  // landed before the test could record its "before" metrics, so the growth
+  // it then asserted had already happened (#2766).
+  startOnRelease?: boolean;
 }
 
-async function streamEventsToSocket(webSocket: MockSocket, channel: string, events: readonly unknown[], opts: StreamOptions): Promise<void> {
+/** Let a `startOnRelease` stream start. Call it once the test has captured
+ *  whatever state the arriving events are supposed to change. */
+export async function releaseStream(page: Page): Promise<void> {
+  await page.evaluate((flag) => {
+    Reflect.set(globalThis, flag, true);
+  }, RELEASE_FLAG);
+}
+
+async function waitForRelease(page: Page): Promise<void> {
+  const deadline = Date.now() + RELEASE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await page.evaluate((flag) => Reflect.get(globalThis, flag) === true, RELEASE_FLAG)) return;
+    await new Promise((resolve) => setTimeout(resolve, RELEASE_POLL_MS));
+  }
+  throw new Error(`releaseStream was never called within ${RELEASE_TIMEOUT_MS}ms`);
+}
+
+async function streamEventsToSocket(page: Page, webSocket: MockSocket, channel: string, events: readonly unknown[], opts: StreamOptions): Promise<void> {
+  if (opts.startOnRelease) await waitForRelease(page);
   if (opts.startDelayMs) await new Promise((resolve) => setTimeout(resolve, opts.startDelayMs));
   for (const event of events) {
     webSocket.send(`42${JSON.stringify(["data", { channel, data: event }])}`);
@@ -35,7 +67,7 @@ async function streamEventsToSocket(webSocket: MockSocket, channel: string, even
   webSocket.send(`42${JSON.stringify(["data", { channel, data: { type: "session_finished" } }])}`);
 }
 
-function handleSocketFrame(text: string, webSocket: MockSocket, events: readonly unknown[], opts: StreamOptions): void {
+function handleSocketFrame(page: Page, text: string, webSocket: MockSocket, events: readonly unknown[], opts: StreamOptions): void {
   if (text === "2") {
     webSocket.send("3");
     return;
@@ -54,7 +86,7 @@ function handleSocketFrame(text: string, webSocket: MockSocket, events: readonly
   if (!Array.isArray(parsed)) return;
   const [name, arg] = parsed as [string, unknown];
   if (name !== "subscribe" || typeof arg !== "string" || !arg.startsWith("session.")) return;
-  void streamEventsToSocket(webSocket, arg, events, opts);
+  void streamEventsToSocket(page, webSocket, arg, events, opts);
 }
 
 // Accept the Socket.IO handshake and relay the scripted events on the
@@ -65,7 +97,7 @@ async function mockPubSubSocket(page: Page, events: readonly unknown[], opts: St
     (webSocket) => {
       const handshake = { sid: "mock-sid", upgrades: [], pingInterval: 25000, pingTimeout: 20000, maxPayload: 1_000_000 };
       webSocket.send(`0${JSON.stringify(handshake)}`);
-      webSocket.onMessage((msg) => handleSocketFrame(String(msg), webSocket, events, opts));
+      webSocket.onMessage((msg) => handleSocketFrame(page, String(msg), webSocket, events, opts));
     },
   );
 }

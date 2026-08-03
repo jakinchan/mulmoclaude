@@ -18,7 +18,7 @@
 
 import { test, expect, type Page } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
-import { mockAgentWithPubSub, waitForScrollHeightStable, scrollMetrics } from "../fixtures/pubsub";
+import { mockAgentWithPubSub, releaseStream, waitForScrollHeightStable, scrollMetrics } from "../fixtures/pubsub";
 import { SESSION_A } from "../fixtures/sessions";
 
 import { ONE_SECOND_MS } from "../../server/utils/time.ts";
@@ -77,10 +77,14 @@ test.describe("StackView — sticky-bottom auto-follow (#2179)", () => {
   });
 
   test("a streamed result does not move the viewport while the reader is scrolled up", async ({ page }) => {
-    // Delayed so the scroll happens first; the assertions below are about
-    // what the arriving result does to an already-scrolled canvas.
+    // Held until this test releases it, so the scroll provably happens first;
+    // the assertions below are about what the arriving result does to an
+    // ALREADY-scrolled canvas. A fixed delay used to order these, and it was a
+    // race against this test's own setup — under load the setup lost, the
+    // result landed before `before` was recorded, and the growth asserted at
+    // the end had already been counted (#2766).
     await serveTranscript(page, tallTranscript());
-    await mockAgentWithPubSub(page, [streamedEntry], { startDelayMs: 2500 });
+    await mockAgentWithPubSub(page, [streamedEntry], { startOnRelease: true });
     await openStackSession(page);
 
     // Let the load's own auto-scroll and its suppression window clear, so
@@ -94,6 +98,7 @@ test.describe("StackView — sticky-bottom auto-follow (#2179)", () => {
     expect(before.scrollHeight).toBeGreaterThan(before.clientHeight); // canvas really overflows
     expect(before.scrollHeight - before.scrollTop - before.clientHeight).toBeGreaterThan(BOTTOM_TOLERANCE_PX);
 
+    await releaseStream(page);
     await awaitStreamedResult(page);
 
     const after = await scrollMetrics(page, "stack-scroll");
