@@ -8,7 +8,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-08-03
+
+**The first launcher release since 1.9.0 — it carries 38 merged PRs of app code that no package publish could deliver.**
+
+`server/` and `src/` live at the repo root and ship only inside the `mulmoclaude` tarball, so everything below has been sitting on `main` unreachable by npm users while the shared packages went out on their own. That includes the fix #2709's reporter was told would arrive "in the next version".
+
+### Highlights
+
+#### Markdown source editor: terminal-matched, with live preview and auto save (#2723, #2751)
+
+The `presentDocument` source panel drew in Courier New on white beside a terminal using the xterm stack on a dark background — two monospace faces at different weights for the same kind of text. It now uses the same stack (Latin first, CJK tail with Japanese ahead of the other locales so kanji don't get mainland glyph shapes) on a dark panel.
+
+**Live preview** is an opt-in toggle: with it on, the viewer above renders the unsaved buffer and follows the textarea's scroll fraction. Off by default, because the panel doubles as a way to READ the saved source and swapping the viewer under someone who opened it to look would surprise them. **Auto save** appears beside it — a 1500 ms debounce, offered only when live preview is on and the document is file-backed. Writes are chained rather than fired in parallel, since two overlapping PUTs of one path can land out of order and leave disk holding the older buffer; closing the editor or unticking either box drops the pending write, so Cancel still discards instead of racing a save.
+
+#### Every plugin route now gets its own latest result as context (#2754, #2758)
+
+In this app `execute()` never runs in the browser — plugin calls arrive over HTTP — and that server path passed a context with no `currentResult`. A plugin whose actions edit what it previously produced therefore could not find the thing it was editing. For mindmap that meant `add_node` / `delete_node` / `connect` / `update` / `rebalance` had nothing to work on: after the 500 crash below was fixed the symptom simply changed from an error to "there is no map".
+
+The session store now keeps the latest rendered result **per tool name**, updated on the single path that already persists tool results, and six routes (mindmap, quiz, presentForm, presentCollection, present3d, mapControl) read it back. Bounded by tool count, evicted with the session, and never crossing sessions. Two limits worth knowing: a result carrying no `data` is not rendered and so is not recorded, and the cache is memory — a restart leaves the JSONL intact but starts the "latest" empty.
+
+Stored in a `Map`, not a plain object: the key is a tool name off the wire, and `obj["__proto__"] = x` replaces the prototype rather than storing, while `obj["constructor"]` hands back the `Object` function — a value that is not a `ToolResult` at all reaching a plugin as its `currentResult`.
+
 ### Fixed
+
+#### Editing a mindmap returned 500 for every action except create (#2709)
+
+`server/api/routes/plugins.ts` passed `null as never` as the plugin context in six places. That is not merely a type lie — the plugin dereferences it, so `POST /api/mindmap` answered 500 for every action but `create`. An empty object is the honest value here (every `ToolContext` field is optional, and a server-side bridge genuinely holds no client state), and the runtime-plugin dispatch route was already passing exactly that; this file was the one that had drifted from the convention.
+
+#### An MCP client could be told about a tool it was then unable to call (#2731)
+
+Two independent bugs, either of which produces the reported shape — the system prompt advertises `mcp__mulmoclaude__google`, calling it fails. The issue's own hypothesis (runtime plugins failing to load in the MCP child) was **measured and disproved**: driving the broker over stdio the way the CLI does publishes `google` from both the bundled and the tsx build.
+
+1. **Broker stdout carried log lines.** The shared logger routes `info`/`debug` to stdout, but in the broker stdout *is* the JSON-RPC channel, so plugin-loader "loaded" lines flowed between protocol frames — and once a response is large enough to split across writes, into the middle of one. The parent now sets `LOG_CONSOLE_STREAM=stderr` when it builds the child's spawn spec, since the child cannot know its own stdout is a protocol.
+2. **`tools/list` answered before runtime plugins were loaded.** A client that snapshots the tool list at session start kept the static-only list for the whole session, while the prompt was assembled on the parent where the registry was complete. The first `tools/list` now waits for the load, capped at 2 s so `handlePermission` cannot starve (#2201); the `list_changed` notification remains as a backstop.
+
+#### A Map-tab API key could be typed, accepted, and silently not saved (#2764)
+
+`SettingsMapTab` mounts the moment the tab is clicked and issues its `GET /api/config` from there, but the input was editable before that response arrived — and `load()` assigns the stored value unconditionally on completion. Type, then have the GET land, then press Enter, and the draft was overwritten with the empty string; `save()` then hit its `trimmed === storedKey` early return and stored nothing **without reporting an error**. This was also the root cause of the `e2e (2)` failures on main, which had been read as flake.
 
 #### Calendar sync no longer runs twice when two hosts are wired to one workspace (#2678)
 
@@ -30,6 +67,26 @@ Also fixed here: L-GCAL-07's expected result had drifted from `CalendarCollectio
 
 **Still unverified against live Google**: the fix itself. This repo has no linked account, so items 1, 3 and 4 of #2602 — the duplicate-id 409, the stale-etag 412 and the all-day round trip — remain unobserved until the suite is re-run.
 
+#### `MATCH` and `XLOOKUP` shifted their rows when a range held text (#2776)
+
+Both read their range through a **numbers-only** reader, which dropped text cells silently and moved every row after one up by a position — so the lookup answered with a neighbour's value rather than failing. This is the same failure #2358 already fixed for `SUMIF` / `AVERAGEIF`; these two were left behind, and `calculator.ts`'s own comment explains why. Found during the `noUncheckedIndexedAccess` sweep and split out, since it is a behaviour bug rather than a typing one.
+
+#### A long derived formula crashed the caller instead of reporting (#2711)
+
+Only the *evaluation* step of `evaluateDerived` sat outside its try/catch, so a long operator chain raised `RangeError: Maximum call stack size exceeded` straight through to the caller. `evaluate()` no longer recurses at all — it walks an explicit stack in post-order, which is the root fix rather than a bigger catch.
+
+#### A plugin's `fetch` sent the string `"104,105,33"` instead of its bytes
+
+A `Uint8Array` backed by a `SharedArrayBuffer` is not a `BodyInit`, and TypeScript said so — but an `as` cast silenced it, so undici stringified the array and sent that, with no error anywhere. Removing the cast made the real bytes go out. Two more latent holes fell out of the same sweep: the definition-only load path (the MCP child) faked its runtime with `as unknown as PluginRuntime`, so `files.artifacts`, `notifier.update` and `notifier.get` — added to the real runtime later — read as `undefined` to any plugin using them.
+
+#### Google Chat webhook verification asserted what it should have checked
+
+The relay's JWKS guard inspected only `kid` and `n` yet cast the result to a type declaring `kty`, `e` and `alg`; the OAuth response was asserted to be `{ access_token: string }`, so an error body produced `Bearer undefined` sent as a real credential. Both are parsed and verified now — this is the signature boundary for inbound Google Chat webhooks, so a claimed type and a checked one are not interchangeable here.
+
+### Internal
+
+The bulk of this cycle was two codebase-wide ratchets, kept out of the highlights because they change no behaviour on their own — but each found real bugs by removing the thing that was hiding them, and several of the fixes above are those findings. `as` type assertions are now banned at **error** across the repo including Vue templates (#2692), and `noUncheckedIndexedAccess` plus `exactOptionalPropertyTypes` are enabled in every TypeScript project (#2736). Thirteen further lint rules moved from warn to error, and `scripts/`, `batch/` and `config/` — 21 CI-critical files that had no gate at all — are linted.
+
 ### Packages published during this cycle
 
 - **`@mulmoclaude/core@2.0.1`** (PR #2788) — released 2026-08-03. A release with **no code change**: `dist` is byte-identical to 2.0.0. It exists to deliver 32 lines of `assets/helps/error-recovery.md` that 2.0.0 was published without. core ships that directory (`files: ["dist", "assets"]`) and the agent reads `error-recovery.md` **before** asking the user a clarifying question on a tool failure, so a section that never reaches npm is a section the agent never has — the new one covers *"A tool your own instructions describe returns 'No such tool available'"*, with Symptoms / Cause / Fix. **How it went missing is the part worth keeping**: #2782 added the section together with a `1.14.1 → 1.14.2` patch bump; main then re-versioned the workspace to `2.0.0` for the protocol migration (#2783); the two collided in `package.json` and the conflict was resolved by taking main's `2.0.0` wholesale, which kept the asset and dropped the bump. `@mulmoclaude/core@2.0.0` had been published 28 minutes earlier, so from that merge onward the tag and the source disagreed while `version` still read `2.0.0` — indistinguishable from "already published" to any later reader, which is exactly the state the tagging rule exists to make visible. `yarn audit:releases --code-only` called it `code drift`; after the bump it reads `version ahead of npm`, which is the honest description of a release that is owed. Found by a review agent re-checking a merge, not by the person who made it. Verified by re-downloading the published tarball from the registry rather than trusting the local build: `assets/helps/error-recovery.md` is 897 lines, against 865 in 2.0.0. Consumers keep `^2.0.0`, which floats to 2.0.1 on its own; only the launcher's declared range was swept, and the launcher's own `version` was not touched.
@@ -47,7 +104,9 @@ Also fixed here: L-GCAL-07's expected result had drifted from `CalendarCollectio
 - **`@mulmoclaude/google-plugin@1.2.1`** (#2583/PR #2665) — released 2026-08-01. Catches the published tarball up with the dispatch extraction that had been sitting unreleased: the 18-case switch moved from `src/index.ts` (211 lines → 26) into `src/core/dispatch.ts` taking its dependencies through an injected context, with the `GoogleApi` type borrowing its signatures from core rather than restating them, plus new tests pinning "kind → engine function → arguments". Behaviour is unchanged — return shapes, log lines and error messages are identical, so there is nothing to adopt.
 - **`@mulmoclaude/spotify-plugin@1.0.3`** (#2583/PR #2667) — released 2026-08-01. The spotify half of the same extraction: the 37-case switch moved into `src/core/dispatch.ts` with response shaping split into `src/core/responses.ts`, taking `src/index.ts` from 654 lines to about a tenth of that. Behaviour is unchanged; this release exists so the tarball matches the source.
 
-Ships `@mulmoclaude/core@1.14.1`, `@receptron/task-scheduler@1.0.3`, `@mulmoclaude/accounting-plugin@1.3.0`, `@mulmoclaude/core@1.14.0`, `@mulmoclaude/markdown-utils@1.3.3`, `@mulmoclaude/core@1.13.0` and `@mulmoclaude/core@1.12.0`, plus the range-only wave above (8 `@mulmobridge/*`, 8 `@mulmoclaude/*-plugin`) and the earlier `@mulmoclaude/accounting-plugin@1.2.0`, `@mulmoclaude/google-plugin@1.2.1`, `@mulmoclaude/spotify-plugin@1.0.3`. The `mulmoclaude` launcher is NOT in this cycle: `server/` and `src/` moved since `mulmoclaude@1.9.0` and reach npm only through `/publish-mulmoclaude`.
+Ships `@mulmoclaude/core@1.14.1`, `@receptron/task-scheduler@1.0.3`, `@mulmoclaude/accounting-plugin@1.3.0`, `@mulmoclaude/core@1.14.0`, `@mulmoclaude/markdown-utils@1.3.3`, `@mulmoclaude/core@1.13.0` and `@mulmoclaude/core@1.12.0`, plus the range-only wave above (8 `@mulmobridge/*`, 8 `@mulmoclaude/*-plugin`) and the earlier `@mulmoclaude/accounting-plugin@1.2.0`, `@mulmoclaude/google-plugin@1.2.1`, `@mulmoclaude/spotify-plugin@1.0.3`.
+
+Also published with this launcher, all patch bumps closing the source drift each had accumulated since its last release: `@mulmoclaude/common@1.1.2`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/x-plugin@1.0.3`, `@mulmobridge/client@1.0.2`, `@mulmobridge/chat-service@1.0.3`, `@mulmobridge/mock-server@1.0.2`, `@mulmobridge/{bluesky,chatwork,irc,telegram,zulip}@1.0.2`, `@mulmobridge/{email,google-chat}@1.0.3`, `@mulmobridge/line@1.0.4` and `@mulmobridge/relay@1.0.4`.
 
 ## [1.9.0] - 2026-07-31
 
