@@ -37,6 +37,7 @@ helpers below.
 |---|---|---|
 | `errorMessage(v, fallback?)` | `string` | unknown caught value → human-readable string; **isomorphic**, so Vue/browser surfaces use it too |
 | `toUtcIsoDate(timestamp)` | `string` | `Date` → `YYYY-MM-DD` in UTC — for dates that must not shift with the host's local timezone |
+| `splitJwtSegments(token)` | `JwtSegments \| null` | JWS compact serialization → its three segments; `null` for anything that isn't **exactly** three. Pure string work, so the Node bridges and the Workers relay share the guard while decoding differently |
 
 `errorMessage` surfaces a non-empty string `details` (gRPC convention) or
 `message` field of a non-Error object (`details` wins) instead of

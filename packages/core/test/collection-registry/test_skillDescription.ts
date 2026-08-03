@@ -72,3 +72,34 @@ describe("parseSkillDescription — absent / degenerate", () => {
     assert.equal(parseSkillDescription(withFrontmatter('description: "foo" bar')), "");
   });
 });
+
+// The two quoted forms are scanned by one shared loop that differs only in how
+// it reads an escape pair. These pin the per-form escape rules so a change to
+// the shared scanner can't quietly move one form onto the other's semantics.
+describe("parseSkillDescription — quoted-scalar escape rules", () => {
+  it("expands \\n and \\t inside a double-quoted scalar", () => {
+    assert.equal(parseSkillDescription(withFrontmatter('description: "a\\nb\\tc"')), "a\nb\tc");
+  });
+
+  it("collapses an unknown double-quote escape to the literal character", () => {
+    assert.equal(parseSkillDescription(withFrontmatter('description: "a\\\\b"')), "a\\b");
+    assert.equal(parseSkillDescription(withFrontmatter('description: "a\\qb"')), "aqb");
+  });
+
+  it("returns '' for a scalar ending in a dangling backslash (nothing left to escape)", () => {
+    assert.equal(parseSkillDescription(withFrontmatter('description: "foo\\')), "");
+  });
+
+  it("does not treat a backslash as an escape in a single-quoted scalar", () => {
+    assert.equal(parseSkillDescription(withFrontmatter("description: 'a\\nb'")), "a\\nb");
+  });
+
+  it("reads a single-quoted scalar that is only a doubled quote", () => {
+    assert.equal(parseSkillDescription(withFrontmatter("description: ''''")), "'");
+  });
+
+  it("does not treat a doubled quote as an escape in a double-quoted scalar", () => {
+    // `""` closes an empty scalar; the trailing `"" ` would be non-comment text.
+    assert.equal(parseSkillDescription(withFrontmatter('description: ""')), "");
+  });
+});

@@ -127,5 +127,27 @@ export function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => HTML_ESCAPES.get(char) ?? char);
 }
 
+export interface JwtSegments {
+  headerSegment: string;
+  payloadSegment: string;
+  signatureSegment: string;
+}
+
+/** Split a JWS compact serialization into its three segments, or `null` when the
+ *  token isn't well-formed. Pure string work, so the Node bridges and the
+ *  Cloudflare Workers relay — which decode the segments differently (`Buffer` vs
+ *  `atob`) — can still share this one guard.
+ *
+ *  A JWS compact serialization is EXACTLY three segments. Both a short token and
+ *  a longer one (a five-segment JWE, or an attacker appending `.junk`) are
+ *  rejected outright — never parsed from their first three segments, which would
+ *  let the signed input disagree with the token. */
+export function splitJwtSegments(token: string): JwtSegments | null {
+  const [headerSegment, payloadSegment, signatureSegment, ...extraSegments] = token.split(".");
+  if (headerSegment === undefined || payloadSegment === undefined || signatureSegment === undefined) return null;
+  if (extraSegments.length > 0) return null;
+  return { headerSegment, payloadSegment, signatureSegment };
+}
+
 export { scanEnvOptions, snakeToLowerCamel, type ScanEnvOptionsConfig } from "./envScan.js";
 export type { MinimalLogger, StructuredLogger } from "./logger.js";

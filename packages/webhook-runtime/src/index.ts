@@ -152,3 +152,38 @@ export function registerMetaWebhookVerification(app: Express, opts: MetaWebhookV
 export function verifyMetaHmacSignature(rawBody: string, signature: string, appSecret: string): boolean {
   return verifyHmacSignature(rawBody, signature.replace("sha256=", ""), appSecret, "sha256", "hex");
 }
+
+export interface MetaWebhookEventsOptions {
+  rateLimit: RateLimitRequestHandler;
+  appSecret: string;
+  /** Log prefix, e.g. "messenger" / "whatsapp". */
+  label: string;
+  /** Body of the 200 ack. Meta ignores it, but each bridge shipped its own
+   *  string, so it stays configurable rather than silently changing. */
+  ackBody?: string;
+  /** Runs after the ack, on a signature-verified body. Must not throw — a
+   *  rejection here lands in an already-answered request. */
+  onBody: (rawBody: string) => Promise<void>;
+}
+
+// Register the shared Meta webhook-events POST handler (Messenger, WhatsApp).
+// The body arrives as raw text (see createWebhookApp) so the HMAC covers exactly
+// the bytes Meta signed. Rate-limited per-IP by `opts.rateLimit`, whose
+// middleware writes its own 429 — the handler only sees admitted requests.
+export function registerMetaWebhookEvents(app: Express, opts: MetaWebhookEventsOptions): void {
+  app.post("/webhook", opts.rateLimit, async (req: Request, res: Response) => {
+    const signature = typeof req.headers["x-hub-signature-256"] === "string" ? req.headers["x-hub-signature-256"] : "";
+    const rawBody = typeof req.body === "string" ? req.body : "";
+
+    if (!signature || !verifyMetaHmacSignature(rawBody, signature, opts.appSecret)) {
+      console.warn(`[${opts.label}] AUTH_FAILED: signature verification failed`);
+      res.status(401).send("Invalid signature");
+      return;
+    }
+
+    // Ack before processing: Meta re-delivers anything it doesn't see
+    // acknowledged within seconds, so the reply must not wait on the agent.
+    res.status(200).send(opts.ackBody ?? "EVENT_RECEIVED");
+    await opts.onBody(rawBody);
+  });
+}

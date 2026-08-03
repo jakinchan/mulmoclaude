@@ -14,9 +14,8 @@
 //   WHATSAPP_ALLOWED_NUMBERS  — CSV of phone numbers (empty = all)
 
 import "dotenv/config";
-import type { Request, Response } from "express";
 import { createBridgeClient } from "@mulmobridge/client";
-import { createWebhookApp, createWebhookRateLimit, registerMetaWebhookVerification, verifyMetaHmacSignature } from "@mulmobridge/webhook-runtime";
+import { createWebhookApp, createWebhookRateLimit, registerMetaWebhookEvents, registerMetaWebhookVerification } from "@mulmobridge/webhook-runtime";
 import { parseCsvSet } from "@mulmoclaude/common";
 import { extractWhatsAppMessages, type WhatsAppTextMessage } from "@mulmoclaude/common/meta-webhook";
 
@@ -139,20 +138,7 @@ async function handleWebhookBody(rawBody: string): Promise<void> {
   }
 }
 
-// Webhook events (POST) — signature-verified + rate-limited
-app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
-  const signature = typeof req.headers["x-hub-signature-256"] === "string" ? req.headers["x-hub-signature-256"] : "";
-  const rawBody = typeof req.body === "string" ? req.body : "";
-
-  if (!signature || !verifyMetaHmacSignature(rawBody, signature, appSecret)) {
-    console.warn("[whatsapp] webhook signature verification failed");
-    res.status(401).send("Invalid signature");
-    return;
-  }
-
-  res.status(200).send("OK");
-  await handleWebhookBody(rawBody);
-});
+registerMetaWebhookEvents(app, { rateLimit: webhookRateLimit, appSecret, label: "whatsapp", ackBody: "OK", onBody: handleWebhookBody });
 
 app.listen(PORT, () => {
   console.log("MulmoClaude WhatsApp bridge");

@@ -12,8 +12,7 @@
 //   MESSENGER_BRIDGE_PORT — Webhook port (default: 3004)
 
 import "dotenv/config";
-import type { Request, Response } from "express";
-import { createWebhookApp, createWebhookRateLimit, registerMetaWebhookVerification, verifyMetaHmacSignature } from "@mulmobridge/webhook-runtime";
+import { createWebhookApp, createWebhookRateLimit, registerMetaWebhookEvents, registerMetaWebhookVerification } from "@mulmobridge/webhook-runtime";
 import { createBridgeClient, chunkText } from "@mulmobridge/client";
 import { extractMessengerMessages, type MessengerTextMessage } from "@mulmoclaude/common/meta-webhook";
 
@@ -89,22 +88,7 @@ async function handleWebhookBody(rawBody: string): Promise<void> {
   }
 }
 
-// Webhook events (POST). Rate-limited per-IP via `webhookRateLimit`
-// above; the middleware writes the 429 response itself when the cap
-// is hit so the handler body only sees admitted requests.
-app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
-  const signature = typeof req.headers["x-hub-signature-256"] === "string" ? req.headers["x-hub-signature-256"] : "";
-  const rawBody = typeof req.body === "string" ? req.body : "";
-
-  if (!signature || !verifyMetaHmacSignature(rawBody, signature, appSecret)) {
-    console.warn("[messenger] AUTH_FAILED: signature verification failed");
-    res.status(401).send("Invalid signature");
-    return;
-  }
-
-  res.status(200).send("EVENT_RECEIVED");
-  await handleWebhookBody(rawBody);
-});
+registerMetaWebhookEvents(app, { rateLimit: webhookRateLimit, appSecret, label: "messenger", onBody: handleWebhookBody });
 
 function redactId(resourceId: string): string {
   return resourceId.length > 6 ? `${resourceId.slice(0, 3)}***${resourceId.slice(-3)}` : "***";
