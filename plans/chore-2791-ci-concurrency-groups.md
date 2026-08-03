@@ -59,6 +59,19 @@ concurrency:
 - 全 11 ワークフローに concurrency group があることをパースして確認
 - `yarn format` / `yarn lint` は `.github/**` を対象にしていないので該当なし
 
+## この PR 上での実効性確認
+
+マージを待たずにこの PR 自体で確かめられる。`pull_request` イベントではワークフロー定義が
+PR ブランチ側から読まれるので、追加した concurrency group はこの PR の run に既に効いている。
+
+手順: 1 回目の push の run が走っている最中に 2 回目の push を投げ、1 回目の run が
+`cancelled` に落ちることを GitHub 側の run status で確認する（自分の出力どうしを突き合わせても
+証拠にならないので、ground truth は GitHub の run status を見る）。
+
+`pull_request` の paths / paths-ignore フィルタは PR の全差分に対して評価されるため、
+2 回目の commit が plans/ だけを触っていても、PR 差分に `.github/workflows/**` が含まれている
+以上 6 本とも再トリガされる。
+
 ## マージ後に見る指標
 
 同じスクリプトで「新しい push に追い越されたまま完走した run」の割合を再計測する。
