@@ -317,16 +317,20 @@ interface ClusterState {
 /** Cut the start-ordered blocks into overlap clusters: a new cluster begins at
  *  the first block that starts at or after every earlier block has ended. */
 function splitClusters(ordered: readonly PositionedSpan[]): PositionedSpan[][] {
+  // Appends into the accumulator's arrays rather than rebuilding them. The
+  // spread form read well but copied both arrays on every block, so a day
+  // whose blocks all overlap cost O(n²) allocations to lay out (#2765).
   const initial: ClusterState = { done: [], current: [], end: Number.NEGATIVE_INFINITY };
   const state = ordered.reduce<ClusterState>((acc, block) => {
-    const breaks = acc.current.length > 0 && block.span.startMin >= acc.end;
-    return {
-      done: breaks ? [...acc.done, acc.current] : acc.done,
-      current: breaks ? [block] : [...acc.current, block],
-      end: breaks ? block.span.endMin : Math.max(acc.end, block.span.endMin),
-    };
+    if (acc.current.length > 0 && block.span.startMin >= acc.end) {
+      acc.done.push(acc.current);
+      return { done: acc.done, current: [block], end: block.span.endMin };
+    }
+    acc.current.push(block);
+    return { done: acc.done, current: acc.current, end: Math.max(acc.end, block.span.endMin) };
   }, initial);
-  return state.current.length > 0 ? [...state.done, state.current] : state.done;
+  if (state.current.length > 0) state.done.push(state.current);
+  return state.done;
 }
 
 /** Greedy lane packing inside one cluster: reuse the first lane already free at

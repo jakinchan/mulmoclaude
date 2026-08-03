@@ -122,6 +122,25 @@ function dailyTargetMs(time: string): number | null {
   return hours * ONE_HOUR_MS + minutes * ONE_MINUTE_MS;
 }
 
+/** The `time` of a daily schedule this manager can never fire, or null when the
+ *  schedule is fine. Returning the offending value (not a boolean) is what lets
+ *  the caller name it in the log. */
+function unfireableDailyTime(schedule: TaskSchedule): string | null {
+  if (schedule.type !== SCHEDULE_TYPES.daily) return null;
+  return dailyTargetMs(schedule.time) === null ? schedule.time : null;
+}
+
+/** Say out loud that this schedule can never fire. The task is still accepted —
+ *  `isDue` answers false forever, which is the safe outcome — but silence here
+ *  is what made "the task I scheduled has never run once" a bug with no
+ *  evidence anywhere to start from (#2765). Deliberately not a throw: a
+ *  consumer whose task has been quietly dead would get a boot crash instead. */
+function reportUnfireable(log: SchedulerLogger, taskId: string, schedule: TaskSchedule): void {
+  const time = unfireableDailyTime(schedule);
+  if (time === null) return;
+  log.error("daily time is not HH:MM — this task will never run", { id: taskId, time });
+}
+
 /** Split the due tasks into those that may run immediately and those gated
  *  behind a `dependsOn` edge (resolved later in the same tick cycle). */
 export function collectDueTasks(
@@ -257,6 +276,7 @@ export function createTaskManager(options?: TaskManagerOptions): ITaskManager {
       if (registry.has(def.id)) {
         throw new Error(`[task-manager] Task "${def.id}" is already registered`);
       }
+      reportUnfireable(log, def.id, def.schedule);
       registry.set(def.id, def);
       log.info("registered", { id: def.id });
     },
@@ -264,6 +284,9 @@ export function createTaskManager(options?: TaskManagerOptions): ITaskManager {
     updateSchedule(taskId: string, schedule: TaskSchedule): boolean {
       const def = registry.get(taskId);
       if (!def) return false;
+      // Checked here as well as at registration: an override applied at run
+      // time (`applyScheduleOverride`) never passes through `registerTask`.
+      reportUnfireable(log, taskId, schedule);
       def.schedule = schedule;
       log.info("schedule updated", { id: taskId });
       return true;

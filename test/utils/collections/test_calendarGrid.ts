@@ -320,6 +320,25 @@ describe("assignLanes", () => {
       { lane: 0, lanes: 2 },
     ]);
   });
+
+  // A cluster stays open on the LONGEST end seen so far, not the previous
+  // block's. Without that running max, C (which the all-day block still
+  // overlaps) breaks into a cluster of its own and renders full-width while
+  // sitting on top of A. Pinned because 20k randomly generated layouts never
+  // produced this shape — only a hand-built one distinguishes the two (#2765).
+  it("keeps a block inside the cluster of a longer block that already contains it", () => {
+    const lanes = assignLanes([
+      { startMin: 540, endMin: 720 }, // A — spans the whole group
+      { startMin: 560, endMin: 580 }, // B — inside A
+      { startMin: 600, endMin: 620 }, // C — inside A, starts after B ended
+    ]);
+    assert.deepEqual(lanes, [
+      { lane: 0, lanes: 2 },
+      { lane: 1, lanes: 2 },
+      // Reuses B's freed lane, and still reports the cluster's full width.
+      { lane: 1, lanes: 2 },
+    ]);
+  });
 });
 
 describe("bucketRecords", () => {

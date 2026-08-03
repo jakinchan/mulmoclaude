@@ -141,6 +141,46 @@ describe("getReport period validation", () => {
     });
     assert.equal(status, 200);
   });
+
+  // `ledger` reads an absent period as "full history". A period the caller
+  // DID send but got wrong must not quietly widen the answer to that (#2765).
+  it("rejects a malformed period on ledger instead of silently returning full history", async () => {
+    const { status, body } = await dispatch({
+      action: ACCOUNTING_ACTIONS.getReport,
+      kind: "ledger",
+      bookId,
+      accountCode: "1000",
+      period: { kind: "month", period: "banana" },
+    });
+    assert.equal(status, 400);
+    assert.match(String(body.error), /period is required/);
+  });
+
+  // ...but `null` is how a JSON caller spells "not using this optional
+  // field", so it must keep meaning "no period", not become an error.
+  it("treats an explicit null period on ledger as absent", async () => {
+    const { status } = await dispatch({
+      action: ACCOUNTING_ACTIONS.getReport,
+      kind: "ledger",
+      bookId,
+      accountCode: "1000",
+      period: null,
+    });
+    assert.equal(status, 200);
+  });
+
+  it("rejects a month period that is not YYYY-MM", async () => {
+    // Regression: 200 with `asOf: "banana-NaN"`, and the snapshot cache
+    // wrote `banana.json` / `0NaN-NaN.json` into the book.
+    const { status, body } = await dispatch({
+      action: ACCOUNTING_ACTIONS.getReport,
+      kind: "balance",
+      bookId,
+      period: { kind: "month", period: "banana" },
+    });
+    assert.equal(status, 400);
+    assert.match(String(body.error), /period is required/);
+  });
 });
 
 // #2695: the payloads below reached a validator that assumed its
