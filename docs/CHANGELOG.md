@@ -81,7 +81,7 @@ A `Uint8Array` backed by a `SharedArrayBuffer` is not a `BodyInit`, and TypeScri
 
 #### Google Chat webhook verification asserted what it should have checked
 
-The relay's JWKS guard inspected only `kid` and `n` yet cast the result to a type declaring `kty`, `e` and `alg`; the OAuth response was asserted to be `{ access_token: string }`, so an error body produced `Bearer undefined` sent as a real credential. Both are parsed and verified now — this is the signature boundary for inbound Google Chat webhooks, so a claimed type and a checked one are not interchangeable here.
+The relay's JWKS guard inspected only `kid` and `n` yet cast the result to a type declaring `kty`, `e` and `alg`; the OAuth response was asserted to be `{ access_token: string }`, so an error body produced `Bearer undefined` sent as a real credential. Both are parsed and verified now — this is the signature boundary for inbound Google Chat webhooks, so a claimed type and a checked one are not interchangeable here. Reached users in **`@mulmobridge/relay@1.0.3`**, not in the 1.0.4 published beside this launcher.
 
 ### Internal
 
@@ -106,7 +106,15 @@ The bulk of this cycle was two codebase-wide ratchets, kept out of the highlight
 
 Ships `@mulmoclaude/core@1.14.1`, `@receptron/task-scheduler@1.0.3`, `@mulmoclaude/accounting-plugin@1.3.0`, `@mulmoclaude/core@1.14.0`, `@mulmoclaude/markdown-utils@1.3.3`, `@mulmoclaude/core@1.13.0` and `@mulmoclaude/core@1.12.0`, plus the range-only wave above (8 `@mulmobridge/*`, 8 `@mulmoclaude/*-plugin`) and the earlier `@mulmoclaude/accounting-plugin@1.2.0`, `@mulmoclaude/google-plugin@1.2.1`, `@mulmoclaude/spotify-plugin@1.0.3`.
 
-Also published with this launcher, all patch bumps closing the source drift each had accumulated since its last release: `@mulmoclaude/common@1.1.2`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/x-plugin@1.0.3`, `@mulmobridge/client@1.0.2`, `@mulmobridge/chat-service@1.0.3`, `@mulmobridge/mock-server@1.0.2`, `@mulmobridge/{bluesky,chatwork,irc,telegram,zulip}@1.0.2`, `@mulmobridge/{email,google-chat}@1.0.3`, `@mulmobridge/line@1.0.4` and `@mulmobridge/relay@1.0.4`.
+#### The two 2026-08-03 drift waves
+
+Both waves republish packages whose **source** had moved past their last tarball — `yarn audit:releases --code-only` calls this *code drift*, as against the manifest-only drift of the 2026-08-02 wave above. Almost all of it is the `as`-ban and `noUncheckedIndexedAccess` / `exactOptionalPropertyTypes` sweeps landing in package source; the two behaviour changes are named individually.
+
+**Wave 1 — 18 workspaces** (PR #2752). `@mulmobridge/discord@1.0.2`, `@mulmobridge/line-works@1.0.3`, `@mulmobridge/line@1.0.3`, `@mulmobridge/mattermost@1.0.2`, `@mulmobridge/nostr@1.0.2`, `@mulmobridge/slack@1.0.2`, `@mulmobridge/viber@1.0.3`, `@mulmobridge/whatsapp@1.0.3`, `@mulmobridge/chat-service@1.0.2`, `@mulmobridge/relay@1.0.3`, `@mulmoclaude/markdown-utils@1.3.4`, `@mulmoclaude/accounting-plugin@1.2.2`, `@mulmoclaude/collection-plugin@1.2.4`, `@mulmoclaude/form-plugin@1.0.3`, `@mulmoclaude/mulmoscript-plugin@1.1.4`, `@mulmoclaude/spotify-plugin@1.0.4`, `@mulmoclaude/x-plugin@1.0.2`, `@receptron/task-scheduler@1.0.2`. **`@mulmobridge/relay@1.0.3` is the one carrying a behaviour change**: the Google Chat webhook fix described under *Fixed* above reached users here, not in 1.0.4.
+
+**Wave 2 — 15 workspaces**, published alongside the launcher: `@mulmoclaude/common@1.1.2`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/x-plugin@1.0.3`, `@mulmobridge/client@1.0.2`, `@mulmobridge/chat-service@1.0.3`, `@mulmobridge/mock-server@1.0.2`, `@mulmobridge/{bluesky,chatwork,irc,telegram,zulip}@1.0.2`, `@mulmobridge/{email,google-chat}@1.0.3`, `@mulmobridge/line@1.0.4`, `@mulmobridge/relay@1.0.4`. Each is a strictness-sweep-only patch — `@mulmobridge/mock-server` (96 lines) and `@mulmobridge/telegram`'s router (65) are the largest, and no exported signature changed in any of them.
+
+Wave 1 was tagged but **its 18 GitHub releases were never created**, and it had no changelog entry at all until this section — which is how `relay@1.0.3`'s behaviour change came to be attributed to 1.0.4 on first writing. The releases are backfilled at the wave-1 tags.
 
 ## [1.9.0] - 2026-07-31
 
