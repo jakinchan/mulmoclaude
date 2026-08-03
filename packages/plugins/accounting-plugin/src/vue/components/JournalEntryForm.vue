@@ -184,7 +184,13 @@ import { errorMessage } from "../../shared/errors";
 
 const { t } = useAccountingI18n();
 
-const props = defineProps<{ bookId: string; accounts: Account[]; currency: string; country?: SupportedCountryCode; entryToEdit?: JournalEntry | null }>();
+const props = defineProps<{
+  bookId: string;
+  accounts: Account[];
+  currency: string;
+  country?: SupportedCountryCode | undefined;
+  entryToEdit?: JournalEntry | null | undefined;
+}>();
 const emit = defineEmits<{ submitted: []; cancel: [] }>();
 
 const showAccountsModal = ref(false);

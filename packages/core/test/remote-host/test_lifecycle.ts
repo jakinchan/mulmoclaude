@@ -19,8 +19,8 @@ const HOST_ID = "test-host";
 interface FakeRunner {
   channel: Channel;
   stopped: boolean;
-  onClosed?: () => void;
-  onExpire?: (command: Command, uid: string) => void | Promise<void>;
+  onClosed?: (() => void) | undefined;
+  onExpire?: ((command: Command, uid: string) => void | Promise<void>) | undefined;
   stop: () => void;
 }
 

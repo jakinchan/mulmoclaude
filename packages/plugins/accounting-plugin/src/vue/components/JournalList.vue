@@ -213,19 +213,19 @@ const props = defineProps<{
   bookId: string;
   accounts: Account[];
   currency: string;
-  country?: SupportedCountryCode;
+  country?: SupportedCountryCode | undefined;
   version: number;
-  fiscalYearEnd?: FiscalYearEnd;
+  fiscalYearEnd?: FiscalYearEnd | undefined;
   /** Opening-balance date for the active book — drives the "Lifetime"
    *  shortcut in the date picker (from = openingDate, to = today).
    *  When absent, the picker hides Lifetime; "All" still works. */
-  openingDate?: string;
+  openingDate?: string | undefined;
   /** Entry id to auto-expand and scroll into view. Surfaced by the
    *  parent when an `addEntries` tool result lands so the user sees
    *  the freshly-posted row highlighted. Captured into
    *  `pendingPreselectId` and consumed once the entry actually
    *  appears in the fetched list — refetch can race the prop. */
-  preselectEntryId?: string;
+  preselectEntryId?: string | undefined;
 }>();
 const emit = defineEmits<{ editOpening: []; preselectConsumed: [] }>();
 

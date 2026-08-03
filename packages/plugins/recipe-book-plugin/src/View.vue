@@ -167,16 +167,16 @@ function renderMarkdownLite(input: string): string {
     }
   };
   for (const line of lines) {
-    const heading = line.match(/^(#{1,6})\s+(.+)$/);
-    if (heading) {
+    const [, hashes, headingText] = line.match(/^(#{1,6})\s+(.+)$/) ?? [];
+    if (hashes !== undefined && headingText !== undefined) {
       flushPara();
       closeLists();
-      const level = heading[1].length;
-      out.push(`<h${level}>${formatInline(heading[2])}</h${level}>`);
+      const level = hashes.length;
+      out.push(`<h${level}>${formatInline(headingText)}</h${level}>`);
       continue;
     }
-    const ul = line.match(/^[-*]\s+(.+)$/);
-    if (ul) {
+    const [, ulItem] = line.match(/^[-*]\s+(.+)$/) ?? [];
+    if (ulItem !== undefined) {
       flushPara();
       if (inOl) {
         out.push("</ol>");
@@ -186,11 +186,11 @@ function renderMarkdownLite(input: string): string {
         out.push("<ul>");
         inUl = true;
       }
-      out.push(`<li>${formatInline(ul[1])}</li>`);
+      out.push(`<li>${formatInline(ulItem)}</li>`);
       continue;
     }
-    const ol = line.match(/^\d+\.\s+(.+)$/);
-    if (ol) {
+    const [, olItem] = line.match(/^\d+\.\s+(.+)$/) ?? [];
+    if (olItem !== undefined) {
       flushPara();
       if (inUl) {
         out.push("</ul>");
@@ -200,7 +200,7 @@ function renderMarkdownLite(input: string): string {
         out.push("<ol>");
         inOl = true;
       }
-      out.push(`<li>${formatInline(ol[1])}</li>`);
+      out.push(`<li>${formatInline(olItem)}</li>`);
       continue;
     }
     if (line.trim().length === 0) {

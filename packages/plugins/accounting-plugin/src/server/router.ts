@@ -60,7 +60,7 @@ interface AccountingErrorResponse extends ErrorBody {
 interface OpenBookToolResult {
   kind: "accounting-app";
   bookId: string;
-  initialTab?: string;
+  initialTab?: string | undefined;
   /** Same shape getBooks returns — included so an LLM that calls
    *  openBook doesn't need a follow-up getBooks round-trip to learn
    *  what other books exist before its next action. */

@@ -45,7 +45,7 @@ interface CharacterRef {
  *  (MulmoClaude's sidebar). Optional everywhere; hosts without sessions
  *  ignore it. */
 interface SessionTag {
-  chatSessionId?: string;
+  chatSessionId?: string | undefined;
 }
 
 export type MulmoScriptDispatchArgs =

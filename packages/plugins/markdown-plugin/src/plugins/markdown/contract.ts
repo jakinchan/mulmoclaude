@@ -30,10 +30,10 @@ export interface MarpThemeEntry {
 export interface ExportPdfOptions {
   markdown: string;
   filename: string;
-  marp?: boolean;
-  baseDir?: string;
-  format?: "Letter" | "A4";
-  stripFrontmatter?: boolean;
+  marp?: boolean | undefined;
+  baseDir?: string | undefined;
+  format?: "Letter" | "A4" | undefined;
+  stripFrontmatter?: boolean | undefined;
 }
 
 /**

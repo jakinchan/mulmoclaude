@@ -114,13 +114,15 @@ async function fetchJwks(url: string): Promise<JwkKey[]> {
     .filter((key): key is Record<string, unknown> => isRecord(key) && typeof key.kid === "string" && typeof key.n === "string")
     .map((key): JwkKey => {
       const endorsements = Array.isArray(key.endorsements) ? key.endorsements.filter((entry): entry is string => typeof entry === "string") : undefined;
+      // Absent members are omitted rather than set to `undefined` so the key
+      // stays assignable to the platform's `JsonWebKey` on the importKey path.
       return {
         kid: String(key.kid),
         kty: typeof key.kty === "string" ? key.kty : "RSA",
         n: String(key.n),
         e: typeof key.e === "string" ? key.e : "AQAB",
-        alg: typeof key.alg === "string" ? key.alg : undefined,
-        endorsements,
+        ...(typeof key.alg === "string" ? { alg: key.alg } : {}),
+        ...(endorsements !== undefined ? { endorsements } : {}),
       };
     });
   jwksCache.set(url, { keys, expiresAt: Date.now() + JWKS_CACHE_TTL_MS });

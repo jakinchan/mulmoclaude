@@ -10,7 +10,7 @@ export interface HtmlArgs {
  *  lives on disk (large), so only the workspace-relative `filePath` and an
  *  optional `title` travel in the tool result. */
 export interface PresentHtmlData {
-  title?: string;
+  title?: string | undefined;
   filePath: string;
   /** Host-served URL the View points its iframe at so relative asset refs
    *  (`<img src="../../../images/…">`) resolve against the file's real URL.

@@ -8,6 +8,8 @@
     "jsx": "preserve",
     "types": ["node"],
     "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "isolatedModules": true,

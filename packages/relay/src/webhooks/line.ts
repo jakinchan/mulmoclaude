@@ -24,7 +24,7 @@ export interface ParsedLineEvent {
   chatId: string;
   senderId: string;
   text: string;
-  replyToken?: string;
+  replyToken?: string | undefined;
 }
 
 /**

@@ -113,10 +113,11 @@ function chatHeaders(accessJwt: string): Record<string, string> {
 async function doChatFetch(method: "GET" | "POST", url: string, body: JsonRecord | undefined, accessJwt: string): Promise<Response> {
   const headers = chatHeaders(accessJwt);
   if (method === "POST") headers["Content-Type"] = "application/json";
+  const payload = method === "POST" && body ? JSON.stringify(body) : undefined;
   return fetch(url, {
     method,
     headers,
-    body: method === "POST" && body ? JSON.stringify(body) : undefined,
+    ...(payload !== undefined ? { body: payload } : {}),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
 }

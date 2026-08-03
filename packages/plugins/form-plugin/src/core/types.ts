@@ -73,8 +73,8 @@ export interface NumberField extends BaseField {
 export type FormField = TextField | TextareaField | RadioField | DropdownField | CheckboxField | DateField | TimeField | NumberField;
 
 export interface FormData {
-  title?: string;
-  description?: string;
+  title?: string | undefined;
+  description?: string | undefined;
   fields: FormField[];
 }
 

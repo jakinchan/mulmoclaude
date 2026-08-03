@@ -102,8 +102,8 @@ export interface FlagChip {
  *  `itemIsDone` needs for the synthesized chip. */
 export interface ChipMatchSchema {
   fields: Record<string, CollectionFieldSpec>;
-  completionField?: string;
-  completionDoneValues?: readonly string[];
+  completionField?: string | undefined;
+  completionDoneValues?: readonly string[] | undefined;
 }
 
 /** Whether one row satisfies a chip's predicate: `itemIsDone` for the

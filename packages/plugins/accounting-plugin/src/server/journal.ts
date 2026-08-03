@@ -42,8 +42,8 @@ export interface ValidationError {
 export interface ParsedEntry {
   date: string;
   lines: JournalLine[];
-  memo?: string;
-  replacesEntryId?: string;
+  memo?: string | undefined;
+  replacesEntryId?: string | undefined;
 }
 
 export type EntryParseResult = { ok: true; entry: ParsedEntry } | { ok: false; errors: ValidationError[] };
@@ -275,9 +275,9 @@ export function parseEntry(raw: unknown, accounts: readonly Account[]): EntryPar
 export function makeEntry(input: {
   date: string;
   lines: readonly JournalLine[];
-  memo?: string;
-  kind?: JournalEntry["kind"];
-  replacesEntryId?: string;
+  memo?: string | undefined;
+  kind?: JournalEntry["kind"] | undefined;
+  replacesEntryId?: string | undefined;
 }): JournalEntry {
   const entry: JournalEntry = {
     id: randomUUID(),

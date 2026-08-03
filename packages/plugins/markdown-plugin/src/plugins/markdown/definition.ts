@@ -11,9 +11,9 @@ export interface MarkdownToolData {
   /** The document this result renders, when it is backed by a file. Set for
    *  every result the current executor produces, so an arbitrary document path
    *  (a repo's `README.md`) is never mistaken for inline content. */
-  docPath?: string;
-  pdfPath?: string;
-  filenamePrefix?: string;
+  docPath?: string | undefined;
+  pdfPath?: string | undefined;
+  filenamePrefix?: string | undefined;
 }
 
 /** Args the LLM passes when invoking the tool. Two shapes share this

@@ -49,7 +49,7 @@ const emit = defineEmits<{
   openItem: [payload: { id: string; mode: "view" | "edit" }];
   /** The view called `__MC_VIEW.startChat(prompt, role)` — open a new chat with
    *  `prompt` prefilled as an editable draft (host validates `role`). */
-  startChat: [payload: { prompt: string; role?: string }];
+  startChat: [payload: { prompt: string; role?: string | undefined }];
 }>();
 
 const loading = ref(true);

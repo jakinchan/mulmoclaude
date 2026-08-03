@@ -395,18 +395,18 @@ import {
  *  actions send into the current session instead of spawning a new
  *  chat (see `runAction` / `submitChat`). */
 const props = defineProps<{
-  slug?: string;
-  selected?: string;
-  sendTextMessage?: (text?: string) => void;
+  slug?: string | undefined;
+  selected?: string | undefined;
+  sendTextMessage?: ((text?: string) => void) | undefined;
   /** Embedded mode only: initial view / anchor / group restored from the
    *  card's persisted `viewState` so a switch to calendar or kanban
    *  survives a remount. (The table sort is NOT a card prop — it's a shared
    *  per-collection localStorage preference, read by both modes.) Accepts a
    *  `custom:<id>` mode too so the dashboard can open a tile directly on a
    *  custom view. */
-  initialView?: CollectionViewMode;
-  initialAnchorField?: string;
-  initialGroupField?: string;
+  initialView?: CollectionViewMode | undefined;
+  initialAnchorField?: string | undefined;
+  initialGroupField?: string | undefined;
   /** Hide the header's view-mode toggle (table ↔ calendar ↔ kanban ↔
    *  custom + "add view"). The dashboard sets this because each tile
    *  carries its own view picker, persisting the choice to the dashboard
@@ -1490,7 +1490,7 @@ function onCustomViewOpenItem(payload: { id: string; mode: "view" | "edit" }): v
  *  with the prompt prefilled as an editable draft. The host validates `role`
  *  (falls back to General). The view's code only proposes text; the user
  *  approves / edits / sends, so no capability is required. */
-function onCustomViewStartChat(payload: { prompt: string; role?: string }): void {
+function onCustomViewStartChat(payload: { prompt: string; role?: string | undefined }): void {
   const prompt = payload.prompt.trim();
   if (!prompt) return;
   cui.startNewChatDraft(prompt, payload.role);

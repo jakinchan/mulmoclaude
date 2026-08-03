@@ -10,7 +10,7 @@ interface LogCall {
   level: string;
   prefix: string;
   message: string;
-  data?: Record<string, unknown>;
+  data?: Record<string, unknown> | undefined;
 }
 
 function recordingLogger(): { logger: StructuredLogger; calls: LogCall[] } {

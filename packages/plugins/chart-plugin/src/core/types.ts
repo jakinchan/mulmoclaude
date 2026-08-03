@@ -23,6 +23,6 @@ export interface ChartArgs {
  *  preview sidebar, and records where the document was persisted. */
 export interface PresentChartData {
   document: ChartDocument;
-  title?: string;
+  title?: string | undefined;
   filePath: string;
 }

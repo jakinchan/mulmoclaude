@@ -48,7 +48,7 @@ import { resolveWithinRoot } from "@mulmoclaude/core/files";
 import { fileToDataUri, stripDataUri } from "./support";
 import { enableGraphAIErrorCapture, setMulmoErrorCaptureLogger, withMulmoErrorCapture } from "./mulmoErrorCapture";
 import type {
-  GenerateOpArgs,
+  GenerateOpArgsWith,
   MovieGenerationResult,
   MovieProgressEvent,
   MulmoScriptServerBackend,
@@ -107,7 +107,7 @@ export interface RunStoryOpDeps {
 }
 
 export interface RunStoryOpOptions<T> {
-  force?: boolean;
+  force?: boolean | undefined;
   /**
    * Op-specific tag included in the failure log so dashboards can
    * distinguish which op is failing (e.g. `"generate-beat-audio"`).
@@ -476,7 +476,7 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
 
   // ── Generation ops ────────────────────────────────────────────
 
-  async function renderBeatOp(args: Required<Pick<GenerateOpArgs, "filePath" | "beatIndex">> & GenerateOpArgs): Promise<OpResult<{ image: string }>> {
+  async function renderBeatOp(args: GenerateOpArgsWith<"filePath" | "beatIndex">): Promise<OpResult<{ image: string }>> {
     const { filePath, beatIndex, force, chatSessionId } = args;
     const ffmpeg = ffmpegGuard();
     if (ffmpeg) return ffmpeg;
@@ -489,7 +489,7 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
         await generateBeatImage({
           index: beatIndex,
           context,
-          args: force ? { forceImage: true } : undefined,
+          ...(force ? { args: { forceImage: true } } : {}),
         });
         const { imagePath } = getBeatPngImagePath(context, beatIndex);
         if (!existsSync(imagePath)) {
@@ -504,7 +504,7 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
     }
   }
 
-  async function generateBeatAudioOp(args: Required<Pick<GenerateOpArgs, "filePath" | "beatIndex">> & GenerateOpArgs): Promise<OpResult<{ audio: string }>> {
+  async function generateBeatAudioOp(args: GenerateOpArgsWith<"filePath" | "beatIndex">): Promise<OpResult<{ audio: string }>> {
     const { filePath, beatIndex, force, chatSessionId } = args;
     const mapKey = String(beatIndex);
     publishGeneration(chatSessionId, "beatAudio", filePath, mapKey, false);
@@ -545,7 +545,7 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
     }
   }
 
-  async function renderCharacterOp(args: Required<Pick<GenerateOpArgs, "filePath" | "key">> & GenerateOpArgs): Promise<OpResult<{ image: string }>> {
+  async function renderCharacterOp(args: GenerateOpArgsWith<"filePath" | "key">): Promise<OpResult<{ image: string }>> {
     const { filePath, key, force, chatSessionId } = args;
     publishGeneration(chatSessionId, "characterImage", filePath, key, false);
     let genError: string | undefined;
@@ -568,7 +568,7 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
           key,
           index,
           image: imageEntry as MulmoImagePromptMedia,
-          force,
+          ...(force !== undefined ? { force } : {}),
         });
         if (!existsSync(imagePath)) {
           return opServerError("Character image was not generated");

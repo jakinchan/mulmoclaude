@@ -47,7 +47,7 @@ export interface RemoteHostDeps {
   // runner's `onExpire`, which supplies the session `uid` so cleanup targets the
   // right user's Storage path even across a reconnect; absent ⇒ an expired doc is
   // just deleted.
-  onExpire?: (command: Command, uid: string) => void | Promise<void>;
+  onExpire?: ((command: Command, uid: string) => void | Promise<void>) | undefined;
   log?: RemoteHostLogger;
 }
 

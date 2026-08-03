@@ -22,25 +22,27 @@ export interface XUser {
 export interface XTweet {
   id: string;
   text: string;
-  author_id?: string;
-  created_at?: string;
+  author_id?: string | undefined;
+  created_at?: string | undefined;
   // Long-form Post (>280 chars): full body lives here, not in `text`.
-  note_tweet?: { text: string };
+  note_tweet?: { text: string } | undefined;
   // X Article (rich long-form, up to 100k chars): `text` only holds the t.co
   // link, so the body must be read from `article.plain_text`.
-  article?: { title?: string; plain_text?: string };
-  public_metrics?: {
-    like_count: number;
-    retweet_count: number;
-    reply_count: number;
-  };
+  article?: { title?: string | undefined; plain_text?: string | undefined } | undefined;
+  public_metrics?:
+    | {
+        like_count: number;
+        retweet_count: number;
+        reply_count: number;
+      }
+    | undefined;
 }
 
 export interface XApiResponse {
-  data?: XTweet | XTweet[];
-  includes?: { users?: XUser[] };
-  errors?: { detail: string }[];
-  meta?: { result_count: number };
+  data?: XTweet | XTweet[] | undefined;
+  includes?: { users?: XUser[] } | undefined;
+  errors?: { detail: string }[] | undefined;
+  meta?: { result_count: number } | undefined;
 }
 
 /** Resolve the X API bearer token from the environment. The host gates the

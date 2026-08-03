@@ -125,8 +125,8 @@ const props = defineProps<{
   bookId: string;
   bookName: string;
   currency: string;
-  country?: SupportedCountryCode;
-  fiscalYearEnd?: FiscalYearEnd;
+  country?: SupportedCountryCode | undefined;
+  fiscalYearEnd?: FiscalYearEnd | undefined;
 }>();
 const emit = defineEmits<{ deleted: [bookName: string]; "books-changed": [] }>();
 

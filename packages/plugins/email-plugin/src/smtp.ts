@@ -17,7 +17,7 @@ export interface SendDraft {
   to: string;
   subject: string;
   body: string;
-  html?: string;
+  html?: string | undefined;
 }
 
 export interface SendResult {

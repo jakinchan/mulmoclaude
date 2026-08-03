@@ -11,7 +11,7 @@
 export interface FormViewState {
   userResponses: Record<string, unknown>;
   touched: string[];
-  submitted?: boolean;
+  submitted?: boolean | undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

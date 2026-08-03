@@ -7,9 +7,9 @@ import type { MulmoScript } from "@mulmocast/types";
  *  by hosts that have a movie backend (the package core ignores it). */
 export interface SaveMulmoScriptArgs {
   script?: unknown;
-  filename?: string;
-  filePath?: string;
-  autoGenerateMovie?: boolean;
+  filename?: string | undefined;
+  filePath?: string | undefined;
+  autoGenerateMovie?: boolean | undefined;
 }
 
 /** Result payload that drives the View. `filePath` is the historical

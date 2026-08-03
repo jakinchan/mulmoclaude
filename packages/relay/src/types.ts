@@ -24,9 +24,9 @@ export interface RelayMessage {
   senderId: string;
   chatId: string;
   text: string;
-  attachments?: RelayAttachment[];
+  attachments?: RelayAttachment[] | undefined;
   receivedAt: string;
-  replyToken?: string;
+  replyToken?: string | undefined;
 }
 
 export interface RelayAttachment {
