@@ -52,7 +52,7 @@ const PACKAGE_JSON = `{
   ],
   "scripts": {
     "build": "vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "vue-tsc --noEmit",
     "lint": "eslint src",
     "dev": "vite build --watch"
   },
@@ -71,6 +71,7 @@ const PACKAGE_JSON = `{
     "vite-plugin-dts": "^5.0.0",
     "vue": "^3.5.34",
     "vue-eslint-parser": "^10.0.0",
+    "vue-tsc": "^3.3.9",
     "zod": "^4.4.3"
   },
   "license": "MIT"
@@ -84,6 +85,8 @@ const TSCONFIG = `{
     "moduleResolution": "Bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "isolatedModules": true,
