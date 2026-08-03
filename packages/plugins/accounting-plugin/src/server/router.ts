@@ -103,7 +103,11 @@ async function handleGetReport(rest: ActionRest): Promise<unknown> {
   // `ledger` treats an absent period as "full history", which would turn a
   // period the caller DID send but got wrong into a silently wider answer
   // than they asked for. Sent-but-unusable is an error for every kind (#2765).
-  if (rest.period !== undefined && !periodInput) throw periodRequired(`getReport ${kind || "(no kind)"}`);
+  // `null` counts as NOT sent: it is how a JSON caller spells "I am not using
+  // this optional field", and rejecting it would break ledger calls that work
+  // today.
+  const periodSent = rest.period !== undefined && rest.period !== null;
+  if (periodSent && !periodInput) throw periodRequired(`getReport ${kind || "(no kind)"}`);
   if (kind === "balance") {
     if (!periodInput) throw periodRequired("getReport balance");
     return getBalanceSheetReport({ bookId, period: periodInput });
