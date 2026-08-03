@@ -23,7 +23,7 @@ describe("createLogger level filtering", () => {
     try {
       const logger = createLogger({
         sinks: {
-          console: { enabled: true, level: "warn", format: "json" },
+          console: { enabled: true, level: "warn", format: "json", stream: "split" },
           file: {
             enabled: false,
             level: "debug",
@@ -71,7 +71,7 @@ describe("createLogger level filtering", () => {
     try {
       const logger = createLogger({
         sinks: {
-          console: { enabled: false, level: "debug", format: "text" },
+          console: { enabled: false, level: "debug", format: "text", stream: "split" },
           file: {
             enabled: false,
             level: "debug",
