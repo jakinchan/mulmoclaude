@@ -19,6 +19,14 @@ on:
     branches:
       - main
 
+concurrency:
+  # The `github.run_id` fallback puts every push-to-main run in a group of its
+  # own — main CI must never be cancelled or queued behind an earlier commit.
+  # `run_attempt` keeps a manual re-run of an old run from cancelling the
+  # in-flight run of a newer commit on the same PR.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: ${{ github.run_attempt == '1' }}
+
 permissions:
   contents: read
 
