@@ -105,18 +105,30 @@ function makeOpenUrl(pkgName: string): BrowserPluginRuntime["openUrl"] {
   };
 }
 
-function makeDispatch(pkgName: string): BrowserPluginRuntime["dispatch"] {
+export function makeDispatch(pkgName: string): BrowserPluginRuntime["dispatch"] {
   // Substitute `:pkg` in the contracted dispatch route. encodeURIComponent
   // collapses scoped names (`@org/pkg`) into one URL path segment;
   // the parameter pattern `:pkg` matches any segment.
   const url = API_ROUTES.plugins.runtimeDispatch.replace(":pkg", encodeURIComponent(pkgName));
-  return async <T = unknown>(args: object): Promise<T> => {
-    const result = await apiPost<T>(url, args);
+  // Both arities (protocol 2.0.0). The reader is the ONLY thing that checks a
+  // response: the old single generic let a caller name the type of bytes
+  // nobody had looked at. Accepting `parse` in the signature but ignoring it
+  // here would be worse than not migrating — every call site would read as
+  // validated while nothing ran (Codex review on #2783).
+  //
+  // A throwing `parse` propagates, unlike `subscribe`'s: the protocol
+  // documents that idiom for `dispatch`, and the caller's own try/catch is
+  // where a bad response belongs.
+  function dispatch(args: object): Promise<unknown>;
+  function dispatch<T>(args: object, parse: (raw: unknown) => T): Promise<T>;
+  async function dispatch<T>(args: object, parse?: (raw: unknown) => T): Promise<T | unknown> {
+    const result = await apiPost<unknown>(url, args);
     if (!result.ok) {
       throw new Error(`plugin/${pkgName} dispatch failed (${result.status}): ${result.error}`);
     }
-    return result.data;
-  };
+    return parse ? parse(result.data) : result.data;
+  }
+  return dispatch;
 }
 
 export interface MakeBrowserPluginRuntimeDeps {
