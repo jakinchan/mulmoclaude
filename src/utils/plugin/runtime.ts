@@ -28,6 +28,30 @@ interface ParseOptions<T> {
   parse: (raw: unknown) => T | null;
 }
 
+/** Wrap a plugin's `parse` + handler into the raw-frame callback the host
+ *  pubsub takes.
+ *
+ *  Two rules the protocol puts on the HOST, both of which are drops rather
+ *  than failures — extracted so they can be exercised without a socket:
+ *
+ *  - A `parse` that THROWS drops the frame. The documented idiom is
+ *    `parse: (raw) => Schema.parse(raw)` and zod's `parse` throws, so a
+ *    rethrow here would take down a channel shared with every other
+ *    subscriber over one malformed frame.
+ *  - A `parse` returning `null` drops it too; that is the cheap path the
+ *    protocol prefers (`safeParse(raw).data ?? null`). */
+export function parsedFrameDelivery<T>(parse: (raw: unknown) => T | null, handler: ((payload: T) => void) | undefined): (raw: unknown) => void {
+  return (raw: unknown) => {
+    let parsed: T | null;
+    try {
+      parsed = parse(raw);
+    } catch {
+      return;
+    }
+    if (parsed !== null && handler) handler(parsed);
+  };
+}
+
 function makeScopedPubSub(pkgName: string): BrowserPluginRuntime["pubsub"] {
   const { subscribe } = usePubSub();
   // Two arities (protocol 2.0.0): `(name, handler)` delivers raw frames as
@@ -39,21 +63,7 @@ function makeScopedPubSub(pkgName: string): BrowserPluginRuntime["pubsub"] {
   function scoped<T>(eventName: string, optsOrHandler: ParseOptions<T> | ((payload: unknown) => void), maybeHandler?: (payload: T) => void): () => void {
     const channel = pluginChannelName(pkgName, eventName);
     if (typeof optsOrHandler === "function") return subscribe(channel, optsOrHandler);
-    const { parse } = optsOrHandler;
-    const handler = maybeHandler;
-    return subscribe(channel, (raw: unknown) => {
-      // A frame that fails to parse is DROPPED, never thrown: the protocol
-      // documents `parse: (raw) => Schema.parse(raw)` as the idiom, and Zod
-      // throws — one malformed frame would otherwise tear down a channel
-      // shared by every other subscriber on it.
-      let parsed: T | null;
-      try {
-        parsed = parse(raw);
-      } catch {
-        return;
-      }
-      if (parsed !== null && handler) handler(parsed);
-    });
+    return subscribe(channel, parsedFrameDelivery(optsOrHandler.parse, maybeHandler));
   }
   return { subscribe: scoped };
 }
