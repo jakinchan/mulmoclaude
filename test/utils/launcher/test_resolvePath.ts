@@ -22,6 +22,15 @@ const SCRIPT = join(process.cwd(), "server", "utils", "launcher", "macos", "reso
 const GUI_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 const darwinOnly = { skip: process.platform !== "darwin" };
 
+// What a fake shell answers when asked for its PATH. It has to be
+// distinguishable from the inherited one: asserting on GUI_PATH twice
+// cannot tell "the hop's PATH was prepended" from "the inherited PATH was
+// echoed twice", and the character diff between two self-similar strings
+// is unreadable when it does fail (#2784).
+const HOP_PATH = "/hop-only/bin";
+// Invoked as `<shell> -l -i -c <script>`, so the script is $4.
+const ANSWERING_SHELL = ["#!/bin/sh", `PATH=${HOP_PATH}`, "export PATH", 'exec /bin/sh -c "$4"', ""].join("\n");
+
 // Runs a shell snippet with the script sourced, under the environment a
 // GUI launch actually gets. Absolute paths reach the shell as environment
 // values rather than being interpolated into the command string, so no
@@ -49,6 +58,25 @@ const writeExecutable = (path: string, contents: string) => {
   chmodSync(path, 0o755);
 };
 
+// macOS evaluates an executable the first time it is exec'd, and that
+// evaluation serialises system-wide: while a parallel full-suite run keeps
+// writing and exec'ing fresh executables, one such exec blocks for 7-18
+// seconds. That is past the script's own MC_HOP_TIMEOUT_S watchdog, which
+// then kills the hop and makes mc_resolve_path fall back to scanning this
+// machine's real toolchain directories — so the assertions below would
+// compare against /opt/homebrew/bin instead of the hop's answer (#2784).
+// Paying the evaluation before the measured run keeps it off that cliff.
+//
+// The argument is deliberately not one the script ever passes: a fake
+// shell that records how it was invoked must not be able to satisfy its
+// test with what the warm-up wrote.
+const WARM_UP_ARG = "__warmup__";
+
+const writeWarmExecutable = (path: string, contents: string, env: Record<string, string> = {}) => {
+  writeExecutable(path, contents);
+  execFileSync(path, [WARM_UP_ARG], { stdio: "ignore", env: { PATH: GUI_PATH, ...env }, timeout: SHELL_TIMEOUT_MS, killSignal: "SIGKILL" });
+};
+
 const withTempHome = (body: (home: string) => void) => {
   const home = mkdtempSync(join(tmpdir(), "mulmoclaude-home-"));
   try {
@@ -62,10 +90,9 @@ describe("resolve-path.sh", () => {
   it("returns the login shell's PATH ahead of the inherited one", darwinOnly, () => {
     withTempHome((home) => {
       const fakeShell = join(home, "fake-shell");
-      // Invoked as `<shell> -l -i -c <script>`, so the script is $4.
-      writeExecutable(fakeShell, '#!/bin/sh\nexec /bin/sh -c "$4"\n');
+      writeWarmExecutable(fakeShell, ANSWERING_SHELL);
       const { stdout } = runShell('mc_login_shell() { echo "$MC_FAKE_SHELL"; }\nmc_resolve_path', home, { MC_FAKE_SHELL: fakeShell });
-      assert.equal(stdout.trim(), `${GUI_PATH}:${GUI_PATH}`);
+      assert.equal(stdout.trim(), `${HOP_PATH}:${GUI_PATH}`);
     });
   });
 
@@ -74,7 +101,7 @@ describe("resolve-path.sh", () => {
       // Records the flags it was invoked with instead of answering.
       const fakeShell = join(home, "record-flags");
       const flagLog = join(home, "flags.txt");
-      writeExecutable(fakeShell, '#!/bin/sh\necho "$1 $2 $3" > "$MC_FLAG_LOG"\n');
+      writeWarmExecutable(fakeShell, '#!/bin/sh\necho "$1 $2 $3" > "$MC_FLAG_LOG"\n', { MC_FLAG_LOG: flagLog });
       runShell('mc_login_shell() { echo "$MC_FAKE_SHELL"; }\nmc_resolve_path > /dev/null', home, { MC_FAKE_SHELL: fakeShell, MC_FLAG_LOG: flagLog });
       const flags = readFileSync(flagLog, "utf8");
       assert.match(flags, /-l/);
@@ -86,20 +113,31 @@ describe("resolve-path.sh", () => {
   it("ignores banner noise around the sentinels", darwinOnly, () => {
     withTempHome((home) => {
       const fakeShell = join(home, "noisy-shell");
-      writeExecutable(
+      writeWarmExecutable(
         fakeShell,
-        ["#!/bin/sh", 'echo "welcome to my shell"', 'echo "some warning" >&2', '/bin/sh -c "$4"', 'echo "trailing chatter"', ""].join("\n"),
+        [
+          "#!/bin/sh",
+          'echo "welcome to my shell"',
+          'echo "some warning" >&2',
+          `PATH=${HOP_PATH}`,
+          "export PATH",
+          '/bin/sh -c "$4"',
+          'echo "trailing chatter"',
+          "",
+        ].join("\n"),
       );
       const { stdout } = runShell('mc_login_shell() { echo "$MC_FAKE_SHELL"; }\nmc_resolve_path', home, { MC_FAKE_SHELL: fakeShell });
       assert.ok(!stdout.includes("welcome"), "banner leaked into the resolved PATH");
       assert.ok(!stdout.includes("chatter"), "trailing output leaked into the resolved PATH");
-      assert.ok(stdout.trim().startsWith(`${GUI_PATH}:`), `unexpected resolved PATH: ${stdout.trim()}`);
+      assert.equal(stdout.trim(), `${HOP_PATH}:${GUI_PATH}`);
     });
   });
 
   it("gives up on a shell that hangs instead of wedging the launch", darwinOnly, () => {
     withTempHome((home) => {
       const fakeShell = join(home, "hanging-shell");
+      // Not warmed: the watchdog kills this one at 2s whether or not its
+      // exec was still being evaluated, and a warm-up would sleep 30s.
       writeExecutable(fakeShell, "#!/bin/sh\nsleep 30\n");
       const { ms } = runShell('MC_HOP_TIMEOUT_S=2\nmc_login_shell() { echo "$MC_FAKE_SHELL"; }\nmc_resolve_path > /dev/null', home, {
         MC_FAKE_SHELL: fakeShell,
@@ -112,8 +150,7 @@ describe("resolve-path.sh", () => {
   it("does not stall for the whole timeout when the shell answers immediately", darwinOnly, () => {
     withTempHome((home) => {
       const fakeShell = join(home, "fast-shell");
-      // Invoked as `<shell> -l -i -c <script>`, so the script is $4.
-      writeExecutable(fakeShell, '#!/bin/sh\nexec /bin/sh -c "$4"\n');
+      writeWarmExecutable(fakeShell, ANSWERING_SHELL);
       // Regression guard: a watchdog whose stdout is not detached keeps
       // the command substitution's pipe open, and every launch pays the
       // full timeout even though the work finished in milliseconds.
