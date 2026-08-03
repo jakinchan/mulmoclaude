@@ -40,7 +40,7 @@ import MarpView from "./MarpView.vue";
 defineProps<{
   modelValue: string;
   pdfFilename: string;
-  baseDir?: string;
+  baseDir?: string | undefined;
   editorLabel: string;
 }>();
 

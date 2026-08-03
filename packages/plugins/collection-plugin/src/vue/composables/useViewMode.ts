@@ -20,7 +20,7 @@ interface UseViewModeParams {
   activeSlug: Readonly<Ref<string | undefined>>;
   /** Embedded cards restore their own persisted mode first (`initialView`); it
    *  wins over the slug's stored preference so a stale card can't clobber it. */
-  props: { initialView?: CollectionViewMode };
+  props: { initialView?: CollectionViewMode | undefined };
   /** Whether the schema has a date / enum field (from the parent's field lists) —
    *  gates whether a stored `calendar` / `kanban` survives `activeView`. */
   hasCalendar: Readonly<Ref<boolean>>;

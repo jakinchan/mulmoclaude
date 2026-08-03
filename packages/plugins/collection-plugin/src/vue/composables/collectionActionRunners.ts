@@ -41,7 +41,7 @@ export interface CollectionActionContext extends CollectionActionState {
   inlineError: Ref<string | null>;
   guard: RunningActionsGuard;
   cui: CollectionUi;
-  props: { sendTextMessage?: (text?: string) => void };
+  props: { sendTextMessage?: ((text?: string) => void) | undefined };
   t: Translate;
 }
 

@@ -81,15 +81,15 @@ const props = defineProps<{
   accounts: Account[];
   currency: string;
   version: number;
-  fiscalYearEnd?: FiscalYearEnd;
+  fiscalYearEnd?: FiscalYearEnd | undefined;
   /** Opening-balance date for the active book — drives the "Lifetime"
    *  shortcut in the date picker (from = openingDate, to = today).
    *  When absent, the picker hides Lifetime; "All" still works. */
-  openingDate?: string;
+  openingDate?: string | undefined;
   /** Optional account to preselect (Accounts tab → click). Updates
    *  via the watcher below — assigning to the local `accountCode`
    *  ref keeps the dropdown's v-model authoritative for user edits. */
-  preselectAccountCode?: string;
+  preselectAccountCode?: string | undefined;
 }>();
 
 const DASH = "—";

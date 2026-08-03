@@ -56,7 +56,7 @@ export interface OpenAppPayload {
   /** `null` when the workspace has zero books — the View renders the
    *  empty state and prompts for book creation. */
   bookId: string | null;
-  initialTab?: string;
+  initialTab?: string | undefined;
 }
 
 // The single dispatch route this plugin owns — shared with the server
@@ -76,26 +76,26 @@ export function getBooks(): Promise<ApiResult<{ books: BookSummary[] }>> {
 
 export function createBook(input: {
   name: string;
-  currency?: string;
-  country?: SupportedCountryCode;
+  currency?: string | undefined;
+  country?: SupportedCountryCode | undefined;
   /** Closing month 1-12 — required at the form boundary, but the
    *  server silently defaults an absent value to 12 (December). */
-  fiscalYearEnd?: FiscalYearEnd;
+  fiscalYearEnd?: FiscalYearEnd | undefined;
 }): Promise<ApiResult<{ book: BookSummary }>> {
   return call(ACCOUNTING_ACTIONS.createBook, input);
 }
 
 export function updateBook(input: {
   bookId: string;
-  name?: string;
+  name?: string | undefined;
   /** Pass `""` to explicitly clear the country (server treats it as
    *  the "drop the field" sentinel). Any other value must be one of
    *  the curated `SupportedCountryCode`s. */
-  country?: SupportedCountryCode | "";
+  country?: SupportedCountryCode | "" | undefined;
   /** Closing month 1-12 — pure metadata, only changes how the
    *  date-range shortcuts resolve. No "clear" path; absence leaves the
    *  existing value untouched. */
-  fiscalYearEnd?: FiscalYearEnd;
+  fiscalYearEnd?: FiscalYearEnd | undefined;
 }): Promise<ApiResult<{ book: BookSummary }>> {
   return call(ACCOUNTING_ACTIONS.updateBook, input);
 }
@@ -119,12 +119,12 @@ export function upsertAccount(account: Account, bookId: string): Promise<ApiResu
 export interface AddEntriesItemInput {
   date: string;
   lines: JournalLine[];
-  memo?: string;
+  memo?: string | undefined;
   /** When set, marks this entry as the replacement posted via the
    *  "edit" flow. The caller is expected to have voided
    *  `replacesEntryId` separately just before this call — there is
    *  no atomic transaction. */
-  replacesEntryId?: string;
+  replacesEntryId?: string | undefined;
 }
 
 export function addEntries(input: {
@@ -139,16 +139,16 @@ export function addEntries(input: {
 
 export function voidEntry(input: {
   entryId: string;
-  reason?: string;
+  reason?: string | undefined;
   bookId: string;
 }): Promise<ApiResult<{ bookId: string; reverseEntry: JournalEntry; markerEntry: JournalEntry }>> {
   return call(ACCOUNTING_ACTIONS.voidEntry, input);
 }
 
 export function getJournalEntries(input: {
-  from?: string;
-  to?: string;
-  accountCode?: string;
+  from?: string | undefined;
+  to?: string | undefined;
+  accountCode?: string | undefined;
   bookId: string;
 }): Promise<ApiResult<{ bookId: string; entries: JournalEntry[]; voidedEntryIds: string[] }>> {
   return call(ACCOUNTING_ACTIONS.getJournalEntries, input);
@@ -163,7 +163,7 @@ export function getOpeningBalances(bookId: string): Promise<ApiResult<{ bookId: 
 export function setOpeningBalances(input: {
   asOfDate: string;
   lines: JournalLine[];
-  memo?: string;
+  memo?: string | undefined;
   bookId: string;
 }): Promise<ApiResult<{ bookId: string; openingEntry: JournalEntry; replacedExisting: boolean }>> {
   return call(ACCOUNTING_ACTIONS.setOpeningBalances, input);
@@ -202,7 +202,7 @@ export interface TimeSeriesInput {
   to: string;
   /** Required when metric === "accountBalance"; forbidden otherwise.
    *  The server returns a 400 either way. */
-  accountCode?: string;
+  accountCode?: string | undefined;
 }
 
 export interface TimeSeriesResult {
@@ -211,7 +211,7 @@ export interface TimeSeriesResult {
   granularity: TimeSeriesGranularity;
   from: string;
   to: string;
-  accountCode?: string;
+  accountCode?: string | undefined;
   points: TimeSeriesPoint[];
 }
 

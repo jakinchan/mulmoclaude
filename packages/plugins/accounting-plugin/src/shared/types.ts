@@ -28,14 +28,14 @@ export interface Account {
   type: AccountType;
   /** Optional free-form note (tax bucket, parent group, …). Not
    *  interpreted by the engine — passes through verbatim. */
-  note?: string;
+  note?: string | undefined;
   /** Soft-delete flag. When `false`, the account is hidden from
    *  entry/ledger dropdowns but stays visible in Manage Accounts
    *  and historical entries — accounting integrity requires that
    *  a code referenced by a journal line never disappears. Omitted
    *  (treated as active) by default to keep the JSON files clean
    *  for books created before this field existed. */
-  active?: boolean;
+  active?: boolean | undefined;
 }
 
 export interface BookSummary {
@@ -54,7 +54,7 @@ export interface BookSummary {
    *  persisted. Optional for backward compatibility with books created
    *  before the field was introduced; the UI prompts existing books
    *  to set it. */
-  country?: SupportedCountryCode;
+  country?: SupportedCountryCode | undefined;
   /** Calendar month (1-12) on whose LAST DAY the book's fiscal year
    *  closes — e.g. 8 = August 31, 12 = December 31 (calendar year).
    *  Drives the UI's "current quarter / current year" date-range
@@ -64,7 +64,7 @@ export interface BookSummary {
    *  normalises both via `resolveFiscalYearEnd`, treating an absent
    *  value as December. New books require it at the create boundary;
    *  the default is 12 (December). */
-  fiscalYearEnd?: FiscalYearEnd;
+  fiscalYearEnd?: FiscalYearEnd | undefined;
   createdAt: string;
 }
 
@@ -77,10 +77,10 @@ export interface JournalLine {
    *  numbers. The engine treats them as separate fields rather than
    *  a single signed amount so the input matches a standard
    *  bookkeeping form. */
-  debit?: number;
-  credit?: number;
+  debit?: number | undefined;
+  credit?: number | undefined;
   /** Per-line memo (the entry-level memo lives on JournalEntry). */
-  memo?: string;
+  memo?: string | undefined;
   /** Counterparty's tax-authority-issued registration ID for this
    *  line — Japanese 適格請求書発行事業者登録番号 (T-number), EU
    *  VAT identification number, UK VAT registration number, India
@@ -88,7 +88,7 @@ export interface JournalLine {
    *  eligibility under the Japanese インボイス制度 (effective
    *  2023-10-01) and equivalent regimes elsewhere. Free-form string;
    *  format validation belongs upstream (per-jurisdiction). */
-  taxRegistrationId?: string;
+  taxRegistrationId?: string | undefined;
 }
 
 export interface JournalEntry {
@@ -102,19 +102,19 @@ export interface JournalEntry {
   kind: JournalEntryKind;
   lines: JournalLine[];
   /** Entry-level memo. */
-  memo?: string;
+  memo?: string | undefined;
   /** When `kind === "void-marker"`: id of the entry being voided.
    *  When `kind === "void"`: the system-generated reverse entry
    *  references the original via this field. */
-  voidedEntryId?: string;
+  voidedEntryId?: string | undefined;
   /** Reason supplied by the user when voiding. */
-  voidReason?: string;
+  voidReason?: string | undefined;
   /** When this entry was posted via the "edit" flow (void-then-add),
    *  this is the id of the entry it replaces. The void + new-entry
    *  pair is *not* atomic on the server — the client issues two
    *  sequential calls — but recording the link here makes the
    *  edit chain queryable later (e.g. "what corrected entry X?"). */
-  replacesEntryId?: string;
+  replacesEntryId?: string | undefined;
   /** ISO timestamp the entry was appended to the journal — the
    *  authoritative "when did this hit the books" clock. Distinct
    *  from `date`, which is the user-visible booking date. */
@@ -165,7 +165,7 @@ export interface LedgerRow {
   entryId: string;
   date: string;
   kind: JournalEntryKind;
-  memo?: string;
+  memo?: string | undefined;
   debit: number;
   credit: number;
   /** Running netDebit balance for this account, in entry order. */
@@ -177,7 +177,7 @@ export interface LedgerRow {
    *  src/vue/components/accountNumbering.ts). Carried per row even on
    *  non-tax accounts so a future view that wants to show it
    *  elsewhere doesn't need a server change. */
-  taxRegistrationId?: string;
+  taxRegistrationId?: string | undefined;
 }
 
 export interface Ledger {

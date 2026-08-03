@@ -31,7 +31,7 @@ export const optionalReportPeriod = (value: unknown): ReportPeriod | undefined =
 
 /** The two fields the addEntries narration quotes back, read out of a
  *  service payload that is only `unknown` to the router. */
-export const describeEntry = (entry: unknown): { id?: string; date?: string } => {
+export const describeEntry = (entry: unknown): { id?: string | undefined; date?: string | undefined } => {
   const record = optionalRecord(entry);
   return { id: optionalString(record?.id), date: optionalString(record?.date) };
 };

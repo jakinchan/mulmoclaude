@@ -24,13 +24,13 @@ export interface DriveFileSummary {
 }
 
 export interface ListDriveFilesInput {
-  maxResults?: number;
+  maxResults?: number | undefined;
 }
 
 export interface CreateDriveFileInput {
   name: string;
   content: string;
-  mimeType?: string;
+  mimeType?: string | undefined;
 }
 
 export interface ReadDriveFileInput {

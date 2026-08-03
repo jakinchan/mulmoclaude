@@ -227,7 +227,7 @@ function valueForBucket(input: {
   entries: readonly JournalEntry[];
   accounts: readonly Account[];
   metric: TimeSeriesMetric;
-  accountCode?: string;
+  accountCode?: string | undefined;
 }): number {
   const accountTypeByCode = new Map(input.accounts.map((acct) => [acct.code, acct.type]));
   if (input.metric === "accountBalance") {
@@ -252,7 +252,7 @@ export function buildTimeSeries(input: {
   entries: readonly JournalEntry[];
   accounts: readonly Account[];
   metric: TimeSeriesMetric;
-  accountCode?: string;
+  accountCode?: string | undefined;
 }): TimeSeriesPoint[] {
   return input.buckets.map((bucket) => ({
     label: bucket.label,

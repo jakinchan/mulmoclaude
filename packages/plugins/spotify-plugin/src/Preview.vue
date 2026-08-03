@@ -77,8 +77,8 @@ function summariseSearchResult(result: SearchResult): string {
 // label that matches the array's element type so a 5-playlist result
 // doesn't read as "5 tracks" (CodeRabbit review on PR #1166).
 function summariseArray(data: NormalisedTrack[] | NormalisedPlaylist[] | RecentlyPlayedItem[]): string {
-  if (data.length === 0) return t.value.empty;
-  const head = data[0];
+  const [head] = data;
+  if (head === undefined) return t.value.empty;
   if ("trackCount" in head) return `${data.length} ${t.value.tabPlaylists}`;
   if ("playedAt" in head) return `${data.length} ${t.value.tabRecent}`;
   return `${data.length} ${t.value.tracksCount}`;

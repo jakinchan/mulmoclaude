@@ -47,11 +47,11 @@ export interface ResolvedCompany {
 
 export interface EdgarClient {
   resolve(tickerOrCik: string): Promise<ResolvedCompany>;
-  getRecentFilings(cik: string, opts: { formTypes?: string[]; limit?: number }): Promise<{ name: string; filings: FilingSummary[] }>;
+  getRecentFilings(cik: string, opts: { formTypes?: string[] | undefined; limit?: number | undefined }): Promise<{ name: string; filings: FilingSummary[] }>;
   getFilingDocument(cik: string, accessionNumber: string, primaryDocument: string): Promise<{ url: string; text: string }>;
   getCompanyFacts(cik: string): Promise<unknown>;
   getCompanyConcept(cik: string, taxonomy: string, concept: string): Promise<unknown>;
-  fullTextSearch(query: string, opts: { forms?: string[]; dateRange?: { from: string; to: string } }): Promise<unknown>;
+  fullTextSearch(query: string, opts: { forms?: string[] | undefined; dateRange?: { from: string; to: string } | undefined }): Promise<unknown>;
 }
 
 interface EdgarDeps {
@@ -154,7 +154,10 @@ export function createEdgarClient(deps: EdgarDeps): EdgarClient {
     return { cik: padCik(hit.cik_str), name: hit.title, ticker: hit.ticker };
   }
 
-  async function getRecentFilings(cik: string, opts: { formTypes?: string[]; limit?: number } = {}): Promise<{ name: string; filings: FilingSummary[] }> {
+  async function getRecentFilings(
+    cik: string,
+    opts: { formTypes?: string[] | undefined; limit?: number | undefined } = {},
+  ): Promise<{ name: string; filings: FilingSummary[] }> {
     const response = await edgarFetch(`https://data.sec.gov/submissions/CIK${cik}.json`);
     const data = (await response.json()) as {
       name: string;
@@ -205,7 +208,10 @@ export function createEdgarClient(deps: EdgarDeps): EdgarClient {
     return await response.json();
   }
 
-  async function fullTextSearch(query: string, opts: { forms?: string[]; dateRange?: { from: string; to: string } } = {}): Promise<unknown> {
+  async function fullTextSearch(
+    query: string,
+    opts: { forms?: string[] | undefined; dateRange?: { from: string; to: string } | undefined } = {},
+  ): Promise<unknown> {
     const params = new URLSearchParams({ q: query });
     if (opts.forms?.length) params.set("forms", opts.forms.join(","));
     if (opts.dateRange) {

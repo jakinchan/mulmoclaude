@@ -86,15 +86,12 @@ function parseRetryAfter(headerValue: string | null): number {
 async function cwFetch(method: "GET" | "POST" | "PUT", path: string, form?: Record<string, string>): Promise<unknown> {
   await waitForRateLimit();
   const headers: Record<string, string> = { "X-ChatWorkToken": apiToken };
-  let body: string | undefined;
-  if (form) {
-    headers["Content-Type"] = "application/x-www-form-urlencoded";
-    body = new URLSearchParams(form).toString();
-  }
+  if (form) headers["Content-Type"] = "application/x-www-form-urlencoded";
+  const body = form ? new URLSearchParams(form).toString() : undefined;
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
-    body,
+    ...(body !== undefined ? { body } : {}),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (res.status === 204) {

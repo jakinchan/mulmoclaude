@@ -135,16 +135,16 @@ const props = defineProps<{
   items: CollectionItem[];
   day: Ymd;
   anchorField: string;
-  endField?: string;
-  timeField?: string;
+  endField?: string | undefined;
+  timeField?: string | undefined;
   /** Optional `enum` field tinting each chip by its value's palette colour
    *  (matching the month view). Empty / unset → default indigo/slate styling. */
-  colorField?: string;
-  selected?: string;
+  colorField?: string | undefined;
+  selected?: string | undefined;
   canCreate: boolean;
   /** When true, expand the modal to two columns and render the `#detail`
    *  slot (the selected/created record) to the right of the timeline. */
-  showDetail?: boolean;
+  showDetail?: boolean | undefined;
 }>();
 
 const emit = defineEmits<{

@@ -47,7 +47,7 @@ irc.connect({
   port,
   nick,
   tls: useTls,
-  password: password ?? undefined,
+  ...(password !== undefined ? { password } : {}),
 });
 
 irc.on("registered", () => {

@@ -71,7 +71,7 @@ const props = defineProps<{
    *  absent the Lifetime option is hidden from the menu. The opening
    *  gate prevents the tabs that mount this picker from rendering
    *  before an opening exists, so in normal use this stays defined. */
-  openingDate?: string;
+  openingDate?: string | undefined;
 }>();
 
 const emit = defineEmits<{

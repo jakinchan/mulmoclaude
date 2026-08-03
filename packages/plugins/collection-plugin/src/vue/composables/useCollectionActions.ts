@@ -39,7 +39,7 @@ interface UseCollectionActionsParams {
   inlineError: Ref<string | null>;
   cui: CollectionUi;
   /** The chat card's channel into the current session (embedded mode only). */
-  props: { sendTextMessage?: (text?: string) => void };
+  props: { sendTextMessage?: ((text?: string) => void) | undefined };
   t: Translate;
 }
 

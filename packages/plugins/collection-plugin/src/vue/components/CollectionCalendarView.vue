@@ -118,14 +118,14 @@ const props = defineProps<{
   /** The `date`/`datetime` field whose value places each record on the grid. */
   anchorField: string;
   /** Optional second `date`/`datetime` field — records span anchor→end inclusive. */
-  endField?: string;
+  endField?: string | undefined;
   /** Optional free-form time-string field driving the day (time-allocation) view. */
-  timeField?: string;
+  timeField?: string | undefined;
   /** Optional `enum` field tinting each chip by its value's palette colour.
    *  Empty / unset → the default indigo styling. */
-  colorField?: string;
+  colorField?: string | undefined;
   /** Primary-key of the currently-open record (highlighted chip). */
-  selected?: string;
+  selected?: string | undefined;
 }>();
 
 const emit = defineEmits<{

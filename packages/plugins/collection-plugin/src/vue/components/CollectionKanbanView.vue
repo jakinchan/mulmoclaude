@@ -87,13 +87,13 @@ const props = defineProps<{
   groupField: string;
   items: CollectionItem[];
   /** Primary-key of the currently-open record (highlighted card). */
-  selected?: string;
+  selected?: string | undefined;
   /** Primary-key → active-notification severity. Cards with a notification get
    *  a left accent in the matching bell colour (urgent red / nudge amber). */
-  notified?: Map<string, NotifierSeverity>;
+  notified?: Map<string, NotifierSeverity> | undefined;
   /** Read-only (dataSource) collection: dragging and the card toggle are
    *  off — a move writes the group field, and there is nothing to write. */
-  readonly?: boolean;
+  readonly?: boolean | undefined;
 }>();
 
 const emit = defineEmits<{

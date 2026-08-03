@@ -54,7 +54,7 @@ const { dispatch } = useRuntime();
 const props = defineProps<{
   markdown: string;
   pdfFilename: string;
-  baseDir?: string;
+  baseDir?: string | undefined;
 }>();
 
 const DEFAULT_SLIDE_WIDTH = 1280;

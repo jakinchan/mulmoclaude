@@ -93,11 +93,11 @@ const props = defineProps<{
   bookId: string;
   currency: string;
   version: number;
-  fiscalYearEnd?: FiscalYearEnd;
+  fiscalYearEnd?: FiscalYearEnd | undefined;
   /** Opening-balance date for the active book — drives the "Lifetime"
    *  shortcut in the date picker (from = openingDate, to = today).
    *  When absent, the picker hides Lifetime; "All" still works. */
-  openingDate?: string;
+  openingDate?: string | undefined;
 }>();
 
 const emit = defineEmits<{ selectAccount: [code: string] }>();

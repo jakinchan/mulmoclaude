@@ -12,8 +12,8 @@ import type { FlagFilterMode, FlagFilterState } from "./collectionViewMode";
  *  satisfies it structurally, and it stays small enough to build in a test. */
 export interface FlagChipSchemaView {
   fields: Record<string, { type: string; label?: string; field?: string; onValue?: string }>;
-  completionField?: string;
-  completionDoneValues?: readonly string[];
+  completionField?: string | undefined;
+  completionDoneValues?: readonly string[] | undefined;
 }
 
 /** Chip key (state/testid/localStorage) for the synthesized legacy-completion

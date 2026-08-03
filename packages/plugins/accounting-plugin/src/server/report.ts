@@ -182,7 +182,7 @@ function accumulateLedgerEntry(
   }
 }
 
-export function buildLedger(input: { account: Account; entries: readonly JournalEntry[]; from?: string; to?: string }): Ledger {
+export function buildLedger(input: { account: Account; entries: readonly JournalEntry[]; from?: string | undefined; to?: string | undefined }): Ledger {
   // Same rule as `aggregateBalances`: include original and reverse
   // for the math to cancel; exclude markers. The reverse entry
   // itself carries `kind: "void"` so the row is visually

@@ -18,9 +18,9 @@ export interface ImageEntry {
  *  prev/next arrows stay hidden for characters. */
 export interface LightboxState {
   src: string;
-  text?: string;
+  text?: string | undefined;
   index: number;
-  isCharacter?: boolean;
+  isCharacter?: boolean | undefined;
 }
 
 export interface MulmoScript {

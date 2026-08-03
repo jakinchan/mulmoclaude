@@ -186,7 +186,7 @@ function coerceFiscalYearEndInput(raw: unknown): FiscalYearEnd | undefined {
  *  the first failure so the surrounding function stays under the
  *  cognitive-complexity threshold, and hands back the country to persist:
  *  `undefined` = the field was omitted, `""` = explicit clear. */
-function parseUpdateBookInput(input: { name?: string; country?: string }): SupportedCountryCode | "" | undefined {
+function parseUpdateBookInput(input: { name?: string | undefined; country?: string | undefined }): SupportedCountryCode | "" | undefined {
   if (input.name !== undefined && (typeof input.name !== "string" || input.name.trim() === "")) {
     throw new AccountingError(400, "name must be a non-empty string when supplied");
   }
@@ -202,7 +202,7 @@ function parseUpdateBookInput(input: { name?: string; country?: string }): Suppo
 }
 
 export async function createBook(
-  input: { id?: string; name: string; currency?: string; country?: string; fiscalYearEnd?: unknown },
+  input: { id?: string | undefined; name: string; currency?: string | undefined; country?: string | undefined; fiscalYearEnd?: unknown },
   workspaceRoot?: string,
 ): Promise<{ book: BookSummary }> {
   if (typeof input.name !== "string" || input.name.trim() === "") {
@@ -253,7 +253,7 @@ export async function createBook(
 }
 
 export async function updateBook(
-  input: { bookId: string; name?: string; country?: string; fiscalYearEnd?: unknown },
+  input: { bookId: string; name?: string | undefined; country?: string | undefined; fiscalYearEnd?: unknown },
   workspaceRoot?: string,
 ): Promise<{ book: BookSummary }> {
   const config = await loadOrInitConfig(workspaceRoot);
@@ -315,7 +315,7 @@ export async function deleteBook(
 
 // ── accounts ───────────────────────────────────────────────────────
 
-export async function listAccounts(input: { bookId?: string }, workspaceRoot?: string): Promise<{ bookId: string; accounts: Account[] }> {
+export async function listAccounts(input: { bookId?: string | undefined }, workspaceRoot?: string): Promise<{ bookId: string; accounts: Account[] }> {
   const config = await loadOrInitConfig(workspaceRoot);
   const bookId = resolveBookId(config, input.bookId);
   return { bookId, accounts: await readAccounts(bookId, workspaceRoot) };
@@ -358,7 +358,7 @@ function applyAccount(accounts: readonly Account[], account: Account): { next: A
 }
 
 export async function upsertAccount(
-  input: { bookId?: string; account: unknown },
+  input: { bookId?: string | undefined; account: unknown },
   workspaceRoot?: string,
 ): Promise<{ bookId: string; account: Account; accounts: Account[] }> {
   const config = await loadOrInitConfig(workspaceRoot);
@@ -418,7 +418,10 @@ function earliestPeriodOf(entries: readonly JournalEntry[]): string {
   return entries.map((entry) => periodFromDate(entry.date)).reduce((min, period) => (period < min ? period : min));
 }
 
-export async function addEntries(input: { bookId?: string; entries: unknown }, workspaceRoot?: string): Promise<{ bookId: string; entries: JournalEntry[] }> {
+export async function addEntries(
+  input: { bookId?: string | undefined; entries: unknown },
+  workspaceRoot?: string,
+): Promise<{ bookId: string; entries: JournalEntry[] }> {
   const config = await loadOrInitConfig(workspaceRoot);
   const bookId = resolveBookId(config, input.bookId);
   if (!isUnknownArray(input.entries) || input.entries.length === 0) {
@@ -454,7 +457,7 @@ async function findEntryById(bookId: string, entryId: string, workspaceRoot?: st
 }
 
 export async function voidEntry(
-  input: { bookId?: string; entryId: string; reason?: string; voidDate?: string },
+  input: { bookId?: string | undefined; entryId: string; reason?: string | undefined; voidDate?: string | undefined },
   workspaceRoot?: string,
 ): Promise<{ bookId: string; reverseEntry: JournalEntry; markerEntry: JournalEntry }> {
   const config = await loadOrInitConfig(workspaceRoot);
@@ -477,10 +480,10 @@ export async function voidEntry(
 }
 
 interface ListEntriesInput {
-  bookId?: string;
-  from?: string;
-  to?: string;
-  accountCode?: string;
+  bookId?: string | undefined;
+  from?: string | undefined;
+  to?: string | undefined;
+  accountCode?: string | undefined;
 }
 
 function entryMatchesFilters(entry: JournalEntry, input: ListEntriesInput): boolean {
@@ -517,7 +520,10 @@ export async function listEntries(
 
 // ── opening balances ───────────────────────────────────────────────
 
-export async function getOpeningBalances(input: { bookId?: string }, workspaceRoot?: string): Promise<{ bookId: string; opening: JournalEntry | null }> {
+export async function getOpeningBalances(
+  input: { bookId?: string | undefined },
+  workspaceRoot?: string,
+): Promise<{ bookId: string; opening: JournalEntry | null }> {
   const config = await loadOrInitConfig(workspaceRoot);
   const bookId = resolveBookId(config, input.bookId);
   const all = await readAllEntries(bookId, workspaceRoot);
@@ -525,7 +531,7 @@ export async function getOpeningBalances(input: { bookId?: string }, workspaceRo
 }
 
 export async function setOpeningBalances(
-  input: { bookId?: string; asOfDate: string; lines: unknown; memo?: string },
+  input: { bookId?: string | undefined; asOfDate: string; lines: unknown; memo?: string | undefined },
   workspaceRoot?: string,
 ): Promise<{ bookId: string; openingEntry: JournalEntry; replacedExisting: boolean }> {
   const config = await loadOrInitConfig(workspaceRoot);
@@ -576,7 +582,7 @@ function endDateOfPeriod(period: ReportPeriod): string {
 }
 
 export async function getBalanceSheetReport(
-  input: { bookId?: string; period: ReportPeriod },
+  input: { bookId?: string | undefined; period: ReportPeriod },
   workspaceRoot?: string,
 ): Promise<{ bookId: string; balanceSheet: ReturnType<typeof buildBalanceSheet> }> {
   const config = await loadOrInitConfig(workspaceRoot);
@@ -608,7 +614,7 @@ async function balancesAsOf(bookId: string, period: ReportPeriod, workspaceRoot?
 }
 
 export async function getProfitLossReport(
-  input: { bookId?: string; period: ReportPeriod },
+  input: { bookId?: string | undefined; period: ReportPeriod },
   workspaceRoot?: string,
 ): Promise<{ bookId: string; profitLoss: ReturnType<typeof buildProfitLoss> }> {
   const config = await loadOrInitConfig(workspaceRoot);
@@ -621,7 +627,7 @@ export async function getProfitLossReport(
 }
 
 export async function getLedgerReport(
-  input: { bookId?: string; accountCode: string; period?: ReportPeriod },
+  input: { bookId?: string | undefined; accountCode: string; period?: ReportPeriod | undefined },
   workspaceRoot?: string,
 ): Promise<{ bookId: string; ledger: ReturnType<typeof buildLedger> }> {
   const config = await loadOrInitConfig(workspaceRoot);
@@ -680,7 +686,7 @@ function resolveAccountCode(metric: TimeSeriesMetric, raw: unknown): string | un
 }
 
 export interface TimeSeriesReportInput {
-  bookId?: string;
+  bookId?: string | undefined;
   metric: unknown;
   granularity: unknown;
   from: unknown;
@@ -750,7 +756,7 @@ export async function getTimeSeriesReport(input: TimeSeriesReportInput, workspac
 
 // ── snapshot admin ─────────────────────────────────────────────────
 
-export async function rebuildSnapshots(input: { bookId?: string }, workspaceRoot?: string): Promise<{ bookId: string; rebuilt: string[] }> {
+export async function rebuildSnapshots(input: { bookId?: string | undefined }, workspaceRoot?: string): Promise<{ bookId: string; rebuilt: string[] }> {
   const config = await loadOrInitConfig(workspaceRoot);
   const bookId = resolveBookId(config, input.bookId);
   const result = await rebuildAllSnapshots(bookId, workspaceRoot);

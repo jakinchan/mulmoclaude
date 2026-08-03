@@ -45,11 +45,11 @@ export interface FullMessage {
 }
 
 export interface SearchCriteria {
-  from?: string;
-  subject_contains?: string;
-  since?: string; // ISO date
-  before?: string; // ISO date
-  unread?: boolean;
+  from?: string | undefined;
+  subject_contains?: string | undefined;
+  since?: string | undefined; // ISO date
+  before?: string | undefined; // ISO date
+  unread?: boolean | undefined;
 }
 
 function makeClient(auth: ImapAuth): ImapFlow {

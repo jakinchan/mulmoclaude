@@ -68,9 +68,9 @@ export interface TelegramApiOptions {
 }
 
 export interface GetUpdatesOptions {
-  offset?: number;
-  timeoutSec?: number;
-  signal?: AbortSignal;
+  offset?: number | undefined;
+  timeoutSec?: number | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 export interface TelegramApi {
@@ -101,7 +101,7 @@ export function createTelegramApi(opts: TelegramApiOptions): TelegramApi {
       }
       const url = `${base}/getUpdates?${params.toString()}`;
 
-      const res = await fetchImpl(url, { signal: gu.signal });
+      const res = await fetchImpl(url, gu.signal !== undefined ? { signal: gu.signal } : {});
       if (!res.ok) {
         throw new Error(`getUpdates failed: ${res.status} ${await safeText(res)}`);
       }

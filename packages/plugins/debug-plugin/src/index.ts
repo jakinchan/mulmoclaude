@@ -84,10 +84,10 @@ function buildAskAndStorePrompt(pendingId: string): string {
 interface MulmoclaudeNotifierApi {
   publish(input: {
     severity: z.infer<typeof NotifierSeverity>;
-    lifecycle?: z.infer<typeof NotifierLifecycle>;
+    lifecycle?: z.infer<typeof NotifierLifecycle> | undefined;
     title: string;
-    body?: string;
-    navigateTarget?: string;
+    body?: string | undefined;
+    navigateTarget?: string | undefined;
     pluginData?: unknown;
   }): Promise<{ id: string }>;
   clear(id: string): Promise<void>;
@@ -98,7 +98,7 @@ interface MulmoclaudeTasksApi {
 }
 
 interface MulmoclaudeChatApi {
-  start(input: { initialMessage: string; role?: string }): Promise<{ chatId: string }>;
+  start(input: { initialMessage: string; role?: string | undefined }): Promise<{ chatId: string }>;
 }
 
 type MulmoclaudeRuntime = PluginRuntime & {

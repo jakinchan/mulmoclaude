@@ -23,7 +23,7 @@
   ],
   "scripts": {
     "build": "vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "vue-tsc --noEmit",
     "test": "echo 'no in-package tests; covered by host integration test test/plugins/test_recipe_book_integration.ts'",
     "lint": "eslint src"
   },
@@ -38,6 +38,7 @@
     "vite": "^8.1.5",
     "vite-plugin-dts": "^5.0.3",
     "vue": "^3.5.40",
+    "vue-tsc": "^3.3.9",
     "zod": "^4.4.3"
   },
   "license": "MIT",

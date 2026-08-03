@@ -25,6 +25,13 @@ export interface GenerateOpArgs {
   chatSessionId?: string | undefined;
 }
 
+/** `GenerateOpArgs` with `K` promoted to genuinely required. `Required<Pick<…>>`
+ *  does NOT work here: under `exactOptionalPropertyTypes` the `-?` modifier drops
+ *  only the `?`, leaving the explicitly declared `| undefined` in place, so the
+ *  op body still sees `T | undefined`. `Omit` for the rest, because intersecting
+ *  the whole interface would re-introduce the optional declaration. */
+export type GenerateOpArgsWith<K extends keyof GenerateOpArgs> = { [P in K]-?: Exclude<GenerateOpArgs[P], undefined> } & Omit<GenerateOpArgs, K>;
+
 export type MovieGenerationResult = { ok: true; outputPath: string } | { ok: false; error: string };
 export type PdfGenerationResult = { ok: true; outputPath: string } | { ok: false; error: string };
 

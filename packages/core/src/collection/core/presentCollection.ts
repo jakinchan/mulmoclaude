@@ -16,7 +16,7 @@ export interface PresentCollectionData {
   /** Slug of the collection to display (e.g. "clients", "invoices"). */
   collectionSlug: string;
   /** Optional primary-key value of a single item to open on mount. */
-  itemId?: string;
+  itemId?: string | undefined;
 }
 
 export type PresentCollectionArgs = PresentCollectionData;

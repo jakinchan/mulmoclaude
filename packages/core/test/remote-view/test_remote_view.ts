@@ -192,7 +192,7 @@ describe("handleRemoteViewMessage", () => {
   });
 
   it("relays startChat (trimmed prompt, string-only role), swallowing empties", async () => {
-    const chats: { prompt: string; role?: string }[] = [];
+    const chats: { prompt: string; role?: string | undefined }[] = [];
     const handlers = {
       slug: "plan",
       getPage: () => pageFromItems([], { offset: 0, limit: 50 }, "id"),

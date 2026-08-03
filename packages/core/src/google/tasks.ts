@@ -23,34 +23,34 @@ export interface TaskSummary {
 }
 
 export interface ListTasksInput {
-  taskListId?: string;
-  maxResults?: number;
-  showCompleted?: boolean;
+  taskListId?: string | undefined;
+  maxResults?: number | undefined;
+  showCompleted?: boolean | undefined;
 }
 
 export interface CreateTaskInput {
   title: string;
-  notes?: string;
+  notes?: string | undefined;
   /** RFC3339. Google stores a DATE only — the time part is recorded but
    *  ignored by the UI, so callers should not promise time-of-day fidelity. */
-  due?: string;
-  taskListId?: string;
+  due?: string | undefined;
+  taskListId?: string | undefined;
 }
 
 export interface CompleteTaskInput {
   taskId: string;
-  taskListId?: string;
+  taskListId?: string | undefined;
 }
 
 export interface UpdateTaskInput {
   taskId: string;
-  title?: string;
+  title?: string | undefined;
   /** `""` clears the notes; omit to leave them untouched. */
-  notes?: string;
+  notes?: string | undefined;
   /** RFC3339. Same DATE-only caveat as `CreateTaskInput.due`. Google rejects
    *  `""`, so a due date can be changed but not removed through this call. */
-  due?: string;
-  taskListId?: string;
+  due?: string | undefined;
+  taskListId?: string | undefined;
 }
 
 export const toTaskListSummary = (value: unknown): TaskListSummary => {
