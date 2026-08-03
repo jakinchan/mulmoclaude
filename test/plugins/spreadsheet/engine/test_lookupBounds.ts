@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { resolveTableOffset } from "../../../../src/plugins/spreadsheet/engine/formulaRefs.ts";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 // A1:B2 = [a, 1] / [b, 2]; the formula sits in C1.
 const table = (formula: string): unknown => {
@@ -17,7 +18,7 @@ const table = (formula: string): unknown => {
       [{ v: "b" }, { v: 2 }],
     ],
   };
-  return new SpreadsheetEngine().calculate(sheet).data[0][2];
+  return cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 2);
 };
 
 describe("resolveTableOffset", () => {
@@ -103,7 +104,7 @@ describe("single-line tables still reject index 0", () => {
       name: "S",
       data: [[{ v: "a" }, { v: formula }], [{ v: "b" }]],
     };
-    return new SpreadsheetEngine().calculate(sheet).data[0][1];
+    return cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1);
   };
 
   it("is #REF! for VLOOKUP with index 0 on a single-column table", () => {

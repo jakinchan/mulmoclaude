@@ -437,7 +437,9 @@ describe("rewriteImgSrcAttrsInHtml — adversarial input", () => {
     // Inspect the section between the opening `src='` and the next `'`.
     const match = /src='([^']*)'/.exec(out);
     assert.ok(match, "expected a single-quoted src attribute in the output");
-    assert.ok(!match[1].includes('"'), `unexpected " inside src value: ${match[1]}`);
+    const [, srcValue] = match;
+    assert.ok(srcValue !== undefined, "expected a captured src value");
+    assert.ok(!srcValue.includes('"'), `unexpected " inside src value: ${srcValue}`);
   });
 
   it("URL-encodes < and > when the src is well-formed", () => {

@@ -77,21 +77,27 @@ function noContent(): Response {
   return new Response(null, { status: 204 });
 }
 
+function onlyCall(calls: CallRecord[]): CallRecord {
+  const [call] = calls;
+  assert.ok(call, "expected runtime.fetch to have been called");
+  return call;
+}
+
 describe("playerPlay", () => {
   it("PUTs /v1/me/player/play with NO body for plain resume", async () => {
     const handle = makeFakeRuntime([noContent()]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await playerPlay({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, {});
-    assert.equal(handle.calls[0].method, "PUT");
-    assert.equal(handle.calls[0].url, "https://api.spotify.com/v1/me/player/play");
-    assert.equal(handle.calls[0].body, undefined);
+    assert.equal(onlyCall(handle.calls).method, "PUT");
+    assert.equal(onlyCall(handle.calls).url, "https://api.spotify.com/v1/me/player/play");
+    assert.equal(onlyCall(handle.calls).body, undefined);
   });
 
   it("includes context_uri in the body when provided", async () => {
     const handle = makeFakeRuntime([noContent()]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await playerPlay({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, { contextUri: "spotify:playlist:abc" });
-    assert.deepEqual(JSON.parse(handle.calls[0].body ?? "{}"), { context_uri: "spotify:playlist:abc" });
+    assert.deepEqual(JSON.parse(onlyCall(handle.calls).body ?? "{}"), { context_uri: "spotify:playlist:abc" });
   });
 
   it("includes uris[] in the body for trackUris (mutually exclusive with contextUri)", async () => {
@@ -101,14 +107,14 @@ describe("playerPlay", () => {
       { runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW },
       { trackUris: ["spotify:track:a", "spotify:track:b"] },
     );
-    assert.deepEqual(JSON.parse(handle.calls[0].body ?? "{}"), { uris: ["spotify:track:a", "spotify:track:b"] });
+    assert.deepEqual(JSON.parse(onlyCall(handle.calls).body ?? "{}"), { uris: ["spotify:track:a", "spotify:track:b"] });
   });
 
   it("appends device_id query param when targeting a specific device", async () => {
     const handle = makeFakeRuntime([noContent()]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await playerPlay({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, { deviceId: "dev1" });
-    assert.match(handle.calls[0].url, /\?device_id=dev1$/);
+    assert.match(onlyCall(handle.calls).url, /\?device_id=dev1$/);
   });
 });
 
@@ -117,24 +123,24 @@ describe("playerPause / next / previous", () => {
     const handle = makeFakeRuntime([noContent()]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await playerPause({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW });
-    assert.equal(handle.calls[0].method, "PUT");
-    assert.equal(handle.calls[0].url, "https://api.spotify.com/v1/me/player/pause");
+    assert.equal(onlyCall(handle.calls).method, "PUT");
+    assert.equal(onlyCall(handle.calls).url, "https://api.spotify.com/v1/me/player/pause");
   });
 
   it("next uses POST /v1/me/player/next", async () => {
     const handle = makeFakeRuntime([noContent()]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await playerNext({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW });
-    assert.equal(handle.calls[0].method, "POST");
-    assert.equal(handle.calls[0].url, "https://api.spotify.com/v1/me/player/next");
+    assert.equal(onlyCall(handle.calls).method, "POST");
+    assert.equal(onlyCall(handle.calls).url, "https://api.spotify.com/v1/me/player/next");
   });
 
   it("previous uses POST /v1/me/player/previous", async () => {
     const handle = makeFakeRuntime([noContent()]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await playerPrevious({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW });
-    assert.equal(handle.calls[0].method, "POST");
-    assert.equal(handle.calls[0].url, "https://api.spotify.com/v1/me/player/previous");
+    assert.equal(onlyCall(handle.calls).method, "POST");
+    assert.equal(onlyCall(handle.calls).url, "https://api.spotify.com/v1/me/player/previous");
   });
 });
 
@@ -143,15 +149,15 @@ describe("playerSeek + playerSetVolume", () => {
     const handle = makeFakeRuntime([noContent()]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await playerSeek({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, 30_000);
-    assert.match(handle.calls[0].url, /\/seek\?position_ms=30000/);
-    assert.equal(handle.calls[0].method, "PUT");
+    assert.match(onlyCall(handle.calls).url, /\/seek\?position_ms=30000/);
+    assert.equal(onlyCall(handle.calls).method, "PUT");
   });
 
   it("setVolume puts volume_percent in the URL query", async () => {
     const handle = makeFakeRuntime([noContent()]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await playerSetVolume({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, 75);
-    assert.match(handle.calls[0].url, /\/volume\?volume_percent=75/);
+    assert.match(onlyCall(handle.calls).url, /\/volume\?volume_percent=75/);
   });
 });
 
@@ -160,16 +166,16 @@ describe("playerTransfer", () => {
     const handle = makeFakeRuntime([noContent()]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await playerTransfer({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, "device-x", undefined);
-    assert.equal(handle.calls[0].method, "PUT");
-    assert.equal(handle.calls[0].url, "https://api.spotify.com/v1/me/player");
-    assert.deepEqual(JSON.parse(handle.calls[0].body ?? "{}"), { device_ids: ["device-x"] });
+    assert.equal(onlyCall(handle.calls).method, "PUT");
+    assert.equal(onlyCall(handle.calls).url, "https://api.spotify.com/v1/me/player");
+    assert.deepEqual(JSON.parse(onlyCall(handle.calls).body ?? "{}"), { device_ids: ["device-x"] });
   });
 
   it("includes play: true when requested", async () => {
     const handle = makeFakeRuntime([noContent()]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await playerTransfer({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, "device-x", true);
-    assert.deepEqual(JSON.parse(handle.calls[0].body ?? "{}"), { device_ids: ["device-x"], play: true });
+    assert.deepEqual(JSON.parse(onlyCall(handle.calls).body ?? "{}"), { device_ids: ["device-x"], play: true });
   });
 });
 
@@ -211,9 +217,12 @@ describe("playerGetDevices — normalisation", () => {
     const result = await playerGetDevices({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW });
     if (!result.ok) throw new Error("unreachable");
     assert.equal(result.data.length, 2);
-    assert.equal(result.data[0].id, null);
-    assert.equal(result.data[0].name, "Restricted Speaker");
-    assert.equal(result.data[1].id, null);
+    const [restricted, anonymous] = result.data;
+    assert.ok(restricted);
+    assert.ok(anonymous);
+    assert.equal(restricted.id, null);
+    assert.equal(restricted.name, "Restricted Speaker");
+    assert.equal(anonymous.id, null);
   });
 
   it("still drops devices with no `name` (a nameless device is not useful to surface)", async () => {

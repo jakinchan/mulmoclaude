@@ -58,6 +58,7 @@ describe("applyTextEvent — tool calls split assistant text into separate cards
     applyTextEvent(session, "Your portfolio is live: total $119,157.", "assistant");
 
     const last = session.toolResults[session.toolResults.length - 1];
+    assert.ok(last);
     assert.equal((last.data as { text?: string }).text, "Your portfolio is live: total $119,157.");
     // Single-pane canvas follows `selectedResultUuid` — it must land on
     // the summary, not the first "I'll create…" card.

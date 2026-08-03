@@ -18,6 +18,7 @@ import {
   SpreadsheetEngine,
   type SheetData,
 } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 describe("caretToPow", () => {
   it("rewrites a single caret to the JS exponentiation operator", () => {
@@ -166,7 +167,7 @@ describe("isSafeComparison", () => {
 // to the exact behaviour observed before the extraction. Includes the
 // intentionally-wrong cases so the eventual #2359 fix shows up as a diff here.
 describe("translation through the engine (characterization)", () => {
-  const calc = (formula: string): unknown => new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: formula }]] } satisfies SheetData).data[0][0];
+  const calc = (formula: string): unknown => cellAt(new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: formula }]] } satisfies SheetData).data, 0, 0);
 
   it("exponentiates (and keeps the JS-associativity quirk)", () => {
     assert.equal(calc("=2^3"), 8);

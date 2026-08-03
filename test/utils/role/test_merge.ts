@@ -34,10 +34,13 @@ describe("mergeRoles", () => {
     const out = mergeRoles([role("a", "Built-in A"), role("b", "Built-in B")], [role("a", "Custom A")]);
     assert.equal(out.length, 2);
     // The built-in 'a' is dropped, the custom 'a' is appended at the end
-    assert.equal(out[0].id, "b");
-    assert.equal(out[0].name, "Built-in B");
-    assert.equal(out[1].id, "a");
-    assert.equal(out[1].name, "Custom A");
+    const [kept, overridden] = out;
+    assert.ok(kept);
+    assert.ok(overridden);
+    assert.equal(kept.id, "b");
+    assert.equal(kept.name, "Built-in B");
+    assert.equal(overridden.id, "a");
+    assert.equal(overridden.name, "Custom A");
   });
 
   it("returns custom only when built-ins are empty", () => {

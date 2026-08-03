@@ -12,10 +12,23 @@ interface FakeRuntimeOpts {
   responses: Response[];
 }
 
+interface CallRecord {
+  url: string;
+  method?: string | undefined;
+  headers?: Record<string, string> | undefined;
+  body?: string | undefined;
+}
+
+function callAt(calls: CallRecord[], index: number): CallRecord {
+  const call = calls[index];
+  assert.ok(call, `expected runtime.fetch call #${index}`);
+  return call;
+}
+
 /** Build a faux `PluginRuntime` covering only the surface
  *  `client.ts` touches (`fetch` + `files.config.write` + `log`). */
 function makeFakeRuntime(opts: FakeRuntimeOpts) {
-  const calls: { url: string; method?: string | undefined; headers?: Record<string, string> | undefined; body?: string | undefined }[] = [];
+  const calls: CallRecord[] = [];
   const written: SpotifyTokens[] = [];
   const queue = [...opts.responses];
   return {
@@ -97,8 +110,8 @@ describe("spotifyApi — happy path", () => {
     assert.equal(result.ok, true);
     if (!result.ok) throw new Error("unreachable");
     assert.deepEqual(result.data, { id: "user123" });
-    assert.equal(handle.calls[0].url, "https://api.spotify.com/v1/me");
-    assert.equal(handle.calls[0].headers?.Authorization, "Bearer at-current");
+    assert.equal(callAt(handle.calls, 0).url, "https://api.spotify.com/v1/me");
+    assert.equal(callAt(handle.calls, 0).headers?.Authorization, "Bearer at-current");
   });
 
   it("returns null data on 204 No Content", async () => {
@@ -120,10 +133,12 @@ describe("spotifyApi — 401 → refresh → retry once", () => {
     const result = await spotifyApi(handle.runtime as any, "cid", validTokens, "GET", "/v1/me", {}, NOW);
     assert.equal(result.ok, true);
     assert.equal(handle.calls.length, 3);
-    assert.equal(handle.calls[1].url, "https://accounts.spotify.com/api/token");
-    assert.equal(handle.calls[2].headers?.Authorization, "Bearer at-new");
+    assert.equal(callAt(handle.calls, 1).url, "https://accounts.spotify.com/api/token");
+    assert.equal(callAt(handle.calls, 2).headers?.Authorization, "Bearer at-new");
     assert.equal(handle.written.length, 1);
-    assert.equal(handle.written[0].refreshToken, "rt-current"); // preserved (Spotify didn't return a new one)
+    const [persisted] = handle.written;
+    assert.ok(persisted);
+    assert.equal(persisted.refreshToken, "rt-current"); // preserved (Spotify didn't return a new one)
   });
 
   it("does NOT loop a second refresh when the retry also returns 401", async () => {
@@ -243,8 +258,8 @@ describe("spotifyApi — proactive refresh near expiry", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await spotifyApi(handle.runtime as any, "cid", { ...validTokens, expiresAt: ALMOST_NOW }, "GET", "/v1/me", {}, NOW);
     assert.equal(result.ok, true);
-    assert.equal(handle.calls[0].url, "https://accounts.spotify.com/api/token");
-    assert.equal(handle.calls[1].url, "https://api.spotify.com/v1/me");
+    assert.equal(callAt(handle.calls, 0).url, "https://accounts.spotify.com/api/token");
+    assert.equal(callAt(handle.calls, 1).url, "https://api.spotify.com/v1/me");
   });
 });
 

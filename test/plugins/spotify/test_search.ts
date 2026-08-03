@@ -67,22 +67,28 @@ function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }
 
+function onlyCall(calls: CallRecord[]): CallRecord {
+  const [call] = calls;
+  assert.ok(call, "expected runtime.fetch to have been called");
+  return call;
+}
+
 describe("searchSpotify — URL construction", () => {
   it("includes all four types when `types` is undefined (default)", async () => {
     const handle = makeFakeRuntime([jsonResponse({})]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await searchSpotify({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, "Bach", undefined, undefined);
-    assert.match(handle.calls[0].url, /type=track,artist,album,playlist/);
-    assert.match(handle.calls[0].url, /q=Bach/);
-    assert.match(handle.calls[0].url, /limit=10/);
+    assert.match(onlyCall(handle.calls).url, /type=track,artist,album,playlist/);
+    assert.match(onlyCall(handle.calls).url, /q=Bach/);
+    assert.match(onlyCall(handle.calls).url, /limit=10/);
   });
 
   it("respects an explicit `types` array", async () => {
     const handle = makeFakeRuntime([jsonResponse({})]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await searchSpotify({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, "test", ["artist"], 5);
-    assert.match(handle.calls[0].url, /type=artist(?!,)/);
-    assert.match(handle.calls[0].url, /limit=5/);
+    assert.match(onlyCall(handle.calls).url, /type=artist(?!,)/);
+    assert.match(onlyCall(handle.calls).url, /limit=5/);
   });
 
   it("URL-encodes a query with spaces / special characters", async () => {
@@ -90,7 +96,7 @@ describe("searchSpotify — URL construction", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await searchSpotify({ runtime: handle.runtime as any, clientId: "cid", tokens: validTokens, now: NOW }, "Daft Punk & friends", undefined, undefined);
     // URLSearchParams encodes space as `+`
-    assert.match(handle.calls[0].url, /q=Daft\+Punk\+%26\+friends/);
+    assert.match(onlyCall(handle.calls).url, /q=Daft\+Punk\+%26\+friends/);
   });
 });
 
@@ -111,8 +117,12 @@ describe("searchSpotify — response normalisation", () => {
     );
     assert.equal(result.ok, true);
     if (!result.ok) throw new Error("unreachable");
-    assert.equal(result.data.tracks?.length, 1);
-    assert.equal(result.data.tracks?.[0].name, "Track One");
+    const { tracks } = result.data;
+    assert.ok(tracks);
+    assert.equal(tracks.length, 1);
+    const [firstTrack] = tracks;
+    assert.ok(firstTrack);
+    assert.equal(firstTrack.name, "Track One");
     // Artists key must be absent because the caller didn't request it.
     assert.equal("artists" in result.data, false);
   });

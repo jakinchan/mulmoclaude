@@ -87,7 +87,9 @@ describe("buildOntologyGraph — edges", () => {
       entry("clients", [{ field: "invoiceLinks", kind: "backlinks", to: "invoices", via: "clientId" }]),
     ]);
     assert.equal(forwardFirst.edges.length, 1);
-    assert.deepEqual(forwardFirst.edges[0].reverseFields, ["invoiceLinks"]);
+    const [edge] = forwardFirst.edges;
+    assert.ok(edge);
+    assert.deepEqual(edge.reverseFields, ["invoiceLinks"]);
   });
 
   it("collapses each rollup onto ITS via edge when several refs link the same pair (matches.homeTeam vs awayTeam)", () => {

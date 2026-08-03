@@ -33,8 +33,10 @@ describe("parseDevPluginArgs — extraction", () => {
     assert.equal(result.ok, true);
     if (result.ok) {
       assert.equal(result.resolved.length, 1);
-      assert.equal(result.resolved[0].rawInput, FIXTURE_ABS_FOO);
-      assert.equal(result.resolved[0].absPath, FIXTURE_ABS_FOO);
+      const [entry] = result.resolved;
+      assert.ok(entry);
+      assert.equal(entry.rawInput, FIXTURE_ABS_FOO);
+      assert.equal(entry.absPath, FIXTURE_ABS_FOO);
     }
   });
 
@@ -43,8 +45,11 @@ describe("parseDevPluginArgs — extraction", () => {
     assert.equal(result.ok, true);
     if (result.ok) {
       assert.equal(result.resolved.length, 2);
-      assert.equal(result.resolved[0].rawInput, FIXTURE_ABS_A);
-      assert.equal(result.resolved[1].rawInput, FIXTURE_ABS_B);
+      const [first, second] = result.resolved;
+      assert.ok(first);
+      assert.ok(second);
+      assert.equal(first.rawInput, FIXTURE_ABS_A);
+      assert.equal(second.rawInput, FIXTURE_ABS_B);
     }
   });
 
@@ -53,7 +58,9 @@ describe("parseDevPluginArgs — extraction", () => {
     assert.equal(result.ok, true);
     if (result.ok) {
       assert.equal(result.resolved.length, 1);
-      assert.equal(result.resolved[0].absPath, FIXTURE_ABS_P);
+      const [entry] = result.resolved;
+      assert.ok(entry);
+      assert.equal(entry.absPath, FIXTURE_ABS_P);
     }
   });
 });
@@ -63,8 +70,10 @@ describe("parseDevPluginArgs — path resolution", () => {
     const result = parseDevPluginArgs(["--dev-plugin", "./my-plugin"], FIXTURE_CWD);
     assert.equal(result.ok, true);
     if (result.ok) {
-      assert.equal(result.resolved[0].rawInput, "./my-plugin");
-      assert.equal(result.resolved[0].absPath, path.resolve(FIXTURE_CWD, "my-plugin"));
+      const [entry] = result.resolved;
+      assert.ok(entry);
+      assert.equal(entry.rawInput, "./my-plugin");
+      assert.equal(entry.absPath, path.resolve(FIXTURE_CWD, "my-plugin"));
     }
   });
 
@@ -72,14 +81,20 @@ describe("parseDevPluginArgs — path resolution", () => {
     const result = parseDevPluginArgs(["--dev-plugin", "../sibling"], FIXTURE_CWD);
     assert.equal(result.ok, true);
     if (result.ok) {
-      assert.equal(result.resolved[0].absPath, path.resolve(FIXTURE_CWD, "../sibling"));
+      const [entry] = result.resolved;
+      assert.ok(entry);
+      assert.equal(entry.absPath, path.resolve(FIXTURE_CWD, "../sibling"));
     }
   });
 
   it("leaves absolute paths unchanged regardless of cwd", () => {
     const result = parseDevPluginArgs(["--dev-plugin", FIXTURE_ELSEWHERE], path.resolve("/Users/somewhere/else"));
     assert.equal(result.ok, true);
-    if (result.ok) assert.equal(result.resolved[0].absPath, FIXTURE_ELSEWHERE);
+    if (result.ok) {
+      const [entry] = result.resolved;
+      assert.ok(entry);
+      assert.equal(entry.absPath, FIXTURE_ELSEWHERE);
+    }
   });
 });
 

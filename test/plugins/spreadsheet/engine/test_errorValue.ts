@@ -22,6 +22,7 @@ import {
   spreadsheetError,
 } from "../../../../src/plugins/spreadsheet/engine/spreadsheet-errors.ts";
 import type { CellValue } from "../../../../src/plugins/spreadsheet/engine/types.ts";
+import { cellAt } from "./cellAccess.ts";
 
 /** The raw computed value of a formula, before the display pass turns an error
  *  back into its code — this is where provenance is observable. */
@@ -33,7 +34,8 @@ const evaluateRaw: (formula: string) => CellValue = (formula) =>
   });
 
 /** What a single-formula sheet DISPLAYS, through the public engine API. */
-const displayed = (formula: string): CellValue => new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: formula }]] } satisfies SheetData).data[0][0];
+const displayed = (formula: string): CellValue =>
+  cellAt(new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: formula }]] } satisfies SheetData).data, 0, 0);
 
 describe("the error value and its guard", () => {
   it("recognises an error value and rejects a string that spells the same code", () => {
@@ -122,7 +124,7 @@ describe("functions return an error VALUE, and the cell still shows its code", (
 
   it("propagates an error VALUE through a reference and shows the code", () => {
     const sheet: SheetData = { name: "S", data: [[{ v: "=SQRT(-1)" }, { v: "=A1+1" }]] };
-    assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][1], "#NUM!");
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1), "#NUM!");
   });
 });
 
@@ -160,7 +162,7 @@ describe("IFERROR keys off provenance", () => {
 describe("IFNA keys off the error value's code", () => {
   it("substitutes the fallback for a real #N/A", () => {
     const sheet: SheetData = { name: "S", data: [[{ v: 1 }, { v: '=IFNA(MATCH(99, A1:A1, 0), "missing")' }]] };
-    assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][1], "missing");
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1), "missing");
   });
 
   it("leaves a different error alone", () => {

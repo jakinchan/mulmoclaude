@@ -54,6 +54,12 @@ function recorder() {
   };
 }
 
+function onlyCall(calls: PublishCall[]): PublishCall {
+  const [call] = calls;
+  assert.ok(call, "expected at least one publish call");
+  return call;
+}
+
 interface TestRig {
   fire: (relativePath: string) => void;
   watcher: FakeWatcher;
@@ -94,12 +100,9 @@ describe("watchDevPlugins — debounce", () => {
     rig.fire("vue.js"); // duplicate file in burst — still 1 publish
     await sleep(150);
     assert.equal(rig.rec.calls.length, 1, `expected 1 publish; got ${rig.rec.calls.length}`);
-    assert.equal(rig.rec.calls[0].name, "@test/burst");
-    assert.deepEqual(
-      rig.rec.calls[0].changedFiles.sort(),
-      ["definition-Dvdjo6Xe.js", "style.css", "vue.js"],
-      "publish should include every distinct file in the burst",
-    );
+    const burst = onlyCall(rig.rec.calls);
+    assert.equal(burst.name, "@test/burst");
+    assert.deepEqual(burst.changedFiles.sort(), ["definition-Dvdjo6Xe.js", "style.css", "vue.js"], "publish should include every distinct file in the burst");
     rig.close();
   });
 
@@ -132,7 +135,7 @@ describe("watchDevPlugins — server-side classification", () => {
     rig.fire("vue.js");
     await sleep(80);
     assert.equal(rig.rec.calls.length, 1);
-    assert.equal(rig.rec.calls[0].serverSideChange, true);
+    assert.equal(onlyCall(rig.rec.calls).serverSideChange, true);
     assert.deepEqual(rig.rec.warns, ["@test/server-side"]);
     rig.close();
   });
@@ -144,7 +147,7 @@ describe("watchDevPlugins — server-side classification", () => {
     rig.fire("style.css");
     await sleep(80);
     assert.equal(rig.rec.calls.length, 1);
-    assert.equal(rig.rec.calls[0].serverSideChange, false);
+    assert.equal(onlyCall(rig.rec.calls).serverSideChange, false);
     assert.deepEqual(rig.rec.warns, []);
     rig.close();
   });
@@ -171,7 +174,7 @@ describe("watchDevPlugins — server-side classification", () => {
     rig.fire("vue.js");
     await sleep(80);
     assert.equal(rig.rec.calls.length, 1);
-    assert.equal(rig.rec.calls[0].serverSideChange, false);
+    assert.equal(onlyCall(rig.rec.calls).serverSideChange, false);
     assert.deepEqual(rig.rec.warns, []);
     rig.close();
   });
@@ -185,7 +188,7 @@ describe("watchDevPlugins — server-side classification", () => {
     rig.fire("assets\\index.js");
     await sleep(80);
     assert.equal(rig.rec.calls.length, 1);
-    assert.equal(rig.rec.calls[0].serverSideChange, false);
+    assert.equal(onlyCall(rig.rec.calls).serverSideChange, false);
     rig.close();
   });
 });
@@ -234,8 +237,10 @@ describe("watchDevPlugins — error isolation", () => {
     const boom = new Error("ENOENT: dist disappeared");
     watcher.emit("error", boom);
     assert.equal(errorEvents.length, 1);
-    assert.equal(errorEvents[0].name, "@test/error");
-    assert.equal(errorEvents[0].error.message, "ENOENT: dist disappeared");
+    const [errorEvent] = errorEvents;
+    assert.ok(errorEvent);
+    assert.equal(errorEvent.name, "@test/error");
+    assert.equal(errorEvent.error.message, "ENOENT: dist disappeared");
     assert.equal(watcher.closed, true, "watcher should self-close on error");
   });
 
@@ -257,7 +262,9 @@ describe("watchDevPlugins — error isolation", () => {
         return watcher as unknown as import("node:fs").FSWatcher;
       },
     });
-    captured[0]("vue.js"); // queues a debounced publish
+    const [fireChange] = captured;
+    assert.ok(fireChange, "watcherFactory must have been called");
+    fireChange("vue.js"); // queues a debounced publish
     watcher.emit("error", new Error("simulated"));
     await sleep(60);
     assert.equal(rec.calls.length, 0, "no publish after error wiped the buffer");

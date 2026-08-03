@@ -456,9 +456,10 @@ describe("manageSkills groupEntriesByRepo", () => {
   });
 
   it("sorts entries within a repo by slug", () => {
-    const groups = groupEntriesByRepo(entries, [repoA]);
+    const [group] = groupEntriesByRepo(entries, [repoA]);
+    assert.ok(group);
     assert.deepEqual(
-      groups[0].entries.map((entry) => entry.slug),
+      group.entries.map((entry) => entry.slug),
       ["a-one", "b-two"],
     );
   });
@@ -467,13 +468,16 @@ describe("manageSkills groupEntriesByRepo", () => {
     const emptyRepo = { repoId: "repo-empty", url: "https://github.com/acme/empty" };
     const groups = groupEntriesByRepo(entries, [emptyRepo]);
     assert.equal(groups.length, 1);
-    assert.deepEqual(groups[0].entries, []);
+    const [group] = groups;
+    assert.ok(group);
+    assert.deepEqual(group.entries, []);
   });
 
   it("drops entries whose repoId matches no repo", () => {
     const orphan = [{ slug: "orphan", repoId: "gone" }];
-    const groups = groupEntriesByRepo(orphan, [repoA]);
-    assert.deepEqual(groups[0].entries, []);
+    const [group] = groupEntriesByRepo(orphan, [repoA]);
+    assert.ok(group);
+    assert.deepEqual(group.entries, []);
   });
 
   it("returns no groups for an empty repo list", () => {

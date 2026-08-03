@@ -79,16 +79,20 @@ describe("useCollectionRendering (composition)", () => {
   it("evaluateDerivedAgainstItem reads the live refRecordCache mutated on the returned object", () => {
     const render = useCollectionRendering(ref<CollectionDetail | null>(orderDetail), ref("en-US"));
     render.refRecordCache.value = {}; // qty * price needs no ref records
-    assert.equal(render.evaluateDerivedAgainstItem(orderSchema.fields.total, "total", { qty: 3, price: 5 }), 15);
+    const totalSpec = orderSchema.fields.total;
+    assert.ok(totalSpec);
+    assert.equal(render.evaluateDerivedAgainstItem(totalSpec, "total", { qty: 3, price: 5 }), 15);
   });
 
   it("embedViewsFor resolves a per-record idField embed from the live embedCache", () => {
     const render = useCollectionRendering(ref<CollectionDetail | null>(orderDetail), ref("en-US"));
     render.embedCache.value = { profiles: { schema: profileSchema, items: [{ id: "you", name: "You LLC" }] } };
     const views = render.embedViewsFor({ customerId: "you" });
-    assert.equal(views.billTo.found, true);
-    assert.equal(views.billTo.recordId, "you");
-    assert.equal(views.billTo.rows.find((row) => row.key === "name")?.display, "You LLC");
+    const { billTo } = views;
+    assert.ok(billTo);
+    assert.equal(billTo.found, true);
+    assert.equal(billTo.recordId, "you");
+    assert.equal(billTo.rows.find((row) => row.key === "name")?.display, "You LLC");
   });
 
   it("resetLinkedCaches clears all three caches", () => {

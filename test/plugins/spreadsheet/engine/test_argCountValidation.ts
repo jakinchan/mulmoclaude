@@ -13,13 +13,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine, type SheetData, type CellValue } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 /** Calculate `sheet` and report the value, error type, and recorded message for
  *  the cell at (row, col). */
 function cellResult(sheet: SheetData, row: number, col: number): { value: CellValue; type?: string | undefined; message?: string | undefined } {
   const result = new SpreadsheetEngine().calculate(sheet);
   const entry = result.errors.find((err) => err.cell.row === row && err.cell.col === col);
-  return { value: result.data[row][col], type: entry?.type, message: entry?.error };
+  return { value: cellAt(result.data, row, col), type: entry?.type, message: entry?.error };
 }
 
 /** A one-cell sheet holding `formula` at A1 (for formulas that need no other cells). */

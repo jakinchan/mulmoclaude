@@ -240,8 +240,10 @@ describe("buildRefRecordMap", () => {
     const detail = makeDetail(schema, [{ id: "a", qty: 2, price: 10 }]);
     const map = buildRefRecordMap(detail);
     assert.deepEqual(Object.keys(map), ["a"]);
-    assert.equal(map.a.total, 20);
-    assert.equal(map.a.qty, 2);
+    const recordA = map.a;
+    assert.ok(recordA);
+    assert.equal(recordA.total, 20);
+    assert.equal(recordA.qty, 2);
   });
   it("skips items without a valid string primary key", () => {
     const schema = makeSchema({ id: field("text") });

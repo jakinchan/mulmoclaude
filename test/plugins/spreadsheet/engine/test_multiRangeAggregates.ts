@@ -6,6 +6,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 // A = 1,2 ; B = 3,4 ; the formula sits in C1.
 const evaluate = (formula: string): unknown => {
@@ -16,7 +17,7 @@ const evaluate = (formula: string): unknown => {
       [{ v: 2 }, { v: 4 }],
     ],
   };
-  return new SpreadsheetEngine().calculate(sheet).data[0][2];
+  return cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 2);
 };
 
 describe("aggregates accept several ranges", () => {
@@ -60,7 +61,7 @@ describe("a single cell reference is read as a range, not a scalar", () => {
       name: "S",
       data: [[{ v: 5 }, { v: formula }], [{ v: "txt" }]],
     };
-    return new SpreadsheetEngine().calculate(sheet).data[0][1];
+    return cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1);
   };
 
   it("does not count an out-of-bounds cell", () => {

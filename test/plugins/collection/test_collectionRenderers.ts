@@ -32,6 +32,12 @@ const makeSchema = (fields: Record<string, FieldSpec>, primaryKey = "id"): Colle
   fields,
 });
 
+const specOf = (schema: CollectionSchema, key: string): FieldSpec => {
+  const spec = schema.fields[key];
+  assert.ok(spec, `schema has no field: ${key}`);
+  return spec;
+};
+
 const profileSchema = makeSchema({ id: field("text"), name: field("text"), fee: field("money", { currency: "USD" }) });
 const embedCache: EmbedCache = {
   profiles: {
@@ -104,24 +110,28 @@ describe("buildEmbedViews", () => {
   it("resolves a per-record idField embed to the row-specific target", () => {
     const schema = makeSchema({ billTo: field("embed", { to: "profiles", idField: "customerId", label: "Bill To" }) });
     const views = buildEmbedViews(schema, embedCache, { customerId: "you" }, "en-US");
-    assert.equal(views.billTo.found, true);
-    assert.equal(views.billTo.recordId, "you");
-    assert.equal(views.billTo.targetSlug, "profiles");
-    assert.equal(views.billTo.rows.find((row) => row.key === "name")?.display, "You LLC");
-    assert.ok(views.billTo.rows.find((row) => row.key === "fee")?.display.includes("200"));
+    const { billTo } = views;
+    assert.ok(billTo);
+    assert.equal(billTo.found, true);
+    assert.equal(billTo.recordId, "you");
+    assert.equal(billTo.targetSlug, "profiles");
+    assert.equal(billTo.rows.find((row) => row.key === "name")?.display, "You LLC");
+    assert.ok(billTo.rows.find((row) => row.key === "fee")?.display.includes("200"));
   });
 
   it("resolves a fixed-id embed and skips empty sub-fields", () => {
     const schema = makeSchema({ from: field("embed", { to: "profiles", id: "me" }) });
     const cacheWithBlank: EmbedCache = { profiles: { schema: profileSchema, items: [{ id: "me", name: "Me Inc", fee: "" }] } };
     const views = buildEmbedViews(schema, cacheWithBlank, null, "en-US");
-    assert.equal(views.from.found, true);
+    const { from } = views;
+    assert.ok(from);
+    assert.equal(from.found, true);
     assert.equal(
-      views.from.rows.some((row) => row.key === "fee"),
+      from.rows.some((row) => row.key === "fee"),
       false,
     );
     assert.equal(
-      views.from.rows.some((row) => row.key === "name"),
+      from.rows.some((row) => row.key === "name"),
       true,
     );
   });
@@ -129,9 +139,11 @@ describe("buildEmbedViews", () => {
   it("marks found=false when the idField points at a missing record", () => {
     const schema = makeSchema({ billTo: field("embed", { to: "profiles", idField: "customerId" }) });
     const views = buildEmbedViews(schema, embedCache, { customerId: "ghost" }, "en-US");
-    assert.equal(views.billTo.found, false);
-    assert.deepEqual(views.billTo.rows, []);
-    assert.equal(views.billTo.recordId, "ghost");
+    const { billTo } = views;
+    assert.ok(billTo);
+    assert.equal(billTo.found, false);
+    assert.deepEqual(billTo.rows, []);
+    assert.equal(billTo.recordId, "ghost");
   });
 
   it("returns an empty object when the schema is null (no collection loaded)", () => {
@@ -168,17 +180,17 @@ describe("evaluateDerived", () => {
     total: field("derived", { formula: "qty * price" }),
   });
   it("evaluates a derived formula against the item", () => {
-    assert.equal(evaluateDerived(schema.fields.total, "total", { qty: 3, price: 4 }, schema, {}), 12);
+    assert.equal(evaluateDerived(specOf(schema, "total"), "total", { qty: 3, price: 4 }, schema, {}), 12);
   });
   it("returns null for a field without a formula", () => {
     assert.equal(evaluateDerived(field("number"), "qty", { qty: 3 }, schema, {}), null);
   });
   it("returns null when the schema is null", () => {
-    assert.equal(evaluateDerived(schema.fields.total, "total", {}, null, {}), null);
+    assert.equal(evaluateDerived(specOf(schema, "total"), "total", {}, null, {}), null);
   });
   it("returns null when the computed result is non-numeric", () => {
     const stringSchema = makeSchema({ id: field("text"), note: field("text"), d: field("derived", { formula: "note" }) });
-    assert.equal(evaluateDerived(stringSchema.fields.d, "d", { note: "hello" }, stringSchema, {}), null);
+    assert.equal(evaluateDerived(specOf(stringSchema, "d"), "d", { note: "hello" }, stringSchema, {}), null);
   });
 });
 

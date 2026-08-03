@@ -6,6 +6,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 // A = criteria column, B = value column (with a blank at row 2), formula in C1.
 const sheet = (formula: string): SheetData => ({
@@ -17,7 +18,7 @@ const sheet = (formula: string): SheetData => ({
   ],
 });
 
-const evalFormula = (formula: string): unknown => new SpreadsheetEngine().calculate(sheet(formula)).data[0][2];
+const evalFormula = (formula: string): unknown => cellAt(new SpreadsheetEngine().calculate(sheet(formula)).data, 0, 2);
 
 describe("SUMIF / AVERAGEIF stay row-aligned when the value range has a blank", () => {
   // Rows 1 and 3 match (A > 0); their B values are 100 and 300. The blank B2
@@ -41,6 +42,6 @@ describe("SUMIF / AVERAGEIF stay row-aligned when the value range has a blank", 
         [{ v: 1 }, { v: 300 }],
       ],
     };
-    assert.equal(new SpreadsheetEngine().calculate(withBlankMatch).data[0][2], 300);
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(withBlankMatch).data, 0, 2), 300);
   });
 });

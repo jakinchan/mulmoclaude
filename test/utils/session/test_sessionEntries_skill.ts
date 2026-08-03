@@ -23,12 +23,16 @@ describe("parseSessionEntries — skill entries (#1218)", () => {
   it('dispatches a skill entry to a `toolName: "skill"` envelope', () => {
     const out = parseSessionEntries([skillEntry]);
     assert.equal(out.length, 1);
-    assert.equal(out[0].toolName, "skill");
+    const [envelope] = out;
+    assert.ok(envelope);
+    assert.equal(envelope.toolName, "skill");
   });
 
   it("preserves skill metadata in the envelope's `data` field", () => {
     const out = parseSessionEntries([skillEntry]);
-    const data = out[0].data as Record<string, unknown>;
+    const [envelope] = out;
+    assert.ok(envelope);
+    const data = envelope.data as Record<string, unknown>;
     assert.equal(data.skillName, "mc-library");
     assert.equal(data.skillScope, "project");
     assert.equal(data.skillPath, "/Users/test/mulmoclaude/.claude/skills/mc-library/SKILL.md");
@@ -40,12 +44,16 @@ describe("parseSessionEntries — skill entries (#1218)", () => {
   it("envelope's `message` falls back to skillName when description missing", () => {
     const noDesc: SessionEntry = { ...skillEntry, skillDescription: null } as SessionEntry;
     const out = parseSessionEntries([noDesc]);
-    assert.equal(out[0].message, "mc-library");
+    const [envelope] = out;
+    assert.ok(envelope);
+    assert.equal(envelope.message, "mc-library");
   });
 
   it("title is the prefixed skill name so chat-history previews are scannable", () => {
     const out = parseSessionEntries([skillEntry]);
-    assert.equal(out[0].title, "Skill: mc-library");
+    const [envelope] = out;
+    assert.ok(envelope);
+    assert.equal(envelope.title, "Skill: mc-library");
   });
 
   it('legacy `type:"text"` skill bodies (pre-#1218 sessions) stay text-response — no auto-detection by prefix', () => {
@@ -62,7 +70,9 @@ describe("parseSessionEntries — skill entries (#1218)", () => {
       message: "Base directory for this skill: /old\n\n# Personal book journal\n\n...",
     } as SessionEntry;
     const out = parseSessionEntries([legacy]);
-    assert.equal(out[0].toolName, "text-response");
+    const [envelope] = out;
+    assert.ok(envelope);
+    assert.equal(envelope.toolName, "text-response");
   });
 
   it("invalid skill entry (missing skillName) doesn't reach the dispatcher branch", () => {

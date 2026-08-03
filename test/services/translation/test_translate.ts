@@ -46,7 +46,9 @@ describe("translation service — cold/warm/partial", () => {
     });
     assert.deepEqual(translations, ["[ja]Hello", "[ja]World"]);
     assert.equal(mock.calls.length, 1);
-    assert.deepEqual([...mock.calls[0].sentences].sort(), ["Hello", "World"]);
+    const [batch] = mock.calls;
+    assert.ok(batch);
+    assert.deepEqual([...batch.sentences].sort(), ["Hello", "World"]);
     assert.deepEqual(readDict(root, "cold"), {
       sentences: {
         Hello: { ja: "[ja]Hello" },
@@ -78,7 +80,9 @@ describe("translation service — cold/warm/partial", () => {
     });
     assert.deepEqual(translations, ["[ja]Hello", "[ja]Foo", "[ja]World", "[ja]Bar"]);
     assert.equal(mock.calls.length, 1);
-    assert.deepEqual([...mock.calls[0].sentences].sort(), ["Bar", "Foo"]);
+    const [batch] = mock.calls;
+    assert.ok(batch);
+    assert.deepEqual([...batch.sentences].sort(), ["Bar", "Foo"]);
   });
 
   it("merge: adding a new language preserves existing one", async () => {
@@ -305,7 +309,10 @@ describe("translation service — single-flight serialization", () => {
 
     // First mock invocation handled "Hello"; second should have been called only with "World".
     assert.equal(calls.length, 2);
-    assert.deepEqual([...calls[0].sentences], ["Hello"]);
-    assert.deepEqual([...calls[1].sentences], ["World"]);
+    const [firstBatch, secondBatch] = calls;
+    assert.ok(firstBatch);
+    assert.ok(secondBatch);
+    assert.deepEqual([...firstBatch.sentences], ["Hello"]);
+    assert.deepEqual([...secondBatch.sentences], ["World"]);
   });
 });

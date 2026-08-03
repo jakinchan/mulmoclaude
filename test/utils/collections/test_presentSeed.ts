@@ -81,7 +81,9 @@ describe("reconcileSyntheticCollection", () => {
     reconcileSyntheticCollection(session, realResult("clients"));
 
     assert.equal(session.toolResults.length, 1);
-    assert.equal(session.toolResults[0].uuid, placeholder.uuid);
+    const [remaining] = session.toolResults;
+    assert.ok(remaining);
+    assert.equal(remaining.uuid, placeholder.uuid);
   });
 
   it("ignores a synthetic incoming result (no self-reconcile)", () => {

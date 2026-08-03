@@ -91,8 +91,10 @@ describe("useTranslatedQueries", () => {
     await settle();
     assert.deepEqual(queries.value, ["こんにちは", "世界"]);
     assert.equal(fetchCalls.length, 1);
-    assert.equal(fetchCalls[0].url, "/api/translation");
-    assert.deepEqual(fetchCalls[0].body, {
+    const [firstCall] = fetchCalls;
+    assert.ok(firstCall);
+    assert.equal(firstCall.url, "/api/translation");
+    assert.deepEqual(firstCall.body, {
       namespace: "role-queries",
       targetLanguage: "ja",
       sentences: ["Hello", "World"],

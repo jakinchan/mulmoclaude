@@ -72,6 +72,7 @@ describe("useOpenInOs", () => {
     await open();
     assert.equal(fetchCalls.length, 1);
     const [call] = fetchCalls;
+    assert.ok(call);
     assert.match(call.url, /\/api\/files\/open\?path=docs%2Freport\.pptx$/);
     assert.equal(call.init?.method, "POST");
     const parsed = JSON.parse(call.init?.body ?? "{}") as { path?: string };
@@ -145,6 +146,7 @@ describe("useRevealInOs", () => {
     await reveal();
     assert.equal(fetchCalls.length, 1);
     const [call] = fetchCalls;
+    assert.ok(call);
     assert.match(call.url, /\/api\/files\/reveal\?path=docs%2Freport\.xlsx$/);
     assert.equal(call.init?.method, "POST");
     const parsed = JSON.parse(call.init?.body ?? "{}") as { path?: string };

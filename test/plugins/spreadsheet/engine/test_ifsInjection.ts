@@ -8,11 +8,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SpreadsheetEngine, type SheetData } from "../../../../src/plugins/spreadsheet/engine/index.ts";
+import { cellAt } from "./cellAccess.ts";
 
 const marker = globalThis as Record<string, unknown>;
 
 const calculate = (cellValue: string, formula: string): unknown =>
-  new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: cellValue }, { v: formula }]] } satisfies SheetData).data[0][1];
+  cellAt(new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: cellValue }, { v: formula }]] } satisfies SheetData).data, 0, 1);
 
 describe("IFS — normal use", () => {
   it("returns the first matching branch", () => {
@@ -137,11 +138,11 @@ describe("IFS — a cell value ending in a backslash substitutes intact", () => 
   });
 
   it("matches two cells that both end in a backslash", () => {
-    assert.equal(new SpreadsheetEngine().calculate(trailingBackslashSheet("a\\")).data[0][1], "eq");
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(trailingBackslashSheet("a\\")).data, 0, 1), "eq");
   });
 
   it("does not match a backslash cell against different text", () => {
-    assert.equal(new SpreadsheetEngine().calculate(trailingBackslashSheet("ab")).data[0][1], "ne");
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(trailingBackslashSheet("ab")).data, 0, 1), "ne");
   });
 
   it("treats a bare backslash-bearing cell as truthy text", () => {
@@ -160,7 +161,7 @@ describe("IFS — a reference inside a string literal stays literal text", () =>
         [{ v: 0 }, { v: 99 }],
       ],
     };
-    assert.equal(new SpreadsheetEngine().calculate(sheet).data[0][1], "hit", "A1's text equals the literal B2");
+    assert.equal(cellAt(new SpreadsheetEngine().calculate(sheet).data, 0, 1), "hit", "A1's text equals the literal B2");
   });
 });
 

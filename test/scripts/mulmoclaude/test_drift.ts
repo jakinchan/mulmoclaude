@@ -267,6 +267,8 @@ describe("checkWorkspaceDrift (auto-detection)", () => {
       fetchPublishedSource: offlineRegistry,
     });
     assert.equal(results.length, 1);
-    assert.equal(results[0].status, "ok");
+    const [onlyResult] = results;
+    assert.ok(onlyResult);
+    assert.equal(onlyResult.status, "ok");
   });
 });

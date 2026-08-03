@@ -81,6 +81,12 @@ function restoreFetch(): void {
   lastBackendError.value = null;
 }
 
+function firstCall(): MockCall {
+  const [call] = calls;
+  assert.ok(call, "expected at least one fetch call");
+  return call;
+}
+
 describe("makeRouteExecute — success", () => {
   beforeEach(() => {
     installEndpoints();
@@ -108,9 +114,10 @@ describe("makeRouteExecute — success", () => {
     await execute({}, { name: "thing", count: 2 });
 
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "/api/thing");
-    assert.equal(calls[0].init?.method, "POST");
-    assert.equal(calls[0].init?.body, JSON.stringify({ name: "thing", count: 2 }));
+    const call = firstCall();
+    assert.equal(call.url, "/api/thing");
+    assert.equal(call.init?.method, "POST");
+    assert.equal(call.init?.body, JSON.stringify({ name: "thing", count: 2 }));
   });
 
   it("uses the route key it was given, not the first route in the group", async () => {
@@ -119,8 +126,9 @@ describe("makeRouteExecute — success", () => {
 
     await execute({}, undefined);
 
-    assert.equal(calls[0].url, "/api/thing/list");
-    assert.equal(calls[0].init?.method, "GET");
+    const call = firstCall();
+    assert.equal(call.url, "/api/thing/list");
+    assert.equal(call.init?.method, "GET");
   });
 
   it("overrides a toolName / uuid the server put in the body", async () => {
@@ -150,7 +158,7 @@ describe("makeRouteExecute — success", () => {
 
     await execute({}, undefined);
 
-    assert.equal(calls[0].init?.body, undefined);
+    assert.equal(firstCall().init?.body, undefined);
   });
 
   it("passes an empty-object body through as {}", async () => {
@@ -159,7 +167,7 @@ describe("makeRouteExecute — success", () => {
 
     await execute({}, {});
 
-    assert.equal(calls[0].init?.body, "{}");
+    assert.equal(firstCall().init?.body, "{}");
   });
 });
 
@@ -227,9 +235,10 @@ describe("makePostExecute", () => {
 
     const result = await execute({}, { prompt: "make it blue" });
 
-    assert.equal(calls[0].url, "/api/image/edit");
-    assert.equal(calls[0].init?.method, "POST");
-    assert.equal(calls[0].init?.body, JSON.stringify({ prompt: "make it blue" }));
+    const call = firstCall();
+    assert.equal(call.url, "/api/image/edit");
+    assert.equal(call.init?.method, "POST");
+    assert.equal(call.init?.body, JSON.stringify({ prompt: "make it blue" }));
     assert.deepEqual(result.data, { filePath: "artifacts/images/a.png" });
     assert.equal(result.toolName, TOOL_NAME);
   });
@@ -260,7 +269,7 @@ describe("endpoint resolution", () => {
     const result = await execute({}, {});
 
     assert.equal(result.message, "ok");
-    assert.equal(calls[0].url, "/api/thing");
+    assert.equal(firstCall().url, "/api/thing");
   });
 
   it("throws on an unknown scope rather than calling an undefined URL", async () => {
