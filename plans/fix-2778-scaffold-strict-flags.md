@@ -53,11 +53,15 @@ plain `tsc` で確認しても意味が無い（`.vue` を読まないので、�
 
 - `packages/**/tsconfig*.json` を全数走査し、**実効的に**両フラグが `true` であることを assert。
   文字列 grep だと `*.build.json` 7件（親経由でフラグを得ている）を誤検知するので、
-  TypeScript の `readConfigFile` + `parseJsonConfigFileContent` で `extends` を解決した後の値を見る。
-  TS 6.0.3 でこの API が extends を解決することは実測済み（base extends / standalone /
-  `*.build.json` / relay の4形状で確認）。
-- `.vue` を含むパッケージの `typecheck` script が `vue-tsc` であることを assert。
+  `tsc --project <config> --showConfig` を **子プロセスとして起動**し、`extends` 解決後の
+  `compilerOptions` を読む。resolver を手書きすると package 形式（`"@tsconfig/node20/tsconfig.json"`）や
+  拡張子なし（`"./tsconfig.base"`）を落とすが、`--showConfig` は TypeScript 自身の resolver なのでズレない。
+  `import ts from "typescript"` にしない理由: コンパイラの `.d.ts` が typescript-eslint の
+  type-aware program に入り、`yarn lint` のピークが 0.45 GB → 2.05 GB になって macOS runner が OOM した。
+- `.vue` を含むパッケージの `typecheck` script が `vue-tsc` を**実際に起動している**ことを assert。
   plain `tsc` は `.vue` を1つも読まないので、これが無いと SFC が誰にも見られない状態を CI が見逃す。
+  対象は `tsconfig*.json` を持つパッケージ（`tsconfig.json` 限定だと変種のみのパッケージが素通りする）。
+  script は部分文字列一致ではなくコマンド単位でパースする（`"echo vue-tsc"` を通さないため）。
 
 scaffold テンプレート側の assert は、テンプレートを既にテストしている
 `packages/create-mulmoclaude-plugin/test/test_template.ts` に置く（両フラグ / `vue-tsc` の2点）。
