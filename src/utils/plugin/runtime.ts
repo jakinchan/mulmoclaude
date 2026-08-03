@@ -20,18 +20,42 @@ export function pluginChannelName(pkgName: string, eventName: string): string {
   return `plugin:${pkgName}:${eventName}`;
 }
 
+/** The `subscribe` options bag, written out rather than imported from the
+ *  protocol: this repo runs ESLint without `projectService` (lint speed), so a
+ *  type followed across a package boundary resolves to `any` and every use of
+ *  `parse` reads as an unsafe call. Structurally identical to the compiler. */
+interface ParseOptions<T> {
+  parse: (raw: unknown) => T | null;
+}
+
 function makeScopedPubSub(pkgName: string): BrowserPluginRuntime["pubsub"] {
   const { subscribe } = usePubSub();
-  return {
-    subscribe(eventName, handler) {
-      // The host pubsub fans payloads as `unknown`; the plugin
-      // declares the expected shape via the generic at the call
-      // site. Validation is the plugin's responsibility (Zod or
-      // hand-written guard).
-      // Kept (#2692): `T` is the plugin's, so the host cannot check the payload.
-      return subscribe(pluginChannelName(pkgName, eventName), handler as (data: unknown) => void);
-    },
-  };
+  // Two arities (protocol 2.0.0): `(name, handler)` delivers raw frames as
+  // `unknown`; `(name, { parse }, handler)` delivers `parse`'s return type.
+  // The plugin used to name that type with a generic, which checked nothing —
+  // the host fans out untyped frames.
+  function scoped(eventName: string, handler: (payload: unknown) => void): () => void;
+  function scoped<T>(eventName: string, opts: ParseOptions<T>, handler: (payload: T) => void): () => void;
+  function scoped<T>(eventName: string, optsOrHandler: ParseOptions<T> | ((payload: unknown) => void), maybeHandler?: (payload: T) => void): () => void {
+    const channel = pluginChannelName(pkgName, eventName);
+    if (typeof optsOrHandler === "function") return subscribe(channel, optsOrHandler);
+    const { parse } = optsOrHandler;
+    const handler = maybeHandler;
+    return subscribe(channel, (raw: unknown) => {
+      // A frame that fails to parse is DROPPED, never thrown: the protocol
+      // documents `parse: (raw) => Schema.parse(raw)` as the idiom, and Zod
+      // throws — one malformed frame would otherwise tear down a channel
+      // shared by every other subscriber on it.
+      let parsed: T | null;
+      try {
+        parsed = parse(raw);
+      } catch {
+        return;
+      }
+      if (parsed !== null && handler) handler(parsed);
+    });
+  }
+  return { subscribe: scoped };
 }
 
 function makeScopedLogger(pkgName: string): BrowserPluginRuntime["log"] {
