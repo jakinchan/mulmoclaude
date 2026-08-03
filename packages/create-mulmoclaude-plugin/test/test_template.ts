@@ -100,6 +100,25 @@ describe("template — server / browser entry shape", () => {
     assert.match(view.content, /pubsub\.subscribe/);
   });
 
+  it("emits a strict tsconfig — `strict` alone leaves both of these off", () => {
+    const tsconfig = TEMPLATE_FILES.find((entry) => entry.path === "tsconfig.json");
+    assert.ok(tsconfig);
+    assert.doesNotThrow(() => JSON.parse(tsconfig.content));
+    assert.match(tsconfig.content, /"exactOptionalPropertyTypes": true/);
+    assert.match(tsconfig.content, /"noUncheckedIndexedAccess": true/);
+  });
+
+  it("typechecks with vue-tsc, because the template ships an SFC", () => {
+    // `tsc` parses no `.vue` file at all, so the scaffolded View would reach
+    // the user checked by nothing — the shape #2772 fixed in-tree and #2778
+    // found still live here.
+    assert.ok(TEMPLATE_FILES.some((entry) => entry.path.endsWith(".vue")));
+    const pkg = TEMPLATE_FILES.find((entry) => entry.path === "package.json");
+    assert.ok(pkg);
+    assert.match(pkg.content, /"typecheck": "vue-tsc --noEmit"/);
+    assert.match(pkg.content, /"vue-tsc": "\^/);
+  });
+
   it("i18n locale guard is own-property, not a prototype-chain `in` lookup", () => {
     // The seed is copied into every scaffolded plugin. A `value in MESSAGES`
     // check treats a host locale of `constructor` / `toString` as supported,
