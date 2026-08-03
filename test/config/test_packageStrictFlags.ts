@@ -125,7 +125,7 @@ const findVuePackages = (): VuePackage[] =>
 const COMMAND_SEPARATORS = /&&|\|\||;|\|/;
 const ENV_ASSIGNMENT = /^[A-Za-z_]\w*=/;
 const EXECUTABLE_SUFFIX = /\.(cmd|exe|bat)$/;
-const COMMAND_WRAPPERS = new Set(["npx", "pnpm", "bunx", "cross-env", "node"]);
+const COMMAND_WRAPPERS = new Set(["npx", "npm", "yarn", "pnpm", "bunx", "run", "exec", "cross-env", "node"]);
 const VUE_TSC = "vue-tsc";
 
 const invokedBinary = (tokens: string[]): string => {
