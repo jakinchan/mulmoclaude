@@ -20,7 +20,7 @@ import crypto from "crypto";
 import express, { type Request, type Response } from "express";
 import { configureTrustProxy, createWebhookRateLimit } from "@mulmobridge/webhook-runtime";
 import { createBridgeClient } from "@mulmobridge/client";
-import { isRecord } from "@mulmoclaude/common";
+import { isRecord, splitJwtSegments } from "@mulmoclaude/common";
 
 const TRANSPORT_ID = "google-chat";
 const PORT = Number(process.env.GOOGLE_CHAT_BRIDGE_PORT) || 3005;
@@ -99,13 +99,9 @@ interface JwtParts {
 }
 
 function parseJwtParts(token: string): JwtParts | null {
-  // A JWS compact serialization is EXACTLY three segments. Both a short
-  // token and a longer one (a five-segment JWE, or an attacker appending
-  // `.junk`) are rejected outright — never parsed from their first three
-  // segments, which would let the signed input disagree with the token.
-  const [headerSegment, payloadSegment, signatureSegment, ...extraSegments] = token.split(".");
-  if (headerSegment === undefined || payloadSegment === undefined || signatureSegment === undefined) return null;
-  if (extraSegments.length > 0) return null;
+  const segments = splitJwtSegments(token);
+  if (segments === null) return null;
+  const { headerSegment, payloadSegment, signatureSegment } = segments;
   try {
     const header: unknown = JSON.parse(base64UrlDecode(headerSegment).toString());
     const payload: unknown = JSON.parse(base64UrlDecode(payloadSegment).toString());

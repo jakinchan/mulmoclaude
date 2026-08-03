@@ -152,3 +152,48 @@ export function registerMetaWebhookVerification(app: Express, opts: MetaWebhookV
 export function verifyMetaHmacSignature(rawBody: string, signature: string, appSecret: string): boolean {
   return verifyHmacSignature(rawBody, signature.replace("sha256=", ""), appSecret, "sha256", "hex");
 }
+
+export interface MetaWebhookOptions {
+  verifyToken: string;
+  appSecret: string;
+  /** Log prefix, e.g. "messenger" / "whatsapp". */
+  label: string;
+  /** Body of the 200 ack. Meta ignores it, but each bridge shipped its own
+   *  string, so it stays configurable rather than silently changing. */
+  ackBody?: string;
+  /** Runs after the ack, on a signature-verified body. Must not throw — a
+   *  rejection here lands in an already-answered request. */
+  onBody: (rawBody: string) => Promise<void>;
+}
+
+// Register both halves of a Meta webhook (Messenger, WhatsApp): the GET
+// verification handshake and the POST event delivery. The POST body arrives as
+// raw text (see createWebhookApp) so the HMAC covers exactly the bytes Meta
+// signed.
+//
+// One limiter covers both routes — a flood of bogus `hub.challenge` GET probes
+// hammers the bridge just as effectively as POST traffic, so they share a
+// bucket rather than getting one cap each. It is built HERE rather than taken
+// as an argument because `js/missing-rate-limiting` only recognises the
+// `express-rate-limit` call when it is visible at route setup; behind a
+// parameter CodeQL cannot tell the signature check is throttled.
+export function registerMetaWebhook(app: Express, opts: MetaWebhookOptions): void {
+  const webhookRateLimit = createWebhookRateLimit();
+  registerMetaWebhookVerification(app, { rateLimit: webhookRateLimit, verifyToken: opts.verifyToken, label: opts.label });
+
+  app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
+    const signature = typeof req.headers["x-hub-signature-256"] === "string" ? req.headers["x-hub-signature-256"] : "";
+    const rawBody = typeof req.body === "string" ? req.body : "";
+
+    if (!signature || !verifyMetaHmacSignature(rawBody, signature, opts.appSecret)) {
+      console.warn(`[${opts.label}] AUTH_FAILED: signature verification failed`);
+      res.status(401).send("Invalid signature");
+      return;
+    }
+
+    // Ack before processing: Meta re-delivers anything it doesn't see
+    // acknowledged within seconds, so the reply must not wait on the agent.
+    res.status(200).send(opts.ackBody ?? "EVENT_RECEIVED");
+    await opts.onBody(rawBody);
+  });
+}

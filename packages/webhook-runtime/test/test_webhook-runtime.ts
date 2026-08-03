@@ -2,12 +2,14 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "crypto";
 import express from "express";
+import http from "node:http";
 import {
   configureTrustProxy,
   createWebhookApp,
   createWebhookRateLimit,
   metaVerificationResult,
   narrowChallenge,
+  registerMetaWebhook,
   SAFE_CHALLENGE_RE,
   verifyHmacSignature,
   verifyMetaHmacSignature,
@@ -217,5 +219,139 @@ describe("verifyMetaHmacSignature", () => {
   it("rejects a base64 digest when hex is expected", () => {
     const b64 = crypto.createHmac("SHA256", SECRET).update("a").digest("base64");
     assert.equal(verifyMetaHmacSignature("a", `sha256=${b64}`, SECRET), false);
+  });
+});
+
+// End-to-end over a real socket: this one call is the whole webhook surface of
+// the Messenger / WhatsApp bridges, so a regression in the raw-text body parser,
+// the middleware order, or the ack-before-process ordering is only visible here.
+interface WebhookFixture {
+  baseUrl: string;
+  received: string[];
+  close: () => Promise<void>;
+}
+
+const listenOnEphemeralPort = async (server: http.Server): Promise<number> => {
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("expected a TCP address");
+  return address.port;
+};
+
+const VERIFY_TOKEN = "verify-me";
+
+async function startEventsApp(opts: { ackBody?: string; onBody?: (raw: string) => Promise<void> } = {}): Promise<WebhookFixture> {
+  const received: string[] = [];
+  const app = createWebhookApp();
+  registerMetaWebhook(app, {
+    verifyToken: VERIFY_TOKEN,
+    appSecret: SECRET,
+    label: "test",
+    ackBody: opts.ackBody,
+    onBody: async (raw) => {
+      received.push(raw);
+      await opts.onBody?.(raw);
+    },
+  });
+  const server = http.createServer(app);
+  const port = await listenOnEphemeralPort(server);
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    received,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
+      }),
+  };
+}
+
+const postWebhook = (baseUrl: string, body: string, signature?: string) =>
+  fetch(`${baseUrl}/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(signature === undefined ? {} : { "x-hub-signature-256": signature }) },
+    body,
+  });
+
+const metaSignature = (body: string) => `sha256=${crypto.createHmac("SHA256", SECRET).update(body).digest("hex")}`;
+
+describe("registerMetaWebhook", () => {
+  const BODY = '{"entry":[{"id":"1"}]}';
+
+  it("acks 200 and hands the raw body to onBody on a valid signature", async () => {
+    const fixture = await startEventsApp();
+    try {
+      const res = await postWebhook(fixture.baseUrl, BODY, metaSignature(BODY));
+      assert.equal(res.status, 200);
+      assert.equal(await res.text(), "EVENT_RECEIVED");
+      assert.deepEqual(fixture.received, [BODY]);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("uses the caller's ackBody when supplied (WhatsApp sends OK)", async () => {
+    const fixture = await startEventsApp({ ackBody: "OK" });
+    try {
+      const res = await postWebhook(fixture.baseUrl, BODY, metaSignature(BODY));
+      assert.equal(await res.text(), "OK");
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("rejects a wrong signature with 401 and never runs onBody", async () => {
+    const fixture = await startEventsApp();
+    try {
+      const res = await postWebhook(fixture.baseUrl, BODY, metaSignature("different-body"));
+      assert.equal(res.status, 401);
+      assert.deepEqual(fixture.received, []);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("rejects a missing signature header with 401", async () => {
+    const fixture = await startEventsApp();
+    try {
+      const res = await postWebhook(fixture.baseUrl, BODY);
+      assert.equal(res.status, 401);
+      assert.deepEqual(fixture.received, []);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("registers the GET verification handshake from the same call", async () => {
+    // Both routes come from one registrar so they share a rate-limit bucket;
+    // this pins that the GET half is still wired up.
+    const fixture = await startEventsApp();
+    try {
+      const query = `hub.mode=subscribe&hub.verify_token=${VERIFY_TOKEN}&hub.challenge=nonce123`;
+      const ok = await fetch(`${fixture.baseUrl}/webhook?${query}`);
+      assert.equal(ok.status, 200);
+      assert.equal(await ok.text(), "nonce123");
+
+      const wrong = await fetch(`${fixture.baseUrl}/webhook?hub.mode=subscribe&hub.verify_token=nope&hub.challenge=nonce123`);
+      assert.equal(wrong.status, 403);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("acks before onBody finishes, so a slow agent can't trigger a Meta redelivery", async () => {
+    // The ack must not wait on the handler. `release` is only called after the
+    // response has been read, so a response that arrives at all proves ordering.
+    const gate = Promise.withResolvers<void>();
+    const fixture = await startEventsApp({ onBody: () => gate.promise });
+    try {
+      const res = await postWebhook(fixture.baseUrl, BODY, metaSignature(BODY));
+      assert.equal(res.status, 200);
+      assert.deepEqual(fixture.received, [BODY]);
+    } finally {
+      gate.resolve();
+      await fixture.close();
+    }
   });
 });
