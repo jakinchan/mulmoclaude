@@ -112,6 +112,7 @@ The structured logger (`server/system/logger/`) reads its config fresh at proces
 | `LOG_CONSOLE_LEVEL` / `LOG_FILE_LEVEL`     | `info` / `debug`     | Per-sink override.                                                                                  |
 | `LOG_CONSOLE_FORMAT` / `LOG_FILE_FORMAT`   | `text` / `json`      | `text` (human) or `json` (JSONL).                                                                   |
 | `LOG_CONSOLE_ENABLED` / `LOG_FILE_ENABLED` | `true` / `true`      | Boolean.                                                                                            |
+| `LOG_CONSOLE_STREAM`                       | `split`              | `split` (warn+error → stderr, rest → stdout) \| `stderr` (everything → stderr, for a process whose stdout is a protocol channel). |
 | `LOG_FILE_DIR`                             | `server/system/logs` | Where rotating daily files land.                                                                    |
 | `LOG_FILE_MAX_FILES`                       | `14`                 | Retention count.                                                                                    |
 | `LOG_TELEMETRY_*`                          | —                    | Telemetry sink stub for a future remote shipper. No-op today.                                       |
