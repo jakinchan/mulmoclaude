@@ -40,8 +40,8 @@ Node.js CI の run 1000 件 + main push サンプルのジョブ 360 件）。
 
 ```yaml
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: ${{ github.run_attempt == '1' }}
 ```
 
 既存 5 本（`lint_test_windows` 等）は `${{ github.ref }}` を使っているが、これを今回の 6 本に
@@ -52,6 +52,14 @@ concurrency:
 
 `cancel-in-progress: false` にして queue させる案は採らない。GitHub は pending run を
 1 本しか保持せず、古い pending を捨てるため、結局 main の CI 結果が欠ける。
+
+`run_attempt` を group に混ぜているのは、**古い run を手動 re-run したときに、PR 番号で
+束ねているせいで「最新コミットの in-flight run」の方がキャンセルされる**のを防ぐため。
+flaky テストの re-run が日常的に起きるので実害がある。re-run（attempt >= 2）は別グループに
+落ちたうえで `cancel-in-progress` も false になり、誰もキャンセルしない・されない。
+
+なお「re-run が同じ run の前の attempt をキャンセルする」ことは起きない。GitHub は完了した
+run しか re-run できないので、attempt 1 が in-progress のまま attempt 2 は始まらない。
 
 ## 検証
 
