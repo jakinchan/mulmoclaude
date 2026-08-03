@@ -12,7 +12,7 @@
 | `consistent-type-assertions` が `error` | **未** — 主ブロックは `warn`、drain 済み 10 パッケージだけ `error` |
 | テストの扱いを決めて設定に書く | 済 — `test/**` 等は `assertionStyle: "as"` に緩和、理由付き |
 | 残る例外が設定ファイルに理由付きで | **未** — 理由は書かれているが**インラインコメント**であって設定側の allowlist ではない |
-| インライン `eslint-disable` が 0 件 | 済 — 0 件 |
+| インライン `eslint-disable` が 0 件 | 済 — **`consistent-type-assertions` / #2692 の例外に対して** 0 件。リポジトリ全体では他ルール向けのインライン disable が 200 件超あり（`no-explicit-any` 106、`detect-unsafe-regex` 18 など）、それらは #2692 の対象外 |
 
 残っている `as` は **8 箇所**（187 → 8、96% 削減）。すべて既に `Cast kept (#2692)` と理由が
 コメントされた「不可避」判定済みで、潰す対象は残っていない。
