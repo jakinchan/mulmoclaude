@@ -6,6 +6,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,6 +15,10 @@ import { isRecord } from "../../server/utils/types.js";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PACKAGES_ROOT = path.join(REPO_ROOT, "packages");
 const SKIPPED_DIRS = new Set(["node_modules", "dist", ".git"]);
+const TSCONFIG_NAME = /^tsconfig.*\.json$/;
+
+const COMMAND_SEPARATOR = /&&|\|\||;|\|/;
+const RUNNER_WORDS = new Set(["npx", "yarn", "pnpm", "npm", "run", "exec"]);
 
 // Floors, not exact counts: a walker that silently finds nothing would
 // otherwise satisfy every assertion below.
@@ -50,7 +55,27 @@ const readJsonObject = (filePath: string): Record<string, unknown> => {
   return parsed;
 };
 
-// Unsupported `extends` forms throw rather than resolving to "no flags found",
+// A relative target only gets `.json` appended — TypeScript does NOT expand it
+// to `<dir>/tsconfig.json`, and being more permissive here would report flags
+// for a config the compiler rejects. Bare specifiers go through node, which is
+// where directory / package.json resolution legitimately happens.
+const asConfigFile = (target: string): string => (target.endsWith(".json") ? target : `${target}.json`);
+
+const resolvePackageExtends = (entry: string, configPath: string): string => {
+  try {
+    return createRequire(configPath).resolve(entry);
+  } catch {
+    throw new Error(`unresolvable extends "${entry}" in ${relativePosix(configPath)}`);
+  }
+};
+
+const resolveExtendsTarget = (entry: string, configPath: string): string => {
+  const target = entry.startsWith(".") ? asConfigFile(path.resolve(path.dirname(configPath), entry)) : resolvePackageExtends(entry, configPath);
+  if (!existsSync(target)) throw new Error(`extends "${entry}" in ${relativePosix(configPath)} points at a missing file`);
+  return target;
+};
+
+// Anything still unresolvable throws rather than resolving to "no flags found",
 // so a config this gate cannot follow fails loudly instead of passing blank.
 const extendsTargets = (config: Record<string, unknown>, configPath: string): string[] => {
   const declared = config.extends;
@@ -58,8 +83,7 @@ const extendsTargets = (config: Record<string, unknown>, configPath: string): st
   const entries = Array.isArray(declared) ? declared : [declared];
   return entries.map((entry) => {
     if (typeof entry !== "string") throw new Error(`non-string extends in ${relativePosix(configPath)}`);
-    if (!entry.startsWith(".")) throw new Error(`package-style extends is not resolvable here: "${entry}" in ${relativePosix(configPath)}`);
-    return path.resolve(path.dirname(configPath), entry);
+    return resolveExtendsTarget(entry, configPath);
   });
 };
 
@@ -115,19 +139,31 @@ const readTypecheckScript = (manifestPath: string): string => {
   return typeof typecheck === "string" ? typecheck : "";
 };
 
+// vue-tsc has to be the command a script actually runs, not a substring of it:
+// `echo vue-tsc` would otherwise satisfy the gate while checking nothing.
+const invokesVueTsc = (script: string): boolean =>
+  script.split(COMMAND_SEPARATOR).some((command) => {
+    const words = command.trim().split(/\s+/);
+    return words.find((word) => !RUNNER_WORDS.has(word)) === "vue-tsc";
+  });
+
+// Any `tsconfig*.json`, not just the default name — a package that carries only
+// a variant is still a TypeScript project and still needs the right checker.
+const isTypeScriptProject = (dir: string): boolean => readdirSync(dir).some((name) => TSCONFIG_NAME.test(name));
+
 // Only packages that are TypeScript projects. `packages/mulmoclaude` bundles
-// the host's `.vue` files but has no tsconfig — its `src/` is a gitignored
-// build artifact, present locally and absent in a fresh clone.
+// the host's `.vue` files but has no tsconfig at all — its `src/` is a
+// gitignored build artifact, present locally and absent in a fresh clone.
 const findVuePackages = (): VuePackage[] =>
   findFiles(PACKAGES_ROOT, (name) => name === "package.json").flatMap((manifest) => {
     const dir = path.dirname(manifest);
-    if (!existsSync(path.join(dir, "tsconfig.json"))) return [];
+    if (!isTypeScriptProject(dir)) return [];
     if (findFiles(dir, (name) => name.endsWith(".vue")).length === 0) return [];
     return [{ dir: relativePosix(dir), typecheck: readTypecheckScript(manifest) }];
   });
 
 describe("packages/** tsconfig — strictness flags", () => {
-  const configs = findFiles(PACKAGES_ROOT, (name) => /^tsconfig.*\.json$/.test(name));
+  const configs = findFiles(PACKAGES_ROOT, (name) => TSCONFIG_NAME.test(name));
 
   it("finds the package configs at all", () => {
     assert.ok(configs.length >= MIN_PACKAGE_CONFIGS, `only ${configs.length} package tsconfigs found — the walker is broken`);
@@ -160,7 +196,7 @@ describe("packages/** — .vue sources need a checker that reads them", () => {
   // `tsc` parses no `.vue` file whatsoever, so a package wired to it reports
   // zero errors for templates and `<script setup>` bodies nobody checked.
   it("typechecks each of them with vue-tsc", () => {
-    const wrongChecker = vuePackages.filter((pkg) => !pkg.typecheck.includes("vue-tsc"));
+    const wrongChecker = vuePackages.filter((pkg) => !invokesVueTsc(pkg.typecheck));
     assert.deepEqual(
       wrongChecker.map((pkg) => `${pkg.dir}: ${pkg.typecheck || "(no typecheck script)"}`),
       [],
