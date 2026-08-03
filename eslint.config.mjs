@@ -655,6 +655,13 @@ export default [
       // `off` at the bottom of this file for why the flag invalidates it.
       "sonarjs/no-try-promise": "error",
       "sonarjs/post-message": "error",
+      // Same treatment, measured in #2800: zero findings over the same scope.
+      // It does NOT collide with `no-floating-promises` above, despite both
+      // ruling on `void expr` — S3735 returns early on a promise operand, so the
+      // `void somePromise()` that rule asks for is never reported. Checked by
+      // forcing this rule on a probe: `void syncFn()` reported, `void asyncFn()`
+      // not. `src/composables/useContentDisplay.ts` relies on that.
+      "sonarjs/void-use": "error",
 
       // Three of those woken rules are off entirely rather than warned. Each
       // was checked against all of its findings in this repo, and none of them
