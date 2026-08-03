@@ -19,7 +19,7 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "tsx": "^4.23.4",
+    "tsx": "^4.23.5",
     "typescript": "^6.0.3"
   },
   "license": "MIT",
