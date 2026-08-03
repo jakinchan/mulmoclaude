@@ -1174,6 +1174,16 @@ describe("MCP child wiring (regression guard for #2052)", () => {
     assert.equal(spec.args.includes("--import"), false);
   });
 
+  // The broker's stdout is the JSON-RPC channel, but the shared logger splits
+  // by level and sends info/debug to stdout. Only the parent knows that, and
+  // only through this env var (#2731).
+  it("routes the broker's console logging to stderr in both modes", () => {
+    for (const useDocker of [false, true]) {
+      const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker });
+      assert.equal(spec.env.LOG_CONSOLE_STREAM, "stderr", `missing for useDocker=${useDocker}`);
+    }
+  });
+
   it("mounts every workspace package under /app/pkg_modules on win32 only", () => {
     const win = workspaceModuleMounts(REPO_ROOT, "win32", identity);
     assert.ok(

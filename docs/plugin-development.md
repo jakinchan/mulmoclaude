@@ -90,6 +90,13 @@ The scaffold CLI embeds `package.json` + `vite.config.ts` + `tsconfig.json` + ES
 
 If you forget step 1 / 2, generated plugins ship with stale toolchains and may hit the same issue you just fixed in the in-tree plugin (e.g. empty `.d.ts` from api-extractor + TS 6).
 
+**The same applies to how strictly a plugin is checked**, and that half is easier to miss because nothing about a generated plugin looks broken:
+
+- `TSCONFIG` must carry `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`. `strict: true` does not include either, so a template with only `strict` hands every new plugin a weaker checker than any in-tree one. It is byte-identical to `bookmarks-plugin/tsconfig.json` — diff against that.
+- `PACKAGE_JSON`'s `typecheck` must be `vue-tsc`, not `tsc`, for as long as the template ships `src/View.vue`. `tsc` parses no `.vue` file whatsoever: it reports zero for a template and a `<script setup>` body that nobody checked, which reads exactly like a clean run (#2778).
+
+Both are asserted by `packages/create-mulmoclaude-plugin/test/test_template.ts`, and the in-tree equivalents by `test/config/test_packageStrictFlags.ts` — that one sweeps every `packages/**/tsconfig*.json` for the flags (after `extends` resolution) and every `.vue`-bearing package for `vue-tsc`.
+
 ---
 
 ## Build orchestration rules (plugin-relevant subset)

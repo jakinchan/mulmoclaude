@@ -61,6 +61,16 @@ describe("resolveConfig", () => {
     assert.equal(config.sinks.console.format, DEFAULT_CONFIG.sinks.console.format);
   });
 
+  it("accepts LOG_CONSOLE_STREAM=stderr and defaults to the level split", () => {
+    assert.equal(resolveConfig({ LOG_CONSOLE_STREAM: "stderr" }).sinks.console.stream, "stderr");
+    assert.equal(resolveConfig({ LOG_CONSOLE_STREAM: "STDERR" }).sinks.console.stream, "stderr");
+    assert.equal(resolveConfig({}).sinks.console.stream, "split");
+  });
+
+  it("ignores an invalid LOG_CONSOLE_STREAM and keeps default", () => {
+    assert.equal(resolveConfig({ LOG_CONSOLE_STREAM: "syslog" }).sinks.console.stream, DEFAULT_CONFIG.sinks.console.stream);
+  });
+
   it("parses enabled flags (true/false/1/0/yes/no)", () => {
     assert.equal(resolveConfig({ LOG_FILE_ENABLED: "false" }).sinks.file.enabled, false);
     assert.equal(resolveConfig({ LOG_FILE_ENABLED: "0" }).sinks.file.enabled, false);

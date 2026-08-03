@@ -413,6 +413,11 @@ export function buildMulmoclaudeServer(params: { chatSessionId: string; port: nu
       SESSION_ID: chatSessionId,
       PORT: String(port),
       PLUGIN_NAMES: activePlugins.join(","),
+      // The broker's stdout carries JSON-RPC. The shared `log` helper
+      // otherwise sends info/debug there, so a plugin loader's "loaded"
+      // line lands between protocol messages — or, once a response is
+      // large enough to be split across writes, inside one.
+      LOG_CONSOLE_STREAM: "stderr",
       ...authEnv,
       ...dockerEnv,
     },

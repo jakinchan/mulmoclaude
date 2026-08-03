@@ -13,6 +13,7 @@ import { loadDevPlugins, parseDevPluginsEnv } from "../plugins/dev-loader.js";
 import { loadPresetPlugins } from "../plugins/preset-loader.js";
 import { registerRuntimePlugins, getRuntimePlugins } from "../plugins/runtime-registry.js";
 import { errorMessage } from "../utils/errors.js";
+import { settleWithin } from "../utils/promise.js";
 import { isNonEmptyString, isRecord } from "../utils/types.js";
 import { API_ROUTES } from "../../src/config/apiRoutes.js";
 import { env } from "../system/env.js";
@@ -194,6 +195,19 @@ function isToolKnown(name: string): boolean {
 // policy in `runtime-registry.ts` enforce that.
 const STATIC_TOOL_NAMES: ReadonlySet<string> = new Set([...MCP_PLUGIN_NAMES, ...Object.keys(mcpToolDefs)]);
 
+// The parent describes every name in PLUGIN_NAMES to the LLM
+// (`buildPluginPromptSections`), so a name that resolves to no tool here is a
+// tool the agent has been told to call and cannot — the state behind #2731,
+// previously visible only by hand-driving the broker over stdio.
+function reportPublishedSurface(): void {
+  const published = new Set(tools.map((toolDef) => toolDef.name));
+  const missing = activeNames.filter((name) => !published.has(name));
+  process.stderr.write(`[mcp-server] publishing ${tools.length} tools: ${toolSignature(tools)}\n`);
+  if (missing.length > 0) {
+    process.stderr.write(`[mcp-server] advertised but NOT published (check plugin load above): ${missing.join(",")}\n`);
+  }
+}
+
 // Internal try/catch so a filesystem failure (EACCES on plugins.json,
 // busted tgz, runaway plugin import) can never strand the MCP
 // handshake. Runtime plugins are best-effort: any failure logs and
@@ -235,6 +249,7 @@ const runtimeReady: Promise<void> = (async () => {
   } catch (err) {
     process.stderr.write(`[mcp-server] runtime plugin load failed; static tools only: ${String(err)}\n`);
   }
+  reportPublishedSurface();
   // Runtime plugins (if any) are now folded into `tools`. The initial
   // `tools/list` already served the static set (incl. handlePermission);
   // nudge the client to re-fetch only if the surface actually grew.
@@ -242,6 +257,13 @@ const runtimeReady: Promise<void> = (async () => {
     notifyToolsListChanged();
   }
 })();
+
+// How long the first `tools/list` may wait for runtime plugins. Deliberately
+// well under the CLI's ~5 s native connect wait (#2201) — this is a
+// correctness fix for a load that normally takes milliseconds, not a budget
+// for a slow one. A load that overruns it falls back to today's behaviour:
+// answer with the static set, then `notifications/tools/list_changed`.
+const TOOLS_LIST_RUNTIME_WAIT_MS = 2 * ONE_SECOND_MS;
 
 // MCP tools (e.g. readXPost, searchX) call external APIs through their
 // own handlers. The bridge timeout must exceed those inner timeouts
@@ -571,23 +593,28 @@ function handleInitialize(requestId: JsonRpcId | undefined): void {
   });
 }
 
-// Respond immediately with the current tool set — do NOT wait for
-// `runtimeReady`. The always-on `handlePermission` tool (wired via
-// `--permission-prompt-tool`) and all static tools are present from the
-// start, so an ask-mode permission check at session start no longer races a
-// slow plugin load (#1698). Runtime plugins that finish loading later are
-// advertised via `notifications/tools/list_changed`, prompting a re-fetch.
+// Answer once runtime plugins are in — but never later than the cap. A client
+// that snapshots the tool surface at session start (a deferred / tool-search
+// index does) keeps whatever this first response said, so answering
+// static-only leaves preset tools like `google` described in the system prompt
+// yet uncallable for the rest of the session, with
+// `notifications/tools/list_changed` doing nothing for it (#2731). The cap
+// keeps the #1698 / #2201 property that a slow plugin load cannot starve
+// `handlePermission` at session start: past it we answer with what we have and
+// the notification remains the backstop.
 function handleToolsList(requestId: JsonRpcId | undefined): void {
-  respond({
-    jsonrpc: "2.0",
-    id: requestId,
-    result: {
-      tools: tools.map((toolDef) => ({
-        name: toolDef.name,
-        description: toolDef.description,
-        inputSchema: toolDef.inputSchema,
-      })),
-    },
+  void settleWithin(runtimeReady, TOOLS_LIST_RUNTIME_WAIT_MS).then(() => {
+    respond({
+      jsonrpc: "2.0",
+      id: requestId,
+      result: {
+        tools: tools.map((toolDef) => ({
+          name: toolDef.name,
+          description: toolDef.description,
+          inputSchema: toolDef.inputSchema,
+        })),
+      },
+    });
   });
 }
 
