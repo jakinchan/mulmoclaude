@@ -37,6 +37,12 @@ on:
       - '.github/workflows/dead-code-scan.yaml'
   workflow_dispatch:
 
+concurrency:
+  # The `github.run_id` fallback puts every non-PR run in a group of its own —
+  # only a superseded PR run should ever be cancelled.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
