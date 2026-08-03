@@ -34,6 +34,12 @@ export default defineConfig({
     // manually, it's http://localhost:45173 while the test is running.
     baseURL: "http://localhost:45173",
     headless: true,
+    // Chromium refuses to start as root with its sandbox on, and CI runs this
+    // suite inside the Playwright image as root — it needs apt there to build
+    // node-pty, which ships no Linux prebuild. Spread so the key is absent
+    // unless the workflow sets it: gating on CI generally would drop the
+    // sandbox for every other run too.
+    ...(process.env.PLAYWRIGHT_NO_SANDBOX === "1" ? { launchOptions: { chromiumSandbox: false } } : {}),
   },
   projects: [
     { name: "chromium", use: { browserName: "chromium" } },

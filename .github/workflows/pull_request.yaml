@@ -213,13 +213,16 @@ jobs:
     # used to keep warm for the same reason (#1725).
     #
     # The tag must track `@playwright/test`; the verify step below fails loudly
-    # if the two drift. `--user 1001` is what Playwright documents for GitHub
-    # Actions: it matches the runner's uid so the mounted workspace stays
-    # writable, and keeps Chromium off the root path, where it refuses to start
-    # without --no-sandbox.
+    # if the two drift.
+    #
+    # Runs as the image's default root rather than Playwright's documented
+    # `--user 1001`, because the one thing the image cannot supply is a
+    # compiler, and node-pty publishes prebuilds for darwin and win32 only —
+    # `yarn install` builds it from source on Linux, so this job needs apt and
+    # therefore root. Chromium will not start as root with its sandbox on, so
+    # the test step sets PLAYWRIGHT_NO_SANDBOX (see e2e/playwright.config.ts).
     container:
       image: mcr.microsoft.com/playwright:v1.62.1-noble
-      options: --user 1001
     timeout-minutes: 15
     # Split the 268-test e2e suite across 2 parallel runners via
     # Playwright's --shard. Wall clock drops from ~8 min to ~4-5 min
@@ -239,6 +242,24 @@ jobs:
       with:
         node-version: 22.x
         cache: 'yarn'
+    # The only apt this job runs, and the only thing the image cannot supply:
+    # a compiler. node-pty ships prebuilds for darwin and win32 only, so
+    # `yarn install` below builds it from source on Linux and fails with
+    # "not found: make" without this.
+    #
+    # Redirected on purpose. The runner holds a step open until its
+    # stdout/stderr reach EOF, so a daemon apt leaves behind holding that pipe
+    # wedges the step even though the install finished — that is exactly what
+    # #2805 was, measured at 23-27s of work followed by silence to the job
+    # timeout. Pointing the fd at a file means a survivor holds the file
+    # instead, and the cap bounds anything that still slips through.
+    - name: Install the compiler node-pty needs
+      timeout-minutes: 5
+      run: |
+        {
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential
+        } > "$RUNNER_TEMP/apt.log" 2>&1 || { cat "$RUNNER_TEMP/apt.log"; exit 1; }
     - run: yarn install --frozen-lockfile --network-timeout 120000
     # Same packages/dist cache as lint_test — shares the cache key
     # across both jobs on ubuntu-latest + node 22.x, so whichever
@@ -277,6 +298,11 @@ jobs:
         console.log("chromium + webkit present for playwright " + version);
         CHECK
     - name: Run E2E tests (shard ${{ matrix.shard }}/2)
+      # Chromium will not start as root with its sandbox on, and this job runs
+      # as root so it can apt the compiler above. Set here rather than on CI
+      # generally, so a local or non-container run keeps the sandbox.
+      env:
+        PLAYWRIGHT_NO_SANDBOX: "1"
       run: yarn test:e2e --shard=${{ matrix.shard }}/2
     - name: Upload test results on failure
       if: failure()

@@ -59,12 +59,36 @@ playwright 自身は `exit` で待つので即座に終了する。よって「p
 追加するステップ: イメージと `@playwright/test` の**バージョン不一致を検出するガード**。
 片方だけ bump されると 268 テストが1件ずつ「実行ファイルが無い」で落ちるので、その前に落とす。
 
+## 実際に流して分かったこと — イメージにコンパイラが無い
+
+最初は Playwright が文書化している `--user 1001` で組んだが、**両シャードが2分で失敗**した。
+`yarn install` が落ちており、原因は権限ではなく:
+
+```
+gyp ERR! stack Error: not found: make
+```
+
+**node-pty の prebuild は darwin と win32 のみ**(`ls node_modules/node-pty/prebuilds/`)。
+Linux では必ずソースからコンパイルするため make / g++ が要るが、Playwright イメージは
+それを積んでいない。ホストの `ubuntu-latest` では build-essential があるので通っていた。
+
+つまり「container にすれば apt が消える」は**成立しない**。残る apt は1回だけにして、
+それを自分たちの制御下に置く形にした:
+
+- **root で動かす**(`--user 1001` をやめる)。apt には root が要る。
+- **`build-essential` だけを apt で入れる**。playwright の install-deps(gstreamer 等の大量
+  パッケージ + サービス再起動)とは規模も制御権も違う。リダイレクトと5分の timeout を当てる。
+- **Chromium は root でサンドボックス有効だと起動しない**ので、テストステップだけ
+  `PLAYWRIGHT_NO_SANDBOX=1` を渡し、`e2e/playwright.config.ts` がそれを見て
+  `launchOptions.chromiumSandbox` を落とす。**CI 一般ではなく env で切る**ので、
+  ローカルや他の実行はサンドボックス有効のまま。
+
+`chromiumSandbox` は `use` の直下ではなく **`launchOptions` 側**のオプション
+(最初 `use` に置いて typecheck が TS2769 で落ちた)。env 未設定時はキー自体を生やさない
+スプレッドにしてある。
+
 ## 気をつけた点
 
-- **`--user 1001`** — Playwright が GitHub Actions 向けに文書化している設定。
-  ランナーの uid と一致するのでマウントされた workspace が書き込み可能なままになり、
-  かつ Chromium が root で起動を拒否する(`--no-sandbox` 必須)問題も避けられる。
-  `e2e/playwright.config.ts` は `chromiumSandbox` を落としていないので、root のままだと動かない。
 - **`test:e2e` の `ensure:playwright-browsers`** は `playwright install chromium webkit`
   (`--with-deps` なし = apt なし)。イメージ内では既存バイナリを見つけて no-op になる。
 - **ジョブの `timeout-minutes: 15` は変えない**。原因は遅さではないので伸ばすのは誤った対処。
@@ -76,6 +100,9 @@ playwright 自身は `exit` で待つので即座に終了する。よって「p
   正常系(browser あり → exit 0)と**異常系**(`PLAYWRIGHT_BROWSERS_PATH` を空ディレクトリに向ける
   → exit 1 + 設定すべきタグ名を表示)の両方を確認
 - `@playwright/test` / `playwright-core` が 1.62.1 で、イメージタグ `v1.62.1-noble` と一致
+- `chromiumSandbox` の切り替えを**両方向とも実測**:
+  env 未設定 → `launchOptions` は `undefined`(ローカル挙動は変わらない)/
+  `PLAYWRIGHT_NO_SANDBOX=1` → `{"chromiumSandbox":false}`
 
 **ローカルで検証できないこと**: コンテナジョブ自体の挙動(checkout / setup-node / yarn install /
 キャッシュが `--user 1001` のコンテナ内で動くか)。これは**この PR 自身の e2e 2シャードが緑になること**
