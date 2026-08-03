@@ -206,6 +206,20 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run_e2e == 'true'
     runs-on: ubuntu-latest
+    # Browsers AND their OS libraries ship in this image, so the job runs no
+    # apt and downloads no browsers. That removes #2805 by construction rather
+    # than working around it: what wedged was apt's step, and there is no apt
+    # step left to wedge. It also retires the 392 MB browser cache this job
+    # used to keep warm for the same reason (#1725).
+    #
+    # The tag must track `@playwright/test`; the verify step below fails loudly
+    # if the two drift. `--user 1001` is what Playwright documents for GitHub
+    # Actions: it matches the runner's uid so the mounted workspace stays
+    # writable, and keeps Chromium off the root path, where it refuses to start
+    # without --no-sandbox.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      options: --user 1001
     timeout-minutes: 15
     # Split the 268-test e2e suite across 2 parallel runners via
     # Playwright's --shard. Wall clock drops from ~8 min to ~4-5 min
@@ -242,32 +256,26 @@ jobs:
     - name: Build internal packages
       if: steps.pkg-dist-cache.outputs.cache-hit != 'true'
       run: yarn build:packages
-    # Cache the ~392 MB of Playwright browser binaries (chromium + webkit +
-    # headless shell + ffmpeg) so a normal run restores them in seconds instead
-    # of re-downloading from the CDN every time. A slow CDN day was stretching
-    # the download to ~13 min and tipping shard 1 over its job timeout (the e2e
-    # flakes seen on #1725). Keyed on the Playwright version, which determines
-    # the exact browser builds.
-    - name: Resolve Playwright version
-      id: pw-version
+    # The image already carries the browsers, so nothing is downloaded or
+    # installed here — this only proves the image and `@playwright/test` agree
+    # before 268 tests fail one by one on a missing executable. They drift when
+    # one of the two is bumped alone.
+    - name: Verify the image ships the browsers this Playwright expects
       run: |
-        VERSION=$(node -p "require('@playwright/test/package.json').version")
-        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-    - name: Cache Playwright browsers
-      id: playwright-cache
-      uses: actions/cache@v5
-      with:
-        path: ~/.cache/ms-playwright
-        key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
-    - name: Install Playwright browsers
-      if: steps.playwright-cache.outputs.cache-hit != 'true'
-      run: npx playwright install chromium webkit --with-deps
-    # On a cache hit the binaries are restored, but the OS-level libraries that
-    # `--with-deps` installs live in system paths (not ~/.cache) and aren't
-    # cached — install just those so the restored browsers can launch.
-    - name: Install Playwright OS dependencies
-      if: steps.playwright-cache.outputs.cache-hit == 'true'
-      run: npx playwright install-deps chromium webkit
+        node <<'CHECK'
+        const fs = require("node:fs");
+        const { chromium, webkit } = require("playwright-core");
+        const version = require("playwright-core/package.json").version;
+        for (const [name, browser] of [["chromium", chromium], ["webkit", webkit]]) {
+          const executable = browser.executablePath();
+          if (!fs.existsSync(executable)) {
+            console.error("No " + name + " at " + executable);
+            console.error("playwright-core is " + version + " — set the container image tag to v" + version + "-noble.");
+            process.exit(1);
+          }
+        }
+        console.log("chromium + webkit present for playwright " + version);
+        CHECK
     - name: Run E2E tests (shard ${{ matrix.shard }}/2)
       run: yarn test:e2e --shard=${{ matrix.shard }}/2
     - name: Upload test results on failure
