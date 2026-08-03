@@ -40,6 +40,19 @@ export const requiredArg = (context: FunctionContext, args: string[], index: num
   return arg;
 };
 
+/** The range reader that keeps every cell, for functions whose answer depends on
+ *  a range's POSITIONS rather than its numbers.
+ *
+ *  `getRangeValues` drops non-numeric cells, which silently renumbers the rows
+ *  underneath: a criteria/value pair read that way falls out of alignment and
+ *  aggregates a different row, and an index returned from it points at the wrong
+ *  one. SUMIF/AVERAGEIF were moved here in #2358; MATCH/XLOOKUP in #2765.
+ *
+ *  Falls back to the numeric reader because `getRangeValuesRaw` is optional on
+ *  `FunctionContext` — a host that predates it keeps its old behaviour rather
+ *  than throwing. */
+export const rawRangeReader = (context: FunctionContext): RangeGetter => context.getRangeValuesRaw ?? context.getRangeValues;
+
 export type FunctionHandler = (args: string[], context: FunctionContext) => CellValue;
 
 export interface FunctionDefinition {

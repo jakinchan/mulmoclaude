@@ -2,7 +2,7 @@
  * Lookup and Reference Functions
  */
 
-import { functionRegistry, requiredArg, toNumber, parseCriteria, type FunctionHandler, type FunctionContext } from "../registry";
+import { functionRegistry, rawRangeReader, requiredArg, toNumber, parseCriteria, type FunctionHandler, type FunctionContext } from "../registry";
 import { indexToColumn } from "../parser";
 import { parseRangeBounds, resolveIndexTarget, resolveTableOffset } from "../formulaRefs";
 import { isApproximateMatch } from "./lookup-math";
@@ -116,7 +116,9 @@ const matchHandler: FunctionHandler = (args, context) => {
   const lookupArrayRange = requiredArg(context, args, 1);
   const matchType = args.length === 3 ? toNumber(context.evaluateFormula(requiredArg(context, args, 2))) : 1;
 
-  const lookupArray = context.getRangeValues(lookupArrayRange);
+  // Raw, not numeric-only: MATCH answers with a POSITION, so a dropped text
+  // cell renumbers everything after it and returns a different row (#2765).
+  const lookupArray = rawRangeReader(context)(lookupArrayRange);
 
   const index = findMatchIndex(lookupValue, lookupArray, matchType);
 
@@ -142,8 +144,13 @@ const xlookupHandler: FunctionHandler = (args, context) => {
   const matchMode = args.length >= 5 ? toNumber(context.evaluateFormula(requiredArg(context, args, 4))) : 0;
   const searchMode = args.length >= 6 ? toNumber(context.evaluateFormula(requiredArg(context, args, 5))) : 1;
 
-  const lookupArray = context.getRangeValues(lookupArrayRange);
-  const returnArray = context.getRangeValues(returnArrayRange);
+  // Both raw, and for a second reason beyond MATCH's: the numeric-only reader
+  // filters these two INDEPENDENTLY, so a text cell in one range shifts it
+  // against the other and the match index reads a different row's value — a
+  // wrong number with no error, which is the worst outcome a formula can have.
+  const readRange = rawRangeReader(context);
+  const lookupArray = readRange(lookupArrayRange);
+  const returnArray = readRange(returnArrayRange);
 
   // XLOOKUP match modes:
   // 0 = Exact match (default)
