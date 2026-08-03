@@ -24,7 +24,6 @@ const RENDER_GAP_MS = 20;
 // signal is raised in the browser.
 const RELEASE_FLAG = "__e2eReleaseStream";
 const RELEASE_POLL_MS = 25;
-const RELEASE_TIMEOUT_MS = 15_000;
 
 interface StreamOptions {
   // Delay before the first event is sent, after the client subscribes.
@@ -48,13 +47,29 @@ export async function releaseStream(page: Page): Promise<void> {
   }, RELEASE_FLAG);
 }
 
+/** Block until `releaseStream` raises the flag, CONSUMING it so each gated
+ *  stream needs its own release. Leaving it set would make the gate one-shot
+ *  per page: a second `startOnRelease` stream would sail through on the first
+ *  stream's signal, which is the silently-not-gating failure this whole file
+ *  is about (Codex, #2780).
+ *
+ *  Deliberately does NOT throw on a missing release. This runs on a promise
+ *  `handleSocketFrame` detaches with `void`, so a throw here is an unhandled
+ *  rejection, not a test failure — it would be reported after the fact, or
+ *  swallowed (CodeRabbit, #2780). Never releasing simply means the events
+ *  never send, and the test's own wait for the streamed content fails with a
+ *  locator timeout that names what was missing. */
 async function waitForRelease(page: Page): Promise<void> {
-  const deadline = Date.now() + RELEASE_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if (await page.evaluate((flag) => Reflect.get(globalThis, flag) === true, RELEASE_FLAG)) return;
+  const consume = (flag: string): boolean => {
+    if (Reflect.get(globalThis, flag) !== true) return false;
+    Reflect.deleteProperty(globalThis, flag);
+    return true;
+  };
+  // A closed page ends the wait: the run is over, so there is nothing to send.
+  while (!page.isClosed()) {
+    if (await page.evaluate(consume, RELEASE_FLAG).catch(() => false)) return;
     await new Promise((resolve) => setTimeout(resolve, RELEASE_POLL_MS));
   }
-  throw new Error(`releaseStream was never called within ${RELEASE_TIMEOUT_MS}ms`);
 }
 
 async function streamEventsToSocket(page: Page, webSocket: MockSocket, channel: string, events: readonly unknown[], opts: StreamOptions): Promise<void> {

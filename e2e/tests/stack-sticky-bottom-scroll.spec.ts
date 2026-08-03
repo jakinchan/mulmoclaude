@@ -107,6 +107,26 @@ test.describe("StackView — sticky-bottom auto-follow (#2179)", () => {
     expect(after.scrollTop).toBe(before.scrollTop);
   });
 
+  // Guards the gate the test above depends on. Without this, `startOnRelease`
+  // could stop holding anything — the flag left set by a previous release, a
+  // polling bug — and that test would go back to racing its own setup while
+  // still passing, which is exactly how it broke the first time (#2766).
+  test("startOnRelease holds the stream until releaseStream is called", async ({ page }) => {
+    await serveTranscript(page, tallTranscript());
+    await mockAgentWithPubSub(page, [streamedEntry], { startOnRelease: true });
+    await openStackSession(page);
+
+    const marker = page.getByText(STREAM_MARKER).first();
+    // Long enough that a gate which is not holding would have delivered: the
+    // events send `RENDER_GAP_MS` (20ms) apart once released.
+    // eslint-disable-next-line sonarjs/no-fixed-wait-in-tests -- proving an ABSENCE over a window; there is no DOM signal for "still not sent".
+    await page.waitForTimeout(2000);
+    await expect(marker).toHaveCount(0);
+
+    await releaseStream(page);
+    await expect(marker).toBeVisible({ timeout: 10 * ONE_SECOND_MS });
+  });
+
   test("following resumes once the reader scrolls back to the bottom", async ({ page }) => {
     await serveTranscript(page, tallTranscript());
     await mockAgentWithPubSub(page, [streamedEntry], { startDelayMs: 2500 });
