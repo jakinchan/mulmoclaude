@@ -1,19 +1,37 @@
 // `/api/mindmap` used to hand every call an empty context, so `add_node` had no
 // map to add to: in MulmoClaude a plugin's `execute()` never runs in the client,
 // and the create's result lived only in the session (#2754).
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, before, beforeEach, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { Request } from "express";
 import { sessionToolContext } from "../../server/api/routes/plugins.ts";
 import { __resetForTests, getOrCreateSession, initSessionStore, pushToolResult } from "../../server/events/session-store/index.ts";
 import { TOOL_NAMES } from "../../src/config/toolNames.ts";
 
 const NOW = "2026-08-03T00:00:00.000Z";
-const session = (sessionId: string) => getOrCreateSession(sessionId, { roleId: "general", resultsFilePath: "/dev/null", startedAt: NOW, updatedAt: NOW });
+
+// A real file, not "/dev/null": `pushToolResult` awaits its append, and on
+// Windows a leading-slash path resolves against the current drive, so the
+// null device becomes `D:\dev\null` and the open fails (#2779).
+let resultsFilePath = "";
+let tmpRoot = "";
+
+const session = (sessionId: string) => getOrCreateSession(sessionId, { roleId: "general", resultsFilePath, startedAt: NOW, updatedAt: NOW });
 
 // The MCP bridge appends `?session=<id>` to every request, which is how the id
 // reaches a plugin route at all.
 const reqWith = (query: Record<string, unknown>) => ({ query }) as unknown as Request<object, unknown, unknown>;
+
+before(async () => {
+  tmpRoot = await mkdtemp(path.join(tmpdir(), "session-tool-context-"));
+  resultsFilePath = path.join(tmpRoot, "results.jsonl");
+});
+after(async () => {
+  await rm(tmpRoot, { recursive: true, force: true });
+});
 
 beforeEach(() => {
   __resetForTests();
