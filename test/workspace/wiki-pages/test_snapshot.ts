@@ -12,8 +12,8 @@
 
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "fs/promises";
-import { tmpdir } from "os";
+import { mkdir, readdir, readFile, rm, symlink, writeFile } from "fs/promises";
+
 import path from "path";
 import { writeWikiPage } from "../../../server/workspace/wiki-pages/io.js";
 import {
@@ -28,6 +28,7 @@ import {
   stripSnapshotMeta,
 } from "../../../server/workspace/wiki-pages/snapshot.js";
 import { WORKSPACE_DIRS } from "../../../server/workspace/paths.js";
+import { makeTempDir } from "../../helpers/tempDir.js";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const SLUG = "test-page";
@@ -35,7 +36,7 @@ const SLUG = "test-page";
 let root: string;
 
 before(async () => {
-  root = await mkdtemp(path.join(tmpdir(), "snapshot-test-"));
+  root = makeTempDir("snapshot-test-");
 });
 
 after(async () => {
@@ -129,7 +130,7 @@ describe("stripSnapshotMeta", () => {
 
 describe("appendSnapshot — write + retrieve", () => {
   it("creates a snapshot file and listSnapshots surfaces its meta", async () => {
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "snapshot-write-"));
+    const workspaceRoot = makeTempDir("snapshot-write-");
     const fixedNow = new Date("2026-04-28T01:23:45.789Z");
     await appendSnapshot(
       SLUG,
@@ -160,7 +161,7 @@ describe("appendSnapshot — write + retrieve", () => {
   });
 
   it("orders snapshots newest-first regardless of write order", async () => {
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "snapshot-order-"));
+    const workspaceRoot = makeTempDir("snapshot-order-");
 
     // Seed three snapshots with descending timestamps. The on-disk
     // dir-listing order is OS-dependent so we rely on the in-helper
@@ -177,14 +178,14 @@ describe("appendSnapshot — write + retrieve", () => {
   });
 
   it("returns an empty list for a slug with no history", async () => {
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "snapshot-empty-"));
+    const workspaceRoot = makeTempDir("snapshot-empty-");
     const snapshots = await listSnapshots("never-saved", { workspaceRoot });
     assert.deepEqual(snapshots, []);
     await rm(workspaceRoot, { recursive: true, force: true });
   });
 
   it("readSnapshot returns null on unknown stamp", async () => {
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "snapshot-miss-"));
+    const workspaceRoot = makeTempDir("snapshot-miss-");
     await writeRawSnapshot(workspaceRoot, SLUG, "2026-04-28T01-23-45-789Z", "body");
 
     const miss = await readSnapshot(SLUG, "2099-01-01T00-00-00-000Z-fakeid", { workspaceRoot });
@@ -194,7 +195,7 @@ describe("appendSnapshot — write + retrieve", () => {
   });
 
   it("readSnapshot rejects unsafe stamp strings (returns null, no throw)", async () => {
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "snapshot-unsafe-"));
+    const workspaceRoot = makeTempDir("snapshot-unsafe-");
     const out = await readSnapshot(SLUG, "../etc/passwd", { workspaceRoot });
     assert.equal(out, null);
     await rm(workspaceRoot, { recursive: true, force: true });
@@ -203,7 +204,7 @@ describe("appendSnapshot — write + retrieve", () => {
 
 describe("gcSnapshots — retention rule", () => {
   it("keeps every snapshot when the dir doesn't exist (no-op)", async () => {
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "gc-noop-"));
+    const workspaceRoot = makeTempDir("gc-noop-");
     await gcSnapshots("never-saved", new Date(), { workspaceRoot });
     // Just asserting it didn't throw is enough — the dir shouldn't
     // suddenly exist either.
@@ -213,7 +214,7 @@ describe("gcSnapshots — retention rule", () => {
   });
 
   it("deletes only entries that are BOTH outside top-100 AND older than 180 days", async () => {
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "gc-rule-"));
+    const workspaceRoot = makeTempDir("gc-rule-");
     const now = new Date("2026-04-28T00:00:00.000Z");
 
     // Seed 110 snapshots:
@@ -241,7 +242,7 @@ describe("gcSnapshots — retention rule", () => {
     // Edge case: a slug with only 50 lifetime entries, 30 of which
     // are over 180 days old. None of them should be GC'd because
     // every single one is in the top-100 (count rule wins).
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "gc-count-rule-"));
+    const workspaceRoot = makeTempDir("gc-count-rule-");
     const now = new Date("2026-04-28T00:00:00.000Z");
 
     for (let i = 0; i < 30; i++) {
@@ -261,7 +262,7 @@ describe("gcSnapshots — retention rule", () => {
   it("keeps a snapshot in the age window even when it's outside the top-100", async () => {
     // Edge case: 200 snapshots all within 180 days. None should be
     // GC'd because every single one is age-protected (age rule wins).
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "gc-age-rule-"));
+    const workspaceRoot = makeTempDir("gc-age-rule-");
     const now = new Date("2026-04-28T00:00:00.000Z");
 
     for (let i = 0; i < 200; i++) {
@@ -276,7 +277,7 @@ describe("gcSnapshots — retention rule", () => {
   });
 
   it("does not touch other slugs' history", async () => {
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "gc-isolation-"));
+    const workspaceRoot = makeTempDir("gc-isolation-");
     const now = new Date("2026-04-28T00:00:00.000Z");
     const oldStamp = dateToFilenameStamp(new Date(now.getTime() - 400 * ONE_DAY_MS));
 
@@ -294,7 +295,7 @@ describe("gcSnapshots — retention rule", () => {
 
   it("ignores files whose names don't match the stamp pattern", async () => {
     // A stray README or a half-written .tmp shouldn't break GC.
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "gc-stray-"));
+    const workspaceRoot = makeTempDir("gc-stray-");
     const dir = historyDir(SLUG, { workspaceRoot });
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, "README"), "stray", "utf-8");
@@ -326,7 +327,7 @@ describe("snapshot reads — symlink protection", () => {
   // bearer-authed history GET routes would surface arbitrary file
   // contents from outside the wiki tree (codex review iter-2 #917).
   it("listSnapshots ignores symlink entries even when they match the filename pattern", async () => {
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "snap-symlink-list-"));
+    const workspaceRoot = makeTempDir("snap-symlink-list-");
     const slug = "evil-page";
     const dir = historyDir(slug, { workspaceRoot });
     await mkdir(dir, { recursive: true });
@@ -355,7 +356,7 @@ describe("snapshot reads — symlink protection", () => {
     // a regular file inside the symlink target that happens to match
     // FILENAME_RE would be served as a snapshot (codex review iter-3
     // #917).
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "snap-symlink-dir-"));
+    const workspaceRoot = makeTempDir("snap-symlink-dir-");
     const slug = "evil-page";
     const historyParent = path.join(workspaceRoot, WORKSPACE_DIRS.wikiHistory);
     await mkdir(historyParent, { recursive: true });
@@ -379,7 +380,7 @@ describe("snapshot reads — symlink protection", () => {
     // Codex review iter-4 #917: the read-side guard alone is not
     // enough — a planted directory symlink would otherwise let the
     // write land in the symlink target.
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "snap-symlink-write-"));
+    const workspaceRoot = makeTempDir("snap-symlink-write-");
     const slug = "evil-page";
     const historyParent = path.join(workspaceRoot, WORKSPACE_DIRS.wikiHistory);
     await mkdir(historyParent, { recursive: true });
@@ -396,7 +397,7 @@ describe("snapshot reads — symlink protection", () => {
   });
 
   it("readSnapshot returns null for a symlink that matches the stamp pattern", async () => {
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "snap-symlink-read-"));
+    const workspaceRoot = makeTempDir("snap-symlink-read-");
     const slug = "evil-page";
     const dir = historyDir(slug, { workspaceRoot });
     await mkdir(dir, { recursive: true });
@@ -420,7 +421,7 @@ describe("appendSnapshot via writeWikiPage — integration", () => {
   // directly; here we make sure writeWikiPage's call site triggers
   // it on a meaningful body change but NOT on a no-op save.
   it("creates a snapshot when the body changes", async () => {
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "wiki-integration-"));
+    const workspaceRoot = makeTempDir("wiki-integration-");
     await mkdir(path.join(workspaceRoot, WORKSPACE_DIRS.wikiPages), { recursive: true });
 
     const fixedNow = new Date("2026-04-28T01:23:45.789Z");
@@ -449,7 +450,7 @@ describe("appendSnapshot via writeWikiPage — integration", () => {
     // to the caller would be misleading. We provoke a snapshot
     // failure by pre-creating the slug's history dir as a regular
     // file: appendSnapshot will then fail to mkdir/write inside it.
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "wiki-snap-fail-"));
+    const workspaceRoot = makeTempDir("wiki-snap-fail-");
     await mkdir(path.join(workspaceRoot, WORKSPACE_DIRS.wikiPages), { recursive: true });
     const historyParent = path.join(workspaceRoot, WORKSPACE_DIRS.wikiHistory);
     await mkdir(historyParent, { recursive: true });
@@ -471,7 +472,7 @@ describe("appendSnapshot via writeWikiPage — integration", () => {
     // is the auto-stamped `updated` field. This test pins that
     // behaviour: writing the exact same body at a later timestamp
     // doesn't add a second snapshot.
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "wiki-noop-"));
+    const workspaceRoot = makeTempDir("wiki-noop-");
     await mkdir(path.join(workspaceRoot, WORKSPACE_DIRS.wikiPages), { recursive: true });
 
     const firstSave = new Date("2026-04-28T01:00:00.000Z");

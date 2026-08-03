@@ -1,9 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadPluginFromCacheDir, isCacheValid, EXTRACT_MARKER, ensureInsideBase, resolveExecute, toPackageJson } from "../../server/plugins/runtime-loader.js";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 interface FixtureOpts {
   exportsImport?: string;
@@ -23,7 +24,7 @@ interface FixtureOpts {
 }
 
 function makeFixture(opts: FixtureOpts = {}): string {
-  const dir = mkdtempSync(path.join(tmpdir(), "mulmo-runtime-loader-"));
+  const dir = makeTempDir("mulmo-runtime-loader-");
   if (opts.omitPackageJson) return dir;
   const entrySpec = opts.exportsImport ?? "./entry.js";
   let pkgRecord: Record<string, unknown>;
@@ -100,7 +101,7 @@ describe("loadPluginFromCacheDir", () => {
   });
 
   it("falls through exports → module → main when resolving entry path", async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "mulmo-runtime-loader-fallback-"));
+    const dir = makeTempDir("mulmo-runtime-loader-fallback-");
     writeFileSync(
       path.join(dir, "package.json"),
       JSON.stringify({
@@ -121,7 +122,7 @@ describe("loadPluginFromCacheDir", () => {
   });
 
   it("returns null when no entry specifier resolvable", async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "mulmo-runtime-loader-noentry-"));
+    const dir = makeTempDir("mulmo-runtime-loader-noentry-");
     writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "@x/empty", version: "1.0.0" }));
     const plugin = await loadPluginFromCacheDir("@x/empty", "1.0.0", dir);
     assert.equal(plugin, null);
@@ -166,7 +167,7 @@ describe("loadPluginFromCacheDir", () => {
   });
 
   it("isCacheValid: false on a directory missing the completion marker (partial extract)", () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "mulmo-runtime-cache-partial-"));
+    const dir = makeTempDir("mulmo-runtime-cache-partial-");
     writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "@x/half", version: "1.0.0" }));
     // No EXTRACT_MARKER → cache is partial / invalid even though the
     // directory exists. This is what stops a sticky broken cache.
@@ -174,7 +175,7 @@ describe("loadPluginFromCacheDir", () => {
   });
 
   it("isCacheValid: true once the completion marker is present", () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "mulmo-runtime-cache-complete-"));
+    const dir = makeTempDir("mulmo-runtime-cache-complete-");
     writeFileSync(path.join(dir, EXTRACT_MARKER), "");
     assert.equal(isCacheValid(dir), true);
   });
@@ -250,7 +251,7 @@ describe("loadPluginFromCacheDir", () => {
   });
 
   it("returns null when entry file is missing on disk", async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "mulmo-runtime-loader-missing-entry-"));
+    const dir = makeTempDir("mulmo-runtime-loader-missing-entry-");
     writeFileSync(
       path.join(dir, "package.json"),
       JSON.stringify({

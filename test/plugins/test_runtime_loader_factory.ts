@@ -11,14 +11,15 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
+
 import path from "node:path";
 
 import { loadPluginFromCacheDir } from "../../server/plugins/runtime-loader.js";
 import { makePluginRuntime } from "../../server/plugins/runtime.js";
 import { createTaskManager } from "../../server/events/task-manager/index.js";
 import type { IPubSub } from "../../server/events/pub-sub/index.js";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 interface FixtureOpts {
   /** Source for `entry.js`. */
@@ -26,7 +27,7 @@ interface FixtureOpts {
 }
 
 function makeFixture(opts: FixtureOpts): string {
-  const dir = mkdtempSync(path.join(tmpdir(), "mulmo-runtime-loader-factory-"));
+  const dir = makeTempDir("mulmo-runtime-loader-factory-");
   const pkg = JSON.stringify({
     name: "@fixture/plugin",
     version: "1.0.0",

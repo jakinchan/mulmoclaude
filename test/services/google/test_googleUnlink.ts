@@ -2,13 +2,11 @@
 // The revoke fetch is injected — no network.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 
 import { loadGoogleTokens, saveGoogleTokens, unlinkGoogle, type RevokeFetch } from "@mulmoclaude/core/google";
+import { makeTempDir } from "../../helpers/tempDir.js";
 
-const makeFakeHome = async (): Promise<string> => await mkdtemp(path.join(tmpdir(), "google-unlink-test-"));
+const makeFakeHome = async (): Promise<string> => makeTempDir("google-unlink-test-");
 
 interface RevokeCall {
   url: string;

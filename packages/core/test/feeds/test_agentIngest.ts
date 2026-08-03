@@ -3,11 +3,12 @@
 import { setTestWorker, resetNotifierForTest } from "./_setup.ts";
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
+
 import path from "node:path";
 import { refreshViaAgent, readFeedState, type AgentWorkerResult } from "../../src/feeds/server/index.ts";
 import type { LoadedCollection } from "../../src/collection/server/index.ts";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 // Hand-build a skill-backed collection with agent ingest. `withTemplate`
 // controls whether the on-disk template exists (the missing-template path).
@@ -43,7 +44,7 @@ beforeEach(() => {
 
 describe("refreshViaAgent — dispatch", () => {
   it("dispatches a worker and stamps lastFetchedAt on a successful launch", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "agent-ingest-"));
+    const root = makeTempDir("agent-ingest-");
     const collection = makeAgentCollection(root, "quotes-ok", true);
     let seenRole: string | null = null;
     let seenHidden: boolean | undefined;
@@ -64,7 +65,7 @@ describe("refreshViaAgent — dispatch", () => {
   });
 
   it("runs a VISIBLE worker with no completion hook when hidden:false (manual Refresh)", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "agent-ingest-"));
+    const root = makeTempDir("agent-ingest-");
     const collection = makeAgentCollection(root, "quotes-manual", true);
     let seenHidden: boolean | undefined;
     let seenOnComplete: unknown = "unset";
@@ -81,7 +82,7 @@ describe("refreshViaAgent — dispatch", () => {
   });
 
   it("leaves state untouched and reports the error on a cap-miss", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "agent-ingest-"));
+    const root = makeTempDir("agent-ingest-");
     const collection = makeAgentCollection(root, "quotes-cap", true);
     setTestWorker(async (): Promise<AgentWorkerResult> => ({ ok: false, error: "too many background sessions" }));
 
@@ -94,7 +95,7 @@ describe("refreshViaAgent — dispatch", () => {
   });
 
   it("reports a missing template without dispatching", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "agent-ingest-"));
+    const root = makeTempDir("agent-ingest-");
     const collection = makeAgentCollection(root, "quotes-notmpl", false);
     let launched = false;
     setTestWorker(async (): Promise<AgentWorkerResult> => {
@@ -111,7 +112,7 @@ describe("refreshViaAgent — dispatch", () => {
 
 describe("refreshViaAgent — completion outcome", () => {
   it("increments consecutiveFailures and raises a bell on error, then clears on success", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "agent-ingest-"));
+    const root = makeTempDir("agent-ingest-");
     const collection = makeAgentCollection(root, "quotes-outcome", true);
     let onComplete: ((o: { didError: boolean }) => void | Promise<void>) | undefined;
     setTestWorker(async (args): Promise<AgentWorkerResult> => {

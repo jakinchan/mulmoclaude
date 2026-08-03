@@ -8,11 +8,12 @@ import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import path from "path";
-import { tmpdir, homedir } from "os";
+import { homedir } from "os";
 import { loadReferenceDirs, validateReferenceDirs } from "../../server/workspace/reference-dirs.ts";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 function tmpRoot(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), "reference-dirs-"));
+  const dir = makeTempDir("reference-dirs-");
   mkdirSync(path.join(dir, "config"), { recursive: true });
   return dir;
 }

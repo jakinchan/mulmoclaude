@@ -14,14 +14,15 @@
 
 import { beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "fs/promises";
-import { tmpdir } from "os";
+import { mkdir, writeFile } from "fs/promises";
+
 import path from "path";
 import { __resetForTests, maybeRunJournal } from "../../server/workspace/journal/index.js";
 import { ClaudeCliNotFoundError, type Summarize } from "../../server/workspace/journal/archivist-cli.js";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 async function makeFreshWorkspace(): Promise<string> {
-  const tmpRoot = await mkdtemp(path.join(tmpdir(), "mulmo-maybe-run-journal-"));
+  const tmpRoot = makeTempDir("mulmo-maybe-run-journal-");
   // One text event so dailyPass has something to summarise.
   // `parseEntry` only accepts EVENT_TYPES.text / .toolResult — a
   // session with zero parseable events bucketizes empty and the

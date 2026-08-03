@@ -4,14 +4,15 @@
 // broker, and it cannot drive the loopback consent.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
+
 import path from "node:path";
 
 import { clientSecretPresence, findClientSecretPath, googleSecretsDir, loadClientSecret } from "@mulmoclaude/core/google";
+import { makeTempDir } from "../../helpers/tempDir.js";
 
 const makeFakeHome = async (files: Record<string, string> = {}): Promise<string> => {
-  const home = await mkdtemp(path.join(tmpdir(), "google-secret-test-"));
+  const home = makeTempDir("google-secret-test-");
   const dir = googleSecretsDir(home);
   await mkdir(dir, { recursive: true });
   for (const [name, content] of Object.entries(files)) {
@@ -55,7 +56,7 @@ describe("findClientSecretPath", () => {
   });
 
   it("points at the sign-in service when ~/.secrets does not exist", async () => {
-    const home = await mkdtemp(path.join(tmpdir(), "google-secret-test-"));
+    const home = makeTempDir("google-secret-test-");
     await assert.rejects(findClientSecretPath(home), /links through the sign-in service/);
   });
 });

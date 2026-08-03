@@ -2,7 +2,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -15,6 +15,7 @@ import {
   validateDevPluginPath,
 } from "../../server/plugins/dev-loader.js";
 import type { RuntimePlugin } from "../../server/plugins/runtime-loader.js";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 interface FixtureOpts {
   /** Override the package.json's `name`. Default `@fixture/dev-plugin`. */
@@ -28,7 +29,7 @@ interface FixtureOpts {
 }
 
 function makeDevPluginFixture(opts: FixtureOpts = {}): string {
-  const dir = mkdtempSync(path.join(tmpdir(), "mulmo-dev-plugin-"));
+  const dir = makeTempDir("mulmo-dev-plugin-");
   if (!opts.omitPackageJson) {
     const pkg: Record<string, unknown> = {
       version: "0.1.0",
@@ -117,7 +118,7 @@ describe("validateDevPluginPath", () => {
   });
 
   it("rejects a path that is a file, not a directory", async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "mulmo-dev-plugin-file-"));
+    const dir = makeTempDir("mulmo-dev-plugin-file-");
     const filePath = path.join(dir, "not-a-dir");
     writeFileSync(filePath, "");
     const result = await validateDevPluginPath(filePath);

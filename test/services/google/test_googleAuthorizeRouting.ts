@@ -4,10 +4,11 @@
 // (which would ignore the user's deliberate setup).
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
+
 import path from "node:path";
 
+import { makeTempDir } from "../../helpers/tempDir.js";
 import {
   authorizeGoogle,
   clientSecretPresence,
@@ -22,7 +23,7 @@ import {
 const desktopSecret = JSON.stringify({ installed: { client_id: "id-123", client_secret: "secret-456" } });
 
 const makeFakeHome = async (files: Record<string, string> = {}): Promise<string> => {
-  const home = await mkdtemp(path.join(tmpdir(), "google-authorize-test-"));
+  const home = makeTempDir("google-authorize-test-");
   const dir = googleSecretsDir(home);
   await mkdir(dir, { recursive: true });
   for (const [name, content] of Object.entries(files)) {

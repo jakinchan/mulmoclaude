@@ -1,14 +1,15 @@
 import "./_setup.ts"; // configure @mulmoclaude/core collection + feeds hosts for tests
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
+
 import path from "node:path";
 import { registerRetriever } from "../../src/feeds/server/retrievers/index.ts";
 import { refreshOne } from "../../src/feeds/server/engine.ts";
 import { listItems, type LoadedCollection } from "../../src/collection/server/index.ts";
 import type { CollectionItem } from "../../src/collection/index.ts";
 import type { IngestSpec } from "../../src/feeds/ingestTypes.ts";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 // Cast helper: tests use synthetic ingest kinds (the LoadedCollection is
 // hand-built, bypassing schema validation), so widen past the real union.
@@ -41,7 +42,7 @@ function makeFeed(root: string): LoadedCollection {
 
 describe("refreshOne — keyed upsert", () => {
   it("writes records on first fetch and upserts by primaryKey on the next", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "feeds-engine-"));
+    const root = makeTempDir("feeds-engine-");
     const feed = makeFeed(root);
 
     nextItems = [
@@ -74,7 +75,7 @@ describe("refreshOne — keyed upsert", () => {
   });
 
   it("isolates a retriever failure into the errors array (never throws)", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "feeds-engine-"));
+    const root = makeTempDir("feeds-engine-");
     const feed = makeFeed(root);
     feed.schema.ingest = fakeIngest("missing-kind");
     const result = await refreshOne(root, feed);
@@ -105,7 +106,7 @@ function makeCappedFeed(root: string, maxItems: number): LoadedCollection {
 
 describe("refreshOne — maxItems cap", () => {
   it("keeps only the newest N records by the schema's date field", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "feeds-cap-"));
+    const root = makeTempDir("feeds-cap-");
     const feed = makeCappedFeed(root, 2);
     nextItems = [
       { id: "a", when: "2026-01-01T00:00:00.000Z" },
@@ -121,7 +122,7 @@ describe("refreshOne — maxItems cap", () => {
   });
 
   it("does not prune when under the cap", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "feeds-cap-"));
+    const root = makeTempDir("feeds-cap-");
     const feed = makeCappedFeed(root, 100);
     nextItems = [{ id: "a", when: "2026-01-01T00:00:00.000Z" }];
     const result = await refreshOne(root, feed);
@@ -138,7 +139,7 @@ describe("refreshOne — maxItems cap", () => {
 // bots were rate-limited on that PR.)
 describe("refreshOne — local columns and unreadable records (#2696)", () => {
   it("keeps a column the ingest does not produce", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "feeds-local-"));
+    const root = makeTempDir("feeds-local-");
     const feed = makeFeed(root);
 
     nextItems = [{ id: "a", title: "A" }];
@@ -158,7 +159,7 @@ describe("refreshOne — local columns and unreadable records (#2696)", () => {
   });
 
   it("replaces an unreadable record instead of failing the whole refresh", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "feeds-corrupt-"));
+    const root = makeTempDir("feeds-corrupt-");
     const feed = makeFeed(root);
 
     nextItems = [{ id: "a", title: "A" }];

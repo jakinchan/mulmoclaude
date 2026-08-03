@@ -1,12 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from "fs";
+import { writeFileSync, mkdirSync, existsSync } from "fs";
 import path from "path";
-import { tmpdir } from "os";
+
 import { loadCustomDirs, ensureCustomDirs, buildCustomDirsPrompt, validateCustomDirs, DIR_STRUCTURES } from "../../server/workspace/custom-dirs.ts";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 function tmpRoot(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), "custom-dirs-"));
+  const dir = makeTempDir("custom-dirs-");
   mkdirSync(path.join(dir, "config"), { recursive: true });
   return dir;
 }
