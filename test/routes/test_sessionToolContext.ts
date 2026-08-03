@@ -45,6 +45,20 @@ describe("sessionToolContext (#2754)", () => {
     assert.equal(sessionToolContext(reqWith({}), TOOL_NAMES.createMindMap).currentResult, undefined);
   });
 
+  // #2758 generalised this past mindmap: every plugin route that used to get a
+  // frozen empty context now gets its own tool's latest result. The risk of
+  // widening it is one tool seeing another's state, so that is what is pinned.
+  it("gives each wired tool its own result, and never another tool's", async () => {
+    session("s1");
+    await pushToolResult("s1", { toolName: TOOL_NAMES.putQuestions, message: "q", data: { quiz: 1 } });
+    await pushToolResult("s1", { toolName: TOOL_NAMES.present3D, message: "3d", data: { scene: 2 } });
+    const req = reqWith({ session: "s1" });
+    assert.deepEqual(sessionToolContext(req, TOOL_NAMES.putQuestions).currentResult?.data, { quiz: 1 });
+    assert.deepEqual(sessionToolContext(req, TOOL_NAMES.present3D).currentResult?.data, { scene: 2 });
+    assert.equal(sessionToolContext(req, TOOL_NAMES.mapControl).currentResult, undefined, "an untouched tool stays on the empty context");
+    assert.equal(sessionToolContext(req, TOOL_NAMES.createMindMap).currentResult, undefined);
+  });
+
   it("does not leak another session's map", async () => {
     session("s1");
     session("s2");
