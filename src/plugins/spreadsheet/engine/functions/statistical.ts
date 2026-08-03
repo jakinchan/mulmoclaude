@@ -2,7 +2,16 @@
  * Statistical Functions
  */
 
-import { functionRegistry, requiredArg, toNumber, parseCriteria, type FunctionContext, type FunctionHandler, type RangeGetter } from "../registry";
+import {
+  functionRegistry,
+  rawRangeReader,
+  requiredArg,
+  toNumber,
+  parseCriteria,
+  type FunctionContext,
+  type FunctionHandler,
+  type RangeGetter,
+} from "../registry";
 import { computeAverage, computeMedian, computeMode, sampleStdev, sampleVariance } from "./statistical-math";
 import { DIV_ZERO_ERROR } from "../spreadsheet-errors";
 import { holdsNumber } from "../numericCoercion";
@@ -55,8 +64,6 @@ const collectArgumentValues = (args: string[], context: FunctionContext, readRan
 
   return collected;
 };
-
-const rawRangeReader = (context: FunctionContext): RangeGetter => context.getRangeValuesRaw ?? context.getRangeValues;
 
 const collectNumericValues = (args: string[], context: FunctionContext): number[] =>
   collectArgumentValues(args, context, context.getRangeValues).map(({ value }) => toNumber(value));
