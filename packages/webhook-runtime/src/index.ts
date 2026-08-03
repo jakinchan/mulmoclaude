@@ -153,8 +153,8 @@ export function verifyMetaHmacSignature(rawBody: string, signature: string, appS
   return verifyHmacSignature(rawBody, signature.replace("sha256=", ""), appSecret, "sha256", "hex");
 }
 
-export interface MetaWebhookEventsOptions {
-  rateLimit: RateLimitRequestHandler;
+export interface MetaWebhookOptions {
+  verifyToken: string;
   appSecret: string;
   /** Log prefix, e.g. "messenger" / "whatsapp". */
   label: string;
@@ -166,12 +166,22 @@ export interface MetaWebhookEventsOptions {
   onBody: (rawBody: string) => Promise<void>;
 }
 
-// Register the shared Meta webhook-events POST handler (Messenger, WhatsApp).
-// The body arrives as raw text (see createWebhookApp) so the HMAC covers exactly
-// the bytes Meta signed. Rate-limited per-IP by `opts.rateLimit`, whose
-// middleware writes its own 429 — the handler only sees admitted requests.
-export function registerMetaWebhookEvents(app: Express, opts: MetaWebhookEventsOptions): void {
-  app.post("/webhook", opts.rateLimit, async (req: Request, res: Response) => {
+// Register both halves of a Meta webhook (Messenger, WhatsApp): the GET
+// verification handshake and the POST event delivery. The POST body arrives as
+// raw text (see createWebhookApp) so the HMAC covers exactly the bytes Meta
+// signed.
+//
+// One limiter covers both routes — a flood of bogus `hub.challenge` GET probes
+// hammers the bridge just as effectively as POST traffic, so they share a
+// bucket rather than getting one cap each. It is built HERE rather than taken
+// as an argument because `js/missing-rate-limiting` only recognises the
+// `express-rate-limit` call when it is visible at route setup; behind a
+// parameter CodeQL cannot tell the signature check is throttled.
+export function registerMetaWebhook(app: Express, opts: MetaWebhookOptions): void {
+  const webhookRateLimit = createWebhookRateLimit();
+  registerMetaWebhookVerification(app, { rateLimit: webhookRateLimit, verifyToken: opts.verifyToken, label: opts.label });
+
+  app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
     const signature = typeof req.headers["x-hub-signature-256"] === "string" ? req.headers["x-hub-signature-256"] : "";
     const rawBody = typeof req.body === "string" ? req.body : "";
 

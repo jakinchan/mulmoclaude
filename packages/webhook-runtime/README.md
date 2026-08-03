@@ -15,12 +15,17 @@ Messenger, Google Chat).
 
 For the Meta platforms (Messenger, WhatsApp), which share one webhook contract:
 
-- `registerMetaWebhookVerification(app, { rateLimit, verifyToken, label })` —
-  the GET handshake that echoes `hub.challenge` only after the token matches.
-- `registerMetaWebhookEvents(app, { rateLimit, appSecret, label, ackBody?, onBody })` —
-  the POST handler: `x-hub-signature-256` check → `401` on failure, otherwise
-  ack `200` **before** awaiting `onBody(rawBody)` so a slow handler can't
-  trigger a Meta redelivery.
+- `registerMetaWebhook(app, { verifyToken, appSecret, label, ackBody?, onBody })` —
+  the whole `/webhook` surface in one call:
+  - **GET** — the handshake that echoes `hub.challenge` only after the token matches.
+  - **POST** — `x-hub-signature-256` check → `401` on failure, otherwise ack `200`
+    **before** awaiting `onBody(rawBody)` so a slow handler can't trigger a Meta
+    redelivery.
+
+  Both routes share one rate-limit bucket, built inside the registrar (a flood of
+  bogus `hub.challenge` GETs hammers the bridge just as effectively as POSTs).
+- `registerMetaWebhookVerification(app, { rateLimit, verifyToken, label })` — the
+  GET half on its own, for a caller that owns the limiter.
 - `verifyMetaHmacSignature(body, signature, appSecret)` — the hex/SHA-256 HMAC
   check with Meta's `sha256=` prefix stripped.
 

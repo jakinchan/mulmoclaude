@@ -12,7 +12,7 @@
 //   MESSENGER_BRIDGE_PORT — Webhook port (default: 3004)
 
 import "dotenv/config";
-import { createWebhookApp, createWebhookRateLimit, registerMetaWebhookEvents, registerMetaWebhookVerification } from "@mulmobridge/webhook-runtime";
+import { createWebhookApp, registerMetaWebhook } from "@mulmobridge/webhook-runtime";
 import { createBridgeClient, chunkText } from "@mulmobridge/client";
 import { extractMessengerMessages, type MessengerTextMessage } from "@mulmoclaude/common/meta-webhook";
 
@@ -66,14 +66,8 @@ async function sendTextMessage(recipientId: string, text: string): Promise<void>
 
 // ── Webhook server ──────────────────────────────────────────────
 
-const webhookRateLimit = createWebhookRateLimit();
 // bodyLimit 1mb: Meta can send larger payloads than Express's 100kb default.
 const app = createWebhookApp({ bodyLimit: "1mb" });
-
-// Webhook verification (GET). Rate-limited so a flood of bogus `hub.challenge`
-// probes can't hammer the bridge before the `hub.verify_token` check rejects
-// them; the shared handler applies the `js/reflected-xss` challenge whitelist.
-registerMetaWebhookVerification(app, { rateLimit: webhookRateLimit, verifyToken, label: "messenger" });
 
 async function handleWebhookBody(rawBody: string): Promise<void> {
   let parsed: unknown;
@@ -88,7 +82,7 @@ async function handleWebhookBody(rawBody: string): Promise<void> {
   }
 }
 
-registerMetaWebhookEvents(app, { rateLimit: webhookRateLimit, appSecret, label: "messenger", onBody: handleWebhookBody });
+registerMetaWebhook(app, { verifyToken, appSecret, label: "messenger", onBody: handleWebhookBody });
 
 function redactId(resourceId: string): string {
   return resourceId.length > 6 ? `${resourceId.slice(0, 3)}***${resourceId.slice(-3)}` : "***";

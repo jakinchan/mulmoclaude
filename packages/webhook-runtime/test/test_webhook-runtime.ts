@@ -9,7 +9,7 @@ import {
   createWebhookRateLimit,
   metaVerificationResult,
   narrowChallenge,
-  registerMetaWebhookEvents,
+  registerMetaWebhook,
   SAFE_CHALLENGE_RE,
   verifyHmacSignature,
   verifyMetaHmacSignature,
@@ -222,9 +222,9 @@ describe("verifyMetaHmacSignature", () => {
   });
 });
 
-// End-to-end over a real socket: the Messenger / WhatsApp bridges register this
-// handler and nothing else, so a regression in the raw-text body parser, the
-// middleware order, or the ack-before-process ordering is only visible here.
+// End-to-end over a real socket: this one call is the whole webhook surface of
+// the Messenger / WhatsApp bridges, so a regression in the raw-text body parser,
+// the middleware order, or the ack-before-process ordering is only visible here.
 interface WebhookFixture {
   baseUrl: string;
   received: string[];
@@ -240,11 +240,13 @@ const listenOnEphemeralPort = async (server: http.Server): Promise<number> => {
   return address.port;
 };
 
+const VERIFY_TOKEN = "verify-me";
+
 async function startEventsApp(opts: { ackBody?: string; onBody?: (raw: string) => Promise<void> } = {}): Promise<WebhookFixture> {
   const received: string[] = [];
   const app = createWebhookApp();
-  registerMetaWebhookEvents(app, {
-    rateLimit: createWebhookRateLimit(),
+  registerMetaWebhook(app, {
+    verifyToken: VERIFY_TOKEN,
     appSecret: SECRET,
     label: "test",
     ackBody: opts.ackBody,
@@ -274,7 +276,7 @@ const postWebhook = (baseUrl: string, body: string, signature?: string) =>
 
 const metaSignature = (body: string) => `sha256=${crypto.createHmac("SHA256", SECRET).update(body).digest("hex")}`;
 
-describe("registerMetaWebhookEvents", () => {
+describe("registerMetaWebhook", () => {
   const BODY = '{"entry":[{"id":"1"}]}';
 
   it("acks 200 and hands the raw body to onBody on a valid signature", async () => {
@@ -316,6 +318,23 @@ describe("registerMetaWebhookEvents", () => {
       const res = await postWebhook(fixture.baseUrl, BODY);
       assert.equal(res.status, 401);
       assert.deepEqual(fixture.received, []);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("registers the GET verification handshake from the same call", async () => {
+    // Both routes come from one registrar so they share a rate-limit bucket;
+    // this pins that the GET half is still wired up.
+    const fixture = await startEventsApp();
+    try {
+      const query = `hub.mode=subscribe&hub.verify_token=${VERIFY_TOKEN}&hub.challenge=nonce123`;
+      const ok = await fetch(`${fixture.baseUrl}/webhook?${query}`);
+      assert.equal(ok.status, 200);
+      assert.equal(await ok.text(), "nonce123");
+
+      const wrong = await fetch(`${fixture.baseUrl}/webhook?hub.mode=subscribe&hub.verify_token=nope&hub.challenge=nonce123`);
+      assert.equal(wrong.status, 403);
     } finally {
       await fixture.close();
     }
