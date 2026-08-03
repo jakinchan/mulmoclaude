@@ -92,13 +92,15 @@ describe("evaluateDerived — sum()", () => {
   });
 });
 
-describe("evaluateDerived — long operator chains parse without stack growth", () => {
-  // A formula is user input, so chain length must not decide whether parsing
-  // overflows the stack and fails soft to null.
+describe("evaluateDerived — long operator chains parse and evaluate without stack growth", () => {
+  // A formula is user input, so chain length must not decide whether we
+  // overflow the stack — parsing it (fails soft to null) or evaluating the
+  // left-leaning AST it builds (the RangeError escapes the null contract
+  // entirely and lands on the caller).
   const SUM_FACTOR_COUNT = 20_000;
-  // `+` / `*` chains build a left-leaning AST that the evaluator walks
-  // recursively, so they stay far below that (separate, pre-existing) limit.
-  const TERM_COUNT = 2_000;
+  // Above every overflow threshold observed for the recursive evaluator; the
+  // exact one moves with JIT warm-up, so nothing here pins a boundary.
+  const TERM_COUNT = 50_000;
 
   it("parses a sum() with 20k factors instead of failing soft to null", () => {
     const record = { items: [{ v: 1, k: 3 }] };
@@ -106,17 +108,28 @@ describe("evaluateDerived — long operator chains parse without stack growth", 
     assert.equal(evaluateDerived(formula, { record }), 3);
   });
 
-  it("parses a long '+' chain", () => {
+  it("evaluates a long '+' chain", () => {
     assert.equal(evaluateDerived(`1${" + 1".repeat(TERM_COUNT - 1)}`, { record: {} }), TERM_COUNT);
   });
 
-  it("parses a long '*' chain", () => {
+  it("evaluates a long '*' chain", () => {
     assert.equal(evaluateDerived(`7${" * 1".repeat(TERM_COUNT - 1)}`, { record: {} }), 7);
   });
 
-  it("parses a long '-' / '/' chain (left-associative to the end)", () => {
+  it("evaluates a long '-' / '/' chain (left-associative to the end)", () => {
     assert.equal(evaluateDerived(`${TERM_COUNT}${" - 1".repeat(TERM_COUNT - 1)}`, { record: {} }), 1);
     assert.equal(evaluateDerived(`8${" / 1".repeat(TERM_COUNT - 1)}`, { record: {} }), 8);
+  });
+
+  it("evaluates a long chain of identifiers, ref derefs and sum() calls", () => {
+    const record = { amount: 2, items: [{ v: 3 }] };
+    const refs = { ticker: { price: 5 } };
+    const term = "amount + ticker.price + sum(items[].v)";
+    assert.equal(evaluateDerived(Array(TERM_COUNT).fill(term).join(" + "), { record, refs }), 10 * TERM_COUNT);
+  });
+
+  it("mixes precedence across a long chain", () => {
+    assert.equal(evaluateDerived(`1${" + 2 * 3".repeat(TERM_COUNT)}`, { record: {} }), 1 + 6 * TERM_COUNT);
   });
 });
 
