@@ -8,7 +8,6 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import typescript from "typescript";
 
 import { isRecord } from "../../server/utils/types.js";
 
@@ -34,26 +33,74 @@ const findFiles = (dir: string, matches: (name: string) => boolean): string[] =>
   return found;
 };
 
+interface StrictFlags {
+  noUncheckedIndexedAccess?: boolean;
+  exactOptionalPropertyTypes?: boolean;
+}
+
 interface ConfigCheck {
   file: string;
   bothFlags: boolean;
-  errors: string[];
+  problem: string;
 }
+
+const readJsonObject = (filePath: string): Record<string, unknown> => {
+  const parsed: unknown = JSON.parse(readFileSync(filePath, "utf-8"));
+  if (!isRecord(parsed)) throw new Error(`not a JSON object: ${relativePosix(filePath)}`);
+  return parsed;
+};
+
+// Unsupported `extends` forms throw rather than resolving to "no flags found",
+// so a config this gate cannot follow fails loudly instead of passing blank.
+const extendsTargets = (config: Record<string, unknown>, configPath: string): string[] => {
+  const declared = config.extends;
+  if (declared === undefined) return [];
+  const entries = Array.isArray(declared) ? declared : [declared];
+  return entries.map((entry) => {
+    if (typeof entry !== "string") throw new Error(`non-string extends in ${relativePosix(configPath)}`);
+    if (!entry.startsWith(".")) throw new Error(`package-style extends is not resolvable here: "${entry}" in ${relativePosix(configPath)}`);
+    return path.resolve(path.dirname(configPath), entry);
+  });
+};
+
+const ownFlags = (config: Record<string, unknown>): StrictFlags => {
+  const options = isRecord(config.compilerOptions) ? config.compilerOptions : {};
+  const { noUncheckedIndexedAccess, exactOptionalPropertyTypes } = options;
+  return {
+    ...(typeof noUncheckedIndexedAccess === "boolean" ? { noUncheckedIndexedAccess } : {}),
+    ...(typeof exactOptionalPropertyTypes === "boolean" ? { exactOptionalPropertyTypes } : {}),
+  };
+};
 
 // The effective value after `extends` resolution, never the literal text: 7 of
 // the 59 are `*.build.json` that inherit both flags from a sibling, and 34
 // inherit them from `config/tsconfig.packages.json`. A grep would call all 41
 // of them violations.
+//
+// Resolved by hand rather than through the TypeScript compiler API on purpose.
+// Importing `typescript` into a linted file pulls the whole compiler `.d.ts`
+// into typescript-eslint's type-aware program: it took `yarn lint` from 0.45 GB
+// to 2.05 GB peak and OOM-killed both macOS CI runners. Output was verified
+// equal to `parseJsonConfigFileContent` across all 59 configs.
+const resolveFlags = (configPath: string, seen: Set<string>): StrictFlags => {
+  if (seen.has(configPath)) throw new Error(`extends cycle at ${relativePosix(configPath)}`);
+  seen.add(configPath);
+  const config = readJsonObject(configPath);
+  const inherited = extendsTargets(config, configPath).reduce<StrictFlags>((merged, target) => ({ ...merged, ...resolveFlags(target, new Set(seen)) }), {});
+  return { ...inherited, ...ownFlags(config) };
+};
+
 const checkConfig = (configPath: string): ConfigCheck => {
-  const read = typescript.readConfigFile(configPath, typescript.sys.readFile);
-  const parsed = typescript.parseJsonConfigFileContent(read.config ?? {}, typescript.sys, path.dirname(configPath));
-  const diagnostics = read.error ? [read.error, ...parsed.errors] : parsed.errors;
-  const failures = diagnostics.filter((diagnostic) => diagnostic.category === typescript.DiagnosticCategory.Error);
-  return {
-    file: relativePosix(configPath),
-    bothFlags: parsed.options.noUncheckedIndexedAccess === true && parsed.options.exactOptionalPropertyTypes === true,
-    errors: failures.map((diagnostic) => typescript.flattenDiagnosticMessageText(diagnostic.messageText, " ")),
-  };
+  try {
+    const flags = resolveFlags(configPath, new Set());
+    return {
+      file: relativePosix(configPath),
+      bothFlags: flags.noUncheckedIndexedAccess === true && flags.exactOptionalPropertyTypes === true,
+      problem: "",
+    };
+  } catch (error) {
+    return { file: relativePosix(configPath), bothFlags: false, problem: error instanceof Error ? error.message : String(error) };
+  }
 };
 
 interface VuePackage {
@@ -94,10 +141,10 @@ describe("packages/** tsconfig — strictness flags", () => {
     );
   });
 
-  it("parses every one without error", () => {
-    const broken = configs.map(checkConfig).filter((config) => config.errors.length > 0);
+  it("resolves every one without error", () => {
+    const broken = configs.map(checkConfig).filter((config) => config.problem !== "");
     assert.deepEqual(
-      broken.map((config) => `${config.file}: ${config.errors.join("; ")}`),
+      broken.map((config) => `${config.file}: ${config.problem}`),
       [],
     );
   });
