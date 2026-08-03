@@ -1,6 +1,6 @@
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import type { FileOps } from "gui-chat-protocol";
@@ -350,10 +350,14 @@ describe("buildBeatIdIndex", () => {
 });
 
 describe("resolveStory — wire path spellings", () => {
+  const workspaces: string[] = [];
+  after(() => workspaces.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+
   // Real temp dir: resolveStory realpaths the stories dir and requires
   // the target to exist, so the stub storiesDir used above won't do.
   function makeRealOps() {
     const workspace = mkdtempSync(path.join(tmpdir(), "mulmoscript-resolve-"));
+    workspaces.push(workspace);
     const storiesDir = path.join(workspace, "artifacts", "stories");
     mkdirSync(storiesDir, { recursive: true });
     writeFileSync(path.join(storiesDir, "foo.json"), "{}");

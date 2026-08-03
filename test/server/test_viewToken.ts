@@ -6,17 +6,18 @@
 
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "fs";
+
 import path from "path";
-import { tmpdir } from "os";
+
 import type { Request, Response, NextFunction } from "express";
 import { __resetForTests, generateAndWriteToken } from "../../server/api/auth/token.js";
 import { clampCapabilities, isViewDataPath, mintViewToken, requireViewToken, verifyViewToken, VIEW_TOKEN_TTL_MS } from "../../server/api/auth/viewToken.js";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 let tmpDir = "";
 
 beforeEach(async () => {
-  tmpDir = mkdtempSync(path.join(tmpdir(), "mulmo-viewtoken-test-"));
+  tmpDir = makeTempDir("mulmo-viewtoken-test-");
   __resetForTests();
   await generateAndWriteToken(path.join(tmpDir, ".session-token"));
 });

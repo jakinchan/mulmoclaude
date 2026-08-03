@@ -13,12 +13,13 @@
 
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "fs";
+
 import path from "path";
-import { tmpdir } from "os";
+
 import type { Request, Response, NextFunction } from "express";
 import { bearerAuth } from "../../server/api/auth/bearerAuth.js";
 import { __resetForTests, generateAndWriteToken } from "../../server/api/auth/token.js";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 interface FakeReq {
   headers: { authorization?: string };
@@ -74,7 +75,7 @@ let tokenPath = "";
 let validToken = "";
 
 beforeEach(async () => {
-  tmpDir = mkdtempSync(path.join(tmpdir(), "mulmo-auth-test-"));
+  tmpDir = makeTempDir("mulmo-auth-test-");
   tokenPath = path.join(tmpDir, ".session-token");
   __resetForTests();
   validToken = await generateAndWriteToken(tokenPath);

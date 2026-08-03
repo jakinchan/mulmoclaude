@@ -8,13 +8,14 @@
 // folded into `configureFeedsHost` in production (single-shot); tests vary it per
 // case, so `spawnWorker` delegates to a swappable holder exposed via
 // `setTestWorker`.
-import { mkdtempSync } from "node:fs";
+
 import { mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+
 import path from "node:path";
 import { configureCollectionHost } from "../../src/collection/server/index.ts";
 import { configureNotifier, setNotifierFilePaths } from "../../src/notifier/index.ts";
 import { configureFeedsHost, type AgentWorkerRunner } from "../../src/feeds/server/index.ts";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 const noopLog = { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} };
 const PLACEHOLDER_ROOT = "/feeds-test-placeholder";
@@ -33,7 +34,7 @@ export function setTestWorker(runner: AgentWorkerRunner): void {
  *  `setTestWorker()` can't silently reuse the previous test's runner. */
 export function resetNotifierForTest(): void {
   currentRunner = DEFAULT_RUNNER;
-  const dir = mkdtempSync(path.join(tmpdir(), "feeds-notifier-"));
+  const dir = makeTempDir("feeds-notifier-");
   configureNotifier({
     writeJson: async (filePath, data) => {
       await mkdir(path.dirname(filePath), { recursive: true });

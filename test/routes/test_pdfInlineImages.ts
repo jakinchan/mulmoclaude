@@ -7,10 +7,11 @@
 
 import { beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { tmpdir } from "node:os";
+
 import { inlineImages, shouldSkipMediaForPdf } from "../../server/api/routes/pdf.js";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 let workspaceRoot: string;
 let imagesDir: string;
@@ -19,7 +20,7 @@ let pngPath: string;
 const PNG_BYTES = Buffer.from("89504E470D0A1A0A0000000D49484452", "hex"); // PNG header bytes
 
 beforeEach(() => {
-  workspaceRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "pdf-inline-")));
+  workspaceRoot = realpathSync(makeTempDir("pdf-inline-"));
   imagesDir = path.join(workspaceRoot, "artifacts", "images", "2026", "04");
   mkdirSync(imagesDir, { recursive: true });
   // A real markdowns/ dir so "../images/..." resolves through it.

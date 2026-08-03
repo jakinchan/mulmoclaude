@@ -1,10 +1,11 @@
 import "./_setup.ts"; // configure @mulmoclaude/core collection + feeds hosts for tests
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+
 import path from "node:path";
 import { listFeeds, removeFeed } from "../../src/feeds/server/index.ts";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 // Feeds are now agent-authored files (no register tool): a
 // feeds/<slug>/schema.json under the workspace. listFeeds() discovers
@@ -17,7 +18,7 @@ function writeFeedSchema(root: string, slug: string, schema: Record<string, unkn
 
 describe("listFeeds — discovery of agent-authored feed files", () => {
   it("discovers a feed and defaults icon + dataPath when omitted", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "feeds-discovery-"));
+    const root = makeTempDir("feeds-discovery-");
     writeFeedSchema(root, "news", {
       title: "News",
       primaryKey: "id",
@@ -32,7 +33,7 @@ describe("listFeeds — discovery of agent-authored feed files", () => {
   });
 
   it("keeps an explicit icon but FORCES dataPath to the feed namespace", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "feeds-discovery-"));
+    const root = makeTempDir("feeds-discovery-");
     writeFeedSchema(root, "wx", {
       title: "Weather",
       icon: "cloud",
@@ -48,7 +49,7 @@ describe("listFeeds — discovery of agent-authored feed files", () => {
   });
 
   it("excludes a feed-dir schema that has no `ingest` block", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "feeds-discovery-"));
+    const root = makeTempDir("feeds-discovery-");
     writeFeedSchema(root, "noingest", {
       title: "No Ingest",
       primaryKey: "id",
@@ -59,7 +60,7 @@ describe("listFeeds — discovery of agent-authored feed files", () => {
   });
 
   it("removeFeed deletes both the feed registry dir and its records", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "feeds-discovery-"));
+    const root = makeTempDir("feeds-discovery-");
     writeFeedSchema(root, "gone", {
       title: "Gone",
       primaryKey: "id",
@@ -77,7 +78,7 @@ describe("listFeeds — discovery of agent-authored feed files", () => {
   });
 
   it("removeFeed only touches data/feeds/<slug>, never another app's data", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "feeds-discovery-"));
+    const root = makeTempDir("feeds-discovery-");
     // A feed that (maliciously) points dataPath at data/wiki — discovery
     // forces it back to data/feeds/<slug>, and removeFeed derives from slug.
     writeFeedSchema(root, "evil", {
@@ -96,7 +97,7 @@ describe("listFeeds — discovery of agent-authored feed files", () => {
   });
 
   it("skips a schema whose primaryKey field is not flagged primary", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "feeds-discovery-"));
+    const root = makeTempDir("feeds-discovery-");
     writeFeedSchema(root, "broken", {
       title: "Broken",
       primaryKey: "id",

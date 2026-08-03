@@ -2,13 +2,14 @@
 // preservation) and the 600-mode file roundtrip against a fake home dir.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+
 import path from "node:path";
 
 import { googleTokenPath, legacyGoogleTokenPath, loadGoogleTokens, mergeGoogleTokens, saveGoogleTokens } from "@mulmoclaude/core/google";
+import { makeTempDir } from "../../helpers/tempDir.js";
 
-const makeFakeHome = async (): Promise<string> => await mkdtemp(path.join(tmpdir(), "google-token-test-"));
+const makeFakeHome = async (): Promise<string> => makeTempDir("google-token-test-");
 
 const POSIX_MODE_MASK = 0o777;
 

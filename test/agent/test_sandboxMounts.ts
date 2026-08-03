@@ -1,8 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
+
+import { makeTempDir } from "../helpers/tempDir.js";
 import {
   buildAllowedConfigMounts,
   resolveMountNames,
@@ -15,7 +16,7 @@ import {
 // the developer running CI actually has ~/.config/gh or a ~/.gitconfig.
 
 function makeFixtureHome(opts: { gh?: boolean; gitconfig?: boolean }): string {
-  const dir = mkdtempSync(path.join(tmpdir(), "sandbox-mounts-"));
+  const dir = makeTempDir("sandbox-mounts-");
   if (opts.gh) {
     const ghDir = path.join(dir, ".config", "gh");
     mkdirSync(ghDir, { recursive: true });
@@ -167,7 +168,7 @@ describe("sshAgentForwardArgs", () => {
   });
 
   it("binds socket and sets SSH_AUTH_SOCK when sock exists (Linux)", () => {
-    const fake = path.join(mkdtempSync(path.join(tmpdir(), "sock-")), "agent.sock");
+    const fake = path.join(makeTempDir("sock-"), "agent.sock");
     writeFileSync(fake, "");
     const result = sshAgentForwardArgs(true, fake, "linux");
     assert.equal(result.skippedReason, null);

@@ -16,8 +16,8 @@
 
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+
 import path from "node:path";
 import type { Request, Response, Router } from "express";
 import mulmoScriptRouter from "../../server/api/routes/mulmo-script.js";
@@ -27,6 +27,7 @@ import type { AppSettings } from "../../server/system/config.js";
 import { initNotifier, _setFilePathsForTesting } from "../../server/notifier/engine.js";
 import { log } from "../../server/system/logger/index.js";
 import { API_ROUTES } from "../../src/config/apiRoutes.js";
+import { makeTempDir } from "../helpers/tempDir.js";
 
 const VOICE_OFF: AppSettings = { extraAllowedTools: [] };
 const VOICE_ON: AppSettings = { extraAllowedTools: [], voiceInput: { enabled: true } };
@@ -131,7 +132,7 @@ describe("optional-deps: boot announcement", () => {
   const originalWarn = log.warn;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(path.join(tmpdir(), "mulmo-optdeps-test-"));
+    tmpDir = makeTempDir("mulmo-optdeps-test-");
     _setFilePathsForTesting({ active: path.join(tmpDir, "active.json"), history: path.join(tmpDir, "history.json") });
     initNotifier({ publish: () => {} });
     captured.length = 0;
