@@ -30,7 +30,7 @@
   "license": "MIT",
   "author": "Receptron Team",
   "dependencies": {
-    "@mulmobridge/client": "^1.0.1",
+    "@mulmobridge/client": "^1.0.2",
     "dotenv": "^17.0.0"
   },
   "devDependencies": {

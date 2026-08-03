@@ -1,7 +1,7 @@
 {
   "name": "mulmoclaude-monorepo",
   "private": true,
-  "version": "1.9.0",
+  "version": "1.10.0",
   "type": "module",
   "author": "snakajima",
   "license": "MIT",
@@ -96,7 +96,7 @@
     "@gui-chat-plugin/mindmap": "^2.0.0",
     "@gui-chat-plugin/present3d": "^2.0.0",
     "@marp-team/marp-core": "^4.4.0",
-    "@mulmobridge/client": "^1.0.1",
+    "@mulmobridge/client": "^1.0.2",
     "@mulmocast/deck": "^1.0.0",
     "@mulmocast/deck-web": "^1.1.1",
     "@mulmocast/types": "^2.9.0",

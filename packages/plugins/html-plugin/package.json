@@ -35,7 +35,7 @@
     "test": "tsx --test test/test_*.ts"
   },
   "dependencies": {
-    "@mulmoclaude/common": "^1.1.1",
+    "@mulmoclaude/common": "^1.1.2",
     "@mulmoclaude/core": "^2.0.0"
   },
   "peerDependencies": {
@@ -45,7 +45,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@mulmoclaude/common": "^1.1.1",
+    "@mulmoclaude/common": "^1.1.2",
     "@mulmoclaude/core": "^2.0.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.1.2",
