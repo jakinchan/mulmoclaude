@@ -11,10 +11,13 @@
 | #2797 | 10:22:43.88 | 10:23:11.32 | 27秒 |
 | #2801 | 20:47:27.95 | 20:47:50.80 | 23秒 |
 
-同一 run の成功シャードは作業完了の **0.9秒後**に次のステップへ進んでいる。
+同一 run の成功シャードは作業完了の **0.9秒後**に次のステップへ進んでいる(失敗側は **811秒の無音**)。
 コマンド・出力・完了までの時間は同一で、違いは「完了後に返るか」だけ。
+したがって **`timeout-minutes` を伸ばしても直らない**。
 
-playwright の実装(`playwright-core` の `coreBundle.js`)を読むと筋が通る:
+## 機構
+
+`playwright-core` の実装がこれと噛み合う:
 
 ```js
 const child = childProcess2.spawn(command, args, { stdio: "inherit" });
@@ -23,93 +26,60 @@ await new Promise((resolve, reject) => {
 });
 ```
 
-`stdio: "inherit"` なので sudo→sh→apt はランナーのパイプ fd を**直接**継承し、
-playwright 自身は `exit` で待つので即座に終了する。よって「playwright が終わらない」線は消え、
-**apt 中に生まれた常駐プロセスがランナーのパイプを握ったまま生き残る**筋だけが残る。
-ランナーはステップの stdout/stderr が EOF になるまで待つので、それでステップが終わらない。
+- `stdio: "inherit"` → sudo→sh→apt が**ランナーのパイプ fd を直接継承**する
+- `exit` で待つ → **playwright 自身は即座に終了**する
 
-ただし**犯人プロセスは特定していない**。
+ランナーはステップの stdout/stderr が EOF になるまで待つので、
+**apt が残した常駐プロセスがそのパイプを握ったまま生き残る**とステップが終わらない。
 
-## 方針: 緩和ではなく、apt ステップを無くす
+**犯人プロセスは特定していない。** だから「犯人を当てにいかない」形で塞ぐ。
 
-当初はリダイレクト + ステップ timeout + needrestart 抑止という**緩和**を実装した。
-しかし「マージする意味があるのか」という問いに対して弱い:
+## 対策(e2e ジョブのみ)
 
-- ステップ timeout 単体では**再実行は減らない**。早く赤くなるだけ。
-- リダイレクトは筋は通るが、犯人プロセス未特定のまま「効くはず」で運用することになる。
+1. **出力をファイルにリダイレクト**(主対策)— 継承される fd がランナーのパイプではなく
+   ファイルになるので、常駐プロセスが残ってもステップはシェルの終了で返る。
+   **どのプロセスが握っていても効く**のが選定理由。ログは `$RUNNER_TEMP` に置き、失敗時のみ `cat`。
+2. **ステップ単位の `timeout-minutes`**(install-deps 3分 / コールドDL 10分)—
+   作業は20数秒なので十分。万一詰まっても15分の予算を丸ごと失わない。
+3. **needrestart のサービス再起動を抑止** — 常駐プロセスが生まれる経路として有力なので塞ぐ。
+   **ステップの `env:` では効かない**(playwright は apt を `sudo -- sh -c` で叩き `-E` が無いため、
+   sudo の `env_reset` で捨てられる)。`/etc/needrestart/conf.d/` に設定ファイルを置く。
 
-**公式 Playwright イメージには browser と OS ライブラリが同梱されている**ので、
-`container:` に指定すれば **apt ステップそのものが存在しなくなる**。
-壊れるステップが無くなるので、原因の特定を必要としない。
+**ジョブの `timeout-minutes: 15` は変えない**。原因は遅さではない。
 
-あわせて、このジョブが抱えていた 392MB のブラウザキャッシュ(#1725 対策)も不要になる。
+## 検討して見送った案: container(公式 Playwright イメージ)
 
-## 変更するもの — 対象の CI だけ
+「イメージには browser と OS ライブラリが同梱されているので apt ステップ自体が消える」という理由で
+一度実装し、**CI で実際に動かした**。結果、前提が崩れた。
 
-`.github/workflows/pull_request.yaml` の **`e2e` ジョブのみ**。
-`e2e_live_no_llm.yaml` は今回の障害が観測されていないので触らない。
+- **イメージにコンパイラが無い**。`node-pty` の prebuild は darwin と win32 のみ
+  (`ls node_modules/node-pty/prebuilds/`)なので Linux では必ずソースビルドが必要で、
+  `yarn install` が `gyp ERR! not found: make` で落ちた(両シャードとも2分で失敗)。
+  → **apt は結局必要**(build-essential)。
+- apt には root が要る → Playwright が文書化している `--user 1001` を諦める → 
+  **root では Chromium がサンドボックス有効だと起動しない** → サンドボックス無効化が必要。
+- 動かすところまでは持っていけた(CI 22/22 pass)が、**8分12秒 → 13分55秒**に伸び、
+  15分制限まで残り1分。ハングのフレークをタイムアウトのフレークに置き換えかねない。
+- イメージタグと `@playwright/test` のバージョンが結合し、bump のたびに両方揃える必要も生じる。
 
-削除するステップ(すべてイメージが肩代わりする):
-
-- `Resolve Playwright version`
-- `Cache Playwright browsers`
-- `Install Playwright browsers`
-- `Install Playwright OS dependencies` ← 実際に wedge していたステップ
-
-追加するステップ: イメージと `@playwright/test` の**バージョン不一致を検出するガード**。
-片方だけ bump されると 268 テストが1件ずつ「実行ファイルが無い」で落ちるので、その前に落とす。
-
-## 実際に流して分かったこと — イメージにコンパイラが無い
-
-最初は Playwright が文書化している `--user 1001` で組んだが、**両シャードが2分で失敗**した。
-`yarn install` が落ちており、原因は権限ではなく:
-
-```
-gyp ERR! stack Error: not found: make
-```
-
-**node-pty の prebuild は darwin と win32 のみ**(`ls node_modules/node-pty/prebuilds/`)。
-Linux では必ずソースからコンパイルするため make / g++ が要るが、Playwright イメージは
-それを積んでいない。ホストの `ubuntu-latest` では build-essential があるので通っていた。
-
-つまり「container にすれば apt が消える」は**成立しない**。残る apt は1回だけにして、
-それを自分たちの制御下に置く形にした:
-
-- **root で動かす**(`--user 1001` をやめる)。apt には root が要る。
-- **`build-essential` だけを apt で入れる**。playwright の install-deps(gstreamer 等の大量
-  パッケージ + サービス再起動)とは規模も制御権も違う。リダイレクトと5分の timeout を当てる。
-- **Chromium は root でサンドボックス有効だと起動しない**ので、テストステップだけ
-  `PLAYWRIGHT_NO_SANDBOX=1` を渡し、`e2e/playwright.config.ts` がそれを見て
-  `launchOptions.chromiumSandbox` を落とす。**CI 一般ではなく env で切る**ので、
-  ローカルや他の実行はサンドボックス有効のまま。
-
-`chromiumSandbox` は `use` の直下ではなく **`launchOptions` 側**のオプション
-(最初 `use` に置いて typecheck が TS2769 で落ちた)。env 未設定時はキー自体を生やさない
-スプレッドにしてある。
-
-## 気をつけた点
-
-- **`test:e2e` の `ensure:playwright-browsers`** は `playwright install chromium webkit`
-  (`--with-deps` なし = apt なし)。イメージ内では既存バイナリを見つけて no-op になる。
-- **ジョブの `timeout-minutes: 15` は変えない**。原因は遅さではないので伸ばすのは誤った対処。
+**この実験は無駄ではない。** 上の「機構」節の根拠(`stdio: "inherit"` + `exit`)は
+container を試す過程で `playwright-core` を読んで得たもので、
+「playwright 自身が終わらない」線を消せたのもこのとき。
+その結果、リダイレクトが**なぜ**効くのかが実装で裏付けられ、
+ホスト実行のまま 8分12秒を維持できる本案のほうが費用対効果で優ると判断した。
 
 ## 検証
 
 - `actionlint`(リポジトリの workflow-lint と同じもの)を全ワークフローで通過
-- ガードスクリプトをワークフローから取り出して**実行**し、
-  正常系(browser あり → exit 0)と**異常系**(`PLAYWRIGHT_BROWSERS_PATH` を空ディレクトリに向ける
-  → exit 1 + 設定すべきタグ名を表示)の両方を確認
-- `@playwright/test` / `playwright-core` が 1.62.1 で、イメージタグ `v1.62.1-noble` と一致
-- `chromiumSandbox` の切り替えを**両方向とも実測**:
-  env 未設定 → `launchOptions` は `undefined`(ローカル挙動は変わらない)/
-  `PLAYWRIGHT_NO_SANDBOX=1` → `{"chromiumSandbox":false}`
+- 当初 `printf '$nrconf{...}'` で書いて SC2016 を検出したので、無効化コメントで黙らせず
+  **引用符付きヒアドキュメントに書き換え**て解消
+- ヒアドキュメントが生成する設定ファイルの中身を**実行して確認**(`$nrconf` がリテラルのまま出力される)
 
-**ローカルで検証できないこと**: コンテナジョブ自体の挙動(checkout / setup-node / yarn install /
-キャッシュが `--user 1001` のコンテナ内で動くか)。これは**この PR 自身の e2e 2シャードが緑になること**
-でしか確認できない。
+**この PR で実証できないこと**: キャッシュミス経路(`--with-deps`)は普段走らないので実走確認できない。
+形を揃えることによる予防。また、リダイレクトが実際に再発を止めたかは
+**しばらく再発しないこと**でしか確認できない。
 
 ## やらないこと
 
-- `e2e_live_no_llm.yaml` — 今回の障害が出ていないので対象外。
-  同じ形で詰まるなら別途同じ手を当てる。
+- `e2e_live_no_llm.yaml` — 今回の障害が観測されていないので対象外。
 - ジョブ timeout の延長、リトライの追加。

@@ -206,23 +206,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run_e2e == 'true'
     runs-on: ubuntu-latest
-    # Browsers AND their OS libraries ship in this image, so the job runs no
-    # apt and downloads no browsers. That removes #2805 by construction rather
-    # than working around it: what wedged was apt's step, and there is no apt
-    # step left to wedge. It also retires the 392 MB browser cache this job
-    # used to keep warm for the same reason (#1725).
-    #
-    # The tag must track `@playwright/test`; the verify step below fails loudly
-    # if the two drift.
-    #
-    # Runs as the image's default root rather than Playwright's documented
-    # `--user 1001`, because the one thing the image cannot supply is a
-    # compiler, and node-pty publishes prebuilds for darwin and win32 only —
-    # `yarn install` builds it from source on Linux, so this job needs apt and
-    # therefore root. Chromium will not start as root with its sandbox on, so
-    # the test step sets PLAYWRIGHT_NO_SANDBOX (see e2e/playwright.config.ts).
-    container:
-      image: mcr.microsoft.com/playwright:v1.62.1-noble
     timeout-minutes: 15
     # Split the 268-test e2e suite across 2 parallel runners via
     # Playwright's --shard. Wall clock drops from ~8 min to ~4-5 min
@@ -242,24 +225,6 @@ jobs:
       with:
         node-version: 22.x
         cache: 'yarn'
-    # The only apt this job runs, and the only thing the image cannot supply:
-    # a compiler. node-pty ships prebuilds for darwin and win32 only, so
-    # `yarn install` below builds it from source on Linux and fails with
-    # "not found: make" without this.
-    #
-    # Redirected on purpose. The runner holds a step open until its
-    # stdout/stderr reach EOF, so a daemon apt leaves behind holding that pipe
-    # wedges the step even though the install finished — that is exactly what
-    # #2805 was, measured at 23-27s of work followed by silence to the job
-    # timeout. Pointing the fd at a file means a survivor holds the file
-    # instead, and the cap bounds anything that still slips through.
-    - name: Install the compiler node-pty needs
-      timeout-minutes: 5
-      run: |
-        {
-          apt-get update
-          apt-get install -y --no-install-recommends build-essential
-        } > "$RUNNER_TEMP/apt.log" 2>&1 || { cat "$RUNNER_TEMP/apt.log"; exit 1; }
     - run: yarn install --frozen-lockfile --network-timeout 120000
     # Same packages/dist cache as lint_test — shares the cache key
     # across both jobs on ubuntu-latest + node 22.x, so whichever
@@ -277,32 +242,59 @@ jobs:
     - name: Build internal packages
       if: steps.pkg-dist-cache.outputs.cache-hit != 'true'
       run: yarn build:packages
-    # The image already carries the browsers, so nothing is downloaded or
-    # installed here — this only proves the image and `@playwright/test` agree
-    # before 268 tests fail one by one on a missing executable. They drift when
-    # one of the two is bumped alone.
-    - name: Verify the image ships the browsers this Playwright expects
+    # Cache the ~392 MB of Playwright browser binaries (chromium + webkit +
+    # headless shell + ffmpeg) so a normal run restores them in seconds instead
+    # of re-downloading from the CDN every time. A slow CDN day was stretching
+    # the download to ~13 min and tipping shard 1 over its job timeout (the e2e
+    # flakes seen on #1725). Keyed on the Playwright version, which determines
+    # the exact browser builds.
+    - name: Resolve Playwright version
+      id: pw-version
       run: |
-        node <<'CHECK'
-        const fs = require("node:fs");
-        const { chromium, webkit } = require("playwright-core");
-        const version = require("playwright-core/package.json").version;
-        for (const [name, browser] of [["chromium", chromium], ["webkit", webkit]]) {
-          const executable = browser.executablePath();
-          if (!fs.existsSync(executable)) {
-            console.error("No " + name + " at " + executable);
-            console.error("playwright-core is " + version + " — set the container image tag to v" + version + "-noble.");
-            process.exit(1);
-          }
-        }
-        console.log("chromium + webkit present for playwright " + version);
-        CHECK
+        VERSION=$(node -p "require('@playwright/test/package.json').version")
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+    - name: Cache Playwright browsers
+      id: playwright-cache
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+    # Both install steps below shell out to apt, and apt's post-install service
+    # restarts are the likeliest way a daemon ends up holding this step's
+    # stdout (see the redirect below). List what needs restarting instead of
+    # restarting it. This cannot be a step `env:` — playwright runs apt as
+    # `sudo -- sh -c` with no `-E`, so sudo's env_reset would drop
+    # NEEDRESTART_SUSPEND before apt ever saw it, and the setting would look
+    # applied while doing nothing.
+    - name: Keep apt from restarting services
+      run: |
+        sudo mkdir -p /etc/needrestart/conf.d
+        sudo tee /etc/needrestart/conf.d/99-github-ci.conf > /dev/null <<'CONF'
+        $nrconf{restart} = "l";
+        $nrconf{kernelhints} = 0;
+        CONF
+    - name: Install Playwright browsers
+      if: steps.playwright-cache.outputs.cache-hit != 'true'
+      timeout-minutes: 10
+      run: npx playwright install chromium webkit --with-deps > "$RUNNER_TEMP/playwright-install.log" 2>&1 || { cat "$RUNNER_TEMP/playwright-install.log"; exit 1; }
+    # On a cache hit the binaries are restored, but the OS-level libraries that
+    # `--with-deps` installs live in system paths (not ~/.cache) and aren't
+    # cached — install just those so the restored browsers can launch.
+    #
+    # The redirect is the fix for #2805, not tidiness. playwright-core spawns
+    # apt with `stdio: "inherit"` and awaits `exit` rather than `close`, so apt's
+    # children hold the runner's own pipe while playwright itself returns at
+    # once. The runner keeps a step open until that pipe reaches EOF, so a
+    # daemon apt leaves behind wedges the step: measured at 23-27s of work then
+    # silence to the 15-minute job timeout, three PRs running, with the suite
+    # never starting. Sending the fd to a file means a survivor holds the file
+    # instead. The cap bounds anything that still slips through, so a wedge
+    # costs 3 minutes rather than the whole budget.
+    - name: Install Playwright OS dependencies
+      if: steps.playwright-cache.outputs.cache-hit == 'true'
+      timeout-minutes: 3
+      run: npx playwright install-deps chromium webkit > "$RUNNER_TEMP/install-deps.log" 2>&1 || { cat "$RUNNER_TEMP/install-deps.log"; exit 1; }
     - name: Run E2E tests (shard ${{ matrix.shard }}/2)
-      # Chromium will not start as root with its sandbox on, and this job runs
-      # as root so it can apt the compiler above. Set here rather than on CI
-      # generally, so a local or non-container run keeps the sandbox.
-      env:
-        PLAYWRIGHT_NO_SANDBOX: "1"
       run: yarn test:e2e --shard=${{ matrix.shard }}/2
     - name: Upload test results on failure
       if: failure()
