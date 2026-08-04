@@ -37,6 +37,10 @@ interface LifecycleDeps {
   ensureSessionSubscription: (session: ActiveSession) => void;
   focusChatInput: () => void;
   collapseChatSuggestions: () => void;
+  /** Forget the chat draft of a session that is being thrown away.
+   *  An evicted empty session has no route and no history row left, so
+   *  its draft would otherwise sit in storage unreachable forever. */
+  dropSessionDraft: (sessionId: string) => void;
 }
 
 type LifecycleCtx = LifecycleDeps & {
@@ -68,6 +72,7 @@ function removeCurrentIfEmpty(ctx: LifecycleCtx): boolean {
   const session = ctx.sessionMap.get(sessionId);
   if (session && isSessionEmpty(session)) {
     ctx.sessionMap.delete(sessionId);
+    ctx.dropSessionDraft(sessionId);
     return true;
   }
   return false;

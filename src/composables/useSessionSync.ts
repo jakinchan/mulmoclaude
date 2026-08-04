@@ -11,7 +11,7 @@ import { PUBSUB_CHANNELS, readSessionDeletedIds } from "../config/pubsubChannels
 import { apiPost } from "../utils/api";
 import { API_ROUTES } from "../config/apiRoutes";
 
-export function useSessionSync(opts: {
+export interface SessionSyncOptions {
   sessionMap: Map<string, ActiveSession>;
   currentSessionId: Ref<string>;
   fetchSessions: () => Promise<SessionSummary[]>;
@@ -20,8 +20,14 @@ export function useSessionSync(opts: {
    *  recovery action — usually navigate to a fresh session so the
    *  blank chat view doesn't linger on a dead URL. */
   onCurrentSessionDeleted?: () => void;
-}) {
-  const { sessionMap, currentSessionId, fetchSessions, onCurrentSessionDeleted } = opts;
+  /** Called once per hard-deleted session (this tab's deletes included —
+   *  they come back through the same broadcast), so the host can drop
+   *  state it keeps outside sessionMap, e.g. the session's chat draft. */
+  onSessionDeleted?: (sessionId: string) => void;
+}
+
+export function useSessionSync(opts: SessionSyncOptions) {
+  const { sessionMap, currentSessionId, fetchSessions, onCurrentSessionDeleted, onSessionDeleted } = opts;
   const { subscribe } = usePubSub();
 
   // Monotonic sequence token — protects sessionMap from stale overwrites when
@@ -71,6 +77,7 @@ export function useSessionSync(opts: {
     let currentWasDeleted = false;
     for (const deletedId of deletedIds) {
       sessionMap.delete(deletedId);
+      onSessionDeleted?.(deletedId);
       if (deletedId === currentSessionId.value) currentWasDeleted = true;
     }
     if (currentWasDeleted) onCurrentSessionDeleted?.();

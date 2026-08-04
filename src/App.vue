@@ -398,6 +398,7 @@ import { useDebugBeat } from "./composables/useDebugBeat";
 import { useChatScroll } from "./composables/useChatScroll";
 import { useFileDropZone } from "./composables/useFileDropZone";
 import { useViewLayout } from "./composables/useViewLayout";
+import { useChatDrafts } from "./composables/useChatDrafts";
 import { useSessionSync } from "./composables/useSessionSync";
 import { useSessionLifecycle } from "./composables/useSessionLifecycle";
 import { useSessionDerived } from "./composables/useSessionDerived";
@@ -482,8 +483,13 @@ const { currentRoleId } = useCurrentRole(roles);
 // list and passes it down; the launcher stays presentational.
 const { shortcuts } = useShortcuts();
 
-const userInput = ref("");
-const pastedFiles = ref<PastedFile[]>([]);
+// Unsent composer state — draft text and staged attachments — keyed by
+// session (#2811). Reads/writes look like plain refs, but each session
+// keeps its own, and the text is mirrored into sessionStorage so a
+// reload restores what the user was typing. Every place that assigns
+// `userInput.value` therefore also updates storage — including the
+// clears in sendMessage.
+const { userInput, pastedFiles, dropDraft: dropSessionDraft } = useChatDrafts(currentSessionId);
 // Messages the user sends while a run is in flight queue here instead of
 // dispatching, keyed by the session they belong to so concurrent runs in
 // different sessions never mix. `currentBufferedMessages` is the displayed
@@ -662,6 +668,7 @@ const { removeCurrentIfEmpty, createNewSession, onRoleChange, loadSession, refre
   ensureSessionSubscription,
   focusChatInput,
   collapseChatSuggestions: () => chatInputRef.value?.collapseSuggestions(),
+  dropSessionDraft,
 });
 
 const { markSessionRead, refreshSessionStates } = useSessionSync({
@@ -674,6 +681,10 @@ const { markSessionRead, refreshSessionStates } = useSessionSync({
   // loadSession by spinning up a fresh session so the user lands on a
   // working /chat instead of a blank pane.
   onCurrentSessionDeleted: () => createNewSession(),
+  // Covers deletions from this tab too: the server broadcasts every
+  // hard delete on the sessions channel, so this is the one place a
+  // deleted session's draft has to be forgotten.
+  onSessionDeleted: dropSessionDraft,
 });
 
 // External URL changes (back/forward button, typed URL) → update ref.
