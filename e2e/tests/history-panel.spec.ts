@@ -11,7 +11,7 @@
 
 import { test, expect, type Route } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
-import { SESSION_A, SESSION_B } from "../fixtures/sessions";
+import { SESSION_A, SESSION_B, makeSessionEntries } from "../fixtures/sessions";
 
 function urlEndsWith(suffix: string): (url: URL) => boolean {
   return (url) => url.pathname === suffix;
@@ -91,6 +91,47 @@ test.describe("session-history side panel", () => {
     await expect(page.getByTestId("session-filter-scheduler")).toBeVisible();
     await expect(page.getByTestId("session-filter-skill")).toBeVisible();
     await expect(page.getByTestId("session-filter-bridge")).toBeVisible();
+  });
+});
+
+test.describe("session selection feedback", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllApis(page);
+  });
+
+  test("the clicked row highlights before its transcript arrives", async ({ page }) => {
+    // Regression guard for #2809: loadSession used to write
+    // currentSessionId only after `GET /api/sessions/:id` resolved, so
+    // the selection border waited on the round trip. Hold the response
+    // open and assert the border is already there.
+    let releaseTranscript = (): void => {};
+    const transcriptGate = new Promise<void>((resolve) => {
+      releaseTranscript = resolve;
+    });
+
+    // Registered after mockAllApis, so Playwright checks it first.
+    await page.route(
+      (url) => url.pathname === `/api/sessions/${SESSION_A.id}`,
+      async (route: Route) => {
+        if (route.request().method() !== "GET") return route.fallback();
+        await transcriptGate;
+        return route.fulfill({ json: makeSessionEntries(SESSION_A.id) });
+      },
+    );
+
+    await page.goto("/chat");
+    await page.getByTestId("session-history-toggle-off").click();
+    const row = page.getByTestId(`session-item-${SESSION_A.id}`);
+    await expect(row).toBeVisible();
+    await expect(row).not.toHaveClass(/border-blue-500/);
+
+    await row.click();
+
+    // Still gated — nothing has come back from the server yet.
+    await expect(row).toHaveClass(/border-blue-500/);
+
+    releaseTranscript();
+    await expect(page).toHaveURL(new RegExp(`/chat/${SESSION_A.id}`));
   });
 });
 

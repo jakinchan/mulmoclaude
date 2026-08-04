@@ -36,6 +36,16 @@ export function isSessionAlreadyDisplayed(sessionId: string, currentSessionId: s
   return sessionId === currentSessionId && sessionInMemory;
 }
 
+// loadSession moves the selection before the transcript arrives, so the
+// history row highlights on the click rather than a round trip later.
+// When the fetch then fails the selection has to go back — but only
+// while the attempted session is still the selected one. Clicking a slow
+// row and then a fast one that succeeds must not be undone when the
+// slow row's response finally errors.
+export function shouldRestorePreviousSelection(currentSessionId: string, attemptedSessionId: string): boolean {
+  return currentSessionId === attemptedSessionId;
+}
+
 // activateSession skips a redundant navigate when the URL already points
 // at the target session. Re-pushing the same path strips query strings
 // (e.g. the `?result=<uuid>` notification permalink, #762), so the guard

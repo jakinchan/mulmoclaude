@@ -24,6 +24,7 @@ import {
   isSessionAlreadyDisplayed,
   isOnTargetSessionRoute,
   resolveResumeAction,
+  shouldRestorePreviousSelection,
 } from "../utils/session/sessionLifecycle";
 
 interface LifecycleDeps {
@@ -107,22 +108,36 @@ function activateSession(ctx: LifecycleCtx, sessionId: string, replace: boolean)
   }
 }
 
-async function loadSession(ctx: LifecycleCtx, sessionId: string): Promise<void> {
-  if (isSessionAlreadyDisplayed(sessionId, ctx.currentSessionId.value, ctx.sessionMap.has(sessionId))) return;
-  const replaced = shouldReplaceHistory(removeCurrentIfEmpty(ctx), ctx.isChatPage.value);
-  if (ctx.sessionMap.has(sessionId)) {
-    activateSession(ctx, sessionId, replaced);
-    return;
-  }
+async function fetchLoadedSession(ctx: LifecycleCtx, sessionId: string): Promise<ActiveSession | null> {
   const response = await apiGet<SessionEntry[]>(API_ROUTES.sessions.detail.replace(":id", encodeURIComponent(sessionId)));
-  if (!response.ok) return;
-  const newSession = buildLoadedSession({
+  if (!response.ok) return null;
+  return buildLoadedSession({
     id: sessionId,
     entries: response.data,
     defaultRoleId: ctx.roles.value[0]?.id ?? "",
     serverSummary: ctx.sessions.value.find((summary) => summary.id === sessionId),
     nowIso: new Date().toISOString(),
   });
+}
+
+async function loadSession(ctx: LifecycleCtx, sessionId: string): Promise<void> {
+  if (isSessionAlreadyDisplayed(sessionId, ctx.currentSessionId.value, ctx.sessionMap.has(sessionId))) return;
+  const previousSessionId = ctx.currentSessionId.value;
+  const replaced = shouldReplaceHistory(removeCurrentIfEmpty(ctx), ctx.isChatPage.value);
+  if (ctx.sessionMap.has(sessionId)) {
+    activateSession(ctx, sessionId, replaced);
+    return;
+  }
+  // Highlight the row on the click instead of a round trip later (#2809).
+  // The URL still settles in activateSession once the transcript is in
+  // the map, so undoing a failed load is a ref assignment and never a
+  // second navigation.
+  ctx.currentSessionId.value = sessionId;
+  const newSession = await fetchLoadedSession(ctx, sessionId);
+  if (newSession === null) {
+    if (shouldRestorePreviousSelection(ctx.currentSessionId.value, sessionId)) ctx.currentSessionId.value = previousSessionId;
+    return;
+  }
   ctx.sessionMap.set(sessionId, newSession);
   activateSession(ctx, sessionId, replaced);
 }

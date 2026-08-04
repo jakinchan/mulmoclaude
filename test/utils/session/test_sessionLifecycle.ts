@@ -7,6 +7,7 @@ import {
   isSessionAlreadyDisplayed,
   isOnTargetSessionRoute,
   resolveResumeAction,
+  shouldRestorePreviousSelection,
 } from "../../../src/utils/session/sessionLifecycle.ts";
 
 describe("resolveNewSessionRoleId", () => {
@@ -106,6 +107,23 @@ describe("isOnTargetSessionRoute", () => {
 
   it("is false when the route has no session id", () => {
     assert.equal(isOnTargetSessionRoute("", "s1", true), false);
+  });
+});
+
+describe("shouldRestorePreviousSelection", () => {
+  it("restores when the failed load is still the selected session", () => {
+    assert.equal(shouldRestorePreviousSelection("s1", "s1"), true);
+  });
+
+  it("leaves the selection alone when a later click already moved on", () => {
+    // Click s1 (slow) → click s2 (fast, succeeds) → s1 errors. Rolling
+    // back here would yank the user off the session they are reading.
+    assert.equal(shouldRestorePreviousSelection("s2", "s1"), false);
+  });
+
+  it("leaves the selection alone when the user left /chat mid-flight", () => {
+    // currentSessionId is "" off /chat.
+    assert.equal(shouldRestorePreviousSelection("", "s1"), false);
   });
 });
 
