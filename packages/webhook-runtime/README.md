@@ -13,6 +13,22 @@ Messenger, Google Chat).
 - `verifyHmacSignature(body, signature, secret, algorithm?, encoding?)` —
   length-guarded, timing-safe HMAC comparison.
 
+For the Meta platforms (Messenger, WhatsApp), which share one webhook contract:
+
+- `registerMetaWebhook(app, { verifyToken, appSecret, label, ackBody?, onBody })` —
+  the whole `/webhook` surface in one call:
+  - **GET** — the handshake that echoes `hub.challenge` only after the token matches.
+  - **POST** — `x-hub-signature-256` check → `401` on failure, otherwise ack `200`
+    **before** awaiting `onBody(rawBody)` so a slow handler can't trigger a Meta
+    redelivery.
+
+  Both routes share one rate-limit bucket, built inside the registrar (a flood of
+  bogus `hub.challenge` GETs hammers the bridge just as effectively as POSTs).
+- `registerMetaWebhookVerification(app, { rateLimit, verifyToken, label })` — the
+  GET half on its own, for a caller that owns the limiter.
+- `verifyMetaHmacSignature(body, signature, appSecret)` — the hex/SHA-256 HMAC
+  check with Meta's `sha256=` prefix stripped.
+
 These are security-relevant and hardened through Codex reviews (#1326);
 keeping one copy means a fix lands once, not once per bridge.
 

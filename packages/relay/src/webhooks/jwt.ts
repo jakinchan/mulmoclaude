@@ -6,7 +6,7 @@
 // validation and JWKS fetch/cache — only the parse and the crypto.subtle
 // signature check live here.
 
-import { isRecord } from "@mulmoclaude/common";
+import { isRecord, splitJwtSegments } from "@mulmoclaude/common";
 
 export interface ParsedJwt {
   header: Record<string, unknown>;
@@ -42,13 +42,9 @@ function decodeSegment(segment: string): unknown {
 
 // null means "not a well-formed JWT" — callers treat that as a rejection.
 export function parseJwt(token: string): ParsedJwt | null {
-  // A JWS compact serialization is EXACTLY three segments. Both a short
-  // token and a longer one (a five-segment JWE, or an attacker appending
-  // `.junk`) are rejected outright — never parsed from their first three
-  // segments, which would let the signed input disagree with the token.
-  const [headerSegment, payloadSegment, signatureSegment, ...extraSegments] = token.split(".");
-  if (headerSegment === undefined || payloadSegment === undefined || signatureSegment === undefined) return null;
-  if (extraSegments.length > 0) return null;
+  const segments = splitJwtSegments(token);
+  if (segments === null) return null;
+  const { headerSegment, payloadSegment, signatureSegment } = segments;
   try {
     const header = decodeSegment(headerSegment);
     const payload = decodeSegment(payloadSegment);
