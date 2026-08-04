@@ -259,15 +259,45 @@ jobs:
       with:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+    # Both install steps below shell out to apt, and apt's post-install service
+    # restarts are the likeliest way a daemon ends up holding this step's
+    # stdout (see the redirect below). List what needs restarting instead of
+    # restarting it. This cannot be a step `env:` — playwright runs apt as
+    # `sudo -- sh -c` with no `-E`, so sudo's env_reset would drop
+    # NEEDRESTART_SUSPEND before apt ever saw it, and the setting would look
+    # applied while doing nothing.
+    - name: Keep apt from restarting services
+      run: |
+        sudo mkdir -p /etc/needrestart/conf.d
+        sudo tee /etc/needrestart/conf.d/99-github-ci.conf > /dev/null <<'CONF'
+        $nrconf{restart} = "l";
+        $nrconf{kernelhints} = 0;
+        CONF
+    # Download only — `--with-deps` would fold apt into this step, and then the
+    # tight cap the apt part needs would also apply to a 392 MB download that
+    # the comment above has measured at ~13 min on a bad CDN day. Deliberately
+    # uncapped: the job's own 15 minutes already bound it, and any step cap
+    # above the known worst case would be decoration.
     - name: Install Playwright browsers
       if: steps.playwright-cache.outputs.cache-hit != 'true'
-      run: npx playwright install chromium webkit --with-deps
-    # On a cache hit the binaries are restored, but the OS-level libraries that
-    # `--with-deps` installs live in system paths (not ~/.cache) and aren't
-    # cached — install just those so the restored browsers can launch.
+      run: npx playwright install chromium webkit > "$RUNNER_TEMP/playwright-install.log" 2>&1 || { cat "$RUNNER_TEMP/playwright-install.log"; exit 1; }
+    # Unconditional: the OS-level libraries live in system paths, not
+    # ~/.cache/ms-playwright, so the cache never carries them and both the hit
+    # and miss paths need this.
+    #
+    # The redirect is the fix for #2805, not tidiness. playwright-core spawns
+    # apt with `stdio: "inherit"` and awaits `exit` rather than `close`, so apt's
+    # children hold the runner's own pipe while playwright itself returns at
+    # once. The runner keeps a step open until that pipe reaches EOF, so a
+    # daemon apt leaves behind wedges the step: measured at 23-27s of work then
+    # silence to the 15-minute job timeout, three PRs running, with the suite
+    # never starting. Sending the fd to a file means a survivor holds the file
+    # instead. The cap bounds anything that still slips through, so a wedge
+    # costs 3 minutes rather than the whole budget — and it is safe to keep
+    # tight here precisely because this step no longer carries the download.
     - name: Install Playwright OS dependencies
-      if: steps.playwright-cache.outputs.cache-hit == 'true'
-      run: npx playwright install-deps chromium webkit
+      timeout-minutes: 3
+      run: npx playwright install-deps chromium webkit > "$RUNNER_TEMP/install-deps.log" 2>&1 || { cat "$RUNNER_TEMP/install-deps.log"; exit 1; }
     - name: Run E2E tests (shard ${{ matrix.shard }}/2)
       run: yarn test:e2e --shard=${{ matrix.shard }}/2
     - name: Upload test results on failure
