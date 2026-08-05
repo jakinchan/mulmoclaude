@@ -8,6 +8,7 @@ export interface Messages {
   loadFailed: string;
   refreshFailed: string;
   noContent: string;
+  reload: string;
   pdf: string;
   pdfFailedShort: string;
   editSource: string;

@@ -52,6 +52,17 @@
             <MarpView :markdown="markdownContent" :pdf-filename="marpPdfFilename" :base-dir="marpBaseDir">
               <template #toolbar>
                 <button
+                  v-if="isFileBacked"
+                  class="h-8 px-2.5 flex items-center gap-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                  :disabled="loading || hasChanges"
+                  :title="t('pluginMarkdown.reload')"
+                  :aria-label="t('pluginMarkdown.reload')"
+                  data-testid="present-document-reload"
+                  @click="reloadFromDisk"
+                >
+                  <span class="material-icons text-base" aria-hidden="true">refresh</span>
+                </button>
+                <button
                   class="h-8 px-2.5 flex items-center gap-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm"
                   :title="t('pluginMarkdown.marpSplitEnter')"
                   :aria-label="t('pluginMarkdown.marpSplitEnter')"
@@ -80,6 +91,17 @@
     </template>
     <template v-else>
       <div class="flex items-center justify-end gap-2 px-3 py-2 border-b border-gray-100 shrink-0">
+        <button
+          v-if="isFileBacked"
+          class="h-8 px-2.5 flex items-center rounded bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          :disabled="loading || hasChanges"
+          :title="t('pluginMarkdown.reload')"
+          :aria-label="t('pluginMarkdown.reload')"
+          data-testid="present-document-reload"
+          @click="reloadFromDisk"
+        >
+          <span class="material-icons text-base" aria-hidden="true">refresh</span>
+        </button>
         <button
           class="h-8 px-2.5 flex items-center gap-1 rounded bg-green-600 hover:bg-green-700 text-white text-sm disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           :disabled="pdfDownloading"
@@ -263,6 +285,18 @@ async function fetchMarkdownContent(): Promise<void> {
 fetchMarkdownContent();
 
 const hasChanges = computed(() => editableMarkdown.value !== markdownContent.value);
+
+// Only a file-backed document can be re-read from disk — legacy inline
+// content has no on-disk twin, so the reload button stays hidden there.
+const isFileBacked = computed(() => documentPathOf(props.selectedResult.data) !== null);
+
+// Manual refresh. The file-change subscription below already refetches on
+// remote writes, but that only fires for writes this client hears about;
+// the button is the explicit escape hatch. Disabled while the editor holds
+// unsaved changes, since the refetch reseeds the buffer.
+function reloadFromDisk(): void {
+  void fetchMarkdownContent();
+}
 
 // Subscribe to per-file change events so any tab / browser / agent run
 // that overwrites the file refreshes this view automatically. The path

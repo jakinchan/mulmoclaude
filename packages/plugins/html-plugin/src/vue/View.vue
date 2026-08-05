@@ -4,6 +4,16 @@
       <span class="text-sm font-medium text-gray-700 truncate">{{ title ?? t.untitled }}</span>
       <div class="flex items-center gap-2 shrink-0">
         <button
+          v-if="filePath"
+          class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-500 hover:bg-gray-50"
+          :title="t.reload"
+          :aria-label="t.reload"
+          data-testid="present-html-reload"
+          @click="reloadFromDisk"
+        >
+          <span class="material-icons text-sm align-middle">refresh</span>
+        </button>
+        <button
           class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-500 hover:bg-gray-50 disabled:opacity-50"
           :title="t.downloadZip"
           :disabled="downloading || !filePath"
@@ -101,10 +111,17 @@ const { version: previewVersion } = useFileWatch(filePath);
 // base href, so they stay in lockstep for pre-`previewUrl` artifacts.
 const previewBaseUrl = computed(() => data.value?.previewUrl ?? htmlArtifactPreviewUrl(filePath.value));
 
+// Bumped by the manual reload button. Kept separate from `previewVersion`
+// (which mirrors the file's mtime) so a click still cache-busts the iframe
+// when the bytes on disk did not change — or when no file-change event was
+// heard at all.
+const reloadNonce = ref(0);
+
 const frameSrc = computed(() => {
   const base = previewBaseUrl.value;
   if (!base) return null;
-  return previewVersion.value > 0 ? `${base}?v=${previewVersion.value}` : base;
+  const query = [previewVersion.value > 0 ? `v=${previewVersion.value}` : null, reloadNonce.value > 0 ? `r=${reloadNonce.value}` : null].filter(Boolean);
+  return query.length > 0 ? `${base}?${query.join("&")}` : base;
 });
 
 const sourceDetails = ref<HTMLDetailsElement>();
@@ -225,15 +242,13 @@ watch(filePath, () => {
   editableHtml.value = "";
   saveError.value = null;
   sourceError.value = null;
+  reloadNonce.value = 0;
 });
 
 // Remote write detected: invalidate the editor's cached source so the next read
 // goes back to disk. If the edit panel is open AND the user has no pending
 // changes, silently refresh `editableHtml`; otherwise leave their edits alone.
-watch(previewVersion, async (current, previous) => {
-  if (current === 0 || current === previous) return;
-  const path = filePath.value;
-  if (!path) return;
+async function invalidateSource(path: string) {
   // Snapshot dirtiness BEFORE invalidating the cache — `hasChanges` depends on
   // `cachedSource`, which flips to null the moment we delete the entry.
   const wasDirty = hasChanges.value;
@@ -246,7 +261,24 @@ watch(previewVersion, async (current, previous) => {
       editableHtml.value = fresh;
     }
   }
+}
+
+watch(previewVersion, async (current, previous) => {
+  if (current === 0 || current === previous) return;
+  const path = filePath.value;
+  if (!path) return;
+  await invalidateSource(path);
 });
+
+// Manual refresh: re-render the iframe from disk and drop the cached source so
+// the edit panel reads the file again. The file-change subscription already
+// does this on writes it hears about — this is the explicit escape hatch.
+async function reloadFromDisk() {
+  const path = filePath.value;
+  if (!path) return;
+  reloadNonce.value += 1;
+  await invalidateSource(path);
+}
 
 // Build the print-mode HTML by injecting four pieces into <head>: a `<base href>`
 // so relative refs resolve against the file's real URL, a `<meta CSP>` with the
