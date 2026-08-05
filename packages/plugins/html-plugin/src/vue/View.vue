@@ -5,7 +5,8 @@
       <div class="flex items-center gap-2 shrink-0">
         <button
           v-if="filePath"
-          class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-500 hover:bg-gray-50"
+          class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+          :disabled="sourceLoading"
           :title="t.reload"
           :aria-label="t.reload"
           data-testid="present-html-reload"
@@ -166,17 +167,24 @@ async function downloadZip() {
 const cachedSource = computed(() => (filePath.value ? (sourceCache.value[filePath.value] ?? null) : null));
 const hasChanges = computed(() => cachedSource.value !== null && editableHtml.value !== cachedSource.value);
 
+// Generation counter for in-flight source loads. The path check alone lets
+// two reads of the SAME file (a reload click racing the file-change watcher)
+// commit out of order, so every commit is also gated on being the latest.
+let sourceRequestId = 0;
+
 async function fetchSource(): Promise<string | null> {
   const path = filePath.value;
   if (!path) return null;
   const hit = sourceCache.value[path];
   if (hit !== undefined) return hit;
+  const requestId = ++sourceRequestId;
   sourceLoading.value = true;
   sourceError.value = null;
   try {
     const { html } = await runtime.dispatch({ kind: "loadHtml", path }, readLoadHtmlResult);
-    // Stale-response guard: only commit if the user hasn't navigated away.
-    if (filePath.value === path) {
+    // Stale-response guard: only commit if the user hasn't navigated away
+    // and no newer read has started.
+    if (filePath.value === path && requestId === sourceRequestId) {
       sourceCache.value = { ...sourceCache.value, [path]: html };
       // Seed the editor only if the user hasn't started typing — avoids
       // clobbering an in-progress edit if a refetch races with input.
@@ -186,12 +194,12 @@ async function fetchSource(): Promise<string | null> {
     }
     return html;
   } catch (err) {
-    if (filePath.value === path) {
+    if (filePath.value === path && requestId === sourceRequestId) {
       sourceError.value = errorMessage(err);
     }
     return null;
   } finally {
-    if (filePath.value === path) {
+    if (filePath.value === path && requestId === sourceRequestId) {
       sourceLoading.value = false;
     }
   }
@@ -250,14 +258,17 @@ watch(filePath, () => {
 // changes, silently refresh `editableHtml`; otherwise leave their edits alone.
 async function invalidateSource(path: string) {
   // Snapshot dirtiness BEFORE invalidating the cache — `hasChanges` depends on
-  // `cachedSource`, which flips to null the moment we delete the entry.
+  // `cachedSource`, which flips to null the moment we delete the entry. Keep
+  // the text the editor holds right now too: the user can type during the
+  // await, and only an untouched buffer may be overwritten with disk content.
   const wasDirty = hasChanges.value;
+  const textAtRequest = editableHtml.value;
   const next = { ...sourceCache.value };
   Reflect.deleteProperty(next, path);
   sourceCache.value = next;
   if (sourceDetails.value?.open === true) {
     const fresh = await fetchSource();
-    if (fresh !== null && !wasDirty) {
+    if (fresh !== null && !wasDirty && editableHtml.value === textAtRequest) {
       editableHtml.value = fresh;
     }
   }
