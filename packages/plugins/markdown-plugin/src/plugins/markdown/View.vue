@@ -1,5 +1,5 @@
 <template>
-  <div class="markdown-container">
+  <div ref="containerRef" class="markdown-container">
     <div v-if="loading" class="min-h-full p-8 flex items-center justify-center">
       <div class="text-gray-500">{{ t("pluginMarkdown.loading") }}</div>
     </div>
@@ -93,83 +93,90 @@
       <div v-if="loadError" class="load-error-banner" role="alert">
         {{ t("pluginMarkdown.refreshFailed", { error: loadError }) }}
       </div>
-      <div ref="previewScrollRef" class="markdown-content-wrapper">
-        <div class="p-4">
-          <!-- Frontmatter properties panel (FileContentRenderer-style)
+      <!-- Viewer + source panel. Stacked (`display: contents`, so the two
+           children stay direct flex items of `.markdown-container` and the
+           layout is exactly what it was) until the editor opens on a pane
+           wider than tall — then this becomes the 50/50 split: editor left,
+           viewer right, same hand as `MarpSplitEditor`. -->
+      <div class="editor-layout" :class="{ 'editor-layout--split': splitEditing }" :style="splitEditing ? { height: splitPaneHeightCss } : undefined">
+        <div ref="previewScrollRef" class="markdown-content-wrapper">
+          <div class="p-4">
+            <!-- Frontmatter properties panel (FileContentRenderer-style)
                — only rendered when the file has a `---\n...\n---`
                header. Lazy-on-write means most existing files don't
                have one yet (#895). -->
-          <div v-if="previewDoc.fields.length > 0" class="mb-3 rounded border border-gray-200 bg-gray-50 p-3 text-xs">
-            <div v-for="field in previewDoc.fields" :key="field.key" class="flex items-baseline gap-2 py-0.5">
-              <span class="font-semibold text-gray-600 shrink-0">{{ field.key }}:</span>
-              <template v-if="Array.isArray(field.value)">
-                <span class="flex flex-wrap gap-1">
-                  <span
-                    v-for="(item, idx) in field.value"
-                    :key="String(idx) + ':' + formatScalarField(item)"
-                    class="rounded-full bg-white border border-gray-300 px-2 py-0.5 text-gray-700"
-                  >
-                    {{ formatScalarField(item) }}
+            <div v-if="previewDoc.fields.length > 0" class="mb-3 rounded border border-gray-200 bg-gray-50 p-3 text-xs">
+              <div v-for="field in previewDoc.fields" :key="field.key" class="flex items-baseline gap-2 py-0.5">
+                <span class="font-semibold text-gray-600 shrink-0">{{ field.key }}:</span>
+                <template v-if="Array.isArray(field.value)">
+                  <span class="flex flex-wrap gap-1">
+                    <span
+                      v-for="(item, idx) in field.value"
+                      :key="String(idx) + ':' + formatScalarField(item)"
+                      class="rounded-full bg-white border border-gray-300 px-2 py-0.5 text-gray-700"
+                    >
+                      {{ formatScalarField(item) }}
+                    </span>
                   </span>
-                </span>
-              </template>
-              <span v-else class="text-gray-800 break-words">{{ formatScalarField(field.value) }}</span>
+                </template>
+                <span v-else class="text-gray-800 break-words">{{ formatScalarField(field.value) }}</span>
+              </div>
             </div>
-          </div>
-          <!-- Click delegation: a single listener on the wrapper picks
+            <!-- Click delegation: a single listener on the wrapper picks
                up every interactive checkbox inserted by v-html. We
                cannot bind @click directly on each `<input>` because
                v-html bypasses Vue's template compiler. -->
-          <!-- eslint-disable-next-line vue/no-v-html -- DOMPurify-sanitised marked output (sanitizeMarkdownHtml). `path` can open any .md on disk, so this content is NOT app-owned. -->
-          <div ref="markdownContainerRef" class="markdown-content prose prose-slate max-w-none" @click="onMarkdownClick" v-html="renderedHtml"></div>
+            <!-- eslint-disable-next-line vue/no-v-html -- DOMPurify-sanitised marked output (sanitizeMarkdownHtml). `path` can open any .md on disk, so this content is NOT app-owned. -->
+            <div ref="markdownContainerRef" class="markdown-content prose prose-slate max-w-none" @click="onMarkdownClick" v-html="renderedHtml"></div>
+          </div>
         </div>
-      </div>
 
-      <div class="bottom-bar-wrapper">
-        <!-- A plain div rather than <details>: a <summary> must be the first
+        <div class="bottom-bar-wrapper">
+          <!-- A plain div rather than <details>: a <summary> must be the first
              child, which forces a header row above the textarea, and this panel
              spends its one row on the toolbar UNDER the editor instead — where
              Apply / Cancel already are. `editing` is the open state. -->
-        <div class="markdown-source">
-          <button v-if="!editing" class="source-toggle" @click="openEditor">{{ t("pluginMarkdown.editSource") }}</button>
-          <template v-else>
-            <textarea ref="editorRef" v-model="editableMarkdown" class="markdown-editor" spellcheck="false" @scroll="onEditorScroll"></textarea>
-            <div class="editor-actions">
-              <div class="toggle-group">
-                <label class="live-toggle">
-                  <input v-model="livePreview" type="checkbox" />
-                  {{ t("pluginMarkdown.livePreview") }}
-                </label>
-                <!-- Auto save rides on live preview: without it the viewer
+          <div class="markdown-source">
+            <button v-if="!editing" class="source-toggle" @click="openEditor">{{ t("pluginMarkdown.editSource") }}</button>
+            <template v-else>
+              <textarea ref="editorRef" v-model="editableMarkdown" class="markdown-editor" spellcheck="false" @scroll="onEditorScroll"></textarea>
+              <div class="editor-actions">
+                <div class="toggle-group">
+                  <label class="live-toggle">
+                    <input v-model="livePreview" type="checkbox" />
+                    {{ t("pluginMarkdown.livePreview") }}
+                  </label>
+                  <!-- Auto save rides on live preview: without it the viewer
                      already shows what is on disk, so writing behind the
                      user's back would buy nothing and cost the Cancel. -->
-                <label v-if="livePreview && canPersist" class="live-toggle">
-                  <input v-model="autoSave" type="checkbox" />
-                  {{ t("pluginMarkdown.autoSave") }}
-                </label>
-              </div>
-              <!-- Grouped so `.editor-actions` still sees two children and its
+                  <label v-if="livePreview && canPersist" class="live-toggle">
+                    <input v-model="autoSave" type="checkbox" />
+                    {{ t("pluginMarkdown.autoSave") }}
+                  </label>
+                </div>
+                <!-- Grouped so `.editor-actions` still sees two children and its
                    space-between keeps meaning what it does in the marp panel. -->
-              <div class="action-buttons">
-                <button class="apply-btn" :disabled="!hasChanges || saving" @click="applyMarkdown">
-                  {{ saving ? t("pluginMarkdown.saving") : t("pluginMarkdown.applyChanges") }}
-                </button>
-                <button class="cancel-btn" @click="cancelEdit">{{ t("pluginMarkdown.cancel") }}</button>
+                <div class="action-buttons">
+                  <button class="apply-btn" :disabled="!hasChanges || saving" @click="applyMarkdown">
+                    {{ saving ? t("pluginMarkdown.saving") : t("pluginMarkdown.applyChanges") }}
+                  </button>
+                  <button class="cancel-btn" @click="cancelEdit">{{ t("pluginMarkdown.cancel") }}</button>
+                </div>
               </div>
-            </div>
-            <p v-if="saveError" class="save-error" role="alert">{{ t("pluginMarkdown.saveError", { error: saveError }) }}</p>
-          </template>
+              <p v-if="saveError" class="save-error" role="alert">{{ t("pluginMarkdown.saveError", { error: saveError }) }}</p>
+            </template>
+          </div>
+          <button v-show="!editing" class="copy-btn" :title="copied ? t('pluginMarkdown.copiedLabel') : t('pluginMarkdown.copyLabel')" @click="copyText">
+            <span class="material-icons">{{ copied ? "check" : "content_copy" }}</span>
+          </button>
         </div>
-        <button v-show="!editing" class="copy-btn" :title="copied ? t('pluginMarkdown.copiedLabel') : t('pluginMarkdown.copyLabel')" @click="copyText">
-          <span class="material-icons">{{ copied ? "check" : "content_copy" }}</span>
-        </button>
       </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onUnmounted } from "vue";
+import { computed, ref, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useRuntime } from "gui-chat-protocol/vue";
 import { readDocContent } from "./contract";
 import { marked } from "marked";
@@ -292,6 +299,58 @@ const marpSplitMode = ref(false);
 // entry) and the click-delegation handler below; the toggle setter
 // lives in `onDetailsToggle` further down.
 const editing = ref(false);
+
+// ── Landscape split editing (non-Marp branch) ────────────────────
+//
+// When the source panel opens on a pane that is wider than tall, it
+// moves BESIDE the document instead of under it: editor left, viewer
+// right — the same hand as `MarpSplitEditor`, so the two source
+// editors in this plugin don't mirror each other.
+//
+// The height it is compared against is deliberately NOT the
+// container's own: under StackView the plugin renders inside
+// `.stack-natural`, which neutralises its `h-full` / `overflow` /
+// `flex-1` rules so the container flows at content height — any long
+// document would then measure "taller than wide" and never split.
+// `min(80vh, 720px)` is the height the split pane itself takes (the
+// value `MarpSplitEditor` pins for the same reason); `flex: 1 1 auto`
+// on `.editor-layout--split` lets it grow past that when the host DOES
+// give the container a real height (single layout).
+const SPLIT_PANE_VIEWPORT_FRACTION = 0.8;
+const SPLIT_PANE_MAX_HEIGHT_PX = 720;
+const splitPaneHeightCss = `min(${SPLIT_PANE_VIEWPORT_FRACTION * 100}vh, ${SPLIT_PANE_MAX_HEIGHT_PX}px)`;
+
+const containerRef = ref<HTMLElement | null>(null);
+const containerWidth = ref(0);
+const splitPaneHeight = ref(0);
+
+function measureSplitGeometry(): void {
+  containerWidth.value = containerRef.value?.clientWidth ?? 0;
+  splitPaneHeight.value = Math.min(window.innerHeight * SPLIT_PANE_VIEWPORT_FRACTION, SPLIT_PANE_MAX_HEIGHT_PX);
+}
+
+const splitEditing = computed(() => editing.value && containerWidth.value > 0 && containerWidth.value > splitPaneHeight.value);
+
+let containerObserver: ResizeObserver | undefined;
+
+onMounted(() => {
+  measureSplitGeometry();
+  const element = containerRef.value;
+  // The observer catches pane resizes (sidebar toggle, window width, the
+  // stack card growing). The window listener catches viewport HEIGHT
+  // changes, which move the reference height while leaving the
+  // container's box — and so the observer — untouched.
+  if (element && typeof ResizeObserver !== "undefined") {
+    containerObserver = new ResizeObserver(measureSplitGeometry);
+    containerObserver.observe(element);
+  }
+  window.addEventListener("resize", measureSplitGeometry);
+});
+
+onUnmounted(() => {
+  containerObserver?.disconnect();
+  window.removeEventListener("resize", measureSplitGeometry);
+});
 
 // Remote write: refetch so the rendered view tracks disk. If the
 // editor is open we close it first — `fileVersion` only fires once
@@ -449,10 +508,11 @@ function syncPreviewScroll(): void {
   preview.scrollTop = (editor.scrollTop / editorRange) * previewRange;
 }
 
-// Re-apply after each re-render and when live mode is switched on: new content
-// changes the viewer's scrollHeight, so the fraction that was right a keystroke
-// ago now points somewhere else.
-watch([liveBuffer, livePreview], () => void nextTick(syncPreviewScroll));
+// Re-apply after each re-render, when live mode is switched on, and when the
+// panel flips between stacked and split: new content — or a viewer that just
+// went from full width to half — changes the viewer's scrollHeight, so the
+// fraction that was right a keystroke ago now points somewhere else.
+watch([liveBuffer, livePreview, splitEditing], () => void nextTick(syncPreviewScroll));
 
 // The same mapping the other way round, run once when the editor opens: the
 // textarea starts at the viewer's scroll fraction, so opening the source after
@@ -877,6 +937,62 @@ watch(
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+}
+
+/* Stacked (default): the wrapper is inert, so viewer and source panel remain
+   direct flex children of `.markdown-container` and lay out exactly as they
+   did before the wrapper existed. */
+.editor-layout {
+  display: contents;
+}
+
+/* Split: `row-reverse` puts the source panel (the LATER child in document
+   order) on the left and the viewer on the right, matching MarpSplitEditor,
+   without moving either element in the DOM — the viewer keeps its scroll
+   position, its rendered mermaid diagrams and its v-html subtree across the
+   switch. The inline `height` (see `splitPaneHeightCss`) supplies the basis;
+   `flex: 1 1 auto` lets it grow when the host gives the container a real
+   height, and collapses to that basis when it doesn't. None of these class
+   names are the ones StackView's `.stack-natural :deep(...)` overrides
+   target, so the sizing here survives stack mode. */
+.editor-layout--split {
+  display: flex;
+  flex-direction: row-reverse;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editor-layout--split > .markdown-content-wrapper {
+  flex: 1 1 50%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.editor-layout--split > .bottom-bar-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 50%;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid #e0e0e0;
+}
+
+.editor-layout--split .markdown-source {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  border-top: none;
+}
+
+/* The stacked panel caps the textarea at 40vh; here it owns the column and
+   fills whatever the split leaves after the actions row. */
+.editor-layout--split .markdown-editor {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+  resize: none;
 }
 
 /* Body styles for the rendered Markdown.
