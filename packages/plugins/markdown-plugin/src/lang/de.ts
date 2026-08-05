@@ -28,6 +28,8 @@ const de: Messages = {
   marpSplitEditorLabel: "Quelle",
   mermaidLoadFailed: "⚠ Mermaid konnte nicht geladen werden: {error}",
   mermaidRenderFailed: "⚠ Mermaid-Rendering fehlgeschlagen: {error}",
+  bookmarkRailLabel: "Lesezeichen",
+  bookmarkJump: "Zum Lesezeichen springen: {label}",
 };
 
 export default de;

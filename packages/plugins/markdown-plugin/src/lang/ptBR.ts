@@ -27,6 +27,8 @@ const ptBR: Messages = {
   marpSplitEditorLabel: "Código",
   mermaidLoadFailed: "⚠ Falha ao carregar o Mermaid: {error}",
   mermaidRenderFailed: "⚠ Falha ao renderizar o Mermaid: {error}",
+  bookmarkRailLabel: "Marcadores",
+  bookmarkJump: "Ir para o marcador: {label}",
 };
 
 export default ptBR;

@@ -72,7 +72,7 @@ async function createDocument(context: MarkdownExecuteContext, args: MarkdownArg
   return { message: "provide either `markdown` or `path`", instructions: "Acknowledge the error and retry with inline `markdown` or an existing `path`." };
 }
 
-const DISPATCH_KINDS: ReadonlySet<string> = new Set(["loadDoc", "saveDoc", "marpThemes", "exportPdf", "fillImages"]);
+const DISPATCH_KINDS: ReadonlySet<string> = new Set(["loadDoc", "saveDoc", "marpThemes", "exportPdf", "fillImages", "bookmarkPattern"]);
 
 function hasKind(value: unknown): value is MarkdownDispatchArgs {
   if (typeof value !== "object" || value === null) return false;

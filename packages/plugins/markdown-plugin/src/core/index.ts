@@ -7,6 +7,10 @@ export { executeMarkdown } from "../plugins/markdown/core";
 export { createAutoSaver } from "../plugins/markdown/autoSaver";
 export type { AutoSaver, AutoSaverOptions } from "../plugins/markdown/autoSaver";
 export type { MarkdownExecuteContext } from "../plugins/markdown/core";
+// Source-editor bookmarks: the shipped default pattern (hosts reporting what
+// they resolved) and the pure scanner the View runs.
+export { DEFAULT_DOCUMENT_BOOKMARK_PATTERN, MAX_DOCUMENT_BOOKMARKS, compileBookmarkPattern, findDocumentBookmarks } from "../plugins/markdown/bookmarks";
+export type { DocumentBookmark } from "../plugins/markdown/bookmarks";
 export type { MarkdownHostApp, MarkdownDispatchArgs, MarkdownDispatchResult, ExportPdfOptions, MarpThemeEntry } from "../plugins/markdown/contract";
 export { isMarkdownDispatchArgs } from "../plugins/markdown/contract";
 // Hosts whose workspace file server is not `/api/files/raw` call this.

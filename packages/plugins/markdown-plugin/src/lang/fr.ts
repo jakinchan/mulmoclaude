@@ -27,6 +27,8 @@ const fr: Messages = {
   marpSplitEditorLabel: "Source",
   mermaidLoadFailed: "⚠ Échec du chargement de Mermaid : {error}",
   mermaidRenderFailed: "⚠ Échec du rendu Mermaid : {error}",
+  bookmarkRailLabel: "Signets",
+  bookmarkJump: "Aller au signet : {label}",
 };
 
 export default fr;

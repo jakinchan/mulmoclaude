@@ -38,6 +38,11 @@ export async function executeMarkdown(context: MarkdownExecuteContext, args: Mar
       });
     case "fillImages":
       return app.fillImages(args.markdown);
+    case "bookmarkPattern":
+      // Optional capability. A host that has not wired the shared config
+      // reader answers "nothing configured", and the View uses its default —
+      // the feature degrades to the shipped pattern rather than erroring.
+      return app.bookmarkPattern ? app.bookmarkPattern() : { pattern: null };
     default: {
       // Exhaustiveness guard: a new kind added to the union without a
       // branch here trips this at compile time.

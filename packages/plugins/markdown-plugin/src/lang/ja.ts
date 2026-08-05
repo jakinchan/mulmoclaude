@@ -27,6 +27,8 @@ const ja: Messages = {
   marpSplitEditorLabel: "ソース",
   mermaidLoadFailed: "⚠ Mermaid の読み込みに失敗しました: {error}",
   mermaidRenderFailed: "⚠ Mermaid の描画に失敗しました: {error}",
+  bookmarkRailLabel: "ブックマーク",
+  bookmarkJump: "ブックマークへ移動: {label}",
 };
 
 export default ja;
