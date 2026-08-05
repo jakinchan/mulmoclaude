@@ -1,0 +1,6 @@
+{
+  "name": "MulmoClaude",
+  "description": "A tool for nurturing your own AI assistant, on your own computer",
+  "icon": "src/assets/mulmo-icon.png",
+  "homepage": "https://github.com/receptron/mulmoclaude"
+}
