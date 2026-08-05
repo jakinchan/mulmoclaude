@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/relay",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Cloudflare Workers relay for MulmoBridge — receives webhooks, queues messages, forwards via WebSocket to MulmoClaude",
   "type": "module",
   "main": "dist/index.js",

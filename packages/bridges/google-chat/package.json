@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/google-chat",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Google Chat bridge for MulmoBridge — connect Google Chat to MulmoClaude",
   "type": "module",
   "main": "./dist/index.js",
