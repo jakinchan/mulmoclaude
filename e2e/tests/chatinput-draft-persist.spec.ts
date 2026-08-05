@@ -110,6 +110,31 @@ test.describe("chat input draft persistence", () => {
     await expect(chatInput(page)).toHaveValue("");
   });
 
+  // Landing on /chat without a session id in the URL, the composer is
+  // usable while the app is still deciding which session to resume. Text
+  // typed in that window has no session to belong to yet, and must not
+  // disappear when one arrives.
+  test("text typed before the session id arrives survives the hand-off", async ({ page }) => {
+    let releaseSessions = (): void => undefined;
+    const sessionsHeld = new Promise<void>((resolve) => (releaseSessions = resolve));
+    await page.route(
+      (url) => url.pathname === "/api/sessions",
+      async (route) => {
+        if (route.request().method() !== "GET") return route.fallback();
+        await sessionsHeld;
+        return route.fulfill({ json: { sessions: [], cursor: "v1:0", deletedIds: [] } });
+      },
+    );
+
+    await page.goto("/");
+    await expect(chatInput(page)).toBeVisible();
+    await fillChatInput(page, DRAFT_A);
+    releaseSessions();
+
+    await expect(page).toHaveURL(/\/chat\/.+/);
+    await expect(chatInput(page)).toHaveValue(DRAFT_A);
+  });
+
   // Switching away from a never-sent-to session evicts it: it has no
   // route and no history row left, so its draft must not sit in storage
   // forever — nothing can ever bring it back on screen.

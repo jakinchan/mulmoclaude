@@ -8,7 +8,7 @@
 // other. Attachments stay in memory only: they are data URLs (up to
 // 30 MB each) and would blow the storage quota.
 
-import { computed, ref, type Ref, type WritableComputedRef } from "vue";
+import { computed, ref, watch, type Ref, type WritableComputedRef } from "vue";
 import {
   CHAT_DRAFTS_STORAGE_KEY,
   getDraft,
@@ -21,6 +21,11 @@ import {
 } from "../utils/chat/draftStore";
 import { mergeBufferedIntoDraft } from "../utils/chat/buffer";
 import type { PastedFile } from "../types/pastedFile";
+
+// The composer is usable before the app has settled which session to
+// land on (/chat with no id in the URL awaits roles + the session list
+// first). Text typed then belongs to no session yet and parks here.
+const UNIDENTIFIED_SESSION = "";
 
 export interface UseChatDrafts {
   /** Draft text of the displayed session. Reads/writes look like a
@@ -40,7 +45,14 @@ export interface UseChatDrafts {
   dropDraft: (sessionId: string) => void;
 }
 
-export function useChatDrafts(currentSessionId: Ref<string>): UseChatDrafts {
+interface DraftState {
+  drafts: Ref<DraftMap>;
+  attachments: Ref<Record<string, PastedFile[]>>;
+  commitDrafts: (next: DraftMap) => void;
+  setAttachments: (sessionId: string, files: PastedFile[]) => void;
+}
+
+function createDraftState(): DraftState {
   const drafts = ref<DraftMap>(parseStoredDrafts(readStoredDrafts()));
   const attachments = ref<Record<string, PastedFile[]>>({});
 
@@ -57,6 +69,44 @@ export function useChatDrafts(currentSessionId: Ref<string>): UseChatDrafts {
     attachments.value = files.length === 0 ? omitSession(attachments.value, sessionId) : putSession(attachments.value, sessionId, files);
   }
 
+  return { drafts, attachments, commitDrafts, setAttachments };
+}
+
+function filesOf(state: DraftState, sessionId: string): PastedFile[] {
+  return state.attachments.value[sessionId] ?? [];
+}
+
+// Hand what was typed before the id arrived to the session that
+// materialised, appended after anything that session already holds
+// (a draft restored from storage is older than what was just typed).
+function adoptPendingDraft(state: DraftState, sessionId: string): void {
+  const pendingText = getDraft(state.drafts.value, UNIDENTIFIED_SESSION);
+  const pendingFiles = filesOf(state, UNIDENTIFIED_SESSION);
+  if (pendingText === "" && pendingFiles.length === 0) return;
+  const merged = mergeBufferedIntoDraft([getDraft(state.drafts.value, sessionId)], pendingText);
+  state.commitDrafts(setDraft(state.drafts.value, sessionId, merged));
+  state.setAttachments(sessionId, [...filesOf(state, sessionId), ...pendingFiles]);
+}
+
+function dropPendingDraft(state: DraftState): void {
+  state.commitDrafts(omitSession(state.drafts.value, UNIDENTIFIED_SESSION));
+  state.attachments.value = omitSession(state.attachments.value, UNIDENTIFIED_SESSION);
+}
+
+export function useChatDrafts(currentSessionId: Ref<string>): UseChatDrafts {
+  const state = createDraftState();
+  const { drafts, attachments, commitDrafts, setAttachments } = state;
+  // Only the very first session takes over the unidentified draft. Later
+  // returns to /chat must not resurrect a stray entry as someone else's.
+  let awaitingFirstSession = true;
+
+  watch(currentSessionId, (sessionId) => {
+    if (sessionId === UNIDENTIFIED_SESSION) return;
+    if (awaitingFirstSession) adoptPendingDraft(state, sessionId);
+    awaitingFirstSession = false;
+    dropPendingDraft(state);
+  });
+
   const userInput = computed<string>({
     get: () => getDraft(drafts.value, currentSessionId.value),
     set: (text) => commitDrafts(setDraft(drafts.value, currentSessionId.value, text)),
@@ -70,7 +120,7 @@ export function useChatDrafts(currentSessionId: Ref<string>): UseChatDrafts {
   function restoreDraft(sessionId: string, text: string, files: PastedFile[]): void {
     const merged = mergeBufferedIntoDraft([text], getDraft(drafts.value, sessionId));
     commitDrafts(setDraft(drafts.value, sessionId, merged));
-    setAttachments(sessionId, [...files, ...(attachments.value[sessionId] ?? [])]);
+    setAttachments(sessionId, [...files, ...filesOf(state, sessionId)]);
   }
 
   function dropDraft(sessionId: string): void {

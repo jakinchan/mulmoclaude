@@ -7,7 +7,7 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 import { useChatDrafts } from "../../src/composables/useChatDrafts.ts";
 import { CHAT_DRAFTS_STORAGE_KEY, parseStoredDrafts } from "../../src/utils/chat/draftStore.ts";
 import type { PastedFile } from "../../src/types/pastedFile.ts";
@@ -115,6 +115,43 @@ describe("useChatDrafts", () => {
     sessionId.value = "a";
     assert.equal(userInput.value, "the message that failed to send");
     assert.equal(pastedFiles.value.length, 1);
+  });
+
+  it("hands text typed before the session id arrived to the session that materialises", async () => {
+    const sessionId = ref("");
+    const { userInput } = useChatDrafts(sessionId);
+
+    userInput.value = "typed while the app was still booting";
+    sessionId.value = "a";
+    await nextTick();
+
+    assert.equal(userInput.value, "typed while the app was still booting");
+  });
+
+  it("appends that text after the draft the session already had restored", async () => {
+    storage.set(CHAT_DRAFTS_STORAGE_KEY, JSON.stringify({ a: "from last time" }));
+    const sessionId = ref("");
+    const { userInput } = useChatDrafts(sessionId);
+
+    userInput.value = "typed while booting";
+    sessionId.value = "a";
+    await nextTick();
+
+    assert.equal(userInput.value, "from last time\ntyped while booting");
+  });
+
+  it("never hands a stray unidentified draft to a later session", async () => {
+    const sessionId = ref("");
+    const { userInput } = useChatDrafts(sessionId);
+    sessionId.value = "a";
+    await nextTick();
+
+    sessionId.value = "";
+    userInput.value = "written with no session in view";
+    sessionId.value = "b";
+    await nextTick();
+
+    assert.equal(userInput.value, "");
   });
 
   it("merges a failed send with whatever the user typed there while it was in flight", () => {

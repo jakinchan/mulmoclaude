@@ -82,6 +82,14 @@ const { userInput, pastedFiles, dropDraft } = useChatDrafts(currentSessionId);
 | `dropDraft` が変化なしでも毎回 `setItem` する（削除 broadcast の id ごと・セッション切替のたびに発火） | `commitDrafts` で「純粋関数が同じ参照を返した＝何も起きていない」を検出して書き込みをスキップ |
 | 共有の空配列定数 `NO_FILES` を getter が返しており、呼び出し側が in-place で触ると全セッションに波及 | 定数をやめ、空セッションには毎回新しい `[]` を返す |
 
+**CI（webkit e2e）が拾った回帰 — セッション ID 確定前の入力**:
+
+`/chat/<id>` ではなく `/`（ID 無し）で開くと、`onMounted` は `refreshRoles()` → `/api/sessions` → `resumeOrCreateChatSession()` を **await** してからセッション ID を決める。その間すでに入力欄は操作できるため、**確定前に打った文字は空 ID のバケツに入り、確定と同時に画面から消える**（グローバル ref だった変更前は起こらなかった、この PR 固有の回帰）。ローカル chromium では窓が数十 ms で通ってしまい、CI の webkit で初めて落ちた。
+
+対処: 空 ID を `UNIDENTIFIED_SESSION` として明示し、**最初に実 ID が来たときだけ**その下書きを引き継ぐ（既存の下書きがあればその後ろに連結）。以降の「/chat を離れて戻る」では引き継がず、空 ID のエントリは常に破棄する — さもないと後から別セッションに他人の文字が出る。
+
+`/api/sessions` を握って ID 確定を遅らせる e2e で決定的に再現・検証した（修正前は入力値が `""` になる）。
+
 **CodeRabbit 指摘で追加対応**:
 
 | 指摘 | 対応 |
