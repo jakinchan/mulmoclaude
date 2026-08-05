@@ -489,7 +489,7 @@ const { shortcuts } = useShortcuts();
 // reload restores what the user was typing. Every place that assigns
 // `userInput.value` therefore also updates storage — including the
 // clears in sendMessage.
-const { userInput, pastedFiles, dropDraft: dropSessionDraft } = useChatDrafts(currentSessionId);
+const { userInput, pastedFiles, restoreDraft, dropDraft: dropSessionDraft } = useChatDrafts(currentSessionId);
 // Messages the user sends while a run is in flight queue here instead of
 // dispatching, keyed by the session they belong to so concurrent runs in
 // different sessions never mix. `currentBufferedMessages` is the displayed
@@ -1067,11 +1067,15 @@ async function sendMessage(text?: string) {
   const filesSnapshot = [...pastedFiles.value];
   pastedFiles.value = [];
 
+  // Uploading the attachments is a real round trip, so the user can be
+  // looking at another session by the time it fails. Hand the message
+  // back to the session it was composed in — writing it to whatever is
+  // on screen would overwrite that session's own draft.
+  const originSessionId = currentSessionId.value;
   const resolved = await resolveAttachments(filesSnapshot);
   if (resolved !== null && "error" in resolved) {
-    userInput.value = message;
-    pastedFiles.value = filesSnapshot;
-    const recoverySession = sessionMap.get(currentSessionId.value);
+    restoreDraft(originSessionId, message, filesSnapshot);
+    const recoverySession = sessionMap.get(originSessionId);
     if (recoverySession) pushErrorMessage(recoverySession, t("chatInput.attachImageFailed", { error: resolved.error }));
     return;
   }

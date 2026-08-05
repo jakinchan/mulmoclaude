@@ -74,9 +74,20 @@ const { userInput, pastedFiles, dropDraft } = useChatDrafts(currentSessionId);
 - `useSessionLifecycle`: `LifecycleDeps` に `dropSessionDraft` を追加し、`removeCurrentIfEmpty` が sessionMap から消したときに呼ぶ。
 - `useSessionSync`: `deletedIds` ループで `onSessionDeleted?.(deletedId)` を呼び、App.vue が `dropDraft` を繋ぐ。
 
+## レビュー指摘の反映
+
+| 指摘 | 対応 |
+|---|---|
+| `sendMessage` の差し戻しが **別セッションの下書きを壊す** — setter は「書いた瞬間の `currentSessionId`」に解決されるが、`resolveAttachments` は実 POST で待ちが長く、その間に切り替えられる | await の前に `originSessionId` を捕まえ、差し戻しとエラー表示をそれに固定。composable に `restoreDraft(sessionId, text, files)` を追加（表示中でないセッションに書き戻す唯一の口） |
+| `dropDraft` が変化なしでも毎回 `setItem` する（削除 broadcast の id ごと・セッション切替のたびに発火） | `commitDrafts` で「純粋関数が同じ参照を返した＝何も起きていない」を検出して書き込みをスキップ |
+| 共有の空配列定数 `NO_FILES` を getter が返しており、呼び出し側が in-place で触ると全セッションに波及 | 定数をやめ、空セッションには毎回新しい `[]` を返す |
+
+**未対応（本 PR のスコープ外・変更前からある別バグ）**: 成功経路の `sessionMap.get(currentSessionId.value)`（`App.vue`）も await 後に読むため、添付アップロード中にセッションを切り替えると **メッセージ自体が切替先のセッションに飛ぶ**。下書き機能とは独立した既存の不具合なので別 issue とする。
+
 ## テスト
 
 - `test/utils/chat/test_draftStore.ts`（node:test）: 保存 / 復元、空文字でキー削除、壊れた JSON、空 id を保存しない、LRU 上限、`omitSession` が添付マップでも動く。
+- `test/composables/test_useChatDrafts.ts`（node:test, sessionStorage スタブ）: セッション別の読み書き、前回ロードからの復元、添付は永続化しない、空セッションには毎回新しい配列、`restoreDraft` が表示中でなく **composeしたセッション** に戻す、`dropDraft` が両方を消す（破棄経路 5・6 の実装本体）、下書きが無いセッションの drop で書き込みが増えない、storage 不通でも入力を失わない。
 - `e2e/tests/chatinput-draft-persist.spec.ts`（mock）:
   1. 入力 → `page.reload()` → 値が復元される
   2. セッション A に入力 → B へ切替で空 → A に戻ると復元（URL 直叩き / タブ切替の両方）
@@ -84,6 +95,9 @@ const { userInput, pastedFiles, dropDraft } = useChatDrafts(currentSessionId);
   4. 添付 chip も A → B で消え、A に戻ると復活
   5. 送信 → リロードしても空（送信済みの文字が復活しない）
   6. 手で全消し → リロードしても空
+  7. 空セッションが破棄されたら、その id の下書きが sessionStorage から消える（破棄経路 6 の配線）
+
+破棄経路 5（削除 broadcast）の配線だけは e2e 化していない — socket.io モックを丸ごと立てる必要があり、実装本体（`dropDraft`）は composable の unit で押さえているため。
 
 ## 検証
 

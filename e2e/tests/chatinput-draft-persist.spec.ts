@@ -5,13 +5,18 @@
 // session's own draft, and anything that leaves the input empty (a
 // send) must leave nothing behind for the next load to resurrect.
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
 import { SESSION_A, SESSION_B } from "../fixtures/sessions";
 import { chatInput, fillChatInput, clickSend, selectSessionTab, startNewSession } from "../fixtures/chat";
 
 const DRAFT_A = "draft for session A";
 const DRAFT_B = "draft for session B";
+const DRAFTS_STORAGE_KEY = "chat_drafts_by_session";
+
+async function storedDrafts(page: Page): Promise<string> {
+  return (await page.evaluate((key) => sessionStorage.getItem(key), DRAFTS_STORAGE_KEY)) ?? "";
+}
 
 test.beforeEach(async ({ page }) => {
   await mockAllApis(page);
@@ -60,6 +65,21 @@ test.describe("chat input draft persistence", () => {
     await startNewSession(page);
 
     await expect(chatInput(page)).toHaveValue("");
+  });
+
+  // Switching away from a never-sent-to session evicts it: it has no
+  // route and no history row left, so its draft must not sit in storage
+  // forever — nothing can ever bring it back on screen.
+  test("an evicted empty session leaves no orphan draft behind", async ({ page }) => {
+    await page.goto(`/chat/${SESSION_A.id}`);
+    await startNewSession(page);
+    const [, emptySessionId] = new URL(page.url()).pathname.split("/chat/");
+    await fillChatInput(page, "written in a chat that never happened");
+    expect(await storedDrafts(page)).toContain(emptySessionId);
+
+    await selectSessionTab(page, SESSION_A.id);
+
+    expect(await storedDrafts(page)).not.toContain(emptySessionId);
   });
 
   test("attachments stay with their own session", async ({ page }) => {
