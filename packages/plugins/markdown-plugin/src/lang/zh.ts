@@ -5,6 +5,7 @@ const zh: Messages = {
   loadFailed: "⚠ 加载文档失败: {error}",
   refreshFailed: "⚠ 刷新文档失败: {error} — 正在显示上次成功加载的内容。",
   noContent: "没有可用的 Markdown 内容",
+  reload: "从磁盘重新加载",
   pdf: "PDF",
   pdfFailedShort: "⚠ PDF 失败",
   editSource: "编辑 Markdown 源",
