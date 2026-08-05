@@ -75,6 +75,13 @@
           </div>
         </div>
         <div class="bottom-bar-wrapper">
+          <!-- No bookmark rail here, deliberately: this is the Marp branch, and
+             a deck is navigated by slide, which the preview beside it already
+             shows. The rail belongs to the plain-document editor below, where
+             there is nothing else to tell you where you are in a long file.
+             This textarea also has no `editorRef` and no scroll-sync, so the
+             rail would need the measurement path wired through a second time —
+             worth doing only if decks turn out to want it. -->
           <details ref="sourceDetails" class="markdown-source" @toggle="onDetailsToggle">
             <summary>{{ t("pluginMarkdown.editSource") }}</summary>
             <textarea v-model="editableMarkdown" class="markdown-editor" spellcheck="false"></textarea>

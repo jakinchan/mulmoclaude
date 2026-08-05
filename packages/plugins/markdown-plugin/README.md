@@ -6,9 +6,12 @@ A plugin for [MulmoClaude](https://github.com/receptron/mulmoclaude) and [MulmoT
 
 ## Source-editor bookmarks
 
-The markdown source editor marks bookmarked places in a rail down its left edge —
-a small clickable triangle per bookmark, positioned at that place's position in
-the whole document. Clicking one scrolls the editor there.
+The **plain-document** source editor marks bookmarked places in a rail down its
+left edge — a small clickable triangle per bookmark, positioned at that place's
+position in the whole document. Clicking one scrolls the editor there.
+
+Marp decks are excluded: a deck is navigated by slide, and its editor sits beside
+a live slide preview that already says where you are.
 
 What counts as a bookmark is a **regular expression** of your own, set once per
 machine in `~/.config/mulmo/config.json` — the host-neutral config file shared by
