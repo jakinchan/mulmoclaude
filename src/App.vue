@@ -864,16 +864,25 @@ watch(currentSessionId, (sessionId) => {
     }
   }
   previousSessionId = sessionId;
+});
 
-  // Clear unread in both sessionMap and sessions list (for badge count),
+// Clearing unread keys off the transcript arriving, not off the click.
+// currentSessionId now moves ahead of the fetch (#2809), so a session
+// whose load then fails would otherwise lose its unread badge without
+// ever having been read — and a transcript that 500s while its meta
+// sidecar is healthy leaves the server happy to accept the mark-read.
+// activeSession only becomes defined once the session is in sessionMap,
+// which covers both switching to an already-loaded session and a
+// just-completed load.
+watch(activeSession, (session) => {
+  if (!session) return;
+  // Clear in both sessionMap and the sessions list (for badge count),
   // then tell the server so other tabs see it too.
-  const summary = sessions.value.find((entry) => entry.id === sessionId);
-  const wasUnread = (session && session.hasUnread) || (summary && summary.hasUnread);
-  if (wasUnread) {
-    if (session) session.hasUnread = false;
-    if (summary) summary.hasUnread = false;
-    markSessionRead(sessionId);
-  }
+  const summary = sessions.value.find((entry) => entry.id === session.id);
+  if (!(session.hasUnread || summary?.hasUnread)) return;
+  session.hasUnread = false;
+  if (summary) summary.hasUnread = false;
+  markSessionRead(session.id);
 });
 
 const { handleCanvasKeydown, handleKeyNavigation } = useKeyNavigation({

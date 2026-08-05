@@ -174,6 +174,46 @@ test.describe("session selection feedback", () => {
   });
 });
 
+test.describe("session selection failure handling", () => {
+  test("a transcript that fails to load leaves the row unread and the selection where it was", async ({ page }) => {
+    // The optimistic selection reaches the unread watcher before the
+    // load resolves. A transcript that 500s while its meta sidecar is
+    // healthy would let mark-read succeed, dropping the badge for a
+    // session that never opened.
+    const unreadA = { ...SESSION_A, hasUnread: true };
+    await mockAllApis(page, { sessions: [unreadA, SESSION_B] });
+    let markReadCalls = 0;
+    await page.route(
+      (url) => url.pathname.startsWith(`/api/sessions/${SESSION_A.id}`),
+      (route: Route) => {
+        if (route.request().method() === "POST") {
+          markReadCalls++;
+          return route.fulfill({ json: { ok: true } });
+        }
+        return route.fulfill({ status: 500, json: { error: "unreadable transcript" } });
+      },
+    );
+
+    await page.goto("/chat");
+    await page.getByTestId("session-history-toggle-off").click();
+    const rowA = page.getByTestId(`session-item-${SESSION_A.id}`);
+    await expect(rowA).toBeVisible();
+    // Unread rows render bold via previewClasses.
+    await expect(rowA.locator("p")).toHaveClass(/font-bold/);
+
+    await rowA.click();
+
+    // Negative assertions: neither the badge dropping nor a navigation
+    // has a signal to synchronise on, so give the failure path a beat.
+    // eslint-disable-next-line sonarjs/no-fixed-wait-in-tests -- see above
+    await page.waitForTimeout(500);
+    await expect(rowA.locator("p")).toHaveClass(/font-bold/);
+    await expect(rowA).not.toHaveClass(/border-blue-500/);
+    await expect(page).toHaveURL(new RegExp(SESSION_B.id));
+    expect(markReadCalls).toBe(0);
+  });
+});
+
 test.describe("session-history filter pills", () => {
   test.beforeEach(async ({ page }) => {
     await mockAllApis(page);
