@@ -35,10 +35,14 @@ test("SessionHistoryPanel binds SessionHistoryRow handlers as method references"
   const handlers = [...sessionHistoryRowTag().matchAll(/@[\w-]+="([^"]*)"/g)].map((match) => match[1] ?? "");
   assert.ok(handlers.length > 0, "expected at least one @event binding on <SessionHistoryRow>");
   handlers.forEach((handler) => {
-    assert.doesNotMatch(
+    // A bare identifier is the only form Vue passes through as-is. Both
+    // `(id) => onSelect(id)` and `onSelect($event)` compile to a fresh
+    // closure per render, so matching on `=>` alone would let the second
+    // one through.
+    assert.match(
       handler,
-      /=>/,
-      `@-binding "${handler}" is an inline arrow. Pass a method reference and return the session through the emit payload — see the comment above <SessionHistoryRow>.`,
+      /^[A-Za-z_$][\w$]*$/,
+      `@-binding "${handler}" must be a bare method reference — anything Vue has to wrap is a new function on every render. Return the session through the emit payload instead; see the comment above <SessionHistoryRow>.`,
     );
   });
 });
