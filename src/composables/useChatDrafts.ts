@@ -45,9 +45,18 @@ export interface UseChatDrafts {
   dropDraft: (sessionId: string) => void;
 }
 
+interface PendingDraft {
+  text: string;
+  files: PastedFile[];
+}
+
 interface DraftState {
   drafts: Ref<DraftMap>;
   attachments: Ref<Record<string, PastedFile[]>>;
+  // Held outside the capped maps: an unidentified draft that competed
+  // for one of their slots would evict a real session's draft — and
+  // persist that loss — for a single character typed during boot.
+  pending: Ref<PendingDraft>;
   commitDrafts: (next: DraftMap) => void;
   setAttachments: (sessionId: string, files: PastedFile[]) => void;
 }
@@ -55,6 +64,7 @@ interface DraftState {
 function createDraftState(): DraftState {
   const drafts = ref<DraftMap>(parseStoredDrafts(readStoredDrafts()));
   const attachments = ref<Record<string, PastedFile[]>>({});
+  const pending = ref<PendingDraft>({ text: "", files: [] });
 
   // The pure helpers return the map unchanged when there was nothing to
   // do, which is the signal to skip the write — session switches and
@@ -69,28 +79,50 @@ function createDraftState(): DraftState {
     attachments.value = files.length === 0 ? omitSession(attachments.value, sessionId) : putSession(attachments.value, sessionId, files);
   }
 
-  return { drafts, attachments, commitDrafts, setAttachments };
+  return { drafts, attachments, pending, commitDrafts, setAttachments };
 }
 
 function filesOf(state: DraftState, sessionId: string): PastedFile[] {
   return state.attachments.value[sessionId] ?? [];
 }
 
+function readText(state: DraftState, sessionId: string): string {
+  return sessionId === UNIDENTIFIED_SESSION ? state.pending.value.text : getDraft(state.drafts.value, sessionId);
+}
+
+function writeText(state: DraftState, sessionId: string, text: string): void {
+  if (sessionId === UNIDENTIFIED_SESSION) {
+    state.pending.value = { ...state.pending.value, text };
+    return;
+  }
+  state.commitDrafts(setDraft(state.drafts.value, sessionId, text));
+}
+
+function readFiles(state: DraftState, sessionId: string): PastedFile[] {
+  return sessionId === UNIDENTIFIED_SESSION ? state.pending.value.files : filesOf(state, sessionId);
+}
+
+function writeFiles(state: DraftState, sessionId: string, files: PastedFile[]): void {
+  if (sessionId === UNIDENTIFIED_SESSION) {
+    state.pending.value = { ...state.pending.value, files };
+    return;
+  }
+  state.setAttachments(sessionId, files);
+}
+
 // Hand what was typed before the id arrived to the session that
 // materialised, appended after anything that session already holds
 // (a draft restored from storage is older than what was just typed).
 function adoptPendingDraft(state: DraftState, sessionId: string): void {
-  const pendingText = getDraft(state.drafts.value, UNIDENTIFIED_SESSION);
-  const pendingFiles = filesOf(state, UNIDENTIFIED_SESSION);
-  if (pendingText === "" && pendingFiles.length === 0) return;
-  const merged = mergeBufferedIntoDraft([getDraft(state.drafts.value, sessionId)], pendingText);
+  const { text, files } = state.pending.value;
+  if (text === "" && files.length === 0) return;
+  const merged = mergeBufferedIntoDraft([getDraft(state.drafts.value, sessionId)], text);
   state.commitDrafts(setDraft(state.drafts.value, sessionId, merged));
-  state.setAttachments(sessionId, [...filesOf(state, sessionId), ...pendingFiles]);
+  state.setAttachments(sessionId, [...filesOf(state, sessionId), ...files]);
 }
 
 function dropPendingDraft(state: DraftState): void {
-  state.commitDrafts(omitSession(state.drafts.value, UNIDENTIFIED_SESSION));
-  state.attachments.value = omitSession(state.attachments.value, UNIDENTIFIED_SESSION);
+  state.pending.value = { text: "", files: [] };
 }
 
 export function useChatDrafts(currentSessionId: Ref<string>): UseChatDrafts {
@@ -108,13 +140,13 @@ export function useChatDrafts(currentSessionId: Ref<string>): UseChatDrafts {
   });
 
   const userInput = computed<string>({
-    get: () => getDraft(drafts.value, currentSessionId.value),
-    set: (text) => commitDrafts(setDraft(drafts.value, currentSessionId.value, text)),
+    get: () => readText(state, currentSessionId.value),
+    set: (text) => writeText(state, currentSessionId.value, text),
   });
 
   const pastedFiles = computed<PastedFile[]>({
-    get: () => attachments.value[currentSessionId.value] ?? [],
-    set: (files) => setAttachments(currentSessionId.value, files),
+    get: () => readFiles(state, currentSessionId.value),
+    set: (files) => writeFiles(state, currentSessionId.value, files),
   });
 
   function restoreDraft(sessionId: string, text: string, files: PastedFile[]): void {

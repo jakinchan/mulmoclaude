@@ -86,7 +86,9 @@ const { userInput, pastedFiles, dropDraft } = useChatDrafts(currentSessionId);
 
 `/chat/<id>` ではなく `/`（ID 無し）で開くと、`onMounted` は `refreshRoles()` → `/api/sessions` → `resumeOrCreateChatSession()` を **await** してからセッション ID を決める。その間すでに入力欄は操作できるため、**確定前に打った文字は空 ID のバケツに入り、確定と同時に画面から消える**（グローバル ref だった変更前は起こらなかった、この PR 固有の回帰）。ローカル chromium では窓が数十 ms で通ってしまい、CI の webkit で初めて落ちた。
 
-対処: 空 ID を `UNIDENTIFIED_SESSION` として明示し、**最初に実 ID が来たときだけ**その下書きを引き継ぐ（既存の下書きがあればその後ろに連結）。以降の「/chat を離れて戻る」では引き継がず、空 ID のエントリは常に破棄する — さもないと後から別セッションに他人の文字が出る。
+対処: 空 ID を `UNIDENTIFIED_SESSION` として明示し、**最初に実 ID が来たときだけ**その下書きを引き継ぐ（既存の下書きがあればその後ろに連結）。以降の「/chat を離れて戻る」では引き継がず、空 ID の内容は常に破棄する — さもないと後から別セッションに他人の文字が出る。
+
+さらに Codex の指摘で、**pending は capped map の外**（`DraftState.pending`）に持つよう修正した。map に入れると 20 件 LRU の枠を 1 つ奪い、**満杯時に起動直後の 1 文字が既存セッションの下書きを追い出して、その消失をそのまま永続化**してしまう（`serializeDrafts` が空 ID を落とすのは保存の直前で、eviction はその前に済んでいる）。
 
 `/api/sessions` を握って ID 確定を遅らせる e2e で決定的に再現・検証した（修正前は入力値が `""` になる）。
 

@@ -140,6 +140,23 @@ describe("useChatDrafts", () => {
     assert.equal(userInput.value, "from last time\ntyped while booting");
   });
 
+  it("never costs a real session its draft — pre-session text is not in the capped map", async () => {
+    const seeded = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`s${index}`, `draft-${index}`]));
+    storage.set(CHAT_DRAFTS_STORAGE_KEY, JSON.stringify(seeded));
+    const sessionId = ref("");
+    const { userInput } = useChatDrafts(sessionId);
+    const writesBefore = writes;
+
+    userInput.value = "typed while booting";
+
+    assert.deepEqual(storedDrafts(), seeded);
+    assert.equal(writes, writesBefore);
+
+    sessionId.value = "s0";
+    await nextTick();
+    assert.equal(userInput.value, "draft-0\ntyped while booting");
+  });
+
   it("never hands a stray unidentified draft to a later session", async () => {
     const sessionId = ref("");
     const { userInput } = useChatDrafts(sessionId);
