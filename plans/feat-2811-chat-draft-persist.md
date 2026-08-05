@@ -82,7 +82,7 @@ const { userInput, pastedFiles, dropDraft } = useChatDrafts(currentSessionId);
 | `dropDraft` が変化なしでも毎回 `setItem` する（削除 broadcast の id ごと・セッション切替のたびに発火） | `commitDrafts` で「純粋関数が同じ参照を返した＝何も起きていない」を検出して書き込みをスキップ |
 | 共有の空配列定数 `NO_FILES` を getter が返しており、呼び出し側が in-place で触ると全セッションに波及 | 定数をやめ、空セッションには毎回新しい `[]` を返す |
 
-**未対応（本 PR のスコープ外・変更前からある別バグ）**: 成功経路の `sessionMap.get(currentSessionId.value)`（`App.vue`）も await 後に読むため、添付アップロード中にセッションを切り替えると **メッセージ自体が切替先のセッションに飛ぶ**。下書き機能とは独立した既存の不具合なので別 issue とする。
+**Codex レビュー指摘で追加対応**: 成功経路の `sessionMap.get(currentSessionId.value)` も await 後に読むため、添付アップロード中にセッションを切り替えると **メッセージ自体が切替先のセッションに飛び、role もそちらのものになる**。当初は「変更前からある別バグなので別 issue」と判断したが、`originSessionId` が 3 行上にある状態で片方だけ直すのは一貫しないため同 PR で修正。`sessionRole` computed の中身を `roleOfSession(session)` に切り出し、送信は発信元セッションの role を使う。
 
 ## テスト
 
@@ -96,6 +96,7 @@ const { userInput, pastedFiles, dropDraft } = useChatDrafts(currentSessionId);
   5. 送信 → リロードしても空（送信済みの文字が復活しない）
   6. 手で全消し → リロードしても空
   7. 空セッションが破棄されたら、その id の下書きが sessionStorage から消える（破棄経路 6 の配線）
+  8. アップロードを握ったままセッションを切り替えても、`/api/agent` の `chatSessionId` は発信元セッションのまま
 
 破棄経路 5（削除 broadcast）の配線だけは e2e 化していない — socket.io モックを丸ごと立てる必要があり、実装本体（`dropDraft`）は composable の unit で押さえているため。
 

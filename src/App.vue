@@ -531,21 +531,20 @@ const sessionRoleIcon = computed(() => {
   return roleIcon(roles.value, roleId);
 });
 
+// The role a given conversation runs under. `roles` always carries the
+// built-ins (merge keeps them), so its first entry is the effective
+// default; ROLES[0] only covers the type.
+function roleOfSession(session: ActiveSession | undefined): Role {
+  const match = session?.roleId ? roles.value.find((role) => role.id === session.roleId) : undefined;
+  return match ?? roles.value[0] ?? ROLES[0];
+}
+
 // Role of the conversation in progress. Drives the suggested-query
 // list, the right-sidebar role-prompt, and the MCP tool filter so
 // they all match the active session (not the role-selector
 // dropdown — which is owned by SessionHeaderControls and whose
 // selection only matters at "+" / role-change time).
-const sessionRole = computed<Role>(() => {
-  const sessionRoleId = activeSession.value?.roleId;
-  if (sessionRoleId) {
-    const match = roles.value.find((role) => role.id === sessionRoleId);
-    if (match) return match;
-  }
-  // `roles` always carries the built-ins (merge keeps them), so the first
-  // entry is the effective default; ROLES[0] only covers the type.
-  return roles.value[0] ?? ROLES[0];
-});
+const sessionRole = computed<Role>(() => roleOfSession(activeSession.value));
 
 // Translated suggested-query strings for the active session's role.
 // Falls back to the role's English source until /api/translation
@@ -1068,9 +1067,11 @@ async function sendMessage(text?: string) {
   pastedFiles.value = [];
 
   // Uploading the attachments is a real round trip, so the user can be
-  // looking at another session by the time it fails. Hand the message
-  // back to the session it was composed in — writing it to whatever is
-  // on screen would overwrite that session's own draft.
+  // looking at another session by the time it resolves. Everything past
+  // this point addresses the session the message was composed in: a
+  // failed send must not overwrite the displayed session's draft, and a
+  // successful one must not land in the conversation the user happens
+  // to be reading — under that session's role, at that.
   const originSessionId = currentSessionId.value;
   const resolved = await resolveAttachments(filesSnapshot);
   if (resolved !== null && "error" in resolved) {
@@ -1081,7 +1082,7 @@ async function sendMessage(text?: string) {
   }
   const attachments = resolved?.attachments;
 
-  const session = sessionMap.get(currentSessionId.value);
+  const session = sessionMap.get(originSessionId);
   if (!session) return;
 
   beginUserTurn(session, message, attachments);
@@ -1090,7 +1091,7 @@ async function sendMessage(text?: string) {
   const result = await postAgentRun(
     buildAgentRequestBody({
       message,
-      role: sessionRole.value,
+      role: roleOfSession(session),
       chatSessionId: session.id,
       attachments,
     }),

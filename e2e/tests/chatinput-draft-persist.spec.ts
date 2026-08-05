@@ -18,6 +18,16 @@ async function storedDrafts(page: Page): Promise<string> {
   return (await page.evaluate((key) => sessionStorage.getItem(key), DRAFTS_STORAGE_KEY)) ?? "";
 }
 
+// Which session an /api/agent POST addressed, or null when the body
+// isn't the shape we expect (so a malformed body fails the assertion
+// rather than throwing).
+function sentChatSessionId(body: string | undefined): string | null {
+  if (!body) return null;
+  const parsed: unknown = JSON.parse(body);
+  if (typeof parsed !== "object" || parsed === null || !("chatSessionId" in parsed)) return null;
+  return typeof parsed.chatSessionId === "string" ? parsed.chatSessionId : null;
+}
+
 test.beforeEach(async ({ page }) => {
   await mockAllApis(page);
 });
@@ -92,6 +102,45 @@ test.describe("chat input draft persistence", () => {
 
     await selectSessionTab(page, SESSION_A.id);
     await expect(page.getByTestId("chat-attachment-list")).toHaveCount(1);
+  });
+
+  // Attachment upload is a real round trip, so the displayed session can
+  // change before it resolves. The turn belongs to the session the user
+  // composed it in — both when the upload fails (the draft goes back
+  // there) and when it succeeds (the message is sent there).
+  test("a send whose upload outlives a session switch still lands in the origin session", async ({ page }) => {
+    let releaseUpload = (): void => undefined;
+    const uploadHeld = new Promise<void>((resolve) => {
+      releaseUpload = resolve;
+    });
+    const agentBodies: string[] = [];
+
+    await page.route(
+      (url) => url.pathname === "/api/attachments",
+      async (route) => {
+        await uploadHeld;
+        await route.fulfill({ json: { path: "/w/data/attachments/a.png", originalPath: "a.png", mimeType: "image/png" } });
+      },
+    );
+    await page.route(
+      (url) => url.pathname === "/api/agent",
+      (route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        agentBodies.push(route.request().postData() ?? "");
+        return route.fulfill({ status: 202, json: { chatSessionId: "mock-session" } });
+      },
+    );
+
+    await page.goto(`/chat/${SESSION_A.id}`);
+    await page.getByTestId("file-input").setInputFiles([{ name: "a.png", mimeType: "image/png", buffer: Buffer.from("a") }]);
+    await fillChatInput(page, DRAFT_A);
+    await clickSend(page);
+
+    await selectSessionTab(page, SESSION_B.id);
+    releaseUpload();
+
+    await expect.poll(() => agentBodies.length).toBe(1);
+    expect(sentChatSessionId(agentBodies[0])).toBe(SESSION_A.id);
   });
 
   test("a sent message does not come back on the next load", async ({ page }) => {
