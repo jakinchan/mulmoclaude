@@ -1,4 +1,5 @@
 export interface Messages {
+  reload: string;
   saveAsPdf: string;
   pdf: string;
   download: string;

@@ -36,6 +36,17 @@ export function isSessionAlreadyDisplayed(sessionId: string, currentSessionId: s
   return sessionId === currentSessionId && sessionInMemory;
 }
 
+// loadSession moves the selection before the transcript arrives, so the
+// history row highlights on the click rather than a round trip later.
+// Both endings of that fetch have to ask whether the user is still
+// waiting on THIS session: a stale failure must not roll the selection
+// back off a newer one, and a stale success must not navigate back to a
+// session the user already left. Clicking a slow row and then a fast one
+// produces both cases.
+export function isAwaitedSession(currentSessionId: string, requestedSessionId: string): boolean {
+  return currentSessionId === requestedSessionId;
+}
+
 // activateSession skips a redundant navigate when the URL already points
 // at the target session. Re-pushing the same path strips query strings
 // (e.g. the `?result=<uuid>` notification permalink, #762), so the guard

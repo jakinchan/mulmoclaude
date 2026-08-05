@@ -5,6 +5,7 @@ const ko: Messages = {
   loadFailed: "⚠ 문서 불러오기 실패: {error}",
   refreshFailed: "⚠ 문서 새로고침 실패: {error} — 마지막으로 성공적으로 불러온 내용을 표시합니다.",
   noContent: "사용 가능한 Markdown 콘텐츠가 없습니다",
+  reload: "디스크에서 다시 불러오기",
   pdf: "PDF",
   pdfFailedShort: "⚠ PDF 실패",
   editSource: "Markdown 원본 편집",

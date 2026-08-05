@@ -1,6 +1,7 @@
 import type { Messages } from "./messages";
 
 const fr: Messages = {
+  reload: "Recharger depuis le disque",
   saveAsPdf: "Enregistrer en PDF (ouvre la boîte de dialogue d'impression)",
   pdf: "PDF",
   download: "ZIP",

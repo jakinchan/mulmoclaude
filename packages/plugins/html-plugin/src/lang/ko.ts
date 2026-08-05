@@ -1,6 +1,7 @@
 import type { Messages } from "./messages";
 
 const ko: Messages = {
+  reload: "디스크에서 다시 불러오기",
   saveAsPdf: "PDF 로 저장 (인쇄 대화 상자 열기)",
   pdf: "PDF",
   download: "ZIP",

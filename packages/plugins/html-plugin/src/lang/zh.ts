@@ -1,6 +1,7 @@
 import type { Messages } from "./messages";
 
 const zh: Messages = {
+  reload: "从磁盘重新加载",
   saveAsPdf: "另存为 PDF(打开打印对话框)",
   pdf: "PDF",
   download: "ZIP",

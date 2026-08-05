@@ -5,6 +5,7 @@ const fr: Messages = {
   loadFailed: "⚠ Échec du chargement du document : {error}",
   refreshFailed: "⚠ Échec de l'actualisation du document : {error} — affichage du dernier contenu chargé avec succès.",
   noContent: "Aucun contenu Markdown disponible",
+  reload: "Recharger depuis le disque",
   pdf: "PDF",
   pdfFailedShort: "⚠ Échec PDF",
   editSource: "Modifier la source Markdown",

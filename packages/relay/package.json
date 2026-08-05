@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/relay",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Cloudflare Workers relay for MulmoBridge — receives webhooks, queues messages, forwards via WebSocket to MulmoClaude",
   "type": "module",
   "main": "dist/index.js",
@@ -34,7 +34,7 @@
   "license": "MIT",
   "dependencies": {
     "@mulmobridge/client": "^1.0.2",
-    "@mulmoclaude/common": "^1.1.2"
+    "@mulmoclaude/common": "^1.2.0"
   },
   "homepage": "https://github.com/receptron/mulmoclaude/tree/main/packages/relay#readme",
   "repository": {

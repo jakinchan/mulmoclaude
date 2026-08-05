@@ -24,6 +24,7 @@ import {
   isSessionAlreadyDisplayed,
   isOnTargetSessionRoute,
   resolveResumeAction,
+  isAwaitedSession,
 } from "../utils/session/sessionLifecycle";
 
 interface LifecycleDeps {
@@ -37,6 +38,10 @@ interface LifecycleDeps {
   ensureSessionSubscription: (session: ActiveSession) => void;
   focusChatInput: () => void;
   collapseChatSuggestions: () => void;
+  /** Forget the chat draft of a session that is being thrown away.
+   *  An evicted empty session has no route and no history row left, so
+   *  its draft would otherwise sit in storage unreachable forever. */
+  dropSessionDraft: (sessionId: string) => void;
 }
 
 type LifecycleCtx = LifecycleDeps & {
@@ -68,6 +73,7 @@ function removeCurrentIfEmpty(ctx: LifecycleCtx): boolean {
   const session = ctx.sessionMap.get(sessionId);
   if (session && isSessionEmpty(session)) {
     ctx.sessionMap.delete(sessionId);
+    ctx.dropSessionDraft(sessionId);
     return true;
   }
   return false;
@@ -104,27 +110,51 @@ function activateSession(ctx: LifecycleCtx, sessionId: string, replace: boolean)
   // #762) because navigateToSession builds the location with params only.
   if (!isOnTargetSessionRoute(routeSessionId, sessionId, ctx.route.name === PAGE_ROUTES.chat)) {
     navigateToSession(ctx, sessionId, replace);
-  }
-}
-
-async function loadSession(ctx: LifecycleCtx, sessionId: string): Promise<void> {
-  if (isSessionAlreadyDisplayed(sessionId, ctx.currentSessionId.value, ctx.sessionMap.has(sessionId))) return;
-  const replaced = shouldReplaceHistory(removeCurrentIfEmpty(ctx), ctx.isChatPage.value);
-  if (ctx.sessionMap.has(sessionId)) {
-    activateSession(ctx, sessionId, replaced);
     return;
   }
+  // Taking that shortcut skips the one thing navigateToSession also does.
+  // The selection can sit ahead of the URL now that loadSession moves it
+  // before the fetch, so returning to the session the URL already names
+  // has to write the id back by hand — otherwise the selection stays
+  // stuck on the abandoned in-flight one.
+  ctx.currentSessionId.value = sessionId;
+}
+
+async function fetchLoadedSession(ctx: LifecycleCtx, sessionId: string): Promise<ActiveSession | null> {
   const response = await apiGet<SessionEntry[]>(API_ROUTES.sessions.detail.replace(":id", encodeURIComponent(sessionId)));
-  if (!response.ok) return;
-  const newSession = buildLoadedSession({
+  if (!response.ok) return null;
+  return buildLoadedSession({
     id: sessionId,
     entries: response.data,
     defaultRoleId: ctx.roles.value[0]?.id ?? "",
     serverSummary: ctx.sessions.value.find((summary) => summary.id === sessionId),
     nowIso: new Date().toISOString(),
   });
+}
+
+async function loadSession(ctx: LifecycleCtx, sessionId: string): Promise<void> {
+  if (isSessionAlreadyDisplayed(sessionId, ctx.currentSessionId.value, ctx.sessionMap.has(sessionId))) return;
+  const previousSessionId = ctx.currentSessionId.value;
+  const replaced = shouldReplaceHistory(removeCurrentIfEmpty(ctx), ctx.isChatPage.value);
+  if (ctx.sessionMap.has(sessionId)) {
+    activateSession(ctx, sessionId, replaced);
+    return;
+  }
+  // Highlight the row on the click instead of a round trip later (#2809).
+  // The URL still settles in activateSession once the transcript is in
+  // the map, so undoing a failed load is a ref assignment and never a
+  // second navigation.
+  ctx.currentSessionId.value = sessionId;
+  const newSession = await fetchLoadedSession(ctx, sessionId);
+  const stillAwaited = isAwaitedSession(ctx.currentSessionId.value, sessionId);
+  if (newSession === null) {
+    if (stillAwaited) ctx.currentSessionId.value = previousSessionId;
+    return;
+  }
+  // Keep the transcript even when the user has moved on — it is valid,
+  // and their next click on this session then costs no round trip.
   ctx.sessionMap.set(sessionId, newSession);
-  activateSession(ctx, sessionId, replaced);
+  if (stillAwaited) activateSession(ctx, sessionId, replaced);
 }
 
 // Re-fetch the transcript and patch entries missed via a dropped socket

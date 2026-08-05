@@ -52,6 +52,17 @@
             <MarpView :markdown="markdownContent" :pdf-filename="marpPdfFilename" :base-dir="marpBaseDir">
               <template #toolbar>
                 <button
+                  v-if="isFileBacked"
+                  class="h-8 px-2.5 flex items-center gap-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                  :disabled="!canReload"
+                  :title="t('pluginMarkdown.reload')"
+                  :aria-label="t('pluginMarkdown.reload')"
+                  data-testid="present-document-reload"
+                  @click="reloadFromDisk"
+                >
+                  <span class="material-icons text-base" aria-hidden="true">refresh</span>
+                </button>
+                <button
                   class="h-8 px-2.5 flex items-center gap-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm"
                   :title="t('pluginMarkdown.marpSplitEnter')"
                   :aria-label="t('pluginMarkdown.marpSplitEnter')"
@@ -80,6 +91,17 @@
     </template>
     <template v-else>
       <div class="flex items-center justify-end gap-2 px-3 py-2 border-b border-gray-100 shrink-0">
+        <button
+          v-if="isFileBacked"
+          class="h-8 px-2.5 flex items-center rounded bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          :disabled="!canReload"
+          :title="t('pluginMarkdown.reload')"
+          :aria-label="t('pluginMarkdown.reload')"
+          data-testid="present-document-reload"
+          @click="reloadFromDisk"
+        >
+          <span class="material-icons text-base" aria-hidden="true">refresh</span>
+        </button>
         <button
           class="h-8 px-2.5 flex items-center gap-1 rounded bg-green-600 hover:bg-green-700 text-white text-sm disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           :disabled="pdfDownloading"
@@ -249,11 +271,22 @@ const loadError = ref<string | null>(null);
 const markdownContent = ref("");
 const editableMarkdown = ref("");
 
+// Generation counter for in-flight loads. The manual reload button, the
+// remote-write watcher and a result switch can all start a load, so a
+// slow earlier response must not land on top of a newer one — every
+// commit below is gated on still being the latest request.
+let loadRequestId = 0;
+
 async function fetchMarkdownContent(): Promise<void> {
+  const requestId = ++loadRequestId;
   loadError.value = null;
   const raw = props.selectedResult.data?.markdown;
   const filePath = documentPathOf(props.selectedResult.data);
   if (!raw && !filePath) {
+    // Clear `loading` here too: a still-in-flight fetch for the previous
+    // (file-backed) document now returns as superseded without touching it,
+    // so this branch owns the flag or the view strands on the spinner.
+    loading.value = false;
     markdownContent.value = "";
     editableMarkdown.value = "";
     return;
@@ -262,8 +295,11 @@ async function fetchMarkdownContent(): Promise<void> {
     loading.value = true;
     try {
       const { content } = await dispatch({ kind: "loadDoc", path: filePath }, readDocContent);
+      // Superseded: the newer request owns `loading` and the buffers.
+      if (requestId !== loadRequestId) return;
       markdownContent.value = content ?? "";
     } catch (err) {
+      if (requestId !== loadRequestId) return;
       // Preserve any previously-loaded content instead of wiping it —
       // the user sees the banner AND whatever they were reading, not
       // a blank canvas. editableMarkdown is left in sync so the editor
@@ -274,7 +310,9 @@ async function fetchMarkdownContent(): Promise<void> {
     }
     loading.value = false;
   } else {
-    // Legacy inline content
+    // Legacy inline content — same reason as above: this path never awaits,
+    // so it must clear a spinner left behind by a superseded file load.
+    loading.value = false;
     markdownContent.value = raw ?? "";
   }
   editableMarkdown.value = markdownContent.value;
@@ -284,6 +322,26 @@ async function fetchMarkdownContent(): Promise<void> {
 fetchMarkdownContent();
 
 const hasChanges = computed(() => editableMarkdown.value !== markdownContent.value);
+
+// Only a file-backed document can be re-read from disk — legacy inline
+// content has no on-disk twin, so the reload button stays hidden there.
+const isFileBacked = computed(() => documentPathOf(props.selectedResult.data) !== null);
+
+// Manual refresh. The file-change subscription below already refetches on
+// remote writes, but that only fires for writes this client hears about;
+// the button is the explicit escape hatch.
+//
+// Blocked while the editor holds unsaved changes (the refetch reseeds the
+// buffer) and while one of our own writes is still in flight: a task-list
+// toggle updates `markdownContent` optimistically — so `hasChanges` reads
+// clean — and a load started before that PUT lands would restore the
+// pre-toggle text, which the self-save watcher then declines to correct.
+const canReload = computed(() => !loading.value && !hasChanges.value && pendingSelfSaves.value === 0);
+
+function reloadFromDisk(): void {
+  if (!canReload.value) return;
+  void fetchMarkdownContent();
+}
 
 // Subscribe to per-file change events so any tab / browser / agent run
 // that overwrites the file refreshes this view automatically. The path

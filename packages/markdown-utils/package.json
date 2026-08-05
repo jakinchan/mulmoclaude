@@ -33,7 +33,7 @@
   "license": "MIT",
   "author": "Receptron Team",
   "dependencies": {
-    "@mulmoclaude/common": "^1.1.2",
+    "@mulmoclaude/common": "^1.2.0",
     "js-yaml": "^5.2.3",
     "marked": "^18.0.7"
   },

@@ -5,6 +5,7 @@ const ptBR: Messages = {
   loadFailed: "⚠ Falha ao carregar o documento: {error}",
   refreshFailed: "⚠ Falha ao atualizar o documento: {error} — exibindo o último conteúdo carregado com sucesso.",
   noContent: "Nenhum conteúdo Markdown disponível",
+  reload: "Recarregar do disco",
   pdf: "PDF",
   pdfFailedShort: "⚠ Falha no PDF",
   editSource: "Editar fonte Markdown",

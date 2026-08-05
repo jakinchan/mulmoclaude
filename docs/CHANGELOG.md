@@ -8,6 +8,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-08-05
+
+**The composer stops losing your work — drafts now survive a reload and stay with the session you wrote them in.**
+
+### Highlights
+
+#### Per-session chat drafts that survive a reload (#2811, #2814)
+
+Text in the chat input was a single global value held nowhere but memory. Reloading the page threw it away, and switching sessions carried the previous session's text — and its attachment chips — into the next one.
+
+Drafts are now keyed by session and mirrored into `sessionStorage`: a reload restores what you were typing, closing the tab discards it, and two tabs never overwrite each other. Attachments are keyed the same way but stay in memory, since they are data URLs that would blow the storage quota.
+
+The harder half was deciding when a draft must die, so old text never reappears where it doesn't belong. It is dropped on send, on clearing the input, when the session is deleted (including from another tab, via the sessions broadcast), and when an empty never-sent-to session is evicted. Two failure modes found during review are covered too: a send that fails after its attachment upload now hands the message back to the session it was composed in — merged with anything typed there meanwhile, rather than overwriting it — and a send whose upload outlives a session switch still lands in the origin session, under that session's role, instead of the one now on screen.
+
+Text typed before the app has resolved which session to open (arriving on `/chat` without an id in the URL) is held aside and handed to the first session that materialises, appended after any draft that session restored.
+
+#### Split source editor beside the document on wide panes (#2812)
+
+The markdown source editor takes the free horizontal space on wide viewports instead of stacking below, so the source and the rendered document are visible at once.
+
+#### Reload button on document and HTML views (#2816)
+
+An icon-only reload control on the present views, for re-reading a file that changed underneath the canvas.
+
+#### Session history stops re-rendering every row (#2809, #2813)
+
+Selecting a session re-rendered the entire history list, delaying all feedback by 100-300 ms. Only the rows whose selection actually changed re-render now, and the clicked row highlights immediately rather than after the transcript round trip.
+
+### Also in this release
+
+- `sonarjs/void-use` promoted from warning to error (#2800, #2801).
+- The three open jscpd duplicate-code clones collapsed to single sources (#2807, #2808).
+- CI: e2e worker cap (#2794, #2795), install-deps hang (#2805, #2806), concurrency groups (#2791, #2792), test tempdir leak (#2789, #2797).
+
+Ships `@mulmoclaude/core@2.0.2`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.0.0`, `@mulmoclaude/chart-plugin@2.0.0`, `@mulmoclaude/collection-plugin@2.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.0.0`, `@mulmoclaude/html-plugin@2.1.0`, `@mulmoclaude/markdown-plugin@2.2.0`, `@mulmoclaude/mulmoscript-plugin@2.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+### Packages published alongside
+
+- `@mulmoclaude/common@1.2.0` — adds `splitJwtSegments`, the shared JWT-segment parser the relay and Google Chat bridges had each open-coded.
+- `@mulmobridge/webhook-runtime@1.1.0` — adds `registerMetaWebhook`, shared by the Messenger and WhatsApp bridges.
+- `@mulmoclaude/core@2.0.2` — jscpd dedup in `skillDescription` (no behaviour change).
+- `@mulmobridge/relay@1.0.5`, `@mulmobridge/google-chat@1.0.4` — adopt `splitJwtSegments`. The relay's `tsconfig` also gained an explicit `rootDir`, which TypeScript 6 requires alongside `outDir` (TS5011) and without which its build — and therefore `prepack` — failed.
+- `@mulmobridge/messenger@1.0.3`, `@mulmobridge/whatsapp@1.0.4` — adopt `registerMetaWebhook`.
+
 ## [1.10.0] - 2026-08-03
 
 **The first launcher release since 1.9.0 — it carries 38 merged PRs of app code that no package publish could deliver.**
