@@ -9,9 +9,9 @@
 // is gone — the filter bar is now panel-local state, and tests that
 // asserted URL shape have been retired in favor of DOM assertions.
 
-import { test, expect, type Route } from "@playwright/test";
+import { test, expect, type Page, type Route } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
-import { SESSION_A, SESSION_B } from "../fixtures/sessions";
+import { SESSION_A, SESSION_B, makeSessionEntries } from "../fixtures/sessions";
 
 function urlEndsWith(suffix: string): (url: URL) => boolean {
   return (url) => url.pathname === suffix;
@@ -91,6 +91,126 @@ test.describe("session-history side panel", () => {
     await expect(page.getByTestId("session-filter-scheduler")).toBeVisible();
     await expect(page.getByTestId("session-filter-skill")).toBeVisible();
     await expect(page.getByTestId("session-filter-bridge")).toBeVisible();
+  });
+});
+
+// Hold `GET /api/sessions/<sessionId>` open until the returned release()
+// is called, so a test can inspect the UI while the transcript is still
+// in flight. Register after mockAllApis — Playwright checks routes in
+// reverse registration order.
+async function gateTranscript(page: Page, sessionId: string): Promise<() => void> {
+  let release = (): void => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(
+    (url) => url.pathname === `/api/sessions/${sessionId}`,
+    async (route: Route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await gate;
+      return route.fulfill({ json: makeSessionEntries(sessionId) });
+    },
+  );
+  return release;
+}
+
+test.describe("session selection feedback", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllApis(page);
+  });
+
+  test("the clicked row highlights before its transcript arrives", async ({ page }) => {
+    // Regression guard for #2809: loadSession used to write
+    // currentSessionId only after `GET /api/sessions/:id` resolved, so
+    // the selection border waited on the round trip.
+    const releaseTranscript = await gateTranscript(page, SESSION_A.id);
+
+    await page.goto("/chat");
+    await page.getByTestId("session-history-toggle-off").click();
+    // SESSION_B is the newer fixture, so boot resumes into B and A
+    // starts unselected — asserted rather than assumed, since the
+    // whole test hinges on A not already carrying the border.
+    const row = page.getByTestId(`session-item-${SESSION_A.id}`);
+    await expect(row).toBeVisible();
+    await expect(row).not.toHaveClass(/border-blue-500/);
+
+    await row.click();
+
+    // Still gated — nothing has come back from the server yet.
+    await expect(row).toHaveClass(/border-blue-500/);
+
+    releaseTranscript();
+    await expect(page).toHaveURL(new RegExp(`/chat/${SESSION_A.id}`));
+  });
+
+  test("a slow transcript landing after a newer click does not steal the view", async ({ page }) => {
+    // Optimistic selection makes the out-of-order case reachable by
+    // impatient clicking: A (slow) then B (already in memory, instant).
+    // When A finally arrives it must be cached, not activated.
+    const releaseSlowA = await gateTranscript(page, SESSION_A.id);
+
+    await page.goto("/chat");
+    await page.getByTestId("session-history-toggle-off").click();
+    const rowA = page.getByTestId(`session-item-${SESSION_A.id}`);
+    const rowB = page.getByTestId(`session-item-${SESSION_B.id}`);
+    await expect(rowA).toBeVisible();
+
+    await rowA.click();
+    await expect(rowA).toHaveClass(/border-blue-500/);
+    await rowB.click();
+    await expect(rowB).toHaveClass(/border-blue-500/);
+
+    const slowResponse = page.waitForResponse((response) => response.url().endsWith(`/api/sessions/${SESSION_A.id}`));
+    releaseSlowA();
+    await slowResponse;
+
+    // Negative assertion: the absence of a navigation has no signal to
+    // synchronise on, so give the handler a beat to run.
+    // eslint-disable-next-line sonarjs/no-fixed-wait-in-tests -- see above
+    await page.waitForTimeout(300);
+    await expect(page).toHaveURL(new RegExp(SESSION_B.id));
+    await expect(rowB).toHaveClass(/border-blue-500/);
+    await expect(rowA).not.toHaveClass(/border-blue-500/);
+  });
+});
+
+test.describe("session selection failure handling", () => {
+  test("a transcript that fails to load leaves the row unread and the selection where it was", async ({ page }) => {
+    // The optimistic selection reaches the unread watcher before the
+    // load resolves. A transcript that 500s while its meta sidecar is
+    // healthy would let mark-read succeed, dropping the badge for a
+    // session that never opened.
+    const unreadA = { ...SESSION_A, hasUnread: true };
+    await mockAllApis(page, { sessions: [unreadA, SESSION_B] });
+    let markReadCalls = 0;
+    await page.route(
+      (url) => url.pathname.startsWith(`/api/sessions/${SESSION_A.id}`),
+      (route: Route) => {
+        if (route.request().method() === "POST") {
+          markReadCalls++;
+          return route.fulfill({ json: { ok: true } });
+        }
+        return route.fulfill({ status: 500, json: { error: "unreadable transcript" } });
+      },
+    );
+
+    await page.goto("/chat");
+    await page.getByTestId("session-history-toggle-off").click();
+    const rowA = page.getByTestId(`session-item-${SESSION_A.id}`);
+    await expect(rowA).toBeVisible();
+    // Unread rows render bold via previewClasses.
+    await expect(rowA.locator("p")).toHaveClass(/font-bold/);
+
+    await rowA.click();
+
+    // Negative assertions: neither the badge dropping nor a navigation
+    // has a signal to synchronise on, so give the failure path a beat.
+    // eslint-disable-next-line sonarjs/no-fixed-wait-in-tests -- see above
+    await page.waitForTimeout(500);
+    await expect(rowA.locator("p")).toHaveClass(/font-bold/);
+    await expect(rowA).not.toHaveClass(/border-blue-500/);
+    await expect(page).toHaveURL(new RegExp(SESSION_B.id));
+    expect(markReadCalls).toBe(0);
   });
 });
 
