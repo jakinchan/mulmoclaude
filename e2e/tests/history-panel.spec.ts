@@ -121,6 +121,9 @@ test.describe("session selection feedback", () => {
 
     await page.goto("/chat");
     await page.getByTestId("session-history-toggle-off").click();
+    // SESSION_B is the newer fixture, so boot resumes into B and A
+    // starts unselected — asserted rather than assumed, since the
+    // whole test hinges on A not already carrying the border.
     const row = page.getByTestId(`session-item-${SESSION_A.id}`);
     await expect(row).toBeVisible();
     await expect(row).not.toHaveClass(/border-blue-500/);
