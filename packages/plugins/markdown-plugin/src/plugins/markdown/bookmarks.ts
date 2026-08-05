@@ -58,17 +58,37 @@ function lineAt(text: string, offset: number): string {
   return truncate(text.slice(start, end < 0 ? text.length : end).trim(), BOOKMARK_LABEL_MAX);
 }
 
+/** Wall-clock budget for one scan. The scan runs on the UI thread on every
+ *  keystroke (debounced), so a pattern that is merely slow — many matches, or
+ *  moderate backtracking over a long document — must not accumulate into a
+ *  frozen editor. Checked BETWEEN `exec` calls, which is the only place a
+ *  caller can regain control.
+ *
+ *  What this does NOT do: stop a single catastrophic `exec`. A pattern with
+ *  nested quantifiers over an unlucky line (`(a+)+$`) backtracks exponentially
+ *  inside one call, and JavaScript offers no way to interrupt it — bounding
+ *  that needs a linear-time engine (RE2) or a terminable worker, neither of
+ *  which this plugin is going to carry for a marker rail. The exposure is a
+ *  regex the user wrote, in their own machine-local config, hanging their own
+ *  tab; the recovery is to edit that file. Said plainly here rather than
+ *  implied by a guard that only half-covers it. */
+const SCAN_BUDGET_MS = 50;
+
 /**
  * Every place in `text` the pattern matches, in document order.
  *
  * Re-compiles the pattern per scan rather than reusing the caller's object: a
  * `g` regex carries mutable `lastIndex`, so a shared instance would resume mid
  * document on the next keystroke and silently drop the markers above the cursor.
+ *
+ * Stops early — returning what it has — on any of three bounds: the marker cap,
+ * the time budget, or the end of the document.
  */
 export function findDocumentBookmarks(text: string, pattern: RegExp | null): DocumentBookmark[] {
   if (pattern === null || text.length === 0) return [];
   const scanner = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
   const found: DocumentBookmark[] = [];
+  const deadline = Date.now() + SCAN_BUDGET_MS;
   let match: RegExpExecArray | null;
   while ((match = scanner.exec(text)) !== null) {
     found.push({ offset: match.index, fraction: match.index / text.length, label: lineAt(text, match.index) });
@@ -78,6 +98,7 @@ export function findDocumentBookmarks(text: string, pattern: RegExp | null): Doc
     // hang on a pattern the user typed.
     if (match.index === scanner.lastIndex) scanner.lastIndex += 1;
     if (found.length >= MAX_DOCUMENT_BOOKMARKS) break;
+    if (Date.now() > deadline) break;
   }
   return found;
 }

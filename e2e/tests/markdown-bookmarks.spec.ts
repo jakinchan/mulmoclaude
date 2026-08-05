@@ -25,6 +25,8 @@ const FILLER = Array.from({ length: 40 }, (_unused, index) => `line ${index} of 
 const DOC_CONTENT = ["# Bookmarked document", "", "...first mark", FILLER, "...second mark", FILLER, "...third mark", FILLER, ""].join("\n");
 
 interface SetupOpts {
+  /** Overrides the served document. Used for the CRLF case. */
+  content?: string | undefined;
   /** What the host reports for `bookmarkPattern`. `undefined` = not configured
    *  (the View falls back to its default); `"fail"` = a host that does not know
    *  the dispatch kind at all. */
@@ -69,7 +71,7 @@ async function setup(page: Page, opts: SetupOpts = {}): Promise<void> {
     (url) => url.pathname === API_ROUTES.plugins.runtimeDispatch.replace(":pkg", "markdown"),
     async (route) => {
       const body = (route.request().postDataJSON() ?? {}) as { kind?: string };
-      if (body.kind === "loadDoc") return route.fulfill({ json: { content: DOC_CONTENT } });
+      if (body.kind === "loadDoc") return route.fulfill({ json: { content: opts.content ?? DOC_CONTENT } });
       if (body.kind === "bookmarkPattern") {
         if (opts.pattern === "fail") return route.fulfill({ status: 400, json: { error: "unrecognised dispatch payload" } });
         return route.fulfill({ json: { pattern: opts.pattern ?? null } });
@@ -151,6 +153,23 @@ test.describe("presentDocument — source-editor bookmark rail", () => {
         )
         .toBe(expected);
     }
+  });
+
+  test("lands correctly in a document saved with CRLF line endings", async ({ page }) => {
+    // A textarea normalises `\r\n` to `\n` in its own value, so an offset taken
+    // over the raw CRLF text is one character long per preceding line — the
+    // caret would land a line early, drifting further down the document.
+    await setup(page, { content: DOC_CONTENT.replace(/\n/g, "\r\n") });
+    await openEditor(page);
+    await expect(markers(page)).toHaveCount(3);
+
+    const editor = page.locator("textarea.markdown-editor");
+    await markers(page).nth(2).click();
+    await expect
+      .poll(async () => editor.evaluate((node: HTMLTextAreaElement) => node.value.slice(node.selectionStart, node.selectionStart + 13)), {
+        timeout: 5 * ONE_SECOND_MS,
+      })
+      .toBe("...third mark");
   });
 
   test("honours a pattern configured in the shared global config", async ({ page }) => {

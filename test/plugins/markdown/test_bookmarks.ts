@@ -86,6 +86,21 @@ describe("findDocumentBookmarks", () => {
     assert.deepEqual(findDocumentBookmarks(text, pattern).length, 2);
   });
 
+  it("finds bookmarks in a CRLF document (the View normalises before scanning)", () => {
+    // The View hands this function LF-normalised text — a textarea normalises
+    // its own value, so an offset taken over CRLF would drift a character per
+    // preceding line and land `setSelectionRange` on the wrong line. Pinned
+    // here so the normalisation cannot quietly move back out of the View.
+    const crlf = ["# Title", "", "...mark", "body"].join("\r\n");
+    const normalised = crlf.replace(/\r\n/g, "\n");
+    const [bookmark] = findDocumentBookmarks(normalised, compile(DEFAULT_DOCUMENT_BOOKMARK_PATTERN));
+    assert.ok(bookmark);
+    assert.equal(bookmark.offset, normalised.indexOf("...mark"));
+    assert.equal(normalised.slice(bookmark.offset, bookmark.offset + 7), "...mark");
+    // The raw CRLF offset is NOT the same number — that is the drift.
+    assert.notEqual(bookmark.offset, crlf.indexOf("...mark"));
+  });
+
   it("clips a long marked line for the tooltip", () => {
     const [bookmark] = findDocumentBookmarks(`...${"long ".repeat(60)}`, compile(DEFAULT_DOCUMENT_BOOKMARK_PATTERN));
     assert.ok(bookmark);

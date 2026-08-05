@@ -659,7 +659,15 @@ onMounted(() => void loadBookmarkPattern());
 // Scans the BUFFER, not what is on disk: the markers track the text as it is
 // typed, which is the whole point of a rail beside the editor. Only computed
 // while the editor is open — nothing renders the rail otherwise.
-const foundBookmarks = computed(() => (editing.value ? findDocumentBookmarks(editableMarkdown.value, bookmarkPattern.value) : []));
+// LF-normalised, because every consumer of a bookmark offset indexes the
+// TEXTAREA's value, and a textarea normalises `\r\n` to `\n` on the way in. A
+// document loaded from disk with CRLF endings therefore sits in
+// `editableMarkdown` one character longer per line than what
+// `setSelectionRange` and the geometry mirror actually see, and every offset
+// past the first CRLF would land a line early and drift from there.
+const bookmarkSource = computed(() => editableMarkdown.value.replace(/\r\n/g, "\n"));
+
+const foundBookmarks = computed(() => (editing.value ? findDocumentBookmarks(bookmarkSource.value, bookmarkPattern.value) : []));
 
 // Where each bookmark actually sits, in pixels, measured against a mirror of
 // the textarea (`./bookmarkGeometry`). The scanner's own `fraction` — the
@@ -680,7 +688,7 @@ let measureTimer: ReturnType<typeof setTimeout> | undefined;
 function measureBookmarks(): void {
   const editor = editorRef.value;
   const offsets = foundBookmarks.value.map((bookmark) => bookmark.offset);
-  const measured = editor ? measureOffsetTops(editor, editableMarkdown.value, offsets) : null;
+  const measured = editor ? measureOffsetTops(editor, bookmarkSource.value, offsets) : null;
   if (measured === null) {
     // Nothing to measure (no bookmarks, or the editor is not laid out yet).
     // Clear only when there is genuinely nothing, so a transient unmeasurable
@@ -736,7 +744,7 @@ function scrollToBookmark(bookmark: { offset: number; top: number | undefined; r
   // offset costs one layout, and it makes the click exact even mid-debounce or
   // after a resize the batch has not caught up with. The batch value, then the
   // character-offset estimate, stand in only if the measurement is unavailable.
-  const measured = measureOffsetTops(editor, editableMarkdown.value, [bookmark.offset])?.tops[0];
+  const measured = measureOffsetTops(editor, bookmarkSource.value, [bookmark.offset])?.tops[0];
   const target = measured ?? bookmark.top ?? bookmark.railFraction * editor.scrollHeight;
   editor.scrollTop = Math.max(0, Math.min(range, target));
 }
