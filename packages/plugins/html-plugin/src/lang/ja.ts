@@ -1,6 +1,7 @@
 import type { Messages } from "./messages";
 
 const ja: Messages = {
+  reload: "ファイルを再読み込み",
   saveAsPdf: "PDF として保存（印刷ダイアログを開きます）",
   pdf: "PDF",
   download: "ZIP",
