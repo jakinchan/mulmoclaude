@@ -86,6 +86,20 @@ describe("findDocumentBookmarks", () => {
     assert.deepEqual(findDocumentBookmarks(text, pattern).length, 2);
   });
 
+  it("gives a lone-CR document the same bookmarks as its LF twin, once normalised", () => {
+    // A textarea's API value collapses a standalone `\r` to `\n` as well as
+    // `\r\n`, so old-Mac endings go through the same normalisation. Unlike
+    // CRLF this is NOT an offset-length problem — CR and LF are both one
+    // character, and JS's `m` flag anchors `^` after a bare `\r` too. What the
+    // normalisation buys is that the string handed to the geometry mirror is
+    // byte-for-byte the string the textarea holds, so the mirror cannot break
+    // its lines anywhere the textarea does not.
+    const lfText = ["# Title", "", "...mark", "body"].join("\n");
+    const crText = lfText.replace(/\n/g, "\r");
+    const pattern = compile(DEFAULT_DOCUMENT_BOOKMARK_PATTERN);
+    assert.deepEqual(findDocumentBookmarks(crText.replace(/\r\n?/g, "\n"), pattern), findDocumentBookmarks(lfText, pattern));
+  });
+
   it("finds bookmarks in a CRLF document (the View normalises before scanning)", () => {
     // The View hands this function LF-normalised text — a textarea normalises
     // its own value, so an offset taken over CRLF would drift a character per

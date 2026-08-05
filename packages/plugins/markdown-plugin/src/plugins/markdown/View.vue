@@ -660,12 +660,14 @@ onMounted(() => void loadBookmarkPattern());
 // typed, which is the whole point of a rail beside the editor. Only computed
 // while the editor is open — nothing renders the rail otherwise.
 // LF-normalised, because every consumer of a bookmark offset indexes the
-// TEXTAREA's value, and a textarea normalises `\r\n` to `\n` on the way in. A
-// document loaded from disk with CRLF endings therefore sits in
-// `editableMarkdown` one character longer per line than what
-// `setSelectionRange` and the geometry mirror actually see, and every offset
-// past the first CRLF would land a line early and drift from there.
-const bookmarkSource = computed(() => editableMarkdown.value.replace(/\r\n/g, "\n"));
+// TEXTAREA's value, and a textarea's API value has BOTH `\r\n` and a lone `\r`
+// collapsed to `\n` (HTML's "API value" normalisation). A document loaded from
+// disk with either ending therefore sits in `editableMarkdown` out of step with
+// what `setSelectionRange` and the geometry mirror actually see — one character
+// per line for CRLF — and every offset past the first would land a line early
+// and drift from there. `\r\n?` covers both; matching only `\r\n` would leave
+// old-Mac lone-CR files broken in exactly the way this guards against.
+const bookmarkSource = computed(() => editableMarkdown.value.replace(/\r\n?/g, "\n"));
 
 const foundBookmarks = computed(() => (editing.value ? findDocumentBookmarks(bookmarkSource.value, bookmarkPattern.value) : []));
 

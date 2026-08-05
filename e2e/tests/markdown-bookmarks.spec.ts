@@ -155,22 +155,29 @@ test.describe("presentDocument — source-editor bookmark rail", () => {
     }
   });
 
-  test("lands correctly in a document saved with CRLF line endings", async ({ page }) => {
-    // A textarea normalises `\r\n` to `\n` in its own value, so an offset taken
-    // over the raw CRLF text is one character long per preceding line — the
-    // caret would land a line early, drifting further down the document.
-    await setup(page, { content: DOC_CONTENT.replace(/\n/g, "\r\n") });
-    await openEditor(page);
-    await expect(markers(page)).toHaveCount(3);
+  for (const [label, ending] of [
+    ["CRLF", "\r\n"],
+    ["lone CR", "\r"],
+  ] as const) {
+    test(`lands correctly in a document saved with ${label} line endings`, async ({ page }) => {
+      // A textarea's API value collapses both `\r\n` and a lone `\r` to `\n`.
+      // For CRLF that makes the raw text one character long per preceding line,
+      // so the caret would land a line early and drift further down. For a lone
+      // CR the lengths agree, but the string handed to the geometry mirror must
+      // still match the textarea's byte for byte.
+      await setup(page, { content: DOC_CONTENT.replace(/\n/g, ending) });
+      await openEditor(page);
+      await expect(markers(page)).toHaveCount(3);
 
-    const editor = page.locator("textarea.markdown-editor");
-    await markers(page).nth(2).click();
-    await expect
-      .poll(async () => editor.evaluate((node: HTMLTextAreaElement) => node.value.slice(node.selectionStart, node.selectionStart + 13)), {
-        timeout: 5 * ONE_SECOND_MS,
-      })
-      .toBe("...third mark");
-  });
+      const editor = page.locator("textarea.markdown-editor");
+      await markers(page).nth(2).click();
+      await expect
+        .poll(async () => editor.evaluate((node: HTMLTextAreaElement) => node.value.slice(node.selectionStart, node.selectionStart + 13)), {
+          timeout: 5 * ONE_SECOND_MS,
+        })
+        .toBe("...third mark");
+    });
+  }
 
   test("honours a pattern configured in the shared global config", async ({ page }) => {
     // A different pattern must replace the default outright, not add to it.
