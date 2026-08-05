@@ -9,7 +9,17 @@
 // 30 MB each) and would blow the storage quota.
 
 import { computed, ref, type Ref, type WritableComputedRef } from "vue";
-import { CHAT_DRAFTS_STORAGE_KEY, getDraft, omitSession, parseStoredDrafts, serializeDrafts, setDraft, type DraftMap } from "../utils/chat/draftStore";
+import {
+  CHAT_DRAFTS_STORAGE_KEY,
+  getDraft,
+  omitSession,
+  parseStoredDrafts,
+  putSession,
+  serializeDrafts,
+  setDraft,
+  type DraftMap,
+} from "../utils/chat/draftStore";
+import { mergeBufferedIntoDraft } from "../utils/chat/buffer";
 import type { PastedFile } from "../types/pastedFile";
 
 export interface UseChatDrafts {
@@ -21,7 +31,9 @@ export interface UseChatDrafts {
   /** Put a composed message back under the session it was written in,
    *  rather than the one on screen. A failed send resolves after a
    *  network round trip, by which time the user may be looking at
-   *  another session — whose draft must not be overwritten. */
+   *  another session — whose draft must not be overwritten. Merges with
+   *  whatever that session holds now, since the user may have started a
+   *  new message there while the send was in flight. */
   restoreDraft: (sessionId: string, text: string, files: PastedFile[]) => void;
   /** Forget a session's draft and attachments — its session is gone
    *  (deleted, or an empty one evicted), so both are unreachable. */
@@ -42,7 +54,7 @@ export function useChatDrafts(currentSessionId: Ref<string>): UseChatDrafts {
   }
 
   function setAttachments(sessionId: string, files: PastedFile[]): void {
-    attachments.value = files.length === 0 ? omitSession(attachments.value, sessionId) : { ...attachments.value, [sessionId]: files };
+    attachments.value = files.length === 0 ? omitSession(attachments.value, sessionId) : putSession(attachments.value, sessionId, files);
   }
 
   const userInput = computed<string>({
@@ -56,8 +68,9 @@ export function useChatDrafts(currentSessionId: Ref<string>): UseChatDrafts {
   });
 
   function restoreDraft(sessionId: string, text: string, files: PastedFile[]): void {
-    commitDrafts(setDraft(drafts.value, sessionId, text));
-    setAttachments(sessionId, files);
+    const merged = mergeBufferedIntoDraft([text], getDraft(drafts.value, sessionId));
+    commitDrafts(setDraft(drafts.value, sessionId, merged));
+    setAttachments(sessionId, [...files, ...(attachments.value[sessionId] ?? [])]);
   }
 
   function dropDraft(sessionId: string): void {

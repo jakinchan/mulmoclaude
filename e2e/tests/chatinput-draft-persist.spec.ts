@@ -18,6 +18,39 @@ async function storedDrafts(page: Page): Promise<string> {
   return (await page.evaluate((key) => sessionStorage.getItem(key), DRAFTS_STORAGE_KEY)) ?? "";
 }
 
+// Hold the attachment upload open so a test can act while a send is
+// mid-flight: `started` resolves when the request arrives, `release`
+// lets it complete.
+async function holdAttachmentUpload(page: Page): Promise<{ started: Promise<void>; release: () => void }> {
+  let release = (): void => undefined;
+  let markStarted = (): void => undefined;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const started = new Promise<void>((resolve) => (markStarted = resolve));
+  await page.route(
+    (url) => url.pathname === "/api/attachments",
+    async (route) => {
+      markStarted();
+      await held;
+      await route.fulfill({ json: { path: "/w/data/attachments/a.png", originalPath: "a.png", mimeType: "image/png" } });
+    },
+  );
+  return { started, release };
+}
+
+// Collect the raw body of every /api/agent POST the app dispatches.
+async function recordAgentPosts(page: Page): Promise<string[]> {
+  const bodies: string[] = [];
+  await page.route(
+    (url) => url.pathname === "/api/agent",
+    (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      bodies.push(route.request().postData() ?? "");
+      return route.fulfill({ status: 202, json: { chatSessionId: "mock-session" } });
+    },
+  );
+  return bodies;
+}
+
 // Which session an /api/agent POST addressed, or null when the body
 // isn't the shape we expect (so a malformed body fails the assertion
 // rather than throwing).
@@ -109,35 +142,19 @@ test.describe("chat input draft persistence", () => {
   // composed it in — both when the upload fails (the draft goes back
   // there) and when it succeeds (the message is sent there).
   test("a send whose upload outlives a session switch still lands in the origin session", async ({ page }) => {
-    let releaseUpload = (): void => undefined;
-    const uploadHeld = new Promise<void>((resolve) => {
-      releaseUpload = resolve;
-    });
-    const agentBodies: string[] = [];
-
-    await page.route(
-      (url) => url.pathname === "/api/attachments",
-      async (route) => {
-        await uploadHeld;
-        await route.fulfill({ json: { path: "/w/data/attachments/a.png", originalPath: "a.png", mimeType: "image/png" } });
-      },
-    );
-    await page.route(
-      (url) => url.pathname === "/api/agent",
-      (route) => {
-        if (route.request().method() !== "POST") return route.fallback();
-        agentBodies.push(route.request().postData() ?? "");
-        return route.fulfill({ status: 202, json: { chatSessionId: "mock-session" } });
-      },
-    );
+    const upload = await holdAttachmentUpload(page);
+    const agentBodies = await recordAgentPosts(page);
 
     await page.goto(`/chat/${SESSION_A.id}`);
     await page.getByTestId("file-input").setInputFiles([{ name: "a.png", mimeType: "image/png", buffer: Buffer.from("a") }]);
     await fillChatInput(page, DRAFT_A);
     await clickSend(page);
 
+    // Switch only once the upload is provably in flight — otherwise the
+    // send could finish before the switch and the race goes untested.
+    await upload.started;
     await selectSessionTab(page, SESSION_B.id);
-    releaseUpload();
+    upload.release();
 
     await expect.poll(() => agentBodies.length).toBe(1);
     expect(sentChatSessionId(agentBodies[0])).toBe(SESSION_A.id);

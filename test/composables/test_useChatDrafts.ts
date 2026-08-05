@@ -117,6 +117,37 @@ describe("useChatDrafts", () => {
     assert.equal(pastedFiles.value.length, 1);
   });
 
+  it("merges a failed send with whatever the user typed there while it was in flight", () => {
+    const sessionId = ref("a");
+    const { userInput, pastedFiles, restoreDraft } = useChatDrafts(sessionId);
+
+    userInput.value = "started the next message";
+    pastedFiles.value = [makeFile("staged-since.png")];
+
+    restoreDraft("a", "the message that failed to send", [makeFile("failed.png")]);
+
+    assert.equal(userInput.value, "the message that failed to send\nstarted the next message");
+    assert.deepEqual(
+      pastedFiles.value.map((file) => file.name),
+      ["failed.png", "staged-since.png"],
+    );
+  });
+
+  it("caps staged attachments at the same session count as the text, so neither half grows forever", () => {
+    const sessionId = ref("s0");
+    const { pastedFiles } = useChatDrafts(sessionId);
+
+    Array.from({ length: 25 }, (_, index) => `s${index}`).forEach((staging) => {
+      sessionId.value = staging;
+      pastedFiles.value = [makeFile(`${staging}.png`)];
+    });
+
+    sessionId.value = "s0";
+    assert.deepEqual(pastedFiles.value, []);
+    sessionId.value = "s24";
+    assert.equal(pastedFiles.value.length, 1);
+  });
+
   it("drops both halves of a deleted session's draft and leaves the others alone", () => {
     const sessionId = ref("a");
     const { userInput, pastedFiles, dropDraft } = useChatDrafts(sessionId);

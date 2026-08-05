@@ -82,6 +82,17 @@ const { userInput, pastedFiles, dropDraft } = useChatDrafts(currentSessionId);
 | `dropDraft` が変化なしでも毎回 `setItem` する（削除 broadcast の id ごと・セッション切替のたびに発火） | `commitDrafts` で「純粋関数が同じ参照を返した＝何も起きていない」を検出して書き込みをスキップ |
 | 共有の空配列定数 `NO_FILES` を getter が返しており、呼び出し側が in-place で触ると全セッションに波及 | 定数をやめ、空セッションには毎回新しい `[]` を返す |
 
+**CodeRabbit 指摘で追加対応**:
+
+| 指摘 | 対応 |
+|---|---|
+| 削除済みセッションに下書きを戻してしまう（アップロード中に削除されると、破棄フックが消した直後に孤児を作り直す） | 先に `sessionMap.get(originSessionId)` を引き、生きているときだけ戻す |
+| アップロード中にそのセッションで書き始めた文字を、差し戻しが上書きする | `restoreDraft` を上書きから **マージ** に変更（既存の `mergeBufferedIntoDraft` を再利用）。添付も新しくステージした分の前に連結 |
+| 添付だけ上限が無く、メモリが無制限に増える | LRU を `putSession<T>` として切り出し、テキストと添付に同じ 20 セッション上限を適用 |
+| e2e がアップロード開始を待っていないので、レースを検証しないまま通りうる | route ハンドラに「開始した」シグナルを足し、切替前に await。mock は `holdAttachmentUpload` / `recordAgentPosts` ヘルパへ抽出 |
+
+**見送り（理由付きで PR に返信）**: `useChatDrafts` / `sendMessage` / テストの `describe` が 20 行を超える、という 3 件。lint の閾値は 50 行で通っており、リポジトリ内の既存 composable / テストも同じ形。分割すると同じ 2 つの ref を各ヘルパへ引き回すだけで、可読性が上がらないと判断した。
+
 **Codex レビュー指摘で追加対応**: 成功経路の `sessionMap.get(currentSessionId.value)` も await 後に読むため、添付アップロード中にセッションを切り替えると **メッセージ自体が切替先のセッションに飛び、role もそちらのものになる**。当初は「変更前からある別バグなので別 issue」と判断したが、`originSessionId` が 3 行上にある状態で片方だけ直すのは一貫しないため同 PR で修正。`sessionRole` computed の中身を `roleOfSession(session)` に切り出し、送信は発信元セッションの role を使う。
 
 ## テスト

@@ -6,9 +6,10 @@ export const CHAT_DRAFTS_STORAGE_KEY = "chat_drafts_by_session";
 
 export type DraftMap = Record<string, string>;
 
-// Cap on how many sessions keep a draft. Insertion order is the LRU
-// order (setDraft re-inserts the touched session last), so the oldest
-// entries fall off the front once the cap is hit.
+// Cap on how many sessions keep unsent state — text and attachments
+// alike, so neither half can grow without bound. Insertion order is the
+// LRU order (putSession re-inserts the touched session last), so the
+// oldest entries fall off the front once the cap is hit.
 const MAX_DRAFT_SESSIONS = 20;
 
 export function parseStoredDrafts(raw: string | null): DraftMap {
@@ -37,9 +38,15 @@ export function getDraft(drafts: DraftMap, sessionId: string): string {
 // draft; the stored text itself is kept verbatim (a slash command like
 // `/skill ` needs its trailing space).
 export function setDraft(drafts: DraftMap, sessionId: string, text: string): DraftMap {
-  if (text.trim() === "") return omitSession(drafts, sessionId);
-  const withoutSession = omitSession(drafts, sessionId);
-  const entries = [...Object.entries(withoutSession), [sessionId, text] as const];
+  return text.trim() === "" ? omitSession(drafts, sessionId) : putSession(drafts, sessionId, text);
+}
+
+// Write one session's entry and re-insert it last, so insertion order
+// stays the LRU order and the cap drops whoever has been idle longest.
+// Shared by the draft text and the attachment lists — the two halves of
+// a composer are capped together or the uncapped one grows forever.
+export function putSession<T>(bySession: Record<string, T>, sessionId: string, value: T): Record<string, T> {
+  const entries: [string, T][] = [...Object.entries(omitSession(bySession, sessionId)), [sessionId, value]];
   return Object.fromEntries(entries.slice(-MAX_DRAFT_SESSIONS));
 }
 

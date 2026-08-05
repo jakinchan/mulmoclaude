@@ -1075,9 +1075,12 @@ async function sendMessage(text?: string) {
   const originSessionId = currentSessionId.value;
   const resolved = await resolveAttachments(filesSnapshot);
   if (resolved !== null && "error" in resolved) {
-    restoreDraft(originSessionId, message, filesSnapshot);
+    // Gone means deleted mid-upload: its draft was dropped with it, and
+    // handing one back would strand text nothing can ever display.
     const recoverySession = sessionMap.get(originSessionId);
-    if (recoverySession) pushErrorMessage(recoverySession, t("chatInput.attachImageFailed", { error: resolved.error }));
+    if (!recoverySession) return;
+    restoreDraft(originSessionId, message, filesSnapshot);
+    pushErrorMessage(recoverySession, t("chatInput.attachImageFailed", { error: resolved.error }));
     return;
   }
   const attachments = resolved?.attachments;
