@@ -24,7 +24,7 @@ import {
   isSessionAlreadyDisplayed,
   isOnTargetSessionRoute,
   resolveResumeAction,
-  shouldRestorePreviousSelection,
+  isAwaitedSession,
 } from "../utils/session/sessionLifecycle";
 
 interface LifecycleDeps {
@@ -105,7 +105,14 @@ function activateSession(ctx: LifecycleCtx, sessionId: string, replace: boolean)
   // #762) because navigateToSession builds the location with params only.
   if (!isOnTargetSessionRoute(routeSessionId, sessionId, ctx.route.name === PAGE_ROUTES.chat)) {
     navigateToSession(ctx, sessionId, replace);
+    return;
   }
+  // Taking that shortcut skips the one thing navigateToSession also does.
+  // The selection can sit ahead of the URL now that loadSession moves it
+  // before the fetch, so returning to the session the URL already names
+  // has to write the id back by hand — otherwise the selection stays
+  // stuck on the abandoned in-flight one.
+  ctx.currentSessionId.value = sessionId;
 }
 
 async function fetchLoadedSession(ctx: LifecycleCtx, sessionId: string): Promise<ActiveSession | null> {
@@ -134,12 +141,15 @@ async function loadSession(ctx: LifecycleCtx, sessionId: string): Promise<void> 
   // second navigation.
   ctx.currentSessionId.value = sessionId;
   const newSession = await fetchLoadedSession(ctx, sessionId);
+  const stillAwaited = isAwaitedSession(ctx.currentSessionId.value, sessionId);
   if (newSession === null) {
-    if (shouldRestorePreviousSelection(ctx.currentSessionId.value, sessionId)) ctx.currentSessionId.value = previousSessionId;
+    if (stillAwaited) ctx.currentSessionId.value = previousSessionId;
     return;
   }
+  // Keep the transcript even when the user has moved on — it is valid,
+  // and their next click on this session then costs no round trip.
   ctx.sessionMap.set(sessionId, newSession);
-  activateSession(ctx, sessionId, replaced);
+  if (stillAwaited) activateSession(ctx, sessionId, replaced);
 }
 
 // Re-fetch the transcript and patch entries missed via a dropped socket

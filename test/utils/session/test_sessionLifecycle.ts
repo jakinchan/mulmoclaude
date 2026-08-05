@@ -7,7 +7,7 @@ import {
   isSessionAlreadyDisplayed,
   isOnTargetSessionRoute,
   resolveResumeAction,
-  shouldRestorePreviousSelection,
+  isAwaitedSession,
 } from "../../../src/utils/session/sessionLifecycle.ts";
 
 describe("resolveNewSessionRoleId", () => {
@@ -110,20 +110,22 @@ describe("isOnTargetSessionRoute", () => {
   });
 });
 
-describe("shouldRestorePreviousSelection", () => {
-  it("restores when the failed load is still the selected session", () => {
-    assert.equal(shouldRestorePreviousSelection("s1", "s1"), true);
+describe("isAwaitedSession", () => {
+  it("is true while the in-flight load is still the selected session", () => {
+    assert.equal(isAwaitedSession("s1", "s1"), true);
   });
 
-  it("leaves the selection alone when a later click already moved on", () => {
-    // Click s1 (slow) → click s2 (fast, succeeds) → s1 errors. Rolling
-    // back here would yank the user off the session they are reading.
-    assert.equal(shouldRestorePreviousSelection("s2", "s1"), false);
+  it("is false once a later click has moved the selection on", () => {
+    // Click s1 (slow) → click s2 (fast, succeeds) → s1 finally lands.
+    // Acting on s1 now would yank the user off the session they are
+    // reading, whether s1 succeeded (navigate back) or failed (roll the
+    // selection back to whatever preceded s1).
+    assert.equal(isAwaitedSession("s2", "s1"), false);
   });
 
-  it("leaves the selection alone when the user left /chat mid-flight", () => {
+  it("is false when the user left /chat mid-flight", () => {
     // currentSessionId is "" off /chat.
-    assert.equal(shouldRestorePreviousSelection("", "s1"), false);
+    assert.equal(isAwaitedSession("", "s1"), false);
   });
 });
 

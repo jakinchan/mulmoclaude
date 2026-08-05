@@ -38,12 +38,13 @@ export function isSessionAlreadyDisplayed(sessionId: string, currentSessionId: s
 
 // loadSession moves the selection before the transcript arrives, so the
 // history row highlights on the click rather than a round trip later.
-// When the fetch then fails the selection has to go back — but only
-// while the attempted session is still the selected one. Clicking a slow
-// row and then a fast one that succeeds must not be undone when the
-// slow row's response finally errors.
-export function shouldRestorePreviousSelection(currentSessionId: string, attemptedSessionId: string): boolean {
-  return currentSessionId === attemptedSessionId;
+// Both endings of that fetch have to ask whether the user is still
+// waiting on THIS session: a stale failure must not roll the selection
+// back off a newer one, and a stale success must not navigate back to a
+// session the user already left. Clicking a slow row and then a fast one
+// produces both cases.
+export function isAwaitedSession(currentSessionId: string, requestedSessionId: string): boolean {
+  return currentSessionId === requestedSessionId;
 }
 
 // activateSession skips a redundant navigate when the URL already points
