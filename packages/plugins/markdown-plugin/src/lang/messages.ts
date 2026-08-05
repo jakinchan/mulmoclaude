@@ -29,4 +29,6 @@ export interface Messages {
   marpSplitEditorLabel: string;
   mermaidLoadFailed: string;
   mermaidRenderFailed: string;
+  bookmarkRailLabel: string;
+  bookmarkJump: string;
 }

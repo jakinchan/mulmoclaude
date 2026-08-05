@@ -1,6 +1,6 @@
 {
   "name": "@mulmoclaude/core",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "Shared server-side core for MulmoClaude and MulmoTerminal — the always-shipped-together subsystems consolidated behind subpath exports so the two hosts can't drift. Server-only except the browser-safe ./artifacts, ./whisper/client, ./workspace-setup/slug, ./translation/client, ./remote-view, ./remote-host and ./plugin-vue entries. All host specifics are injected.",
   "repository": {
     "type": "git",
@@ -48,6 +48,12 @@
       "import": "./dist/google/index.js",
       "require": "./dist/google/index.cjs",
       "default": "./dist/google/index.js"
+    },
+    "./global-config": {
+      "types": "./dist/global-config/index.d.ts",
+      "import": "./dist/global-config/index.js",
+      "require": "./dist/global-config/index.cjs",
+      "default": "./dist/global-config/index.js"
     },
     "./collection/server": {
       "types": "./dist/collection/server/index.d.ts",

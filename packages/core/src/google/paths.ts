@@ -6,9 +6,12 @@
 // machine. The `home` parameter exists so tests can thread a fake home.
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { mulmoConfigDir } from "../global-config/paths.js";
 
+/** Same directory as every other cross-app per-user file — see
+ *  `../global-config/paths.ts`, which owns the spelling. */
 export function googleConfigDir(home?: string): string {
-  return join(home ?? homedir(), ".config", "mulmo");
+  return mulmoConfigDir(home);
 }
 
 /** Pre-0.20.1 token dir (mulmoclaude-branded); reads migrate away from it. */

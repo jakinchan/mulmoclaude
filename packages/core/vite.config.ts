@@ -75,6 +75,11 @@ export default defineConfig({
         "remote-host/server/index": "src/remote-host/server/index.ts",
         // Server-only Google engine (local OAuth + token store + Calendar REST).
         "google/index": "src/google/index.ts",
+        // Server-only reader for the host-neutral per-user config file
+        // (`~/.config/mulmo/config.json`) that MulmoClaude and MulmoTerminal
+        // share. Its own entry so a host pulls in the readers without the
+        // google engine that happens to live in the same directory.
+        "global-config/index": "src/global-config/index.ts",
       },
       formats: ["es", "cjs"],
       fileName: (format, entryName) => `${entryName}.${format === "es" ? "js" : "cjs"}`,

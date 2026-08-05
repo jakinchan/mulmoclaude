@@ -4,6 +4,34 @@ Full-fidelity markdown document plugin (presentDocument) — Marp slides, PDF ex
 
 A plugin for [MulmoClaude](https://github.com/receptron/mulmoclaude) and [MulmoTerminal](https://github.com/receptron/mulmoterminal) — loaded by the host, not run standalone.
 
+## Source-editor bookmarks
+
+The markdown source editor marks bookmarked places in a rail down its left edge —
+a small clickable triangle per bookmark, positioned at that place's position in
+the whole document. Clicking one scrolls the editor there.
+
+What counts as a bookmark is a **regular expression** of your own, set once per
+machine in `~/.config/mulmo/config.json` — the host-neutral config file shared by
+MulmoClaude and MulmoTerminal, so both apps mark the same thing:
+
+```json
+{
+  "documentBookmarks": {
+    "pattern": "^\\.\\.\\."
+  }
+}
+```
+
+That is also the default when the file (or the key) is absent: a line beginning
+with `...` is a bookmark. The pattern is compiled with the `m` and `g` flags, so
+`^` and `$` mean line boundaries. Note that it is a regex source inside JSON —
+backslashes are doubled, and a literal `.` needs escaping (bare `^...` would mean
+"any three characters at line start", which matches nearly every line).
+
+A pattern that does not compile, is empty, or is over 200 characters is ignored
+in favour of the default; the rail is hidden entirely in documents with no
+matches.
+
 ## Dev loop
 
 ```bash

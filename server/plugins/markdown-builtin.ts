@@ -14,6 +14,7 @@
 
 import { executeMarkdown, isMarkdownDispatchArgs } from "@mulmoclaude/markdown-plugin";
 import type { MarkdownHostApp } from "@mulmoclaude/markdown-plugin";
+import { loadDocumentBookmarkPattern } from "@mulmoclaude/core/global-config";
 import { saveMarkdown } from "../utils/files/markdown-store.js";
 import { loadDocument, overwriteDocument } from "../utils/files/document-store.js";
 import { publishFileChange } from "../events/file-change.js";
@@ -64,6 +65,12 @@ const markdownHostApp: MarkdownHostApp = {
   },
   async fillImages(markdown) {
     return { markdown: await fillMarkdownImagePlaceholders(markdown) };
+  },
+  async bookmarkPattern() {
+    // `~/.config/mulmo/config.json` — deliberately NOT the workspace's
+    // `config/settings.json`: the same value has to reach MulmoTerminal, and
+    // the two apps share a machine rather than a workspace.
+    return { pattern: await loadDocumentBookmarkPattern() };
   },
 };
 

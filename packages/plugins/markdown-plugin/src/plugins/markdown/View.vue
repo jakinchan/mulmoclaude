@@ -139,7 +139,26 @@
           <div class="markdown-source">
             <button v-if="!editing" class="source-toggle" @click="openEditor">{{ t("pluginMarkdown.editSource") }}</button>
             <template v-else>
-              <textarea ref="editorRef" v-model="editableMarkdown" class="markdown-editor" spellcheck="false" @scroll="onEditorScroll"></textarea>
+              <!-- The editor plus its bookmark rail. The rail is a sibling
+                 gutter rather than an overlay so it never sits on top of the
+                 text; it is rendered only when there is something to mark, so
+                 a document with no bookmarks looks exactly as it did. -->
+              <div class="editor-with-rail">
+                <div v-if="bookmarkMarkers.length > 0" class="bookmark-rail" :aria-label="t('pluginMarkdown.bookmarkRailLabel')" role="group">
+                  <button
+                    v-for="bookmark in bookmarkMarkers"
+                    :key="bookmark.offset"
+                    class="bookmark-marker"
+                    :style="{ top: `calc(${bookmark.railFraction} * (100% - ${BOOKMARK_MARKER_SIZE_PX}px))` }"
+                    :title="bookmark.label"
+                    :aria-label="t('pluginMarkdown.bookmarkJump', { label: bookmark.label })"
+                    @click="scrollToBookmark(bookmark)"
+                  >
+                    <span class="material-icons" aria-hidden="true">play_arrow</span>
+                  </button>
+                </div>
+                <textarea ref="editorRef" v-model="editableMarkdown" class="markdown-editor" spellcheck="false" @scroll="onEditorScroll"></textarea>
+              </div>
               <div class="editor-actions">
                 <div class="toggle-group">
                   <label class="live-toggle">
@@ -178,7 +197,9 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useRuntime } from "gui-chat-protocol/vue";
-import { readDocContent } from "./contract";
+import { readBookmarkPattern, readDocContent } from "./contract";
+import { DEFAULT_DOCUMENT_BOOKMARK_PATTERN, compileBookmarkPattern, findDocumentBookmarks } from "./bookmarks";
+import { measureOffsetTops } from "./bookmarkGeometry";
 import { marked } from "marked";
 import { formatScalarField, sanitizeMarkdownHtml, useMarkdownDoc, useClipboardCopy, useFileWatch } from "@mulmoclaude/core/plugin-vue";
 import type { ToolResult } from "gui-chat-protocol";
@@ -538,6 +559,121 @@ function applyEditorScrollFraction(fraction: number): void {
   // then swallow the user's first real scroll instead.
   if (Math.round(target) !== Math.round(editor.scrollTop)) suppressEditorScroll = true;
   editor.scrollTop = target;
+}
+
+// ── Source-editor bookmarks ──────────────────────────────────────
+//
+// A user-configured regex (`~/.config/mulmo/config.json` →
+// `documentBookmarks.pattern`, shared with MulmoTerminal) marks places in the
+// document; each match gets a triangle in the rail left of the textarea, at
+// that match's position in the WHOLE document. Clicking one scrolls there.
+//
+// The pattern is fetched once per view. A host that predates the
+// `bookmarkPattern` dispatch kind throws here, and an unconfigured one answers
+// null — both land on the shipped default, so the feature never depends on the
+// round trip succeeding.
+const BOOKMARK_MARKER_SIZE_PX = 12;
+const bookmarkPattern = ref<RegExp | null>(compileBookmarkPattern(DEFAULT_DOCUMENT_BOOKMARK_PATTERN));
+
+async function loadBookmarkPattern(): Promise<void> {
+  try {
+    const { pattern } = await dispatch({ kind: "bookmarkPattern" }, readBookmarkPattern);
+    if (pattern === null) return;
+    // The server already rejected anything that does not compile, so a null
+    // here would be a version skew rather than a user typo — keep the default
+    // instead of dropping the rail.
+    bookmarkPattern.value = compileBookmarkPattern(pattern) ?? bookmarkPattern.value;
+  } catch {
+    // Host without the capability. The default is already in place, and there
+    // is nothing the user could do about it, so this stays silent.
+  }
+}
+
+onMounted(() => void loadBookmarkPattern());
+
+// Scans the BUFFER, not what is on disk: the markers track the text as it is
+// typed, which is the whole point of a rail beside the editor. Only computed
+// while the editor is open — nothing renders the rail otherwise.
+const foundBookmarks = computed(() => (editing.value ? findDocumentBookmarks(editableMarkdown.value, bookmarkPattern.value) : []));
+
+// Where each bookmark actually sits, in pixels, measured against a mirror of
+// the textarea (`./bookmarkGeometry`). The scanner's own `fraction` — the
+// character offset over the document length — is only a fallback: a blank line
+// and a wrapped paragraph carry very different numbers of characters per line
+// of height, so in a real markdown document that estimate is systematically off
+// (it overshot, worst near the top, which is what this measurement replaces).
+const bookmarkTops = ref<readonly number[]>([]);
+const bookmarkContentHeight = ref(0);
+
+// Debounced: the measurement lays out the whole document in a hidden div, which
+// is far too much to redo on every keystroke. Until it catches up the markers
+// stay where they were — a marker a few pixels stale for a moment beats a rail
+// that jitters while typing.
+const BOOKMARK_MEASURE_DEBOUNCE_MS = 150;
+let measureTimer: ReturnType<typeof setTimeout> | undefined;
+
+function measureBookmarks(): void {
+  const editor = editorRef.value;
+  const offsets = foundBookmarks.value.map((bookmark) => bookmark.offset);
+  const measured = editor ? measureOffsetTops(editor, editableMarkdown.value, offsets) : null;
+  if (measured === null) {
+    // Nothing to measure (no bookmarks, or the editor is not laid out yet).
+    // Clear only when there is genuinely nothing, so a transient unmeasurable
+    // state does not stack every marker at the top.
+    if (offsets.length === 0) bookmarkTops.value = [];
+    return;
+  }
+  bookmarkTops.value = measured.tops;
+  bookmarkContentHeight.value = measured.contentHeight;
+}
+
+watch(
+  [foundBookmarks, splitEditing, containerWidth],
+  () => {
+    clearTimeout(measureTimer);
+    // The debounce is for TYPING. A first measurement — the editor just opened,
+    // or a bookmark appeared or vanished — runs at once: waiting would leave the
+    // rail on its fallback estimate, and a click landing in that window would
+    // scroll to the estimate rather than to the bookmark.
+    const settled = bookmarkTops.value.length === foundBookmarks.value.length;
+    measureTimer = setTimeout(() => void nextTick(measureBookmarks), settled ? BOOKMARK_MEASURE_DEBOUNCE_MS : 0);
+  },
+  { immediate: true },
+);
+
+onUnmounted(() => clearTimeout(measureTimer));
+
+/** A marker's position down the rail, 0..1. Falls back to the scanner's
+ *  character-offset estimate until the first measurement lands (one debounce
+ *  after the editor opens) so the rail is never blank while it settles. */
+const bookmarkMarkers = computed(() =>
+  foundBookmarks.value.map((bookmark, index) => {
+    const top = bookmarkTops.value[index];
+    const usable = top !== undefined && bookmarkContentHeight.value > 0 && bookmarkTops.value.length === foundBookmarks.value.length;
+    return { ...bookmark, top, railFraction: usable ? Math.min(1, top / bookmarkContentHeight.value) : bookmark.fraction };
+  }),
+);
+
+// Put the bookmark at the top of the visible box. `top` is measured from the
+// top of the textarea's scrollable content, which is exactly what `scrollTop`
+// counts, so this lands on the line rather than near it.
+//
+// The caret moves too, so typing continues where the user just jumped, and the
+// resulting scroll event drives the live preview through `onEditorScroll`.
+function scrollToBookmark(bookmark: { offset: number; top: number | undefined; railFraction: number }): void {
+  const editor = editorRef.value;
+  if (!editor) return;
+  editor.focus();
+  editor.setSelectionRange(bookmark.offset, bookmark.offset);
+  const range = editor.scrollHeight - editor.clientHeight;
+  if (range <= 0) return;
+  // Measure THIS bookmark fresh rather than trusting the rail's batch: one
+  // offset costs one layout, and it makes the click exact even mid-debounce or
+  // after a resize the batch has not caught up with. The batch value, then the
+  // character-offset estimate, stand in only if the measurement is unavailable.
+  const measured = measureOffsetTops(editor, editableMarkdown.value, [bookmark.offset])?.tops[0];
+  const target = measured ?? bookmark.top ?? bookmark.railFraction * editor.scrollHeight;
+  editor.scrollTop = Math.max(0, Math.min(range, target));
 }
 
 function enterMarpSplitMode(): void {
@@ -987,9 +1123,15 @@ watch(
 }
 
 /* The stacked panel caps the textarea at 40vh; here it owns the column and
-   fills whatever the split leaves after the actions row. */
-.editor-layout--split .markdown-editor {
+   fills whatever the split leaves after the actions row. The growth is on the
+   WRAPPER (`.editor-with-rail`), which is the flex child of the column — the
+   textarea is a child of that row and stretches to it. */
+.editor-layout--split .editor-with-rail {
   flex: 1 1 0;
+  min-height: 0;
+}
+
+.editor-layout--split .markdown-editor {
   height: auto;
   min-height: 0;
   resize: none;
@@ -1257,6 +1399,55 @@ watch(
   resize: vertical;
   margin-bottom: 0.5rem;
   line-height: 1.5;
+}
+
+/* Editor + bookmark rail. A row rather than an overlay: the triangles get a
+   gutter of their own, so they can never cover the first characters of a line,
+   and the textarea keeps its full width for text. */
+.editor-with-rail {
+  display: flex;
+  align-items: stretch;
+}
+
+.editor-with-rail .markdown-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+
+/* `position: relative` makes this the containing block the markers' percentage
+   `top` is resolved against — so the rail's own height IS the 100% that a
+   bookmark's position in the document is expressed as. The bottom margin
+   matches the textarea's, keeping the two boxes aligned. */
+.bookmark-rail {
+  position: relative;
+  flex: none;
+  width: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.bookmark-marker {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 12px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: #9e9e9e;
+  cursor: pointer;
+}
+
+.bookmark-marker:hover {
+  color: #4caf50;
+}
+
+.bookmark-marker .material-icons {
+  font-size: 12px;
+  line-height: 1;
 }
 
 .markdown-editor:focus {
