@@ -93,11 +93,45 @@ Playwright（Chromium、同一マシン・同一 fixture）で **クリック �
 案3 の効果は別に確認する（下記 e2e）。上表の経路はどちらの版でも `currentSessionId` を
 同期的に書くので、この数字には案3 は含まれていない。
 
+## レビューで判明した追加修正（PR #2813）
+
+案3（選択を fetch より先に進める）は、**「選択 ID が URL より先に動く」という新しい状態**を生む。
+これが既存コードの 3 箇所の前提を崩していて、いずれもレビュー中に判明した。
+
+1. **stale な成功レスポンスで activate しない**（CodeRabbit）
+   A（遅い）→ B の順にクリックし、後から A が返ると `activateSession(A)` で A に飛ばされる。
+   レース自体は PR 以前からあるが、失敗パスにだけ同趣旨のガードを入れて成功パスを無防備に
+   残すのは一貫しないため、両分岐で同じ述語（`isAwaitedSession`）を使う。
+   ユーザーが移動済みでも **transcript は sessionMap に残す** — 中身は正しいので次回の往復が消える。
+
+2. **`activateSession` が選択 ID を書き戻さない**（この PR が入れたバグ。1 の e2e を書いていて発覚）
+   `activateSession` は URL が既に対象を指すとき `navigateToSession` をスキップする（#762: 再 push で
+   query string が落ちるため）。**そのスキップは `currentSessionId` の書き込みも巻き添えにしていた**。
+   選択 ID が常に URL と一緒に動いていた頃は無害。A（遅い）→ B（URL が指しているセッション）と
+   クリックすると、選択枠が A に貼り付いたままになる。当該分岐でも ID を書くようにした。
+
+3. **失敗した読み込みでセッションが既読になる**（Codex。当初「稀」として見送ったが撤回）
+   `currentSessionId` が先に進むと App.vue の既読 watcher が発火する。transcript が 500 で
+   meta サイドカーが健全なら mark-read は成功し、**「新着あり」の信号が復元不能に失われる**。
+   既読クリアの起点を `activeSession`（= `sessionMap` に載って初めて定義される）に変更。
+   購読管理は引き続き `currentSessionId` の watcher に残す（クリック時点で走るのが正しい）。
+
+教訓: 「選択を楽観的に先行させる」変更は、**選択 ID と URL の同期を暗黙の前提にしていた
+コードすべて**を洗い出す必要がある。build も既存テストも通ったまま壊れる。
+
 ## 検証
 
 - `yarn format` / `yarn lint` / `yarn typecheck` / `yarn build` / `yarn test`
 - e2e: 既存の `history-panel` / `a11y-clickable-rows` / `router-navigation` /
   `session-history-side-panel` が testid 据え置きでそのまま通ること。
-- 追加 e2e: `/api/sessions/:id` を遅延させ、**レスポンスが返る前に**行へ選択枠
-  (`border-blue-500`) が付くことを確認する（案3 の回帰ガード）。
-- 追加単体テスト: `shouldRestorePreviousSelection` の 2 分岐。
+- 追加 e2e（`history-panel.spec.ts`）:
+  - `/api/sessions/:id` を保留し、**レスポンスが返る前に**行へ選択枠 (`border-blue-500`) が付く
+  - A（遅い）→ B の順にクリックし、後から A が返っても **B から引き剥がされない**
+  - transcript が 500 のとき、行が**未読の太字のまま**・選択枠が付かない・URL が動かない・
+    `mark-read` が 0 回
+- 追加単体テスト: `isAwaitedSession` の 3 分岐。
+- 追加ガード（`test/components/test_session_history_row_wiring.ts`）: 案1・案2 は**振る舞いを
+  変えないので既存テストが全部緑のまま壊せる**。親がハンドラを裸の識別子で渡すこと、行の
+  文字列生成が computed であることをソース parse で固定する。Vue コンポーネントの unit test
+  基盤が無いリポなので、既存の `test_stackview_googlemap_wiring.ts` と同じ方式。
+- **各テストが修正を外すと落ちることを個別に確認済み**（回帰ガードとして機能することの実証）。
