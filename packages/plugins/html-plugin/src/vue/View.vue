@@ -251,6 +251,10 @@ watch(filePath, () => {
   saveError.value = null;
   sourceError.value = null;
   reloadNonce.value = 0;
+  // A read still in flight for the previous file skips its own `finally`
+  // (the path no longer matches), so clear the flag here — otherwise the
+  // reload button stays disabled on the newly selected file.
+  sourceLoading.value = false;
 });
 
 // Remote write detected: invalidate the editor's cached source so the next read

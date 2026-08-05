@@ -262,6 +262,10 @@ async function fetchMarkdownContent(): Promise<void> {
   const raw = props.selectedResult.data?.markdown;
   const filePath = documentPathOf(props.selectedResult.data);
   if (!raw && !filePath) {
+    // Clear `loading` here too: a still-in-flight fetch for the previous
+    // (file-backed) document now returns as superseded without touching it,
+    // so this branch owns the flag or the view strands on the spinner.
+    loading.value = false;
     markdownContent.value = "";
     editableMarkdown.value = "";
     return;
@@ -285,7 +289,9 @@ async function fetchMarkdownContent(): Promise<void> {
     }
     loading.value = false;
   } else {
-    // Legacy inline content
+    // Legacy inline content — same reason as above: this path never awaits,
+    // so it must clear a spinner left behind by a superseded file load.
+    loading.value = false;
     markdownContent.value = raw ?? "";
   }
   editableMarkdown.value = markdownContent.value;
