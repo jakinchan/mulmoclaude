@@ -88,7 +88,7 @@ describe("canvas layout for a Skill turn (#2821)", () => {
 
   it("streams the reply into one card after the skill", async () => {
     const { toolResults } = await replay();
-    const reply = toolResults[2];
+    const [, , reply] = toolResults;
     assert.ok(reply);
     assert.equal((reply.data as { text?: string }).text, REPLY_CHUNKS.join(""), "deltas must merge, not open a card each");
   });

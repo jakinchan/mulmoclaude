@@ -70,6 +70,9 @@ const PORT = env.port;
 // line like `mcp__deepwiki__read_wiki_contents` grep-able in logs
 // alongside its args shape, not to record the full input.
 const TOOL_ARGS_LOG_PREVIEW_MAX = 200;
+// Enough of an unexpected injection to recognise its shape in a log line
+// without dumping a whole SKILL.md-sized body into it.
+const INJECTED_TEXT_LOG_PREVIEW_MAX = 80;
 function previewJson(value: unknown): string {
   let serialised: string;
   try {
@@ -737,7 +740,9 @@ async function handleInjectedText(ctx: EventContext, message: string): Promise<v
   if (!message) return;
   const skill = ctx.pendingSkill;
   if (!skill) {
-    log.warn("agent", "user-role text arrived with no Skill call pending — treating it as assistant text", { preview: message.slice(0, 80) });
+    log.warn("agent", "user-role text arrived with no Skill call pending — treating it as assistant text", {
+      preview: message.slice(0, INJECTED_TEXT_LOG_PREVIEW_MAX),
+    });
     pushSessionEvent(ctx.chatSessionId, { type: EVENT_TYPES.text, message });
     ctx.textAccumulator.push(message);
     return;

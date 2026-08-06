@@ -74,8 +74,10 @@ export interface RawStreamEvent {
 /** `role` is the role of the MESSAGE the block came from, not the block's own
  *  kind. A text block only counts as assistant prose when the assistant wrote
  *  it; the same block shape under a `user` message is context the CLI injected
- *  (see `INJECTED_TEXT`). */
-export function blockToEvent(block: ClaudeContentBlock, role: "assistant" | "user" = "assistant"): AgentEvent | null {
+ *  (see `INJECTED_TEXT`). Required rather than defaulted: defaulting to
+ *  `assistant` is precisely the assumption that produced #2821, and a silent
+ *  default would let a new call site reintroduce it. */
+export function blockToEvent(block: ClaudeContentBlock, role: "assistant" | "user"): AgentEvent | null {
   if (block.type === "text" && typeof block.text === "string") {
     return {
       type: role === "user" ? INJECTED_TEXT : EVENT_TYPES.text,

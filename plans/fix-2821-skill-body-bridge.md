@@ -16,7 +16,7 @@ raw イベントを採取。条件を2つ振った（入力 `-p` / stream-json�
 
 実パーサ (`server/agent/stream.ts`) を通した結果:
 
-```
+```text
 tool_call        Skill
 tool_call_result
 text  len=8900   ← SKILL.md 本文（1イベント、delta ではない）

@@ -16,7 +16,7 @@ describe("blockToEvent", () => {
       name: "myTool",
       input: { a: 1 },
     };
-    assert.deepEqual(blockToEvent(block), {
+    assert.deepEqual(blockToEvent(block, "assistant"), {
       type: "tool_call",
       toolUseId: "tu_1",
       toolName: "myTool",
@@ -30,7 +30,7 @@ describe("blockToEvent", () => {
       tool_use_id: "tu_2",
       content: "ok",
     };
-    assert.deepEqual(blockToEvent(block), {
+    assert.deepEqual(blockToEvent(block, "assistant"), {
       type: "tool_call_result",
       toolUseId: "tu_2",
       content: "ok",
@@ -43,7 +43,7 @@ describe("blockToEvent", () => {
       tool_use_id: "tu_3",
       content: [1, 2],
     };
-    assert.deepEqual(blockToEvent(block), {
+    assert.deepEqual(blockToEvent(block, "assistant"), {
       type: "tool_call_result",
       toolUseId: "tu_3",
       content: "[1,2]",
@@ -51,15 +51,15 @@ describe("blockToEvent", () => {
   });
 
   it("returns null for tool_use missing id", () => {
-    assert.equal(blockToEvent({ type: "tool_use", name: "x" }), null);
+    assert.equal(blockToEvent({ type: "tool_use", name: "x" }, "assistant"), null);
   });
 
   it("returns null for tool_use missing name", () => {
-    assert.equal(blockToEvent({ type: "tool_use", id: "x" }), null);
+    assert.equal(blockToEvent({ type: "tool_use", id: "x" }, "assistant"), null);
   });
 
   it("returns null for tool_result missing tool_use_id", () => {
-    assert.equal(blockToEvent({ type: "tool_result", content: "x" }), null);
+    assert.equal(blockToEvent({ type: "tool_result", content: "x" }, "assistant"), null);
   });
 
   it("returns empty string for tool_result with undefined content", () => {
@@ -67,7 +67,7 @@ describe("blockToEvent", () => {
       type: "tool_result",
       tool_use_id: "tu_4",
     };
-    assert.deepEqual(blockToEvent(block), {
+    assert.deepEqual(blockToEvent(block, "assistant"), {
       type: "tool_call_result",
       toolUseId: "tu_4",
       content: "",
@@ -75,7 +75,7 @@ describe("blockToEvent", () => {
   });
 
   it("returns null for unknown block type", () => {
-    assert.equal(blockToEvent({ type: "text" }), null);
+    assert.equal(blockToEvent({ type: "text" }, "assistant"), null);
   });
 });
 

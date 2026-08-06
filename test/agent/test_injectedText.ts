@@ -44,10 +44,6 @@ describe("blockToEvent — the message role decides what a text block is", () =>
     assert.deepEqual(blockToEvent({ type: "text", text: "hello" }, "user"), { type: INJECTED_TEXT, message: "hello" });
   });
 
-  it("defaults to assistant so existing callers keep their meaning", () => {
-    assert.deepEqual(blockToEvent({ type: "text", text: "hello" }), { type: EVENT_TYPES.text, message: "hello" });
-  });
-
   it("leaves tool_result blocks alone regardless of role", () => {
     const block = { type: "tool_result", tool_use_id: "tu_1", content: "done" };
     assert.deepEqual(blockToEvent(block, "user"), { type: EVENT_TYPES.toolCallResult, toolUseId: "tu_1", content: "done" });
