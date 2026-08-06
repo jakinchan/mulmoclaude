@@ -43,25 +43,32 @@ const skillPayload = {
   message: "Base directory for this skill: /abs/path\n\n# Personal book journal\n\n...",
 };
 
-describe("applySkillEvent (#1218) — replace streamed assistant text in place", () => {
+describe("applySkillEvent (#1218) — append a collapsed skill card", () => {
   let session: ActiveSession;
 
   beforeEach(() => {
     session = makeSession();
   });
 
-  it("replaces a trailing assistant text-response with a skill envelope, preserving uuid", () => {
-    const streamed = makeTextResult("Base directory for this skill: ...", "assistant");
-    session.toolResults.push(streamed);
-    const originalUuid = streamed.uuid;
+  // Until #2821 this REPLACED the trailing assistant card, because the server
+  // broadcast the SKILL.md body as ordinary text first and the card had to
+  // overwrite it. The server withholds the body now, so a trailing assistant
+  // card is the model's own prose before the Skill call — replacing it would
+  // delete real output.
+  it("keeps a trailing assistant text-response and appends the skill card after it", () => {
+    const preamble = makeTextResult("I'll use the mc-library skill.", "assistant");
+    session.toolResults.push(preamble);
+    const originalUuid = preamble.uuid;
 
     applySkillEvent(session, skillPayload);
 
-    assert.equal(session.toolResults.length, 1, "no new card pushed when one was replaced in place");
-    const [card] = session.toolResults;
-    assert.ok(card);
-    assert.equal(card.toolName, "skill");
-    assert.equal(card.uuid, originalUuid, "uuid preserved so view bindings stay attached");
+    assert.equal(session.toolResults.length, 2, "the assistant's own prose must survive");
+    const [prose, skillCard] = session.toolResults;
+    assert.ok(prose);
+    assert.ok(skillCard);
+    assert.equal(prose.toolName, "text-response");
+    assert.equal(prose.uuid, originalUuid);
+    assert.equal(skillCard.toolName, "skill");
   });
 
   it("pushes a new skill card when no streamed assistant text precedes it", () => {
@@ -100,8 +107,6 @@ describe("applySkillEvent (#1218) — replace streamed assistant text in place",
   });
 
   it("populates the envelope's `data` with all skill metadata", () => {
-    const streamed = makeTextResult("partial body", "assistant");
-    session.toolResults.push(streamed);
     applySkillEvent(session, skillPayload);
     const [card] = session.toolResults;
     assert.ok(card);
@@ -112,13 +117,11 @@ describe("applySkillEvent (#1218) — replace streamed assistant text in place",
     assert.equal(data.body, skillPayload.message);
   });
 
-  // Codex iter-3 review on PR #1220 — when applySkillEvent falls
-  // through to the push branch (no streamed assistant text-response
-  // to replace), the new skill card MUST become the selected canvas
-  // result. Without selection it would sit invisible in the canvas
-  // and the user would have to manually click the chat-history
-  // sidebar entry to view it.
-  it("auto-selects the new skill card on the fallback push path", () => {
+  // Codex iter-3 review on PR #1220 — the new skill card MUST become the
+  // selected canvas result. Without selection it would sit invisible in the
+  // canvas and the user would have to manually click the chat-history sidebar
+  // entry to view it.
+  it("auto-selects the new skill card", () => {
     const userText = makeTextResult("hi", "user");
     session.toolResults.push(userText);
     session.runStartIndex = 1;

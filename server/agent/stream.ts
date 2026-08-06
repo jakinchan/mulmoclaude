@@ -1,8 +1,17 @@
 import { EVENT_TYPES } from "../../src/types/events.js";
 
+// Text the CLI injects into the conversation as a `user`-role message rather
+// than the assistant producing it — today that is the SKILL.md body it
+// synthesises after a `Skill` tool call. Kept OFF the wire protocol on purpose:
+// it is never broadcast to session subscribers, because a consumer that
+// accumulates `text` events (the bridge relay) would post injected context as
+// the assistant's reply. `handleAgentEvent` decides what it actually is.
+export const INJECTED_TEXT = "injected_text";
+
 export type AgentEvent =
   | { type: typeof EVENT_TYPES.status; message: string }
   | { type: typeof EVENT_TYPES.text; message: string }
+  | { type: typeof INJECTED_TEXT; message: string }
   | { type: typeof EVENT_TYPES.toolResult; result: unknown }
   | { type: typeof EVENT_TYPES.error; message: string }
   | {
@@ -62,10 +71,14 @@ export interface RawStreamEvent {
   event?: StreamEventDelta | { type: string };
 }
 
-export function blockToEvent(block: ClaudeContentBlock): AgentEvent | null {
+/** `role` is the role of the MESSAGE the block came from, not the block's own
+ *  kind. A text block only counts as assistant prose when the assistant wrote
+ *  it; the same block shape under a `user` message is context the CLI injected
+ *  (see `INJECTED_TEXT`). */
+export function blockToEvent(block: ClaudeContentBlock, role: "assistant" | "user" = "assistant"): AgentEvent | null {
   if (block.type === "text" && typeof block.text === "string") {
     return {
-      type: EVENT_TYPES.text,
+      type: role === "user" ? INJECTED_TEXT : EVENT_TYPES.text,
       message: block.text,
     };
   }
@@ -159,8 +172,11 @@ export function createStreamParser(): {
       return [];
     }
 
+    const role = event.type === "user" ? "user" : "assistant";
     const content = event.message?.content;
-    const blockEvents = Array.isArray(content) ? content.map(blockToEvent).filter((agentEvent): agentEvent is AgentEvent => agentEvent !== null) : [];
+    const blockEvents = Array.isArray(content)
+      ? content.map((block) => blockToEvent(block, role)).filter((agentEvent): agentEvent is AgentEvent => agentEvent !== null)
+      : [];
 
     if (event.type === "assistant") {
       const filtered = filterAssistantBlocks(blockEvents, textStreamedFromDeltas);

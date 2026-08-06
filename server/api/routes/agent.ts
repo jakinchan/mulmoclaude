@@ -18,6 +18,7 @@ import {
 } from "../../utils/files/session-io.js";
 import { getRole } from "../../workspace/roles.js";
 import { runAgent } from "../../agent/index.js";
+import { INJECTED_TEXT } from "../../agent/stream.js";
 import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
 import { abortableSleep, BROKER_RECONNECT_WAIT_MS, detectRecovery, type RecoveryKind, type RetryBudgets } from "../../agent/retryPolicy.js";
@@ -635,9 +636,9 @@ interface BackgroundRunParams {
 // (which would appear as separate cards on session reload).
 //
 // `pendingSkill` is set when a `tool_call` with `toolName === "Skill"`
-// arrives. The next non-empty text flush IS the SKILL.md body that
-// Claude CLI synthesises — gets tagged as `type: "skill"` instead of
-// `type: "text"` and consumes the flag. (#1218)
+// arrives. The SKILL.md body Claude CLI synthesises then follows as an
+// `INJECTED_TEXT` event and consumes the flag — see `handleInjectedText`,
+// which turns it into a `type: "skill"` entry. (#1218, #2821)
 //
 // `toolUseId` is tracked alongside the slug so we can recognise the
 // matching `tool_call_result` (which Claude CLI emits between the
@@ -671,6 +672,10 @@ async function handleAgentEvent(event: Awaited<ReturnType<typeof runAgent>> exte
     // can't leak into a later unrelated assistant text.
     ctx.pendingSkill = null;
     await setClaudeId(ctx.chatSessionId, event.id);
+    return;
+  }
+  if (event.type === INJECTED_TEXT) {
+    await handleInjectedText(ctx, event.message);
     return;
   }
   pushSessionEvent(ctx.chatSessionId, event);
@@ -718,15 +723,42 @@ async function handleAgentEvent(event: Awaited<ReturnType<typeof runAgent>> exte
   }).catch(logBackgroundError("tool-trace"));
 }
 
+// Text the CLI injected as a `user`-role message. With a Skill call pending
+// this IS the SKILL.md body, so it becomes a `skill` entry right here instead
+// of being broadcast as `text` and re-classified at the next flush. Publishing
+// it as `text` first is what put SKILL.md bodies into bridge replies (#2821):
+// the canvas could undo it by replacing the trailing card, but a consumer that
+// accumulates text events — every bridge — cannot.
+//
+// Without a pending Skill the injection is something we have not seen the CLI
+// do. Fall back to the old treatment (broadcast + accumulate) so no content is
+// lost, and warn so the new shape is discoverable.
+async function handleInjectedText(ctx: EventContext, message: string): Promise<void> {
+  if (!message) return;
+  const skill = ctx.pendingSkill;
+  if (!skill) {
+    log.warn("agent", "user-role text arrived with no Skill call pending — treating it as assistant text", { preview: message.slice(0, 80) });
+    pushSessionEvent(ctx.chatSessionId, { type: EVENT_TYPES.text, message });
+    ctx.textAccumulator.push(message);
+    return;
+  }
+  ctx.pendingSkill = null;
+  // Whatever streamed before the body is the assistant's own prose; flush it
+  // (as plain text, the flag is already cleared) so jsonl order is preserved.
+  await flushTextAccumulator(ctx);
+  await writeSkillEntry(ctx, skill.skillName, message);
+}
+
 // Write the accumulated streaming text chunks as one consolidated
 // jsonl line. Called at the end of each agent run (success or error)
 // so the session transcript has exactly one assistant text entry
 // per response, not N per-chunk entries.
 //
-// When `ctx.pendingSkill` is set (preceding tool_call had
-// `toolName === "Skill"`), the flushed text is the SKILL.md body
-// Claude CLI synthesised — write it as `type: "skill"` instead of
-// `type: "text"` and consume the flag (#1218).
+// `ctx.pendingSkill` still being set here means the SKILL.md body reached us as
+// ASSISTANT text rather than the injected `user`-role message `handleInjectedText`
+// expects. No CLI version we have measured does that, so this is the degradation
+// path for a future one: tag the flush as `type: "skill"` (#1218) and consume the
+// flag, accepting that the body was already broadcast as text (#2821).
 async function flushTextAccumulator(ctx: EventContext): Promise<void> {
   if (ctx.textAccumulator.length === 0) return;
   const fullText = ctx.textAccumulator.join("");
