@@ -95,13 +95,13 @@ export function applyTextEvent(session: ActiveSession, message: string, source: 
   }
 }
 
-/** Replace the trailing assistant text-response (the streamed skill
- *  body from Claude CLI) with a collapsed skill card, preserving the
- *  uuid so any view bound to that uuid (selection, scroll anchors)
- *  doesn't lose its handle. Falls back to pushing a fresh skill
- *  card if no assistant text-response is at the tail (e.g. flush
- *  fired with no streamed deltas, or another result snuck in
- *  between).  #1218 */
+/** Append a collapsed skill card. #1218
+ *
+ *  This used to REPLACE a trailing assistant text-response, because the server
+ *  broadcast the SKILL.md body as ordinary `text` first and the card had to
+ *  overwrite it. The server no longer does that (#2821), so the trailing card
+ *  is now the assistant's own prose before the Skill call ("I'll use the X
+ *  skill…") — overwriting it would delete real output. */
 export function applySkillEvent(
   session: ActiveSession,
   payload: {
@@ -112,13 +112,6 @@ export function applySkillEvent(
     message: string;
   },
 ): void {
-  const tail = tailTextResponse(session);
-  if (tail && tail.data.role === "assistant") {
-    const replacement = makeSkillResult(payload);
-    // Preserve uuid so selection / scroll anchors don't blink off.
-    Object.assign(tail.result, { ...replacement, uuid: tail.result.uuid });
-    return;
-  }
   const skillResult = makeSkillResult(payload);
   pushResult(session, skillResult);
   if (shouldSelectAssistantText(session.toolResults, session.runStartIndex)) {

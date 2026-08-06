@@ -5,22 +5,25 @@ import { EVENT_TYPES } from "../../src/types/events.ts";
 
 describe("blockToEvent", () => {
   it("emits text event for text blocks", () => {
-    const result = blockToEvent({ type: "text", text: "hello" });
+    const result = blockToEvent({ type: "text", text: "hello" }, "assistant");
     assert.deepEqual(result, { type: EVENT_TYPES.text, message: "hello" });
   });
 
   it("emits toolCall for tool_use blocks", () => {
-    const result = blockToEvent({
-      type: "tool_use",
-      id: "t1",
-      name: "Bash",
-      input: { command: "ls" },
-    });
+    const result = blockToEvent(
+      {
+        type: "tool_use",
+        id: "t1",
+        name: "Bash",
+        input: { command: "ls" },
+      },
+      "assistant",
+    );
     assert.equal(result?.type, EVENT_TYPES.toolCall);
   });
 
   it("returns null for unknown block types", () => {
-    assert.equal(blockToEvent({ type: "thinking" }), null);
+    assert.equal(blockToEvent({ type: "thinking" }, "assistant"), null);
   });
 });
 
