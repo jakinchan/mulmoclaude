@@ -21,8 +21,11 @@
 # `codex exec` invocation. Required secrets:
 #   - AZURE_OPENAI_API_KEY        (the Azure key)
 #   - AZURE_OPENAI_BASE_URL       (e.g. https://<resource>.openai.azure.com — no path)
-#   - AZURE_OPENAI_DEPLOYMENT     (optional; defaults to codex-review-terra)
-#   - AZURE_OPENAI_API_VERSION    (optional; defaults to `preview`)
+# Optional overrides:
+#   - AZURE_OPENAI_DEPLOYMENT     (defaults to codex-review-terra; whatever it names
+#                                  must stay a deployment the CLI does not recognise
+#                                  as a model — see the AZURE_MODEL comment below)
+#   - AZURE_OPENAI_API_VERSION    (defaults to `preview`)
 #
 # `workflow_dispatch` is also kept for manual re-runs (e.g.
 # requesting a re-review after argument changes, or running on a
@@ -143,9 +146,10 @@ jobs:
           # ONLY the three whitelisted vars — anything else, including
           # a literal `$x` in TOML, is left untouched.
           # Codex CLI only supports the "responses" wire (Chat
-          # Completions was removed); on Azure that needs
-          # api-version >= 2025-03-01-preview on a deployment exposing
+          # Completions was removed), so the deployment has to expose
           # the Responses surface (recent gpt-4o / gpt-4.1 / gpt-5).
+          # The api-version that reaches it is the one above, not a
+          # dated preview.
           export AZURE_MODEL BASE_URL AZURE_API_VERSION
           # envsubst's SHELL-FORMAT arg MUST stay single-quoted: it is
           # the literal allowlist of names to replace, not a shell
