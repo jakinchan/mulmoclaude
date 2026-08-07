@@ -10,18 +10,18 @@
 #     produces one review against the latest commit, not N reviews
 #   - `~/.npm` is cached, so `npm install -g @openai/codex` reuses
 #     the prior tarball + skips the network on warm runs
-#   - Azure deployment SKU caps TPM (5000 currently); throttling
+#   - Azure deployment SKU caps TPM (10000 currently); throttling
 #     happens at the model layer, not the workflow layer
 #
 # Auth: Azure OpenAI via the OpenAI-compatible `/openai/v1` endpoint.
-# Codex CLI 0.125.0 does NOT honour `OPENAI_BASE_URL` directly —
+# Codex CLI does NOT honour `OPENAI_BASE_URL` directly —
 # the iter-1 attempt 401'd against `api.openai.com` because the env
 # var was silently ignored. Workflow now writes an explicit
 # `~/.codex/config.toml` with `[model_providers.azure]` before the
 # `codex exec` invocation. Required secrets:
 #   - AZURE_OPENAI_API_KEY        (the Azure key)
 #   - AZURE_OPENAI_BASE_URL       (e.g. https://<resource>.openai.azure.com — no path)
-#   - AZURE_OPENAI_DEPLOYMENT     (optional; defaults to gpt-5.4-mini)
+#   - AZURE_OPENAI_DEPLOYMENT     (optional; defaults to codex-review-terra)
 #   - AZURE_OPENAI_API_VERSION    (optional; defaults to `preview`)
 #
 # `workflow_dispatch` is also kept for manual re-runs (e.g.
@@ -62,7 +62,7 @@ permissions:
 # upgrades are explicit. Bump together with cache-version when
 # moving to a new Codex release.
 env:
-  CODEX_VERSION: "0.125.0"
+  CODEX_VERSION: "0.147.0"
 
 concurrency:
   group: codex-review-pr-${{ github.event.pull_request.number || inputs.pr_number }}
@@ -122,12 +122,17 @@ jobs:
           # Deployment name on the Azure resource (the LLM model
           # alias the workspace administrator created). Codex passes
           # this through as `model = ...` in the request body.
-          # Default `gpt-5.3-codex` is the codex-optimized GPT-5.3
-          # variant (deployed on `mulmo-sweden` 2026-04-30) — the
-          # MSFT-documented choice for Codex CLI agentic-coding
-          # workloads. Older `gpt-4o` still works as a fallback if
-          # the codex variant isn't deployed; override via secret.
-          AZURE_MODEL: ${{ secrets.AZURE_OPENAI_DEPLOYMENT || 'gpt-5.3-codex' }}
+          # `codex-review-terra` runs gpt-5.6-terra (deployed on
+          # `mulmo-sweden` 2026-08-07) under a name the CLI does NOT
+          # recognise, and that mismatch is deliberate: for a model it
+          # has metadata for, Codex nests the whole tool list under a
+          # `functions` namespace carrying an empty description, and
+          # Azure's Responses validator rejects that outright —
+          # `400 empty_string` on `input[0].tools[0].description`.
+          # An unknown name falls back to the flat tool list Azure
+          # accepts. Deploying gpt-5.6-terra under its own name breaks
+          # every review until upstream stops sending that payload.
+          AZURE_MODEL: ${{ secrets.AZURE_OPENAI_DEPLOYMENT || 'codex-review-terra' }}
         run: |
           mkdir -p "$HOME/.codex"
           # Strip trailing slash so concatenation never doubles up.
@@ -137,7 +142,7 @@ jobs:
           # so no accidental command substitution. envsubst then fills
           # ONLY the three whitelisted vars — anything else, including
           # a literal `$x` in TOML, is left untouched.
-          # Codex CLI 0.125.0 only supports the "responses" wire (Chat
+          # Codex CLI only supports the "responses" wire (Chat
           # Completions was removed); on Azure that needs
           # api-version >= 2025-03-01-preview on a deployment exposing
           # the Responses surface (recent gpt-4o / gpt-4.1 / gpt-5).
