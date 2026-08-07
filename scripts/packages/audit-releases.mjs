@@ -144,9 +144,26 @@ const classify = (pkg, latest, tags) => {
 
 const NEEDS_DECISION = new Set(["code drift", "manifest drift", "untagged", "unpublished", "error"]);
 
-export function main(argv = process.argv) {
-  const codeOnly = argv.includes("--code-only");
+const auditWorkspace = (pkg, tags) => {
+  const latest = run("npm", ["view", pkg.name, "version", "--registry", "https://registry.npmjs.org/"]);
+  // `npm view` exits non-zero for a package that was never published; that is an
+  // answer, not a failure, so it is mapped back before classification.
+  const resolved = !latest.ok && /E?404|not found/i.test(`${latest.error ?? ""}${latest.raw ?? ""}`) ? { ok: true, out: "" } : latest;
+  return { name: pkg.name, local: pkg.version ?? "?", latest: resolved.out || "\u2014", ...classify(pkg, resolved, tags) };
+};
 
+const printTable = (rows) => {
+  if (rows.length === 0) return;
+  const width = Math.max(...rows.map((row) => row.name.length), 8);
+  console.log(`${"package".padEnd(width)}  ${"local".padEnd(8)} ${"npm".padEnd(8)} ${"state".padEnd(15)} detail`);
+  console.log("-".repeat(width + 46));
+  for (const row of rows) {
+    const bump = row.local !== row.latest && row.latest !== "\u2014" ? " <== version ahead of npm" : "";
+    console.log(`${row.name.padEnd(width)}  ${row.local.padEnd(8)} ${row.latest.padEnd(8)} ${row.state.padEnd(15)} ${row.detail}${bump}`);
+  }
+};
+
+export function main(argv = process.argv) {
   const tagList = run("git", ["tag", "--list"]);
   if (!tagList.ok) {
     // Without the tag list every published package would read as `untagged`, which is a
@@ -155,29 +172,12 @@ export function main(argv = process.argv) {
     return 1;
   }
   const tags = new Set(tagList.out.split("\n"));
-
-  const rows = findWorkspaces().map((pkg) => {
-    const latest = run("npm", ["view", pkg.name, "version", "--registry", "https://registry.npmjs.org/"]);
-    // `npm view` exits non-zero for a package that was never published; that is an
-    // answer, not a failure, so it is mapped back before classification.
-    const resolved = !latest.ok && /E?404|not found/i.test(`${latest.error ?? ""}${latest.raw ?? ""}`) ? { ok: true, out: "" } : latest;
-    return { name: pkg.name, local: pkg.version ?? "?", latest: resolved.out || "\u2014", ...classify(pkg, resolved, tags) };
-  });
-
+  const rows = findWorkspaces().map((pkg) => auditWorkspace(pkg, tags));
   const attention = rows.filter((row) => NEEDS_DECISION.has(row.state));
-  const shown = codeOnly ? attention : rows;
-  const width = Math.max(...shown.map((row) => row.name.length), 8, 0);
 
-  if (shown.length > 0) {
-    console.log(`${"package".padEnd(width)}  ${"local".padEnd(8)} ${"npm".padEnd(8)} ${"state".padEnd(15)} detail`);
-    console.log("-".repeat(width + 46));
-  }
-  for (const row of shown) {
-    const bump = row.local !== row.latest && row.latest !== "\u2014" ? " <== version ahead of npm" : "";
-    console.log(`${row.name.padEnd(width)}  ${row.local.padEnd(8)} ${row.latest.padEnd(8)} ${row.state.padEnd(15)} ${row.detail}${bump}`);
-  }
-
+  printTable(argv.includes("--code-only") ? attention : rows);
   console.log(`\n${rows.length} publishable workspaces \u00b7 ${attention.length} need a decision`);
+
   if (attention.some((row) => row.state === "error")) {
     console.error("audit incomplete: at least one workspace could not be checked");
     return 1;

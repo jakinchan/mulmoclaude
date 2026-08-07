@@ -33,7 +33,7 @@ const diff = run("git", ["diff", "--name-only", tag, "HEAD", "--", pkg.dir]);
 3. `isReleasePath()` を、パッケージ外のパスは **external roots に宣言されている場合
    だけ** 出荷対象と判定するよう明示化する。現状は「パッケージ外パスの相対化が
    素通りして `files` の root と偶然一致する」フォールスルーに依存していて脆い。
-4. `deps.mjs` に倣い、純粋ヘルパを export し CLI 実行を直接起動時のみに限定して
+4. `deps.mjs` に倣い、純粋ヘルパーを export し CLI 実行を直接起動時のみに限定して
    テスト可能にする。
 
 ルート `package.json` は tarball に入らない（skill §1）ため対象外のまま。

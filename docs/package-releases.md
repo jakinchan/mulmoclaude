@@ -144,7 +144,8 @@ yarn audit:releases --code-only  # just the ones needing a decision
 git diff "@scope/name@$(npm view @scope/name version)" HEAD -- packages/<dir>
 
 # the launcher is the exception — its shipped source is not all under its own dir
-git diff "mulmoclaude@$(npm view mulmoclaude version)" HEAD -- packages/mulmoclaude server src
+git diff "mulmoclaude@$(npm view mulmoclaude version)" HEAD -- \
+  packages/mulmoclaude server src Dockerfile.sandbox sandbox-entrypoint.sh
 ```
 
 **The launcher is audited across the repo root too.** `packages/mulmoclaude/server/`
