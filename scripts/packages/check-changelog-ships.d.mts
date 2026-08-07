@@ -16,8 +16,9 @@ export function releaseSection(changelog: string, version: string): string | nul
 /** The roster the section's `Ships …` line claims, sorted. Null when there is no such line. */
 export function claimedRoster(section: string): string[] | null;
 
-/** Entries the line forgot (`missing`) and entries it kept but the launcher dropped (`stale`). */
-export function compareRosters(claimed: string[], declared: string[]): { missing: string[]; stale: string[] };
+/** Entries the line forgot (`missing`), entries it kept but the launcher dropped
+ *  (`stale`), and entries it names more than once (`duplicated`). */
+export function compareRosters(claimed: string[], declared: string[]): { missing: string[]; stale: string[]; duplicated: string[] };
 
 /** CLI entry point. Returns 0 when the line matches the launcher's dependencies, 1 otherwise. */
 export function main(): number;

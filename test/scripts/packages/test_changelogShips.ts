@@ -87,6 +87,10 @@ describe("claimedRoster", () => {
     assert.equal(claimedRoster("## [1.0.0]\n\nNo roster here.\n"), null);
   });
 
+  it("tolerates an indented Ships line", () => {
+    assert.deepEqual(claimedRoster("  Ships `@mulmoclaude/core@2.1.0`."), ["@mulmoclaude/core@2.1.0"]);
+  });
+
   it("ignores backticked package names that carry no version", () => {
     assert.deepEqual(claimedRoster("Ships `@mulmoclaude/core@2.1.0`, plus the `@mulmoclaude/*-plugin` wave."), ["@mulmoclaude/core@2.1.0"]);
   });
@@ -95,7 +99,22 @@ describe("claimedRoster", () => {
 describe("compareRosters", () => {
   it("reports nothing when the two agree", () => {
     const roster = ["@mulmoclaude/core@2.1.0"];
-    assert.deepEqual(compareRosters(roster, roster), { missing: [], stale: [] });
+    assert.deepEqual(compareRosters(roster, roster), { missing: [], stale: [], duplicated: [] });
+  });
+
+  // Set membership alone called this a match: every claimed entry is declared
+  // and every declared entry is claimed, so both lists came back empty for a
+  // line that names one package twice. (CodeRabbit, #2831.)
+  it("catches an entry the line names twice", () => {
+    const result = compareRosters(["@mulmoclaude/core@2.1.0", "@mulmoclaude/core@2.1.0"], ["@mulmoclaude/core@2.1.0"]);
+    assert.deepEqual(result.duplicated, ["@mulmoclaude/core@2.1.0"]);
+    assert.deepEqual(result.missing, []);
+    assert.deepEqual(result.stale, []);
+  });
+
+  it("reports a duplicate once, however many times it repeats", () => {
+    const thrice = ["@mulmoclaude/core@2.1.0", "@mulmoclaude/core@2.1.0", "@mulmoclaude/core@2.1.0"];
+    assert.deepEqual(compareRosters(thrice, ["@mulmoclaude/core@2.1.0"]).duplicated, ["@mulmoclaude/core@2.1.0"]);
   });
 
   it("catches a dependency the line forgot", () => {
