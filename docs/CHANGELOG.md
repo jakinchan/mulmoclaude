@@ -8,6 +8,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-08-07
+
+**Bridges stop pasting the whole SKILL.md into their replies — the bot answers your question instead of reciting its instructions.**
+
+### Highlights
+
+#### SKILL.md bodies no longer reach bridge replies (#2821, #2824)
+
+Asking a Skill-invoking role anything over Discord — or Telegram, Slack, or any of the other 22 bridges — got you the entire SKILL.md back, several thousand characters of it, before the actual answer. The answer then arrived twice. The web canvas showed the same session correctly, so only the bridges were visibly broken.
+
+The cause was one discarded fact. Claude CLI delivers the SKILL.md body as a `user`-role message — context it injected into the conversation, not something the assistant said — but the stream parser mapped every text block to the same event regardless of which role produced it. The server therefore could not tell injected context from the assistant's own prose, published it immediately, and only re-classified it as a skill entry at the next flush. The canvas could undo that by replacing the card it had just drawn; a bridge, which accumulates text events as they arrive, could not.
+
+The role is now preserved. Injected text becomes an internal event that is never published, and turns into the skill entry on arrival instead of after the fact. Bridges need no change and no reinstall — the fix reaches them through this launcher. The duplicated answer is gone too, since the reply no longer shares a flush with the body.
+
+Measured against real captured CLI streams rather than assumption, and those streams ship as test fixtures: if a future CLI version moves the body back onto an assistant block, the suite fails rather than the bridges.
+
+#### Bookmark rail in the presentDocument source editor (#2819)
+
+The markdown source editor gained a bookmark rail for navigating long documents.
+
+### Also in this release
+
+- `repo.json` and a square mascot icon for the repository (#2818).
+- `@mulmoclaude/core` dependency ranges swept to `^2.1.0` across six plugins, which the core 2.1.0 publish had missed (#2825).
+- Retroactive release tags for `@mulmoclaude/core@2.1.0` and `@mulmoclaude/markdown-plugin@2.3.0`, both published without one. Their npm tarballs were byte-compared against this tree before tagging, so neither needed republishing.
+
+Ships `@mulmoclaude/core@2.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.0.0`, `@mulmoclaude/chart-plugin@2.0.0`, `@mulmoclaude/collection-plugin@2.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.0.0`, `@mulmoclaude/html-plugin@2.1.0`, `@mulmoclaude/markdown-plugin@2.3.0`, `@mulmoclaude/mulmoscript-plugin@2.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
 ## [1.11.0] - 2026-08-05
 
 **The composer stops losing your work — drafts now survive a reload and stay with the session you wrote them in.**
