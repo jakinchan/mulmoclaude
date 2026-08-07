@@ -11,6 +11,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const WORKSPACE_ROOTS = ["packages", "packages/bridges", "packages/plugins", "packages/services"];
 const COMMAND_TIMEOUT_MS = 60_000;
@@ -40,7 +41,7 @@ const RELEASE_MANIFEST_KEYS = [
 // or anything else says so there. README is included by npm whether or not `files`
 // lists it, so an edit there changes the published artifact too.
 const BUILD_INPUT_DIRS = ["src", "bin"];
-const shippedRoots = (pkg) =>
+export const shippedRoots = (pkg) =>
   (Array.isArray(pkg.files) ? pkg.files : [])
     .map((entry) =>
       entry
@@ -50,14 +51,37 @@ const shippedRoots = (pkg) =>
     )
     .filter(Boolean);
 
-const isReleasePath = (pkg, file) => {
-  const relative = file.startsWith(`${pkg.dir}/`) ? file.slice(pkg.dir.length + 1) : file;
-  if (path.basename(relative).toLowerCase().startsWith("readme")) return true;
-  const under = (root) => relative === root || relative.startsWith(`${root}/`);
-  return BUILD_INPUT_DIRS.some(under) || shippedRoots(pkg).some(under);
+// Sources that feed a package's tarball from OUTSIDE its own directory, as
+// repo-root-relative paths. Declared per package rather than inferred: a diff
+// scoped to `pkg.dir` is right for every workspace but one.
+//
+// `mulmoclaude` is that one. Its `files` name `server/` and `src/`, but those
+// are not in git under `packages/mulmoclaude` — `prepack`
+// (`bin/prepare-dist.js`) copies them in from the repo root at pack time. App
+// code there reaches npm users ONLY through a launcher publish, so scoping the
+// diff to `pkg.dir` reported the launcher clean while the change that only it
+// could ship sat unshipped (#2827). The root `package.json` is deliberately
+// absent: it is not part of the tarball.
+export const EXTERNAL_SOURCE_ROOTS = {
+  mulmoclaude: ["server", "src", "Dockerfile.sandbox", "sandbox-entrypoint.sh"],
 };
 
-const codeOnly = process.argv.includes("--code-only");
+export const externalSourceRoots = (pkg) => EXTERNAL_SOURCE_ROOTS[pkg.name] ?? [];
+
+/** What `git diff` must cover to see everything this package ships. */
+export const diffPathspec = (pkg) => [pkg.dir, ...externalSourceRoots(pkg)];
+
+const isUnder = (root, target) => target === root || target.startsWith(`${root}/`);
+
+export const isReleasePath = (pkg, file) => {
+  // Outside the package dir, only a declared external root ships. Matching
+  // against `files` here instead would let any root-level path whose first
+  // segment happens to collide with a `files` entry read as shipped.
+  if (!file.startsWith(`${pkg.dir}/`)) return externalSourceRoots(pkg).some((root) => isUnder(root, file));
+  const relative = file.slice(pkg.dir.length + 1);
+  if (path.basename(relative).toLowerCase().startsWith("readme")) return true;
+  return BUILD_INPUT_DIRS.some((root) => isUnder(root, relative)) || shippedRoots(pkg).some((root) => isUnder(root, relative));
+};
 
 // Distinguishes "the command said nothing" from "the command failed". Conflating them
 // is how a registry blip would have been reported as `unpublished`, and a failed
@@ -80,19 +104,11 @@ const readManifest = (dir) => {
   return existsSync(manifest) ? { dir, ...JSON.parse(readFileSync(manifest, "utf8")) } : null;
 };
 
-const workspaces = WORKSPACE_ROOTS.filter((root) => existsSync(root))
-  .flatMap((root) => readdirSync(root).map((entry) => readManifest(path.join(root, entry))))
-  .filter((pkg) => pkg && !pkg.private && pkg.name)
-  .sort((left, right) => left.name.localeCompare(right.name));
-
-const tagList = run("git", ["tag", "--list"]);
-if (!tagList.ok) {
-  // Without the tag list every published package would read as `untagged`, which is a
-  // fabricated finding rather than a missing one (Codex, #2644).
-  console.error(`audit aborted: could not read git tags — ${tagList.error}`);
-  process.exit(1);
-}
-const tags = new Set(tagList.out.split("\n"));
+const findWorkspaces = () =>
+  WORKSPACE_ROOTS.filter((root) => existsSync(root))
+    .flatMap((root) => readdirSync(root).map((entry) => readManifest(path.join(root, entry))))
+    .filter((pkg) => pkg && !pkg.private && pkg.name)
+    .sort((left, right) => left.name.localeCompare(right.name));
 
 // A manifest diff only matters when a key a consumer sees actually moved.
 const manifestChangedKeys = (pkg, tag) => {
@@ -104,13 +120,13 @@ const manifestChangedKeys = (pkg, tag) => {
   return { unknown: false, keys };
 };
 
-const classify = (pkg, latest) => {
+const classify = (pkg, latest, tags) => {
   const tag = `${pkg.name}@${latest.out}`;
   if (!latest.ok) return { state: "error", detail: `npm lookup failed: ${latest.error}` };
   if (!latest.out) return { state: "unpublished", detail: "not on npm" };
   if (!tags.has(tag)) return { state: "untagged", detail: `no ${tag} tag — drift cannot be measured` };
 
-  const diff = run("git", ["diff", "--name-only", tag, "HEAD", "--", pkg.dir]);
+  const diff = run("git", ["diff", "--name-only", tag, "HEAD", "--", ...diffPathspec(pkg)]);
   if (!diff.ok) return { state: "error", detail: `git diff failed: ${diff.error}` };
   const changed = diff.out.split("\n").filter(Boolean);
   if (changed.length === 0) return { state: "clean", detail: "" };
@@ -123,34 +139,54 @@ const classify = (pkg, latest) => {
     if (unknown) return { state: "error", detail: "could not read the published package.json from the tag" };
     if (keys.length > 0) return { state: "manifest drift", detail: `published fields changed: ${keys.join(", ")}` };
   }
-  return { state: "clean", detail: `${changed.length} file(s) changed, none of which feed the tarball (per this package\u2019s own \`files\`)` };
+  return { state: "clean", detail: `${changed.length} file(s) changed, none of which feed the tarball` };
 };
 
 const NEEDS_DECISION = new Set(["code drift", "manifest drift", "untagged", "unpublished", "error"]);
 
-const rows = workspaces.map((pkg) => {
-  const latest = run("npm", ["view", pkg.name, "version", "--registry", "https://registry.npmjs.org/"]);
-  // `npm view` exits non-zero for a package that was never published; that is an
-  // answer, not a failure, so it is mapped back before classification.
-  const resolved = !latest.ok && /E?404|not found/i.test(`${latest.error ?? ""}${latest.raw ?? ""}`) ? { ok: true, out: "" } : latest;
-  return { name: pkg.name, local: pkg.version ?? "?", latest: resolved.out || "—", ...classify(pkg, resolved) };
-});
+export function main(argv = process.argv) {
+  const codeOnly = argv.includes("--code-only");
 
-const attention = rows.filter((row) => NEEDS_DECISION.has(row.state));
-const shown = codeOnly ? attention : rows;
-const width = Math.max(...shown.map((row) => row.name.length), 8, 0);
+  const tagList = run("git", ["tag", "--list"]);
+  if (!tagList.ok) {
+    // Without the tag list every published package would read as `untagged`, which is a
+    // fabricated finding rather than a missing one (Codex, #2644).
+    console.error(`audit aborted: could not read git tags \u2014 ${tagList.error}`);
+    return 1;
+  }
+  const tags = new Set(tagList.out.split("\n"));
 
-if (shown.length > 0) {
-  console.log(`${"package".padEnd(width)}  ${"local".padEnd(8)} ${"npm".padEnd(8)} ${"state".padEnd(15)} detail`);
-  console.log("-".repeat(width + 46));
+  const rows = findWorkspaces().map((pkg) => {
+    const latest = run("npm", ["view", pkg.name, "version", "--registry", "https://registry.npmjs.org/"]);
+    // `npm view` exits non-zero for a package that was never published; that is an
+    // answer, not a failure, so it is mapped back before classification.
+    const resolved = !latest.ok && /E?404|not found/i.test(`${latest.error ?? ""}${latest.raw ?? ""}`) ? { ok: true, out: "" } : latest;
+    return { name: pkg.name, local: pkg.version ?? "?", latest: resolved.out || "\u2014", ...classify(pkg, resolved, tags) };
+  });
+
+  const attention = rows.filter((row) => NEEDS_DECISION.has(row.state));
+  const shown = codeOnly ? attention : rows;
+  const width = Math.max(...shown.map((row) => row.name.length), 8, 0);
+
+  if (shown.length > 0) {
+    console.log(`${"package".padEnd(width)}  ${"local".padEnd(8)} ${"npm".padEnd(8)} ${"state".padEnd(15)} detail`);
+    console.log("-".repeat(width + 46));
+  }
+  for (const row of shown) {
+    const bump = row.local !== row.latest && row.latest !== "\u2014" ? " <== version ahead of npm" : "";
+    console.log(`${row.name.padEnd(width)}  ${row.local.padEnd(8)} ${row.latest.padEnd(8)} ${row.state.padEnd(15)} ${row.detail}${bump}`);
+  }
+
+  console.log(`\n${rows.length} publishable workspaces \u00b7 ${attention.length} need a decision`);
+  if (attention.some((row) => row.state === "error")) {
+    console.error("audit incomplete: at least one workspace could not be checked");
+    return 1;
+  }
+  return 0;
 }
-for (const row of shown) {
-  const bump = row.local !== row.latest && row.latest !== "—" ? " <== version ahead of npm" : "";
-  console.log(`${row.name.padEnd(width)}  ${row.local.padEnd(8)} ${row.latest.padEnd(8)} ${row.state.padEnd(15)} ${row.detail}${bump}`);
-}
 
-console.log(`\n${rows.length} publishable workspaces · ${attention.length} need a decision`);
-if (attention.some((row) => row.state === "error")) {
-  console.error("audit incomplete: at least one workspace could not be checked");
-  process.exitCode = 1;
+// Only run the CLI when this file is invoked directly, so tests can import the
+// helpers without triggering a full npm+git sweep.
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  process.exitCode = main();
 }
