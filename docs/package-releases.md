@@ -142,14 +142,26 @@ yarn audit:releases --code-only  # just the ones needing a decision
 
 # or, for one package by hand
 git diff "@scope/name@$(npm view @scope/name version)" HEAD -- packages/<dir>
+
+# the launcher is the exception — its shipped source is not all under its own dir
+git diff "mulmoclaude@$(npm view mulmoclaude version)" HEAD -- \
+  packages/mulmoclaude server src Dockerfile.sandbox sandbox-entrypoint.sh
 ```
+
+**The launcher is audited across the repo root too.** `packages/mulmoclaude/server/`
+and `src/` are not in git — `prepack` copies them in from the repo root at pack time —
+so a diff scoped to `packages/mulmoclaude` sees none of the app code. The audit widens
+the launcher's pathspec to the roots `bin/prepare-dist.js` copies (`server`, `src`,
+`Dockerfile.sandbox`, `sandbox-entrypoint.sh`); every other workspace stays scoped to
+its own directory. Without this the launcher read `clean` while the change only it
+could ship sat undelivered (#2827).
 
 `state` is the useful column:
 
 | state | meaning |
 |---|---|
 | `clean` | nothing that feeds the tarball has changed, judged against **the package's own `files`** plus `src/` and `bin/` (which produce the shipped `dist/`) and README (npm ships it regardless). Tests and tsconfig land here only because no package here lists them in `files` — a package that starts shipping them is classified accordingly |
-| `code drift` | unreleased behaviour in something the package ships: `src/` or `bin/` (they become `dist/`), any root listed in its `files`, or README |
+| `code drift` | unreleased behaviour in something the package ships: `src/` or `bin/` (they become `dist/`), any root listed in its `files`, or README. For the launcher this also covers the repo-root `server/` and `src/` that `prepack` copies in |
 | `manifest drift` | a **published** `package.json` field moved — `dependencies`, `exports`, `files`, `bin`, `engines`, … A dependency-range sweep shows up here; it reaches users at this package's next release, so it is a decision, not an emergency |
 | `untagged` | published, but no tag, so drift **cannot be measured** — fix the tag first |
 | `unpublished` | never went to npm — decide whether it is meant to |
