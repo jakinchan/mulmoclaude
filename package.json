@@ -20,6 +20,7 @@
     "plugins:codegen:check": "tsx scripts/codegen-plugin-barrels.ts --check",
     "check:launcher-sync": "node scripts/mulmoclaude/launcherSync.mjs",
     "audit:releases": "node scripts/packages/audit-releases.mjs",
+    "check:changelog-ships": "node scripts/packages/check-changelog-ships.mjs",
     "knip": "knip",
     "sleep": "node -e \"setTimeout(()=>{},2000)\"",
     "predev": "yarn plugins:codegen",

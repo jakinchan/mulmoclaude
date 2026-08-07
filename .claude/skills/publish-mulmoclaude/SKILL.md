@@ -251,6 +251,15 @@ A launcher publish is not done until it has a visible, changelog-backed `latest`
 - a `### Highlights` block with `#### <feature> (#issue, #pr)` subsections,
 - a closing `Ships \`@mulmoclaude/core@<v>\`, …` line naming every scoped package version this launcher pulls in.
 
+That last line is thirteen hand-typed `name@version` strings, so verify it rather than
+trusting the retype — and note it answers "which versions does this launcher pull in?",
+NOT "what did we publish this week" (1.9.0 and 1.10.0 used it for the latter, which is
+why the check exists):
+
+```bash
+yarn check:changelog-ships   # compares the [X.Y.Z] Ships line against the launcher's deps
+```
+
 **9a-bis. Re-check the window between cutting the branch and merging it.** The section is written from the PRs merged as of the moment the release branch is cut — but `main` keeps moving while the release PR sits in CI and review, and everything that lands in that window ships in this release too. Run this after the §8 PR merges and BEFORE tagging:
 
 ```bash
