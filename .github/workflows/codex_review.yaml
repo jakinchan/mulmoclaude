@@ -148,8 +148,8 @@ jobs:
           # Codex CLI only supports the "responses" wire (Chat
           # Completions was removed), so the deployment has to expose
           # the Responses surface (recent gpt-4o / gpt-4.1 / gpt-5).
-          # The api-version that reaches it is the one above, not a
-          # dated preview.
+          # It is reached with whatever AZURE_API_VERSION resolved to
+          # above — `preview` unless a resource pins a dated one.
           export AZURE_MODEL BASE_URL AZURE_API_VERSION
           # envsubst's SHELL-FORMAT arg MUST stay single-quoted: it is
           # the literal allowlist of names to replace, not a shell
