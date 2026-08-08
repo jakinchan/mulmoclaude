@@ -45,11 +45,13 @@
 
 import { access } from "node:fs/promises";
 import {
+  collectionChangePayload,
   discoverCollections,
   itemFilePath,
   loadCollection,
   publishCollectionChange,
   storeFor,
+  type CollectionChangePayload,
   type DiscoveryOptions,
   type LoadedCollection,
   type StoreChange,
@@ -326,7 +328,7 @@ async function reconcileChangedSchemas(collections: readonly LoadedCollection[])
         /* best-effort */
       }
       watchers.delete(collection.slug);
-      if (collection.schema.dataSource !== undefined) publishCollectionChange({ slug: collection.slug, op: "upsert" });
+      if (collection.schema.dataSource !== undefined) safePublish({ slug: collection.slug, op: "upsert" });
       mutated = true;
       continue;
     }
@@ -343,7 +345,7 @@ async function reconcileChangedSchemas(collections: readonly LoadedCollection[])
     if (collection.schema.dataSource !== undefined) {
       // Read-only rows can't have changed, but a schema edit changes what the
       // views render (fields, displayField, …), so ping them.
-      publishCollectionChange({ slug: collection.slug, op: "upsert" });
+      safePublish({ slug: collection.slug, op: "upsert" });
     }
     mutated = true;
   }
@@ -536,11 +538,18 @@ async function itemFileExists(dataDir: string, itemId: string): Promise<boolean>
 }
 
 /** The publisher is host-supplied, so treat it as untrusted: a throw here
- *  runs inside a `finally` and would mask the reconcile's own error. */
-function safePublish(payload: { slug: string; ids?: string[]; op?: "upsert" | "delete" }): void {
+ *  runs inside a `finally` and would mask the reconcile's own error.
+ *
+ *  Stamps the root the watcher is RUNNING for (`discoveryOpts.workspaceRoot`)
+ *  rather than deriving one from `collection.dataDir` — a `LoadedCollection`
+ *  carries only absolute paths, and a root reconstructed by string surgery
+ *  would be a guess. Undefined in a single-workspace host, which is exactly
+ *  what the payload contract means by "the host's configured root". */
+function safePublish(payload: Omit<CollectionChangePayload, "root">): void {
+  const enriched = collectionChangePayload(payload, discoveryOpts.workspaceRoot);
   try {
-    publishCollectionChange(payload);
+    publishCollectionChange(enriched);
   } catch (err) {
-    log().warn("collection change publish failed", { slug: payload.slug, error: errMsg(err) });
+    log().warn("collection change publish failed", { slug: enriched.slug, error: errMsg(err) });
   }
 }

@@ -82,11 +82,11 @@ export function isContainedInRoot(absPath: string, rootPath: string): boolean {
   return ancestorReal.startsWith(rootReal + path.sep);
 }
 
-/** Workspace-bound convenience over `isContainedInRoot`. Production
- *  callers use this; the tests exercise the pure helper. */
-export function isContainedInWorkspace(absPath: string): boolean {
-  return isContainedInRoot(absPath, getWorkspaceRoot());
-}
+// NOTE: there is deliberately no `isContainedInWorkspace(absPath)` helper here.
+// It existed, had zero callers, and was exactly the shape a contributor reaches
+// for by reflex — at which point containment is checked against the AMBIENT
+// root while the operation it guards runs under an explicit one. Pass the root
+// you are operating on to `isContainedInRoot` instead.
 
 /** Resolve a schema-declared dataPath against `rootPath` (default:
  *  the live workspace), refusing anything that escapes — absolute

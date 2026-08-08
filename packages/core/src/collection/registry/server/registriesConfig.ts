@@ -20,7 +20,14 @@ import { readFileSync } from "node:fs";
 
 import { isRecord } from "../guards.js";
 import { OFFICIAL_REGISTRY_NAME, type RegistryConfigEntry } from "../types.js";
-import { collectionsRegistriesConfigPath, log } from "../../server/host.js";
+import { collectionsRegistriesConfigPath, getWorkspaceRoot, log } from "../../server/host.js";
+
+/** Which workspace a registry read is scoped to. Omitted ⇒ the host's
+ *  configured root (and, under an explicit-root binding, a loud throw rather
+ *  than a silent read of another project's config). */
+export interface RegistryScope {
+  workspaceRoot?: string | undefined;
+}
 
 export { OFFICIAL_REGISTRY_NAME, type RegistryConfigEntry };
 
@@ -105,11 +112,12 @@ function readConfigTextOrNull(filePath: string): string | null {
   }
 }
 
-/** Read `config/collections-registries.json` from the configured workspace.
- *  Missing file ⇒ empty list. Malformed JSON or rejected entries log but never
- *  throw. */
-export function loadRegistriesConfig(): RegistryConfigEntry[] {
-  const text = readConfigTextOrNull(collectionsRegistriesConfigPath());
+/** Read `config/collections-registries.json` for a workspace. `workspaceRoot`
+ *  defaults to the host's configured root; a multi-root host passes the project
+ *  it is serving. Missing file ⇒ empty list. Malformed JSON or rejected entries
+ *  log but never throw. */
+export function loadRegistriesConfig(opts: RegistryScope = {}): RegistryConfigEntry[] {
+  const text = readConfigTextOrNull(collectionsRegistriesConfigPath(opts.workspaceRoot ?? getWorkspaceRoot()));
   if (text === null) return [];
   let parsed: unknown;
   try {

@@ -5,6 +5,7 @@
 // isomorphic contract types live on @mulmoclaude/core/collection/registry.
 
 import { fetchAllRegistries } from "./client.js";
+import type { RegistryScope } from "./registriesConfig.js";
 import { performImport } from "./importWriter.js";
 import type { RegistryListResponse, RegistryImportResponse } from "../types.js";
 
@@ -46,7 +47,7 @@ export { claudeSkillDir, dataSkillDir, performImport, writeImportedCollection, t
 export { EXPORT_BASE, writeCollectionExport, type ExportMeta, type ExportResult } from "./exportCollection.js";
 export { performExport } from "./performExport.js";
 export { parseSkillDescription } from "./skillDescription.js";
-export { loadRegistriesConfig, parseRegistriesConfig, OFFICIAL_REGISTRY_NAME, type RegistryConfigEntry } from "./registriesConfig.js";
+export { loadRegistriesConfig, parseRegistriesConfig, OFFICIAL_REGISTRY_NAME, type RegistryConfigEntry, type RegistryScope } from "./registriesConfig.js";
 export type { RegistryEntry, RegistryIndex, ParseResult } from "../registryIndex.js";
 export { parseRegistryIndex } from "../registryIndex.js";
 export type { RegistrySummary, RegistryListResponse, RegistryImportResponse } from "../types.js";
@@ -54,8 +55,8 @@ export type { RegistrySummary, RegistryListResponse, RegistryImportResponse } fr
 /** Build the merged Discover catalog response (`GET …collectionsRegistry.list`).
  *  Wraps `fetchAllRegistries` with the per-registry summary + stale-flag shaping
  *  every host needs, so a downstream host doesn't re-implement the mapping. */
-export async function listRegistry(): Promise<RegistryListResponse> {
-  const merged = await fetchAllRegistries();
+export async function listRegistry(scope: RegistryScope = {}): Promise<RegistryListResponse> {
+  const merged = await fetchAllRegistries(scope);
   return {
     registries: merged.map((reg) => ({
       name: reg.name,

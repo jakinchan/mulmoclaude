@@ -367,7 +367,9 @@ export async function writeImportedCollection(params: {
 }
 
 export async function performImport(author: string, slug: string, workspaceRoot: string, registry: string | null = null): Promise<ImportResult> {
-  const merged = await fetchAllRegistries();
+  // The import's target workspace is also the registry scope — a multi-root
+  // host's per-project `collections-registries.json` must be the one consulted.
+  const merged = await fetchAllRegistries({ workspaceRoot });
   let entry: RegistryEntry | undefined;
   for (const reg of merged) {
     if (registry !== null && reg.name !== registry) continue;
@@ -375,9 +377,9 @@ export async function performImport(author: string, slug: string, workspaceRoot:
     if (entry) break;
   }
   if (!entry) return { ok: false, status: STATUS_NOT_FOUND, error: `unknown collection: ${author}/${slug}` };
-  const manifest = await fetchManifest(entry);
+  const manifest = await fetchManifest(entry, { workspaceRoot });
   if (!manifest.ok) return { ok: false, status: manifest.status, error: manifest.error };
-  const bundle = await fetchBundle(entry, manifest.files);
+  const bundle = await fetchBundle(entry, manifest.files, { workspaceRoot });
   if (!bundle.ok) return { ok: false, status: bundle.status, error: bundle.error };
   try {
     return await writeImportedCollection({
