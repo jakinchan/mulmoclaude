@@ -24,6 +24,7 @@ export { evalNow } from "./clock.js";
 export {
   startCollectionWatchers,
   stopCollectionWatchers,
+  WATCHER_ROOT_CONFLICT,
   _syncWatchersForTesting,
   _tickTimeTriggersForTesting,
   _scheduleItemReconcileForTesting,

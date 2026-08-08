@@ -13,6 +13,7 @@ import path from "node:path";
 import {
   configureCollectionHost,
   setCollectionChangePublisher,
+  COLLECTION_ROOT_REQUIRED,
   type CollectionChangePayload,
   type LoadedCollection,
 } from "../../src/collection/server/index.ts";
@@ -22,6 +23,7 @@ import {
   startCollectionWatchers,
   stopCollectionWatchers,
   _scheduleItemReconcileForTesting,
+  WATCHER_ROOT_CONFLICT,
   type CollectionNotificationAdapter,
 } from "../../src/collection-watchers/index.ts";
 import { makeTempDir } from "../helpers/tempDir.js";
@@ -114,6 +116,77 @@ test("starting a second watcher generation for a different root throws instead o
   } finally {
     await stopCollectionWatchers();
   }
+});
+
+test("two CONCURRENT starts for different roots cannot both boot", async () => {
+  // `started` flips only after two awaits, so guarding on it alone let both
+  // callers through: they overwrote each other's `discoveryOpts` mid-boot and
+  // each armed an interval, the first of which then escaped teardown. The
+  // generation claim has to be taken before the first await.
+  const rootOne = makeTempDir("cw-race-a-");
+  const rootTwo = makeTempDir("cw-race-b-");
+  const settled = await Promise.allSettled([
+    startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootOne }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null }),
+    startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootTwo }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null }),
+  ]);
+  try {
+    assert.equal(settled.filter((outcome) => outcome.status === "fulfilled").length, 1);
+    const rejected = settled.find((outcome) => outcome.status === "rejected");
+    assert.match(String(rejected?.status === "rejected" ? rejected.reason : ""), /one watcher generation/);
+
+    // The winner's root is the one payloads are stamped with — proof the loser
+    // did not overwrite `discoveryOpts` on its way out.
+    const dataDir = seededDataDir();
+    await _scheduleItemReconcileForTesting(asCollection("tasks", dataDir), "t1");
+    assert.equal(published.length, 1);
+    assert.equal(published[0]?.root, rootOne);
+  } finally {
+    await stopCollectionWatchers();
+  }
+});
+
+test("stop then start for a DIFFERENT root switches generations — the project-switch path", async () => {
+  // This is how a multi-root host changes projects, and therefore the path that
+  // matters most: refusing the second start is only safe if the supported
+  // alternative actually works. `stopCollectionWatchers` is a production API
+  // for that host, not a test-only helper.
+  const rootOne = makeTempDir("cw-switch-a-");
+  const rootTwo = makeTempDir("cw-switch-b-");
+  await startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootOne }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
+  await stopCollectionWatchers();
+  await startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootTwo }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
+  try {
+    const dataDir = seededDataDir();
+    await _scheduleItemReconcileForTesting(asCollection("tasks", dataDir), "t1");
+    assert.deepEqual(published, [{ slug: "tasks", ids: ["t1"], op: "upsert", root: rootTwo }]);
+  } finally {
+    await stopCollectionWatchers();
+  }
+});
+
+test("naming the host's own configured root explicitly is the same generation, not a conflict", async () => {
+  // `start()` and `start({ workspaceRoot: <the host default> })` mean the same
+  // thing. Comparing the raw option would have called them different roots and
+  // thrown at a host that merely became explicit about what it already had.
+  await startCollectionWatchers({ rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
+  try {
+    await assert.doesNotReject(() =>
+      startCollectionWatchers({ discoveryOpts: { workspaceRoot: root }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null }),
+    );
+    await assert.rejects(
+      () => startCollectionWatchers({ discoveryOpts: { workspaceRoot: makeTempDir("cw-other-") }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null }),
+      (err: unknown) => (err as { code?: string }).code === WATCHER_ROOT_CONFLICT,
+    );
+  } finally {
+    await stopCollectionWatchers();
+  }
+});
+
+test("the two root failures are told apart by code, not by message text", () => {
+  // A host catches watcher startup in one fire-and-forget `.catch`, so both
+  // land on the same log line. The fixes differ — stop the running generation
+  // versus pass the missing option — so the codes have to differ too.
+  assert.notEqual(WATCHER_ROOT_CONFLICT, COLLECTION_ROOT_REQUIRED);
 });
 
 test("a watcher started with no root override omits root, as a single-workspace host expects", async () => {

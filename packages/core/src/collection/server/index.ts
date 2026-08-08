@@ -38,6 +38,8 @@
 export {
   configureCollectionHost,
   getWorkspaceRoot,
+  peekWorkspaceRoot,
+  COLLECTION_ROOT_REQUIRED,
   log,
   setCollectionChangePublisher,
   publishCollectionChange,

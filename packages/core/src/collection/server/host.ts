@@ -13,6 +13,13 @@ import { createForwardingLogger, createHostSlot, type StructuredLogger } from ".
 /** Public alias of the shared `StructuredLogger` — keeps the domain surface name-stable. */
 export type CollectionLogger = StructuredLogger;
 
+/** `err.code` on the throw from `getWorkspaceRoot()` under an explicit-root
+ *  binding: this CALL is missing its `workspaceRoot` option. Exported because
+ *  the fix differs from a watcher root conflict — that one means another root's
+ *  watcher is already running — and a host catching both in one place should
+ *  not have to match on message text to tell them apart. */
+export const COLLECTION_ROOT_REQUIRED = "COLLECTION_ROOT_REQUIRED";
+
 export interface CollectionHost {
   /** Absolute path to the host workspace root (e.g. `~/mulmoclaude`). The
    *  default root for every path/containment check that isn't given an
@@ -120,12 +127,24 @@ function requireHost(): CollectionHost {
 export function getWorkspaceRoot(): string {
   const root = requireHost().workspaceRoot;
   if (root === null) {
-    throw new Error(
-      "@mulmoclaude/core/collection/server: the host is bound in explicit-root mode (workspaceRoot: null), " +
-        "so there is no ambient workspace root — pass an explicit `workspaceRoot` in this call's options.",
+    throw Object.assign(
+      new Error(
+        "@mulmoclaude/core/collection/server: the host is bound in explicit-root mode (workspaceRoot: null), " +
+          "so there is no ambient workspace root — pass an explicit `workspaceRoot` in this call's options.",
+      ),
+      { code: COLLECTION_ROOT_REQUIRED },
     );
   }
   return root;
+}
+
+/** The configured workspace root, or `null` under an explicit-root binding /
+ *  before the host configures one. Never throws — for callers that need to
+ *  COMPARE roots (is this the one we are already running for?) rather than
+ *  operate on one. Anything that will touch the filesystem wants
+ *  `getWorkspaceRoot()` and its loud failure instead. */
+export function peekWorkspaceRoot(): string | null {
+  return hostSlot.peek()?.workspaceRoot ?? null;
 }
 
 // Workspace-layout accessors — thin wrappers over the host binding, named to
