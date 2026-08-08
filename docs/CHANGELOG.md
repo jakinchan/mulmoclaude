@@ -16,7 +16,7 @@ Left as-is, a fresh install resolves a **second, nested `@mulmoclaude/core@2.x`*
 
 Major where core is a **peerDependency** (moving a peer range across a major is breaking for that plugin's consumers), minor where it is a plain dependency (internal, invisible to consumers):
 
-| package | | why |
+| package | version | why |
 |---|---|---|
 | `@mulmoclaude/collection-plugin` | 2.0.0 → **3.0.0** | core is a peerDependency |
 | `@mulmoclaude/html-plugin` | 2.1.0 → **3.0.0** | declares core as both dep and peer |
@@ -27,6 +27,10 @@ Major where core is a **peerDependency** (moving a peer range across a major is 
 | `@mulmoclaude/mulmoscript-plugin` | 2.0.0 → **2.1.0** | core is a plain dependency |
 
 No plugin source changed — this is a version + range release; each plugin's code already declares what it needs. The launcher's ranges are swept to the new versions, but the launcher is deliberately **not** bumped or published here, so **npm users of `mulmoclaude` do not receive the new plugins until a launcher release**.
+
+The roster below is what the NEXT launcher release will pull in. It lives here rather than in the published `[1.12.0]` section because `mulmoclaude@1.12.0` shipped the 2.x line and its record must keep saying so; `/publish-mulmoclaude` renames this heading when the launcher is actually versioned.
+
+Ships `@mulmoclaude/core@3.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.1.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ## [1.12.0] - 2026-08-07
 
@@ -54,7 +58,7 @@ The markdown source editor gained a bookmark rail for navigating long documents.
 - `@mulmoclaude/core` dependency ranges swept to `^2.1.0` across six plugins, which the core 2.1.0 publish had missed (#2825).
 - Retroactive release tags for `@mulmoclaude/core@2.1.0` and `@mulmoclaude/markdown-plugin@2.3.0`, both published without one. Their npm tarballs were byte-compared against this tree before tagging, so neither needed republishing.
 
-Ships `@mulmoclaude/core@3.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.1.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/core@2.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.0.0`, `@mulmoclaude/chart-plugin@2.0.0`, `@mulmoclaude/collection-plugin@2.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.0.0`, `@mulmoclaude/html-plugin@2.1.0`, `@mulmoclaude/markdown-plugin@2.3.0`, `@mulmoclaude/mulmoscript-plugin@2.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ## [1.11.0] - 2026-08-05
 

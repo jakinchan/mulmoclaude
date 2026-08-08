@@ -132,8 +132,29 @@ describe("compareRosters", () => {
   });
 });
 
+// A `chore(release)` that publishes packages must not bump the launcher, so its
+// version keeps naming an ALREADY-PUBLISHED release while its ranges move on.
+// Checking `## [<that version>]` then demands rewriting a published release's
+// record to versions it never shipped — which is what Codex caught on #2841.
+// `[Unreleased]` is where the pending roster belongs until the launcher is
+// actually versioned.
+describe("which section the check targets", () => {
+  it("prefers [Unreleased] when it states a roster, leaving published records alone", () => {
+    const section = releaseSection(changelog, "Unreleased");
+    assert.ok(section !== null, "the real changelog and this fixture both carry an Unreleased heading");
+  });
+
+  it("an Unreleased section with no Ships line is not a target — the version section still is", () => {
+    // `[Unreleased]` exists in this fixture but carries no roster, so a reader
+    // (and `main`) must fall through to [1.12.0] rather than fail on an empty
+    // Unreleased. This is the /publish-mulmoclaude flow's shape.
+    assert.equal(claimedRoster(releaseSection(changelog, "Unreleased") ?? ""), null);
+    assert.deepEqual(claimedRoster(releaseSection(changelog, "1.12.0") ?? ""), ["@mulmoclaude/common@1.2.0", "@mulmoclaude/core@2.1.0"]);
+  });
+});
+
 describe("the real CHANGELOG and launcher manifest", () => {
-  it("agree for the version currently in packages/mulmoclaude/package.json", async () => {
+  it("agree for the pending roster — [Unreleased] when present, else the launcher's version", async () => {
     const { main } = await import("../../../scripts/packages/check-changelog-ships.mjs");
     assert.equal(main(), 0, "run `node scripts/packages/check-changelog-ships.mjs` to see which entries disagree");
   });

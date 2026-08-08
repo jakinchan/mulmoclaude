@@ -121,6 +121,21 @@ Follow `docs/package-releases.md`; the parts that matter most here:
 - Do not publish the launcher (above).
 - Do not bump MulmoTerminal — that happens in `../mulmoterminal` once these are on npm.
 
+## Deviation taken while implementing (#2841)
+
+The "Order" section above has each package commit **and tag** before publishing. That loop runs
+on `main`, not in the PR: `docs/package-releases.md` warns against tagging a version-bump commit
+on a feature branch, since such a commit predates the merges the publish actually contains — the
+reason `@mulmoclaude/core@1.8.0` had to be re-identified from its tarball. PR #2841 therefore
+carries the bumps, range sweeps and changelog only; the per-package tag → publish → release loop
+runs after merge, unchanged in every other respect.
+
+One more thing the plan did not anticipate: the pending roster does NOT go in the published
+`[1.12.0]` `Ships` line. That release shipped the 2.x plugins and its record must keep saying so.
+It goes under `[Unreleased]`, and `scripts/packages/check-changelog-ships.mjs` now targets that
+section when it carries a roster — otherwise the gate forces a published release's history to be
+rewritten every time a `chore(release)` sweeps ranges without bumping the launcher.
+
 ## Context
 
 Why core went to 3.0.0: `plans/feat-collection-multi-root.md` (merged as #2838). The consumer-side
