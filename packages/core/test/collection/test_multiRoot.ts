@@ -24,7 +24,9 @@ import {
   writeItem,
   deleteItem,
   listItems,
+  storeFor,
   type CollectionChangePayload,
+  type LoadedCollection,
 } from "../../src/collection/server/index.ts";
 import { makeTempDir } from "../helpers/tempDir.js";
 
@@ -64,6 +66,18 @@ function makeRoot(prefix: string, extraSlug: string): string {
   }
   return root;
 }
+
+/** A minimal sqlite-backed collection rooted in `root` — only `slug`,
+ *  `storageFile` and `schema.storage` are read on the sqlite store path. */
+const sqliteCollection = (root: string): LoadedCollection =>
+  ({
+    slug: "sqlite-tasks",
+    source: "project",
+    schema: { primaryKey: "id", title: "Sqlite", icon: "db", storage: { type: "sqlite", path: "data/sqlite-tasks/records.db" } },
+    dataDir: path.join(root, "data", "sqlite-tasks"),
+    skillDir: path.join(root, ".claude", "skills", "sqlite-tasks"),
+    storageFile: path.join(root, "data", "sqlite-tasks", "records.db"),
+  }) as unknown as LoadedCollection;
 
 const rootA = makeRoot("mr-a-", "only-in-a");
 const rootB = makeRoot("mr-b-", "only-in-b");
@@ -106,13 +120,15 @@ test("loadCollection resolves the slug within the root it was given", async () =
   assert.equal(await loadCollection("only-in-b", { workspaceRoot: rootA }), null);
 });
 
+/** The `name` of every record the root's `tasks` collection currently holds. */
+async function taskNamesIn(root: string): Promise<unknown[]> {
+  return (await listItems(path.join(root, "data", "tasks"), { workspaceRoot: root })).map((item) => item.name);
+}
+
 test("writes under two roots stay in their own root and publish their own root", async () => {
   published.length = 0;
-  const dirA = path.join(rootA, "data", "tasks");
-  const dirB = path.join(rootB, "data", "tasks");
-
-  await writeItem(dirA, "shared-id", { id: "shared-id", name: "from A" }, { workspaceRoot: rootA, slug: "tasks" });
-  await writeItem(dirB, "shared-id", { id: "shared-id", name: "from B" }, { workspaceRoot: rootB, slug: "tasks" });
+  await writeItem(path.join(rootA, "data", "tasks"), "shared-id", { id: "shared-id", name: "from A" }, { workspaceRoot: rootA, slug: "tasks" });
+  await writeItem(path.join(rootB, "data", "tasks"), "shared-id", { id: "shared-id", name: "from B" }, { workspaceRoot: rootB, slug: "tasks" });
 
   // U1: the change payload carries the root, so a host fanning out live updates
   // can key on (root, slug) instead of refreshing every project's `tasks`.
@@ -120,30 +136,34 @@ test("writes under two roots stay in their own root and publish their own root",
     { slug: "tasks", ids: ["shared-id"], op: "upsert", root: rootA },
     { slug: "tasks", ids: ["shared-id"], op: "upsert", root: rootB },
   ]);
+  assert.deepEqual(await taskNamesIn(rootA), ["from A"]);
+  assert.deepEqual(await taskNamesIn(rootB), ["from B"]);
+});
 
-  const itemsA = await listItems(dirA, { workspaceRoot: rootA });
-  const itemsB = await listItems(dirB, { workspaceRoot: rootB });
-  assert.deepEqual(
-    itemsA.map((item) => item.name),
-    ["from A"],
-  );
-  assert.deepEqual(
-    itemsB.map((item) => item.name),
-    ["from B"],
-  );
+test("the sqlite store stamps the explicit root on its writes and deletes too", async () => {
+  published.length = 0;
+  const store = storeFor(sqliteCollection(rootA), { workspaceRoot: rootA });
+  // The sqlite store collapses `opts.workspaceRoot ?? getWorkspaceRoot()` into a
+  // thunk before the write runs, so the explicit root travels separately as
+  // `publishRoot`. Nothing else pins that threading.
+  await store.write?.("s1", { id: "s1", name: "sqlite" });
+  await store.delete?.("s1");
+  assert.deepEqual(published, [
+    { slug: "sqlite-tasks", ids: ["s1"], op: "upsert", root: rootA },
+    { slug: "sqlite-tasks", ids: ["s1"], op: "delete", root: rootA },
+  ]);
 });
 
 test("a delete under one root leaves the same id in the other root alone", async () => {
   published.length = 0;
   const dirA = path.join(rootA, "data", "tasks");
-  const dirB = path.join(rootB, "data", "tasks");
 
   const result = await deleteItem(dirA, "shared-id", { workspaceRoot: rootA, slug: "tasks" });
   assert.equal(result.kind, "ok");
   assert.deepEqual(published, [{ slug: "tasks", ids: ["shared-id"], op: "delete", root: rootA }]);
 
-  assert.deepEqual(await listItems(dirA, { workspaceRoot: rootA }), []);
-  assert.equal((await listItems(dirB, { workspaceRoot: rootB })).length, 1);
+  assert.deepEqual(await taskNamesIn(rootA), []);
+  assert.deepEqual(await taskNamesIn(rootB), ["from B"]);
 });
 
 test("a write refuses a dataDir that belongs to the OTHER root", async () => {

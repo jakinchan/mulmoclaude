@@ -10,9 +10,11 @@ import path from "node:path";
 import {
   configureCollectionHost,
   setCollectionChangePublisher,
+  storeFor,
   writeItem,
   deleteItem,
   type CollectionChangePayload,
+  type LoadedCollection,
 } from "../../src/collection/server/index.ts";
 import { makeTempDir } from "../helpers/tempDir.js";
 
@@ -51,6 +53,25 @@ test("a delete with no explicit root likewise omits root", async () => {
   const result = await deleteItem(dataDir, "t1", { slug: "tasks" });
   assert.equal(result.kind, "ok");
   assert.deepEqual(published, [{ slug: "tasks", ids: ["t1"], op: "delete" }]);
+});
+
+test("the sqlite store with no explicit root omits it, and stamps it when given one", async () => {
+  const collection = {
+    slug: "sqlite-tasks",
+    source: "project",
+    schema: { primaryKey: "id", title: "Sqlite", icon: "db", storage: { type: "sqlite", path: "data/sqlite-tasks/records.db" } },
+    dataDir: path.join(root, "data", "sqlite-tasks"),
+    skillDir: path.join(root, ".claude", "skills", "sqlite-tasks"),
+    storageFile: path.join(root, "data", "sqlite-tasks", "records.db"),
+  } as unknown as LoadedCollection;
+
+  published.length = 0;
+  await storeFor(collection, {}).write?.("s1", { id: "s1" });
+  assert.deepEqual(published, [{ slug: "sqlite-tasks", ids: ["s1"], op: "upsert" }]);
+
+  published.length = 0;
+  await storeFor(collection, { workspaceRoot: root }).delete?.("s1");
+  assert.deepEqual(published, [{ slug: "sqlite-tasks", ids: ["s1"], op: "delete", root }]);
 });
 
 test("the same host still stamps root when a call passes one explicitly", async () => {

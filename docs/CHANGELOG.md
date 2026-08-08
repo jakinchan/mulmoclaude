@@ -34,7 +34,7 @@ The markdown source editor gained a bookmark rail for navigating long documents.
 - `@mulmoclaude/core` dependency ranges swept to `^2.1.0` across six plugins, which the core 2.1.0 publish had missed (#2825).
 - Retroactive release tags for `@mulmoclaude/core@2.1.0` and `@mulmoclaude/markdown-plugin@2.3.0`, both published without one. Their npm tarballs were byte-compared against this tree before tagging, so neither needed republishing.
 
-Ships `@mulmoclaude/core@2.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.0.0`, `@mulmoclaude/chart-plugin@2.0.0`, `@mulmoclaude/collection-plugin@2.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.0.0`, `@mulmoclaude/html-plugin@2.1.0`, `@mulmoclaude/markdown-plugin@2.3.0`, `@mulmoclaude/mulmoscript-plugin@2.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/core@3.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.0.0`, `@mulmoclaude/chart-plugin@2.0.0`, `@mulmoclaude/collection-plugin@2.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.0.0`, `@mulmoclaude/html-plugin@2.1.0`, `@mulmoclaude/markdown-plugin@2.3.0`, `@mulmoclaude/mulmoscript-plugin@2.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ## [1.11.0] - 2026-08-05
 

@@ -2,9 +2,11 @@
 
 Newest first. Each entry corresponds to a tagged release. Written in English.
 
-## @mulmoclaude/core@2.2.0 — 2026-08-08
+## @mulmoclaude/core@3.0.0 — 2026-08-08
 
 Makes the server-side collection engine safely multi-root, so a downstream host (MulmoTerminal) can serve a collection out of any project directory. MulmoClaude's behaviour is unchanged — it is a single-workspace host, it keeps passing no root, and every item is additive with a default that preserves today's path.
+
+**BREAKING** — `isContainedInWorkspace(absPath)` is gone from `@mulmoclaude/core/collection/server`, and `CollectionHost.workspaceRoot` widened to `string | null`. Hence the major bump: a caret range on a 2.x line would otherwise have handed consumers the removal automatically. Every workspace-internal declared range was swept to `^3.0.0` in the same commit.
 
 ### From `plans/feat-collection-multi-root.md`
 
@@ -13,8 +15,9 @@ Makes the server-side collection engine safely multi-root, so a downstream host 
 - `collectionsRegistriesConfigPath()` now takes the root explicitly; the registries-config read chain (`loadRegistriesConfig`, `listRegistries`, `findRegistry`, `fetchAllRegistries`, `rawBaseForEntry`, `fetchManifest`, `fetchBundle`, `previewCollection`, `listRegistry`) accepts an optional `RegistryScope` so Discover works under an explicit-root binding. All parameters are optional and default to the host root.
 - Removed `isContainedInWorkspace(absPath)` from `@mulmoclaude/core/collection/server`. It had zero callers and checked containment against the AMBIENT root — exactly the silent-wrong-project failure the rest of this change exists to prevent. Use the pure `isContainedInRoot(absPath, rootPath)`.
 - The multi-root contract is now stated in the `collection/server/index.ts` module header and pinned by `test/collection/test_multiRoot.ts`.
+- `startCollectionWatchers()` throws when called a second time for a DIFFERENT root instead of returning silently. `collection-watchers` holds one watcher generation per process, so the quiet version left the second root's direct file writes emitting neither live-refresh events nor completion bells. Making watchers genuinely concurrent is separate work: `reconciler.ts` derives each bell's identity from `completionLegacyId(slug, itemId)` and the host adapter takes the same pair, so two roots owning one slug collide on a HOST-FACING contract, not just on a watcher slot.
 
-📦 **npm**: [`@mulmoclaude/core@2.2.0`](https://www.npmjs.com/package/@mulmoclaude/core/v/2.2.0)
+📦 **npm**: [`@mulmoclaude/core@3.0.0`](https://www.npmjs.com/package/@mulmoclaude/core/v/3.0.0)
 
 ## @mulmoclaude/core@0.8.2 — 2026-07-04
 

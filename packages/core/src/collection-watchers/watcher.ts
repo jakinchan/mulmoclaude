@@ -37,6 +37,27 @@
 // a `dataSource` (or any per-backend) early-exit here, check it against all
 // four — the surviving ones below are view-refresh publishes, not skips.
 //
+// SINGLE GENERATION PER PROCESS — the multi-root boundary.
+//
+// Everything below is module-global: `watchers`, `itemSlots`, `collectionSlots`,
+// the rediscovery + trigger timers, `watcherEpoch`, and `discoveryOpts`. So this
+// module watches ONE root at a time, and its change payloads all carry that
+// root. `startCollectionWatchers` therefore THROWS on a second call naming a
+// different root rather than returning quietly, because the quiet version
+// leaves that root's direct file writes emitting nothing at all.
+//
+// Making it genuinely concurrent is deliberately NOT part of the multi-root
+// engine change, and it is not the map re-key it looks like. The watcher's maps
+// are keyed by slug, but so is the NOTIFICATION identity it drives:
+// `reconciler.ts` derives every bell's `legacyId` from `completionLegacyId(slug,
+// itemId)`, and the host adapter's `buildNavigateTarget(slug, itemId)` /
+// `buildPluginData` take the same pair. Two roots each owning a `tasks`
+// collection would collide on the bell, not just on the watcher slot — so
+// concurrency requires re-keying a HOST-FACING contract and changing the live
+// notification behaviour of a single-workspace host, which this change promises
+// not to touch. A multi-root host runs one watcher generation per root process,
+// or stops and restarts across roots, until that separate change lands.
+//
 // All decisions live in `reconciler.ts`; this module is pure plumbing:
 // discover, mkdir, fs.watch, forward events into the reconciler. Every
 // reconcile call is idempotent so fs.watch's well-known quirks (`rename`
@@ -141,9 +162,27 @@ export interface CollectionWatcherOptions {
 
 /** Boot entry point: sweep stale active entries, then mount watchers for
  *  every discovered collection and arm the periodic re-discovery poll.
- *  Idempotent — a second call is a no-op. */
+ *  Idempotent for the SAME root — a second call is a no-op.
+ *
+ *  A second call for a DIFFERENT root throws. This module holds exactly one
+ *  watcher generation per process (see the "single generation" note in the file
+ *  header), so silently returning would leave the second root unwatched: direct
+ *  file writes there — the canonical agent path — would emit neither
+ *  live-refresh events nor completion bells, with nothing anywhere saying so.
+ *  That is the same class of silent-wrong-root failure the explicit-root host
+ *  binding exists to make loud, so it is loud here too. */
 export async function startCollectionWatchers(opts: CollectionWatcherOptions = {}): Promise<void> {
-  if (started) return;
+  if (started) {
+    const requested = opts.discoveryOpts?.workspaceRoot;
+    if (requested !== discoveryOpts.workspaceRoot) {
+      throw new Error(
+        `@mulmoclaude/core/collection-watchers: watchers are already running for root ${String(discoveryOpts.workspaceRoot)}; ` +
+          `this process holds one watcher generation, so starting another for ${String(requested)} would leave it unwatched. ` +
+          "Call stopCollectionWatchers() first, or run one process per root.",
+      );
+    }
+    return;
+  }
   // `started` only flips on AFTER boot finishes. If sweep or syncWatchers
   // throws mid-boot, reset state on failure so a supervisor / test
   // harness can retry instead of being permanently latched.

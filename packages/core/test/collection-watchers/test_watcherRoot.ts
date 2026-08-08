@@ -95,6 +95,27 @@ test("a watcher started for an explicit root stamps that root on its payloads", 
   }
 });
 
+test("starting a second watcher generation for a different root throws instead of leaving it unwatched", async () => {
+  // This module holds one watcher generation per process. Before, the second
+  // call hit `if (started) return` and root B was simply never watched — direct
+  // file writes there emitted neither live-refresh events nor bells, silently.
+  const rootOne = makeTempDir("cw-one-");
+  const rootTwo = makeTempDir("cw-two-");
+  await startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootOne }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
+  try {
+    await assert.rejects(
+      () => startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootTwo }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null }),
+      /one watcher generation/,
+    );
+    // Same root stays idempotent — that is the production restart path.
+    await assert.doesNotReject(() =>
+      startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootOne }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null }),
+    );
+  } finally {
+    await stopCollectionWatchers();
+  }
+});
+
 test("a watcher started with no root override omits root, as a single-workspace host expects", async () => {
   await startCollectionWatchers({ rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
   try {
