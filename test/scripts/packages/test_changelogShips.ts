@@ -9,7 +9,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { claimedRoster, compareRosters, declaredRoster, releaseSection } from "../../../scripts/packages/check-changelog-ships.mjs";
+import { claimedRoster, compareRosters, declaredRoster, releaseSection, targetSection } from "../../../scripts/packages/check-changelog-ships.mjs";
 
 const manifest = {
   version: "1.12.0",
@@ -138,18 +138,26 @@ describe("compareRosters", () => {
 // record to versions it never shipped — which is what Codex caught on #2841.
 // `[Unreleased]` is where the pending roster belongs until the launcher is
 // actually versioned.
-describe("which section the check targets", () => {
-  it("prefers [Unreleased] when it states a roster, leaving published records alone", () => {
-    const section = releaseSection(changelog, "Unreleased");
-    assert.ok(section !== null, "the real changelog and this fixture both carry an Unreleased heading");
+describe("targetSection", () => {
+  it("falls through to the version section when Unreleased states no roster", () => {
+    // The /publish-mulmoclaude shape: `[Unreleased]` exists as an empty
+    // placeholder, so the version section is the one being prepared.
+    const { label, section } = targetSection(changelog, "1.12.0");
+    assert.equal(label, "1.12.0");
+    assert.deepEqual(claimedRoster(section ?? ""), ["@mulmoclaude/common@1.2.0", "@mulmoclaude/core@2.1.0"]);
   });
 
-  it("an Unreleased section with no Ships line is not a target — the version section still is", () => {
-    // `[Unreleased]` exists in this fixture but carries no roster, so a reader
-    // (and `main`) must fall through to [1.12.0] rather than fail on an empty
-    // Unreleased. This is the /publish-mulmoclaude flow's shape.
-    assert.equal(claimedRoster(releaseSection(changelog, "Unreleased") ?? ""), null);
-    assert.deepEqual(claimedRoster(releaseSection(changelog, "1.12.0") ?? ""), ["@mulmoclaude/common@1.2.0", "@mulmoclaude/core@2.1.0"]);
+  it("prefers Unreleased once it states a roster, so a published record is never the target", () => {
+    // The chore(release) shape: ranges moved, launcher NOT bumped, so `1.12.0`
+    // is already on npm. Targeting it would demand rewriting what it shipped.
+    const withPending = changelog.replace("## [Unreleased]\n", "## [Unreleased]\n\nShips `@mulmoclaude/core@3.0.0`.\n");
+    const { label, section } = targetSection(withPending, "1.12.0");
+    assert.equal(label, "Unreleased");
+    assert.deepEqual(claimedRoster(section ?? ""), ["@mulmoclaude/core@3.0.0"]);
+  });
+
+  it("reports a null section when neither heading exists", () => {
+    assert.deepEqual(targetSection("# Changelog\n", "9.9.9"), { label: "9.9.9", section: null });
   });
 });
 

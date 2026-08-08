@@ -66,6 +66,20 @@ export const claimedRoster = (section) => {
   return [...line.matchAll(ROSTER_ENTRY)].map((match) => match[1]).sort();
 };
 
+/** Which section states the roster to check, as `{ label, section }`.
+ *  `[Unreleased]` when it carries a `Ships` line — a launcher release being
+ *  prepared without a version number yet — otherwise the launcher's current
+ *  version section. `section` is null when neither exists.
+ *
+ *  Split out of `main` so the CHOICE is directly testable: it is the part that
+ *  decides whether a published release's record gets rewritten, and testing the
+ *  two helpers it composes does not cover it. */
+export const targetSection = (changelog, version) => {
+  const unreleased = releaseSection(changelog, "Unreleased");
+  if (unreleased !== null && claimedRoster(unreleased) !== null) return { label: "Unreleased", section: unreleased };
+  return { label: version, section: releaseSection(changelog, version) };
+};
+
 const duplicatesIn = (entries) => [...new Set(entries.filter((entry, index) => entries.indexOf(entry) !== index))];
 
 /** Both directions, so neither a forgotten addition nor a stale entry can hide.
@@ -84,16 +98,7 @@ export function main() {
   const { version } = manifest;
   const declared = declaredRoster(manifest);
 
-  // `[Unreleased]` wins when it states a roster — that is a launcher release
-  // being prepared without a version number yet. Falling through to the version
-  // section keeps the /publish-mulmoclaude flow (bump, then write the section)
-  // working unchanged.
-  const changelog = readFileSync(CHANGELOG, "utf8");
-  const unreleased = releaseSection(changelog, "Unreleased");
-  const pending = unreleased !== null && claimedRoster(unreleased) !== null;
-  const label = pending ? "Unreleased" : version;
-
-  const section = pending ? unreleased : releaseSection(changelog, version);
+  const { label, section } = targetSection(readFileSync(CHANGELOG, "utf8"), version);
   if (section === null) {
     console.error(`[changelog:ships] ${CHANGELOG} has no "## [${label}]" section.`);
     console.error("  A launcher publish needs a changelog entry — see /publish-mulmoclaude §9a.");
