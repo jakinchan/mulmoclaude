@@ -9,7 +9,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { claimedRoster, compareRosters, declaredRoster, releaseSection } from "../../../scripts/packages/check-changelog-ships.mjs";
+import { claimedRoster, compareRosters, declaredRoster, releaseSection, targetSection } from "../../../scripts/packages/check-changelog-ships.mjs";
 
 const manifest = {
   version: "1.12.0",
@@ -132,8 +132,37 @@ describe("compareRosters", () => {
   });
 });
 
+// A `chore(release)` that publishes packages must not bump the launcher, so its
+// version keeps naming an ALREADY-PUBLISHED release while its ranges move on.
+// Checking `## [<that version>]` then demands rewriting a published release's
+// record to versions it never shipped — which is what Codex caught on #2841.
+// `[Unreleased]` is where the pending roster belongs until the launcher is
+// actually versioned.
+describe("targetSection", () => {
+  it("falls through to the version section when Unreleased states no roster", () => {
+    // The /publish-mulmoclaude shape: `[Unreleased]` exists as an empty
+    // placeholder, so the version section is the one being prepared.
+    const { label, section } = targetSection(changelog, "1.12.0");
+    assert.equal(label, "1.12.0");
+    assert.deepEqual(claimedRoster(section ?? ""), ["@mulmoclaude/common@1.2.0", "@mulmoclaude/core@2.1.0"]);
+  });
+
+  it("prefers Unreleased once it states a roster, so a published record is never the target", () => {
+    // The chore(release) shape: ranges moved, launcher NOT bumped, so `1.12.0`
+    // is already on npm. Targeting it would demand rewriting what it shipped.
+    const withPending = changelog.replace("## [Unreleased]\n", "## [Unreleased]\n\nShips `@mulmoclaude/core@3.0.0`.\n");
+    const { label, section } = targetSection(withPending, "1.12.0");
+    assert.equal(label, "Unreleased");
+    assert.deepEqual(claimedRoster(section ?? ""), ["@mulmoclaude/core@3.0.0"]);
+  });
+
+  it("reports a null section when neither heading exists", () => {
+    assert.deepEqual(targetSection("# Changelog\n", "9.9.9"), { label: "9.9.9", section: null });
+  });
+});
+
 describe("the real CHANGELOG and launcher manifest", () => {
-  it("agree for the version currently in packages/mulmoclaude/package.json", async () => {
+  it("agree for the pending roster — [Unreleased] when present, else the launcher's version", async () => {
     const { main } = await import("../../../scripts/packages/check-changelog-ships.mjs");
     assert.equal(main(), 0, "run `node scripts/packages/check-changelog-ships.mjs` to see which entries disagree");
   });

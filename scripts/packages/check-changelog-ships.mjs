@@ -13,10 +13,19 @@
 //
 // Usage: node scripts/packages/check-changelog-ships.mjs
 //
-// Checks the launcher's CURRENT version only — the section a release PR is
-// about to ship. There is deliberately no flag for an older version: the
-// manifest read here is today's, so pointing it at a frozen section would
-// compare two different releases and report a mismatch that is not one.
+// WHICH section is checked: `[Unreleased]` when it carries a `Ships` line,
+// otherwise the launcher's current version. Both mean the same thing — "the
+// roster the next launcher release will pull in" — and the manifest read here
+// is today's, so a FROZEN section must never be the target: comparing it would
+// force a published release's historical record to be rewritten to versions it
+// never shipped.
+//
+// That is not hypothetical. A `chore(release)` that publishes packages must NOT
+// bump the launcher (docs/package-releases.md), so the launcher's version still
+// names an ALREADY-PUBLISHED release while its dependency ranges have moved on.
+// Checking `## [<that version>]` then demands editing history. `[Unreleased]` is
+// where those ranges belong until /publish-mulmoclaude renames it to the new
+// version — at which point this falls back to the version section as before.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,7 +41,8 @@ export const declaredRoster = (manifest) =>
     .map(([name, range]) => `${name}@${range.replace(/^[\^~]/, "")}`)
     .sort();
 
-/** The `## [X.Y.Z]` section body, or null when the CHANGELOG has no such heading. */
+/** The `## [X.Y.Z]` (or `## [Unreleased]`) section body, or null when the
+ *  CHANGELOG has no such heading. */
 export const releaseSection = (changelog, version) => {
   const heading = `## [${version}]`;
   const start = changelog.indexOf(heading);
@@ -56,6 +66,20 @@ export const claimedRoster = (section) => {
   return [...line.matchAll(ROSTER_ENTRY)].map((match) => match[1]).sort();
 };
 
+/** Which section states the roster to check, as `{ label, section }`.
+ *  `[Unreleased]` when it carries a `Ships` line — a launcher release being
+ *  prepared without a version number yet — otherwise the launcher's current
+ *  version section. `section` is null when neither exists.
+ *
+ *  Split out of `main` so the CHOICE is directly testable: it is the part that
+ *  decides whether a published release's record gets rewritten, and testing the
+ *  two helpers it composes does not cover it. */
+export const targetSection = (changelog, version) => {
+  const unreleased = releaseSection(changelog, "Unreleased");
+  if (unreleased !== null && claimedRoster(unreleased) !== null) return { label: "Unreleased", section: unreleased };
+  return { label: version, section: releaseSection(changelog, version) };
+};
+
 const duplicatesIn = (entries) => [...new Set(entries.filter((entry, index) => entries.indexOf(entry) !== index))];
 
 /** Both directions, so neither a forgotten addition nor a stale entry can hide.
@@ -74,27 +98,27 @@ export function main() {
   const { version } = manifest;
   const declared = declaredRoster(manifest);
 
-  const section = releaseSection(readFileSync(CHANGELOG, "utf8"), version);
+  const { label, section } = targetSection(readFileSync(CHANGELOG, "utf8"), version);
   if (section === null) {
-    console.error(`[changelog:ships] ${CHANGELOG} has no "## [${version}]" section.`);
+    console.error(`[changelog:ships] ${CHANGELOG} has no "## [${label}]" section.`);
     console.error("  A launcher publish needs a changelog entry — see /publish-mulmoclaude §9a.");
     return 1;
   }
 
   const claimed = claimedRoster(section);
   if (claimed === null) {
-    console.error(`[changelog:ships] the [${version}] section has no \`Ships …\` line.`);
+    console.error(`[changelog:ships] the [${label}] section has no \`Ships …\` line.`);
     console.error(`  End the section with: Ships \`${declared.join("`, `")}\`.`);
     return 1;
   }
 
   const { missing, stale, duplicated } = compareRosters(claimed, declared);
   if (missing.length === 0 && stale.length === 0 && duplicated.length === 0) {
-    console.log(`[changelog:ships] OK — [${version}] lists all ${claimed.length} @mulmoclaude/* dependencies.`);
+    console.log(`[changelog:ships] OK — [${label}] lists all ${claimed.length} @mulmoclaude/* dependencies.`);
     return 0;
   }
 
-  console.error(`[changelog:ships] the [${version}] \`Ships\` line disagrees with ${LAUNCHER_MANIFEST}:`);
+  console.error(`[changelog:ships] the [${label}] \`Ships\` line disagrees with ${LAUNCHER_MANIFEST}:`);
   for (const entry of missing) console.error(`  - missing: ${entry}`);
   for (const entry of stale) console.error(`  - not a current dependency: ${entry}`);
   for (const entry of duplicated) console.error(`  - listed more than once: ${entry}`);
