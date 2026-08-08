@@ -13,11 +13,25 @@ import { createForwardingLogger, createHostSlot, type StructuredLogger } from ".
 /** Public alias of the shared `StructuredLogger` — keeps the domain surface name-stable. */
 export type CollectionLogger = StructuredLogger;
 
+/** `err.code` on the throw from `getWorkspaceRoot()` under an explicit-root
+ *  binding: this CALL is missing its `workspaceRoot` option. Exported because
+ *  the fix differs from a watcher root conflict — that one means another root's
+ *  watcher is already running — and a host catching both in one place should
+ *  not have to match on message text to tell them apart. */
+export const COLLECTION_ROOT_REQUIRED = "COLLECTION_ROOT_REQUIRED";
+
 export interface CollectionHost {
   /** Absolute path to the host workspace root (e.g. `~/mulmoclaude`). The
    *  default root for every path/containment check that isn't given an
-   *  explicit override. */
-  workspaceRoot: string;
+   *  explicit override.
+   *
+   *  `null` puts the binding in EXPLICIT-ROOT mode: the host declares that it
+   *  always passes `opts.workspaceRoot` per call, and `getWorkspaceRoot()`
+   *  throws instead of guessing. A multi-root host (MulmoTerminal, one root
+   *  per project) wants this — there, a forgotten option is not a crash but a
+   *  silent read/write against the WRONG project. A single-workspace host
+   *  (MulmoClaude) passes a string and nothing changes. */
+  workspaceRoot: string | null;
   /** Host logger; the engine logs under the `"collections"` prefix. */
   log: CollectionLogger;
   /** Host workspace layout — supplied as the host's own path helpers so the
@@ -51,11 +65,26 @@ export interface CollectionHost {
  *  host relays it into an opaque-origin custom-view iframe. */
 export interface CollectionChangePayload {
   slug: string;
+  /** Absolute workspace/project root the change happened under. Present only
+   *  when the engine call carried an explicit `workspaceRoot`; absent means
+   *  the host's configured root, so a single-workspace host never sets it.
+   *  A multi-root host MUST key its live-update fan-out on `(root, slug)` —
+   *  two projects each owning a `tasks` collection would otherwise refresh
+   *  each other's open views. */
+  root?: string;
   ids?: string[];
   op?: "upsert" | "delete";
 }
 
 type CollectionChangePublisher = (payload: CollectionChangePayload) => void;
+
+/** Build a change payload, attaching `root` only when the engine call carried
+ *  an explicit one. Centralised so every publish site states the root the same
+ *  way, and so a single-workspace host's payload shape stays byte-identical to
+ *  what it saw before multi-root support. */
+export function collectionChangePayload(base: Omit<CollectionChangePayload, "root">, root: string | undefined): CollectionChangePayload {
+  return root === undefined ? base : { ...base, root };
+}
 
 const hostSlot = createHostSlot<CollectionHost>("@mulmoclaude/core/collection/server: configureCollectionHost()");
 let changePublisher: CollectionChangePublisher | null = null;
@@ -90,9 +119,32 @@ function requireHost(): CollectionHost {
   return hostSlot.get();
 }
 
-/** The configured workspace root. Throws if the host never configured one. */
+/** The configured workspace root. Throws if the host never configured one —
+ *  and, under an explicit-root binding (`workspaceRoot: null`), throws rather
+ *  than guessing, which is the whole point of that mode: on a multi-root host
+ *  a missing `opts.workspaceRoot` must fail loudly instead of silently
+ *  resolving against some other project. */
 export function getWorkspaceRoot(): string {
-  return requireHost().workspaceRoot;
+  const root = requireHost().workspaceRoot;
+  if (root === null) {
+    throw Object.assign(
+      new Error(
+        "@mulmoclaude/core/collection/server: the host is bound in explicit-root mode (workspaceRoot: null), " +
+          "so there is no ambient workspace root — pass an explicit `workspaceRoot` in this call's options.",
+      ),
+      { code: COLLECTION_ROOT_REQUIRED },
+    );
+  }
+  return root;
+}
+
+/** The configured workspace root, or `null` under an explicit-root binding /
+ *  before the host configures one. Never throws — for callers that need to
+ *  COMPARE roots (is this the one we are already running for?) rather than
+ *  operate on one. Anything that will touch the filesystem wants
+ *  `getWorkspaceRoot()` and its loud failure instead. */
+export function peekWorkspaceRoot(): string | null {
+  return hostSlot.peek()?.workspaceRoot ?? null;
 }
 
 // Workspace-layout accessors — thin wrappers over the host binding, named to
@@ -113,10 +165,11 @@ export function skillsStagingDir(workspaceRoot: string): string {
 export function archiveDir(): string {
   return requireHost().paths.archiveDir;
 }
-/** Absolute path to the configured workspace's `collections-registries.json`. */
-export function collectionsRegistriesConfigPath(): string {
-  const host = requireHost();
-  return host.paths.collectionsRegistriesConfig(host.workspaceRoot);
+/** Absolute path to a workspace's `collections-registries.json`. Takes the
+ *  root explicitly — reading the ambient one here would throw under an
+ *  explicit-root binding and take the Discover tab down with it. */
+export function collectionsRegistriesConfigPath(workspaceRoot: string): string {
+  return requireHost().paths.collectionsRegistriesConfig(workspaceRoot);
 }
 export function isPresetSlug(slug: string): boolean {
   return requireHost().isPresetSlug(slug);

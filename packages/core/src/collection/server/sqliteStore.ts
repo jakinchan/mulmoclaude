@@ -34,7 +34,7 @@ import { hasNumberProp, isErrorWithCode, isRecord } from "@mulmoclaude/common";
 import type { CollectionItem } from "../core/schema";
 import type { LoadedCollection } from "./discoveredCollection";
 import type { DeleteItemResult, IoOptions, WriteItemResult } from "./io";
-import { getWorkspaceRoot, log, publishCollectionChange } from "./host";
+import { collectionChangePayload, getWorkspaceRoot, log, publishCollectionChange } from "./host";
 import { isContainedInRoot, safeRecordId } from "./paths";
 import { projectItemFields, type ListOptions, type ListPage, type WriteOptions } from "./storePage";
 import type { CollectionStore } from "./store";
@@ -243,7 +243,7 @@ async function sqliteWrite(
   absPath: string,
   itemId: string,
   item: CollectionItem,
-  opts: { workspaceRoot: string; slug?: string | undefined; refuseOverwrite?: boolean | undefined },
+  opts: { workspaceRoot: string; publishRoot?: string | undefined; slug?: string | undefined; refuseOverwrite?: boolean | undefined },
 ): Promise<WriteItemResult> {
   const safeId = safeRecordId(itemId);
   if (safeId === null) return { kind: "invalid-id", itemId };
@@ -271,11 +271,15 @@ async function sqliteWrite(
   );
   // Publish AFTER the write lands (same ordering rule as io.ts) so a live
   // subscriber that refetches always sees the new record.
-  if (outcome.kind === "ok" && opts.slug) publishCollectionChange({ slug: opts.slug, ids: [safeId], op: "upsert" });
+  if (outcome.kind === "ok" && opts.slug) publishCollectionChange(collectionChangePayload({ slug: opts.slug, ids: [safeId], op: "upsert" }, opts.publishRoot));
   return outcome;
 }
 
-async function sqliteDelete(absPath: string, itemId: string, opts: { workspaceRoot: string; slug?: string }): Promise<DeleteItemResult> {
+async function sqliteDelete(
+  absPath: string,
+  itemId: string,
+  opts: { workspaceRoot: string; publishRoot?: string | undefined; slug?: string },
+): Promise<DeleteItemResult> {
   const safeId = safeRecordId(itemId);
   if (safeId === null) return { kind: "invalid-id", itemId };
   // `missing` db = nothing was ever written ⇒ not-found; `refused`
@@ -290,7 +294,7 @@ async function sqliteDelete(absPath: string, itemId: string, opts: { workspaceRo
       return Number(changes) === 0 ? { kind: "not-found", itemId: safeId } : { kind: "ok", itemId: safeId };
     },
   );
-  if (outcome.kind === "ok" && opts.slug) publishCollectionChange({ slug: opts.slug, ids: [safeId], op: "delete" });
+  if (outcome.kind === "ok" && opts.slug) publishCollectionChange(collectionChangePayload({ slug: opts.slug, ids: [safeId], op: "delete" }, opts.publishRoot));
   return outcome;
 }
 
@@ -323,6 +327,10 @@ export function sqliteStoreFor(collection: LoadedCollection, opts: IoOptions): C
   const key = collection.schema.primaryKey;
   const slug = opts.slug ?? collection.slug;
   const root = (): string => opts.workspaceRoot ?? getWorkspaceRoot();
+  // The EXPLICIT root (undefined when the caller relied on the host default) —
+  // `root()` has already collapsed that distinction, and the change payload
+  // must report only a root the caller actually named.
+  const publishRoot = opts.workspaceRoot;
   if (file === undefined) {
     return {
       capabilities: { writable: false, nativeQuery: false, nativePaging: false },
@@ -337,8 +345,8 @@ export function sqliteStoreFor(collection: LoadedCollection, opts: IoOptions): C
     page: (pageOpts = {}) => sqlitePage(file, key, pageOpts, root()),
     read: (itemId: string) => sqliteRead(file, itemId, root()),
     write: (itemId: string, item: CollectionItem, writeOpts: WriteOptions = {}) =>
-      sqliteWrite(file, itemId, item, { workspaceRoot: root(), slug, refuseOverwrite: writeOpts.refuseOverwrite }),
-    delete: (itemId: string) => sqliteDelete(file, itemId, { workspaceRoot: root(), slug }),
+      sqliteWrite(file, itemId, item, { workspaceRoot: root(), publishRoot, slug, refuseOverwrite: writeOpts.refuseOverwrite }),
+    delete: (itemId: string) => sqliteDelete(file, itemId, { workspaceRoot: root(), publishRoot, slug }),
     // One db file holds every record, so an event can't name a record. The
     // sidecars count as hits: sqlite writes land in `<db>-wal` first, and a
     // change that only touched the WAL is still a change.

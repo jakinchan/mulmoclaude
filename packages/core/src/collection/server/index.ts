@@ -5,13 +5,45 @@
 // bundle never pulls in node:fs. Configure the host binding once at startup:
 //   import { configureCollectionHost } from "@mulmoclaude/core/collection/server";
 //   configureCollectionHost({ workspaceRoot, log });
+//
+// ── The multi-root contract (read before adding an entry point) ────────────
+//
+// The engine is root-PARAMETERIZED, not root-bound. Every exported entry point
+// that touches the filesystem MUST accept a root override — `opts.workspaceRoot`
+// for the options-object calls, an explicit parameter otherwise — and resolve it
+// as `opts.workspaceRoot ?? getWorkspaceRoot()`. The host binding is a DEFAULT,
+// never the source of truth.
+//
+// This is load-bearing, not style. MulmoClaude has one workspace, so a call that
+// reads the ambient root directly looks correct there forever. MulmoTerminal
+// serves N project roots off the same process: there the same call does not
+// crash — it reads or writes the WRONG project's data, silently, with types and
+// tests green. A host that wants that failure to be loud binds
+// `workspaceRoot: null` (explicit-root mode), after which `getWorkspaceRoot()`
+// throws instead of guessing.
+//
+// Two consequences worth stating:
+//   - Anything derived from the root (a dataDir, a containment check, a change
+//     payload's `root`) must come from the SAME root the call was given. Never
+//     reconstruct a root from an absolute path by string surgery.
+//   - No helper may close over the ambient root on a caller's behalf. That is
+//     why `isContainedInWorkspace()` was deleted rather than kept — see the
+//     note in `paths.ts`.
+//
+// `test/collection/test_multiRoot.ts` pins this: it drives a representative set
+// of entry points against a tmpdir root under a null-root host and asserts the
+// configured workspace is never touched. A new entry point that reads the
+// ambient root fails it.
 
 export {
   configureCollectionHost,
   getWorkspaceRoot,
+  peekWorkspaceRoot,
+  COLLECTION_ROOT_REQUIRED,
   log,
   setCollectionChangePublisher,
   publishCollectionChange,
+  collectionChangePayload,
   type CollectionHost,
   type CollectionLogger,
   type CollectionChangePayload,

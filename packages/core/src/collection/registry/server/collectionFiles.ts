@@ -12,6 +12,7 @@ import { fetchWithTimeout } from "../../../utils/fetch.js";
 import { errorMessage, ONE_SECOND_MS } from "../../server/util.js";
 import { isRecord } from "../guards.js";
 import { fetchAllRegistries, findRegistry } from "./client.js";
+import type { RegistryScope } from "./registriesConfig.js";
 import type { RegistryEntry } from "../registryIndex.js";
 
 const FETCH_TIMEOUT_MS = 10 * ONE_SECOND_MS;
@@ -82,8 +83,8 @@ async function fetchJsonObject(
 /** Resolve an entry's rawBase from its `registryName`. A missing match (the
  *  user removed the registry from config while a cached index still references
  *  it) returns null — the caller surfaces it as a 404 rather than crashing. */
-export function rawBaseForEntry(entry: Pick<RegistryEntry, "registryName">): string | null {
-  const registry = findRegistry(entry.registryName);
+export function rawBaseForEntry(entry: Pick<RegistryEntry, "registryName">, scope: RegistryScope = {}): string | null {
+  const registry = findRegistry(entry.registryName, scope);
   return registry?.rawBaseUrl ?? null;
 }
 
@@ -112,11 +113,11 @@ function findEntryInMergedView(
  *  index, then fetch + parse its schema.json + meta.json so the Discover tab
  *  can show fields/views before import. With multi-registry support the
  *  `registry` arg disambiguates same-name collections from different sources. */
-export async function previewCollection(author: string, slug: string, registry: string | null = null): Promise<PreviewResult> {
-  const merged = await fetchAllRegistries();
+export async function previewCollection(author: string, slug: string, registry: string | null = null, scope: RegistryScope = {}): Promise<PreviewResult> {
+  const merged = await fetchAllRegistries(scope);
   const entry = findEntryInMergedView(merged, author, slug, registry);
   if (!entry) return { ok: false, status: STATUS_NOT_FOUND, error: `unknown collection: ${author}/${slug}` };
-  const rawBase = rawBaseForEntry(entry);
+  const rawBase = rawBaseForEntry(entry, scope);
   if (!rawBase) return { ok: false, status: STATUS_NOT_FOUND, error: `registry "${entry.registryName}" is no longer configured` };
   const schema = await fetchJsonObject(rawBase, entry.path, "schema.json", "schema.json");
   if (!schema.ok) return schema;

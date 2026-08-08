@@ -37,6 +37,27 @@
 // a `dataSource` (or any per-backend) early-exit here, check it against all
 // four — the surviving ones below are view-refresh publishes, not skips.
 //
+// SINGLE GENERATION PER PROCESS — the multi-root boundary.
+//
+// Everything below is module-global: `watchers`, `itemSlots`, `collectionSlots`,
+// the rediscovery + trigger timers, `watcherEpoch`, and `discoveryOpts`. So this
+// module watches ONE root at a time, and its change payloads all carry that
+// root. `startCollectionWatchers` therefore THROWS on a second call naming a
+// different root rather than returning quietly, because the quiet version
+// leaves that root's direct file writes emitting nothing at all.
+//
+// Making it genuinely concurrent is deliberately NOT part of the multi-root
+// engine change, and it is not the map re-key it looks like. The watcher's maps
+// are keyed by slug, but so is the NOTIFICATION identity it drives:
+// `reconciler.ts` derives every bell's `legacyId` from `completionLegacyId(slug,
+// itemId)`, and the host adapter's `buildNavigateTarget(slug, itemId)` /
+// `buildPluginData` take the same pair. Two roots each owning a `tasks`
+// collection would collide on the bell, not just on the watcher slot — so
+// concurrency requires re-keying a HOST-FACING contract and changing the live
+// notification behaviour of a single-workspace host, which this change promises
+// not to touch. A multi-root host runs one watcher generation per root process,
+// or stops and restarts across roots, until that separate change lands.
+//
 // All decisions live in `reconciler.ts`; this module is pure plumbing:
 // discover, mkdir, fs.watch, forward events into the reconciler. Every
 // reconcile call is idempotent so fs.watch's well-known quirks (`rename`
@@ -45,11 +66,14 @@
 
 import { access } from "node:fs/promises";
 import {
+  collectionChangePayload,
   discoverCollections,
   itemFilePath,
   loadCollection,
+  peekWorkspaceRoot,
   publishCollectionChange,
   storeFor,
+  type CollectionChangePayload,
   type DiscoveryOptions,
   type LoadedCollection,
   type StoreChange,
@@ -107,6 +131,34 @@ let started = false;
 let triggerTickRunning = false;
 let watcherEpoch = 0;
 let triggerTickInFlight: Promise<void> | null = null;
+/** The boot pass, from before its first await until it settles. This is the
+ *  generation CLAIM: `started` flips only at the end of boot, so it cannot by
+ *  itself stop two concurrent starts from racing each other's state. Teardown
+ *  awaits this too, so a boot in flight can't arm its intervals after the stop
+ *  that was meant to disarm them. */
+let bootInFlight: Promise<void> | null = null;
+/** The root the running (or booting) generation belongs to, NORMALIZED: an
+ *  omitted `workspaceRoot` resolves to the host's configured default, so
+ *  `start()` and `start({ workspaceRoot: <that same default> })` are the same
+ *  generation rather than a spurious conflict. Distinct from
+ *  `discoveryOpts.workspaceRoot`, which stays un-normalized because the change
+ *  payload's `root` means "an explicit root was passed", not "this root". */
+let activeRoot: string | undefined;
+
+/** `err.code` on the conflict throw below: another ROOT's watcher generation is
+ *  already up. Distinct from `COLLECTION_ROOT_REQUIRED` (this call forgot its
+ *  `workspaceRoot`) because the fixes differ — stop the running generation
+ *  versus pass the option — and a host that catches watcher startup in one
+ *  fire-and-forget `.catch` should not have to match on message text. */
+export const WATCHER_ROOT_CONFLICT = "WATCHER_ROOT_CONFLICT";
+
+/** The root a start request resolves to: its explicit override, else the host's
+ *  configured default. `peekWorkspaceRoot` rather than `getWorkspaceRoot` — this
+ *  is a comparison, and under an explicit-root binding there is no default to
+ *  read, which is not an error here. */
+function effectiveRoot(opts: DiscoveryOptions | undefined): string | undefined {
+  return opts?.workspaceRoot ?? peekWorkspaceRoot() ?? undefined;
+}
 /** Discovery options threaded into every `discoverCollections` /
  *  `loadCollection` / `sweepStaleActiveEntries` call. Production: empty
  *  (live workspace). Tests: `{ workspaceRoot, userSkillsDir }` pointing
@@ -139,13 +191,54 @@ export interface CollectionWatcherOptions {
 
 /** Boot entry point: sweep stale active entries, then mount watchers for
  *  every discovered collection and arm the periodic re-discovery poll.
- *  Idempotent — a second call is a no-op. */
+ *  Idempotent for the SAME root — a second call is a no-op.
+ *
+ *  A second call for a DIFFERENT root throws. This module holds exactly one
+ *  watcher generation per process (see the "single generation" note in the file
+ *  header), so silently returning would leave the second root unwatched: direct
+ *  file writes there — the canonical agent path — would emit neither
+ *  live-refresh events nor completion bells, with nothing anywhere saying so.
+ *  That is the same class of silent-wrong-root failure the explicit-root host
+ *  binding exists to make loud, so it is loud here too. */
 export async function startCollectionWatchers(opts: CollectionWatcherOptions = {}): Promise<void> {
-  if (started) return;
-  // `started` only flips on AFTER boot finishes. If sweep or syncWatchers
-  // throws mid-boot, reset state on failure so a supervisor / test
-  // harness can retry instead of being permanently latched.
+  // Claim the generation SYNCHRONOUSLY. `started` only flips after two awaits,
+  // so guarding on it alone lets two concurrent callers both pass, overwrite
+  // `discoveryOpts` mid-boot, mount against whichever root won the race, and
+  // each arm their own interval — the first of which then escapes teardown,
+  // since `rediscoveryTimer` holds only the last handle. `bootInFlight` is set
+  // before the first await, so a concurrent caller sees the claim.
+  const requested = effectiveRoot(opts.discoveryOpts);
+  if (started || bootInFlight !== null) {
+    if (requested !== activeRoot) {
+      throw Object.assign(
+        new Error(
+          `@mulmoclaude/core/collection-watchers: watchers are already ${started ? "running" : "starting"} for root ` +
+            `${String(activeRoot)}; this process holds one watcher generation, so starting another for ` +
+            `${String(requested)} would leave it unwatched. Call stopCollectionWatchers() first, or run one process per root.`,
+        ),
+        { code: WATCHER_ROOT_CONFLICT },
+      );
+    }
+    // Join the in-flight boot rather than returning early: a same-root caller
+    // that returned here while the first pass was still mounting would believe
+    // watchers were up before they were.
+    await bootInFlight;
+    return;
+  }
   discoveryOpts = opts.discoveryOpts ?? {};
+  activeRoot = requested;
+  bootInFlight = bootWatchers(opts);
+  try {
+    await bootInFlight;
+  } finally {
+    bootInFlight = null;
+  }
+}
+
+/** The boot pass itself, owned by exactly one caller — `startCollectionWatchers`
+ *  serialises entry into it. On failure it resets `discoveryOpts` so a
+ *  supervisor / test harness can retry instead of being permanently latched. */
+async function bootWatchers(opts: CollectionWatcherOptions): Promise<void> {
   try {
     // Boot reconcile is split in two: sweep first (drop bell entries whose
     // files / collections / schemas vanished while the server was down),
@@ -188,14 +281,24 @@ export async function startCollectionWatchers(opts: CollectionWatcherOptions = {
     started = true;
   } catch (err) {
     discoveryOpts = {};
+    activeRoot = undefined;
     throw err;
   }
 }
 
-/** Tear down every watcher and stop the intervals. Used by tests;
- *  production never calls this (process exit reclaims the fds). Resets
- *  `started` so a subsequent `startCollectionWatchers` re-mounts. */
+/** Tear down every watcher and stop the intervals, and release the root claim
+ *  so a subsequent `startCollectionWatchers` may re-mount — for ANY root.
+ *
+ *  This is a production API, not a test-only one. A single-workspace host never
+ *  calls it (process exit reclaims the fds), but since starting a second root
+ *  now throws, `stop()` → `start(otherRoot)` is the ONLY way a multi-root host
+ *  switches projects. Await it: it waits out a boot still in flight and a clock
+ *  pass still running, so the next start does not race the one it replaced. */
 export async function stopCollectionWatchers(): Promise<void> {
+  // Let a boot in flight finish first. Disarming intervals it has not armed
+  // yet would leave them running past the teardown that was meant to stop
+  // them. A failed boot is fine to swallow here — we are tearing down anyway.
+  await bootInFlight?.catch(() => {});
   if (rediscoveryTimer) {
     clearInterval(rediscoveryTimer);
     rediscoveryTimer = null;
@@ -224,6 +327,7 @@ export async function stopCollectionWatchers(): Promise<void> {
   itemSlots.clear();
   collectionSlots.clear();
   discoveryOpts = {};
+  activeRoot = undefined;
   started = false;
 }
 
@@ -326,7 +430,7 @@ async function reconcileChangedSchemas(collections: readonly LoadedCollection[])
         /* best-effort */
       }
       watchers.delete(collection.slug);
-      if (collection.schema.dataSource !== undefined) publishCollectionChange({ slug: collection.slug, op: "upsert" });
+      if (collection.schema.dataSource !== undefined) safePublish({ slug: collection.slug, op: "upsert" });
       mutated = true;
       continue;
     }
@@ -343,7 +447,7 @@ async function reconcileChangedSchemas(collections: readonly LoadedCollection[])
     if (collection.schema.dataSource !== undefined) {
       // Read-only rows can't have changed, but a schema edit changes what the
       // views render (fields, displayField, …), so ping them.
-      publishCollectionChange({ slug: collection.slug, op: "upsert" });
+      safePublish({ slug: collection.slug, op: "upsert" });
     }
     mutated = true;
   }
@@ -536,11 +640,18 @@ async function itemFileExists(dataDir: string, itemId: string): Promise<boolean>
 }
 
 /** The publisher is host-supplied, so treat it as untrusted: a throw here
- *  runs inside a `finally` and would mask the reconcile's own error. */
-function safePublish(payload: { slug: string; ids?: string[]; op?: "upsert" | "delete" }): void {
+ *  runs inside a `finally` and would mask the reconcile's own error.
+ *
+ *  Stamps the root the watcher is RUNNING for (`discoveryOpts.workspaceRoot`)
+ *  rather than deriving one from `collection.dataDir` — a `LoadedCollection`
+ *  carries only absolute paths, and a root reconstructed by string surgery
+ *  would be a guess. Undefined in a single-workspace host, which is exactly
+ *  what the payload contract means by "the host's configured root". */
+function safePublish(payload: Omit<CollectionChangePayload, "root">): void {
+  const enriched = collectionChangePayload(payload, discoveryOpts.workspaceRoot);
   try {
-    publishCollectionChange(payload);
+    publishCollectionChange(enriched);
   } catch (err) {
-    log().warn("collection change publish failed", { slug: payload.slug, error: errMsg(err) });
+    log().warn("collection change publish failed", { slug: enriched.slug, error: errMsg(err) });
   }
 }

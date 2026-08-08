@@ -36,17 +36,17 @@
   },
   "dependencies": {
     "@mulmoclaude/common": "^1.2.0",
-    "@mulmoclaude/core": "^2.1.0"
+    "@mulmoclaude/core": "^3.0.0"
   },
   "peerDependencies": {
-    "@mulmoclaude/core": "^2.1.0",
+    "@mulmoclaude/core": "^3.0.0",
     "gui-chat-protocol": "^2.0.0",
     "vue": "^3.5.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@mulmoclaude/common": "^1.2.0",
-    "@mulmoclaude/core": "^2.1.0",
+    "@mulmoclaude/core": "^3.0.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.1.2",
     "@typescript-eslint/eslint-plugin": "^8.66.0",

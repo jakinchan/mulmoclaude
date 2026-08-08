@@ -10,7 +10,7 @@ import { fetchWithTimeout } from "../../../utils/fetch.js";
 import { errorMessage, ONE_SECOND_MS } from "../../server/util.js";
 import { log } from "../../server/host.js";
 import { parseRegistryIndex, type RegistryEntry, type RegistryIndex } from "../registryIndex.js";
-import { loadRegistriesConfig, OFFICIAL_REGISTRY_NAME, type RegistryConfigEntry } from "./registriesConfig.js";
+import { loadRegistriesConfig, OFFICIAL_REGISTRY_NAME, type RegistryConfigEntry, type RegistryScope } from "./registriesConfig.js";
 
 const DEFAULT_OFFICIAL_INDEX_URL = "https://receptron.github.io/mulmoclaude-collections/index.json";
 const DEFAULT_OFFICIAL_RAW_BASE = "https://raw.githubusercontent.com/receptron/mulmoclaude-collections/main";
@@ -54,14 +54,14 @@ function officialDescriptor(): RegistryDescriptor {
 /** The full ordered registry list: official first, then user-configured ones.
  *  Re-reads the config file on every call so a Discover refresh picks up edits
  *  without a server restart (the config is small + read-rarely). */
-export function listRegistries(): RegistryDescriptor[] {
-  return [officialDescriptor(), ...loadRegistriesConfig()];
+export function listRegistries(scope: RegistryScope = {}): RegistryDescriptor[] {
+  return [officialDescriptor(), ...loadRegistriesConfig(scope)];
 }
 
 /** Look up one registry descriptor by name. Used by the preview / import path,
  *  which has the registry label from the entry and needs the rawBase. */
-export function findRegistry(name: string): RegistryDescriptor | null {
-  return listRegistries().find((reg) => reg.name === name) ?? null;
+export function findRegistry(name: string, scope: RegistryScope = {}): RegistryDescriptor | null {
+  return listRegistries(scope).find((reg) => reg.name === name) ?? null;
 }
 
 async function loadFromNetwork(descriptor: RegistryDescriptor): Promise<FetchIndexResult> {
@@ -140,8 +140,10 @@ export interface MergedRegistryResult {
  *  outcomes. Callers (the Discover route) concatenate `entries` from each.
  *  Failure of any single registry doesn't abort the others — that's the point
  *  of supporting multiple registries. */
-export async function fetchAllRegistries(opts: { force?: boolean; nowMs?: number; loader?: IndexLoader } = {}): Promise<MergedRegistryResult[]> {
-  const descriptors = listRegistries();
+export async function fetchAllRegistries(
+  opts: { force?: boolean; nowMs?: number; loader?: IndexLoader } & RegistryScope = {},
+): Promise<MergedRegistryResult[]> {
+  const descriptors = listRegistries(opts);
   return await Promise.all(
     descriptors.map(async (descriptor): Promise<MergedRegistryResult> => {
       const result = await fetchRegistryIndex(descriptor, opts);

@@ -488,11 +488,15 @@ describe("writeItem / deleteItem — change publishing", () => {
   // never leaks into another test (or into the rest of the suite).
   afterEach(() => setCollectionChangePublisher(null));
 
-  it("publishes an upsert (slug + id) after a successful write", async () => {
+  // These calls pass `workspaceRoot: workdir` explicitly, so the payload carries
+  // `root` — the multi-root field a host keys its live-update fan-out on. The
+  // app itself passes no root and its payloads stay root-less; that shape is
+  // pinned in packages/core's `test_changePayloadBackCompat.ts`.
+  it("publishes an upsert (slug + id + root) after a successful write", async () => {
     const events: CollectionChangePayload[] = [];
     setCollectionChangePublisher((payload) => events.push(payload));
     await writeItem(dataDir, "rec-1", { id: "rec-1" }, { workspaceRoot: workdir, slug: "clients" });
-    assert.deepEqual(events, [{ slug: "clients", ids: ["rec-1"], op: "upsert" }]);
+    assert.deepEqual(events, [{ slug: "clients", ids: ["rec-1"], op: "upsert", root: workdir }]);
   });
 
   it("publishes a delete after a successful delete", async () => {
@@ -500,7 +504,7 @@ describe("writeItem / deleteItem — change publishing", () => {
     const events: CollectionChangePayload[] = [];
     setCollectionChangePublisher((payload) => events.push(payload));
     await deleteItem(dataDir, "rec-1", { workspaceRoot: workdir, slug: "clients" });
-    assert.deepEqual(events, [{ slug: "clients", ids: ["rec-1"], op: "delete" }]);
+    assert.deepEqual(events, [{ slug: "clients", ids: ["rec-1"], op: "delete", root: workdir }]);
   });
 
   it("does NOT publish when no slug is supplied (internal / test writes stay silent)", async () => {

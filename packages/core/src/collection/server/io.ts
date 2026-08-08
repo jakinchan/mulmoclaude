@@ -6,7 +6,7 @@
 import { lstat, mkdir, open, readdir, readFile, unlink } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
-import { getWorkspaceRoot, log, publishCollectionChange } from "./host";
+import { collectionChangePayload, getWorkspaceRoot, log, publishCollectionChange } from "./host";
 import { writeFileAtomic } from "../../files/atomic.js";
 import { isContainedInRoot, itemFilePath, safeRecordId } from "./paths";
 import type { CollectionItem, CollectionSchema } from "../core/schema";
@@ -204,7 +204,7 @@ export async function writeItem(dataDir: string, itemId: string, item: Collectio
   }
   // Publish AFTER the write lands so a live subscriber that refetches always
   // sees the new record (never a read-before-write race).
-  if (opts.slug) publishCollectionChange({ slug: opts.slug, ids: [safeId], op: "upsert" });
+  if (opts.slug) publishCollectionChange(collectionChangePayload({ slug: opts.slug, ids: [safeId], op: "upsert" }, opts.workspaceRoot));
   return { kind: "ok", itemId: safeId, item };
 }
 
@@ -219,7 +219,7 @@ export async function deleteItem(dataDir: string, itemId: string, opts: IoOption
   const filePath = itemFilePath(dataDir, safeId);
   try {
     await unlink(filePath);
-    if (opts.slug) publishCollectionChange({ slug: opts.slug, ids: [safeId], op: "delete" });
+    if (opts.slug) publishCollectionChange(collectionChangePayload({ slug: opts.slug, ids: [safeId], op: "delete" }, opts.workspaceRoot));
     return { kind: "ok", itemId: safeId };
   } catch (err) {
     if (isErrorWithCode(err) && err.code === "ENOENT") return { kind: "not-found", itemId: safeId };
