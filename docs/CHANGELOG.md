@@ -8,6 +8,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Package releases
+
+The seven plugins that depend on `@mulmoclaude/core` are republished so their corrected `^3.0.0` range actually reaches npm. The ranges were swept when core went to 3.0.0 (#2838), but a caret does not float across a major, so the published plugins still required `^2.x` and the correction reached nobody.
+
+Left as-is, a fresh install resolves a **second, nested `@mulmoclaude/core@2.x`** beside the top-level 3.0.0. The concrete hazard is `@mulmoclaude/core/plugin-vue`, imported by `html-plugin`, `markdown-plugin` and `accounting-plugin`: two copies of a Vue-side runtime in one bundle is how a plugin registers into one copy while the host reads the other. This is not only MulmoTerminal's problem — the launcher already declares `@mulmoclaude/core: ^3.0.0` while declaring the plugins at `^2.x`.
+
+Major where core is a **peerDependency** (moving a peer range across a major is breaking for that plugin's consumers), minor where it is a plain dependency (internal, invisible to consumers):
+
+| package | | why |
+|---|---|---|
+| `@mulmoclaude/collection-plugin` | 2.0.0 → **3.0.0** | core is a peerDependency |
+| `@mulmoclaude/html-plugin` | 2.1.0 → **3.0.0** | declares core as both dep and peer |
+| `@mulmoclaude/markdown-plugin` | 2.3.0 → **3.0.0** | declares core as both dep and peer |
+| `@mulmoclaude/accounting-plugin` | 2.0.0 → **2.1.0** | core is a plain dependency |
+| `@mulmoclaude/chart-plugin` | 2.0.0 → **2.1.0** | core is a plain dependency |
+| `@mulmoclaude/google-plugin` | 2.0.0 → **2.1.0** | core is a plain dependency |
+| `@mulmoclaude/mulmoscript-plugin` | 2.0.0 → **2.1.0** | core is a plain dependency |
+
+No plugin source changed — this is a version + range release; each plugin's code already declares what it needs. The launcher's ranges are swept to the new versions, but the launcher is deliberately **not** bumped or published here, so **npm users of `mulmoclaude` do not receive the new plugins until a launcher release**.
+
 ## [1.12.0] - 2026-08-07
 
 **Bridges stop pasting the whole SKILL.md into their replies — the bot answers your question instead of reciting its instructions.**
@@ -34,7 +54,7 @@ The markdown source editor gained a bookmark rail for navigating long documents.
 - `@mulmoclaude/core` dependency ranges swept to `^2.1.0` across six plugins, which the core 2.1.0 publish had missed (#2825).
 - Retroactive release tags for `@mulmoclaude/core@2.1.0` and `@mulmoclaude/markdown-plugin@2.3.0`, both published without one. Their npm tarballs were byte-compared against this tree before tagging, so neither needed republishing.
 
-Ships `@mulmoclaude/core@3.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.0.0`, `@mulmoclaude/chart-plugin@2.0.0`, `@mulmoclaude/collection-plugin@2.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.0.0`, `@mulmoclaude/html-plugin@2.1.0`, `@mulmoclaude/markdown-plugin@2.3.0`, `@mulmoclaude/mulmoscript-plugin@2.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/core@3.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.1.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ## [1.11.0] - 2026-08-05
 
