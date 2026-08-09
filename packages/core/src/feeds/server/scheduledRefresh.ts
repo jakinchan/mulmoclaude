@@ -51,12 +51,18 @@ export const DEFAULT_FEED_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
  * @param opts.workspaceRoot the root to refresh; omitted, the configured FeedsHost workspace
  */
 export function feedRefreshTaskDef(opts?: { workspaceRoot?: string; intervalMs?: number }): SystemTaskDef {
+  // Canonicalise ONCE and use that value for the id, the display name and the
+  // refresh itself. Deriving only the id from it would leave two registrations
+  // for `/proj` and `/proj/` collapsing onto one row whose name and refresh
+  // target still named whichever spelling registered last — the id would look
+  // deduplicated while the job it ran was a coin flip.
+  const root = opts?.workspaceRoot === undefined ? undefined : canonicalRoot(opts.workspaceRoot);
   return {
-    id: feedRefreshTaskId(opts?.workspaceRoot),
-    name: opts?.workspaceRoot === undefined ? "Scheduled collection refresh" : `Scheduled collection refresh (${opts.workspaceRoot})`,
+    id: feedRefreshTaskId(root),
+    name: root === undefined ? "Scheduled collection refresh" : `Scheduled collection refresh (${root})`,
     description: "Refresh due collections — fetch declarative feeds + dispatch agent-ingest workers",
     schedule: { type: SCHEDULE_TYPES.interval, intervalMs: opts?.intervalMs ?? DEFAULT_FEED_REFRESH_INTERVAL_MS },
     missedRunPolicy: MISSED_RUN_POLICIES.runOnce,
-    run: () => refreshDue(opts?.workspaceRoot).then(() => {}),
+    run: () => refreshDue(root).then(() => {}),
   };
 }

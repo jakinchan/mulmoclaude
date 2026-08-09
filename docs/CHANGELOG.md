@@ -31,6 +31,8 @@ a default that preserves today's path.
 - The watcher runs one generation per root, concurrently; `stopCollectionWatchers({ workspaceRoot })`
   stops just one. `WATCHER_ROOT_CONFLICT` is no longer thrown (still exported).
 - A presented card carries an optional host-opaque `scope`, part of its reconciliation identity.
+  It is stamped by the host via `withCardScope`; the executor drops any `scope` in the tool args,
+  since those are model-controlled and the scope decides which project the card reads.
 - `feedRefreshTaskDef({ workspaceRoot })` is root-parameterised, with a per-root task id.
 
 **For a multi-root host, three of these change behaviour and want a deliberate upgrade**, even

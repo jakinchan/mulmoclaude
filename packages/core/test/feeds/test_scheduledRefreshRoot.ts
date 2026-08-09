@@ -40,4 +40,7 @@ test("lexically equivalent roots resolve to ONE task id", () => {
   assert.equal(feedRefreshTaskId("/tmp/proj/"), feedRefreshTaskId("/tmp/proj"));
   assert.equal(feedRefreshTaskId("/tmp/proj/."), feedRefreshTaskId("/tmp/proj"));
   assert.equal(feedRefreshTaskDef({ workspaceRoot: "/tmp/proj/" }).id, feedRefreshTaskDef({ workspaceRoot: "/tmp/proj" }).id);
+  // The whole def, not just the id: a name or a refresh target still carrying
+  // the raw spelling would make the deduplicated row describe the wrong job.
+  assert.equal(feedRefreshTaskDef({ workspaceRoot: "/tmp/proj/" }).name, feedRefreshTaskDef({ workspaceRoot: "/tmp/proj" }).name);
 });

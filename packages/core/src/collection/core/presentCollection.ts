@@ -25,14 +25,30 @@ export interface PresentCollectionData {
    *  project than the one the card was made in. A card built in project A could
    *  then read project B's data.
    *
-   *  Host-injected (the LLM never sets it; it is not in the tool schema) and
-   *  host-opaque: the engine only carries it and treats it as part of the
-   *  card's identity. Pass an opaque project id, NEVER an absolute path — this
+   *  **Stamped by the HOST, never accepted from tool arguments.** The tool args
+   *  are a model-controlled channel: a model that could name the scope could
+   *  name another project's, and the card — and any token minted for it — would
+   *  address a project the user never opened in this conversation. So
+   *  `executePresentCollection` DROPS any `scope` it is handed, and a host adds
+   *  its own with {@link withCardScope} when it applies the result, where it
+   *  already knows which binding produced the call.
+   *
+   *  Host-opaque: pass an opaque project id, NEVER an absolute path — this
    *  payload reaches the browser and, through a view, an LLM-authored iframe.
    *
    *  Absent — the single-workspace case — the payload and every reconciliation
    *  decision are exactly what they were before this field existed. */
   scope?: string | undefined;
+}
+
+/** Stamp a host's opaque project scope onto a card payload. The ONLY way a
+ *  scope gets in: the executor refuses to take one from tool arguments (see
+ *  `PresentCollectionData.scope`). `undefined` returns the payload untouched,
+ *  so a single-workspace host calling this unconditionally still produces a
+ *  payload with no `scope` property at all. */
+export function withCardScope(data: PresentCollectionData, scope: string | undefined): PresentCollectionData {
+  const trimmed = typeof scope === "string" ? scope.trim() : "";
+  return trimmed.length > 0 ? { ...data, scope: trimmed } : data;
 }
 
 /** A card's identity for reconciliation. Two cards match only when they name
@@ -84,16 +100,20 @@ const cleaned = (value: unknown): string | undefined => (typeof value === "strin
  *  slug is missing. Pure and exported so the addressing rules are testable
  *  without going through a `ToolResult`.
  *
+ *  `scope` is deliberately NOT read from the args — see
+ *  `PresentCollectionData.scope`. Everything here comes from a model-controlled
+ *  channel, and the scope decides which project the card reads; a host stamps
+ *  it afterwards with `withCardScope`.
+ *
  *  Keys are added one at a time rather than spread with `undefined` values, so
- *  a payload with no `itemId` / `scope` OMITS those properties entirely — which
- *  is what keeps a single-workspace card byte-identical to what it has always
- *  been, in both `deepEqual` and JSON. */
+ *  a payload with no `itemId` OMITS the property entirely — which is what keeps
+ *  a single-workspace card byte-identical to what it has always been, in both
+ *  `deepEqual` and JSON. */
 export const toPresentCollectionData = (args: PresentCollectionArgs): PresentCollectionData | null => {
   const collectionSlug = cleaned(args?.collectionSlug);
   if (!collectionSlug) return null;
   const itemId = cleaned(args.itemId);
-  const scope = cleaned(args.scope);
-  return { collectionSlug, ...(itemId ? { itemId } : {}), ...(scope ? { scope } : {}) };
+  return { collectionSlug, ...(itemId ? { itemId } : {}) };
 };
 
 export const executePresentCollection = async (
