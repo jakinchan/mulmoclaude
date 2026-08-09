@@ -9,7 +9,7 @@
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { getWorkspaceRoot, skillsStagingDir } from "./host";
+import { getWorkspaceRoot, stagingSkillDir } from "./host";
 import { toPosixRelPath } from "../../files/relPath.js";
 import { isRegularFile, type IoOptions } from "./io";
 import { resolveTemplatePath, safeSlugName } from "./paths";
@@ -52,7 +52,13 @@ async function readSourceAwareFile(collection: SourceAwareReadTarget, relPath: s
   const safeSlug = safeSlugName(collection.slug);
   if (safeSlug === null) return null;
   const workspaceRoot = opts.workspaceRoot ?? getWorkspaceRoot();
-  const bases = collection.source === "project" ? [path.join(skillsStagingDir(workspaceRoot), safeSlug), collection.skillDir] : [collection.skillDir];
+  // A root with NO staging tree (`stagingSkillDir` → null) reads the skill dir
+  // alone. Adding a synthetic staging base there is not merely redundant: a
+  // stray `<root>/data/skills/<slug>/views/x.html` left behind by an agent that
+  // followed the staged authoring instructions would SHADOW the committed
+  // `.claude/skills/<slug>/views/x.html` on every read.
+  const staging = collection.source === "project" ? stagingSkillDir(workspaceRoot, safeSlug) : null;
+  const bases = staging === null ? [collection.skillDir] : [staging, collection.skillDir];
   for (const base of bases) {
     const resolved = resolveTemplatePath(base, relPath);
     if (resolved === null) continue;

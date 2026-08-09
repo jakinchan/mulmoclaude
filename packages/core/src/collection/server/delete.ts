@@ -20,7 +20,7 @@
 import { cp, mkdir, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { log, getWorkspaceRoot, isPresetSlug, skillsStagingDir, archiveDir as archiveRelDir } from "./host";
+import { log, getWorkspaceRoot, isPresetSlug, stagingSkillDir, archiveDir as archiveRelDir } from "./host";
 import { isContainedInRoot } from "./paths";
 import { checkpointSqliteDatabase } from "./sqliteStore";
 import { ingestStatePath } from "../../feeds/paths";
@@ -61,11 +61,6 @@ export interface DeleteCollectionOptions {
   dateStamp?: string;
 }
 
-/** The canonical staging dir for a slug: `data/skills/<slug>`. */
-function stagingSkillDir(workspaceRoot: string, slug: string): string {
-  return path.join(skillsStagingDir(workspaceRoot), slug);
-}
-
 async function pathExists(target: string): Promise<boolean> {
   try {
     await stat(target);
@@ -83,8 +78,9 @@ function todayStamp(): string {
 /** Every directory the delete will touch must resolve under the
  *  workspace root — guards against a symlinked ancestor escaping it. */
 function deleteTargets(collection: LoadedCollection, workspaceRoot: string): string[] {
+  const staging = stagingSkillDir(workspaceRoot, collection.slug);
   return [
-    stagingSkillDir(workspaceRoot, collection.slug),
+    ...(staging === null ? [] : [staging]),
     collection.skillDir,
     collection.dataDir,
     ingestStatePath(collection.slug, workspaceRoot),
@@ -177,7 +173,7 @@ async function writeArchive(collection: LoadedCollection, archiveDir: string, wo
   // Prefer the canonical staging dir; fall back to the active mirror
   // for a project collection that was created without the bridge.
   const staging = stagingSkillDir(workspaceRoot, collection.slug);
-  const skillSrc = (await pathExists(staging)) ? staging : collection.skillDir;
+  const skillSrc = staging !== null && (await pathExists(staging)) ? staging : collection.skillDir;
   await cp(skillSrc, path.join(archiveDir, "skill"), { recursive: true });
   if (await pathExists(collection.dataDir)) {
     await cp(collection.dataDir, path.join(archiveDir, "records"), { recursive: true });
@@ -207,7 +203,11 @@ async function writeArchive(collection: LoadedCollection, archiveDir: string, wo
  *  is a no-op; the now-empty data parent (`data/<slug>/` after its
  *  `items/` is gone) is swept too, but only when empty. */
 async function removeLocations(collection: LoadedCollection, workspaceRoot: string): Promise<void> {
-  await rm(stagingSkillDir(workspaceRoot, collection.slug), { recursive: true, force: true });
+  // Only when the root HAS a staging tree. A host that returned the skill dir
+  // here instead of null would have this `rm -rf` delete the committed skill
+  // under the name "staging" — see the `skillsStagingDir` contract.
+  const staging = stagingSkillDir(workspaceRoot, collection.slug);
+  if (staging !== null) await rm(staging, { recursive: true, force: true });
   await rm(collection.skillDir, { recursive: true, force: true });
   await rm(collection.dataDir, { recursive: true, force: true });
   await rmdir(path.dirname(collection.dataDir)).catch(() => undefined);

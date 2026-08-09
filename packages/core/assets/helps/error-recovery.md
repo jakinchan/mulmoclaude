@@ -401,6 +401,42 @@ plugin via the `/skills` UI to refresh both the tgz and the ledger.
 A version skew on a peer dep means the plugin was built against an
 older host — bump the plugin via the Discover tab's update flow.
 
+## A collection you just authored never appears — you wrote under `data/skills/`
+
+You created `data/skills/<slug>/schema.json` + `SKILL.md`, got no error from
+any tool, and the collection is nowhere: not at `/collections/<slug>`, not in
+`manageCollection` `getOntology`, not in the sidebar. Nothing is logged,
+because nothing failed — the files are exactly where you put them.
+
+### Why
+
+`data/skills/` is a STAGING tree, and it only works where a host-side
+skill-bridge hook mirrors it into `.claude/skills/<slug>/`. Discovery scans
+`.claude/skills` and nothing else. In a managed workspace the hook exists, so
+authoring under `data/skills/` is right (and necessary — `.claude/` is behind a
+permission gate the GUI cannot answer). In a plain project folder there is no
+gate and no hook, so a `data/skills/` tree is never mirrored and never read.
+
+Two symptoms confirm it:
+
+- `.claude/skills/<slug>/` does not exist, or is older than what you wrote;
+- a `data/skills/<slug>/` tree exists that nothing references.
+
+### Fix
+
+Write the skill directly into `<root>/.claude/skills/<slug>/` —
+`schema.json`, `SKILL.md`, `templates/*.md`, and any `views/*.html` — then
+remove the stray `data/skills/<slug>/` tree. Leaving it is not merely untidy:
+a stale file there can shadow the real skill's file of the same name on later
+reads.
+
+Then re-read the authoring reference before writing more: call
+`manageCollection` `schemaDocs`. It serves the variant that matches THIS root,
+so the instructions you get name the location that actually works here. If the
+guide it returns says `data/skills/`, this root does have a bridge and the
+problem is something else — check that `schema.json` passed validation (a
+schema that fails is silently skipped at discovery).
+
 ## dataSource (CSV) collection reads fail — "DuckDB is unavailable on this host"
 
 A collection whose schema declares `dataSource` (external CSV) reads its rows

@@ -68,6 +68,13 @@ window.__MC_VIEW = {
 };
 ```
 
+> **`dataUrl` is a bare base URL, and stays one.** Every endpoint below is
+> built by concatenating onto it — `dataUrl + "?fields=…"`, `+ "/query"`,
+> `+ "/actions/<id>"`, `+ "/image?path=…"`. It therefore carries no query
+> string of its own. (Host note: a host that appends its own parameter here —
+> to identify a project, say — corrupts every one of those calls. Scope belongs
+> in the token, which is where the host puts it.)
+
 ### Reading records
 
 > **Always project `fields`.** The host refuses any read of more than 200
@@ -196,7 +203,8 @@ if (res.ok) {
 
 ### Displaying images — `GET <dataUrl>/image`
 
-An `image`-type field stores a **workspace path** (`data/attachments/…`,
+An `image`-type field stores a path relative to the collection's own root — the
+workspace or project folder it lives in (`data/attachments/…`,
 `data/<name>/logos/…`) that a sandboxed view cannot load directly — the
 iframe has an opaque origin and `<img>` can't attach the bearer token. To
 render one, ask the host to resolve it into a downscaled thumbnail:

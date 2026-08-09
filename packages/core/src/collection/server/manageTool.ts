@@ -61,10 +61,10 @@ import { enrichItems } from "./derive";
 import { validateCollectionRecords, validateRecordObject } from "./validate";
 import { buildWorkspaceOntology } from "./ontology";
 import { resolveDataDir } from "./paths";
-import { getWorkspaceRoot } from "./host";
+import { getWorkspaceRoot, stagingSkillDir } from "./host";
 import { writeFileAtomic } from "../../files/atomic.js";
-import { dataSkillDir, mirrorSkillWrite } from "../../skill-bridge/index.js";
-import { renderSchemaDocs } from "./schemaDocs";
+import { mirrorSkillWrite } from "../../skill-bridge/index.js";
+import { renderSchemaDocs, type AuthoringVariant } from "./schemaDocs";
 // NOTE: only the browser-safe `slug` module — workspace-setup's assets.ts uses
 // `import.meta.url` and is ESM-only (build pass 2), while this entry builds
 // dual ESM+CJS. The bundled-docs dir is injected instead (`bundledHelpsDir`).
@@ -105,6 +105,25 @@ export type ManageCollectionDeps = DiscoveryOptions & {
    *  while this entry builds dual ESM+CJS. Omitted, only the workspace
    *  copy is tried. */
   bundledHelpsDir?: (() => string) | undefined;
+  /** Does THIS root author collection skills through a `data/skills/` staging
+   *  tree that a skill-bridge hook mirrors into `.claude/skills/`?
+   *
+   *  `true` (the default, and the managed-workspace behaviour) serves the
+   *  authoring reference telling the agent to write under `data/skills/<slug>/`
+   *  — correct there, because `.claude/` is gated and the bridge mirrors across.
+   *
+   *  `false` is for a root with NO bridge (a plain project folder). There the
+   *  same instruction fails silently and completely: the agent writes
+   *  `data/skills/<slug>/schema.json`, nothing mirrors it, discovery only scans
+   *  `<root>/.claude/skills`, and the collection is never discovered — with no
+   *  error anywhere. The unstaged text tells the agent to author directly under
+   *  `.claude/skills/<slug>/` instead.
+   *
+   *  A host that binds one root per project passes this per call, alongside
+   *  `workspaceRoot`; it is deliberately NOT derived from `skillsStagingDir`
+   *  returning null, because the doc variant is a statement the host makes, not
+   *  something the package should infer. */
+  stagedSkillAuthoring?: boolean | undefined;
 };
 
 /** Resolve the workspace root the same way every collections call does:
@@ -424,13 +443,14 @@ async function handleGetOntology(deps: ManageCollectionDeps): Promise<string> {
  *  fallback. Both reads guarded; if neither resolves the agent still
  *  gets an actionable message instead of a thrown call. */
 async function handleSchemaDocs(deps: ManageCollectionDeps, topic?: string): Promise<string> {
+  const variant: AuthoringVariant = deps.stagedSkillAuthoring === false ? "direct" : "staged";
   const candidates = [
     path.join(resolveBase(deps), HELPS_DIR, SCHEMA_DOCS_FILE),
     ...(deps.bundledHelpsDir ? [path.join(deps.bundledHelpsDir(), SCHEMA_DOCS_FILE)] : []),
   ];
   for (const candidate of candidates) {
     try {
-      return renderSchemaDocs(await readFile(candidate, "utf-8"), topic);
+      return renderSchemaDocs(await readFile(candidate, "utf-8"), topic, variant);
     } catch {
       // try the next source
     }
@@ -446,7 +466,8 @@ async function handleGetSchema(slug: string, deps: ManageCollectionDeps): Promis
   const collection = await loadCollection(slug, deps);
   if (!collection) return unknownCollection(slug);
   // Path from the discovered (sanitized) slug, never the raw arg.
-  const candidates = [path.join(dataSkillDir(resolveBase(deps), collection.slug), SCHEMA_FILE), path.join(collection.skillDir, SCHEMA_FILE)];
+  const staging = stagingSkillDir(resolveBase(deps), collection.slug);
+  const candidates = [...(staging === null ? [] : [path.join(staging, SCHEMA_FILE)]), path.join(collection.skillDir, SCHEMA_FILE)];
   for (const candidate of candidates) {
     try {
       return await readFile(candidate, "utf-8");
@@ -481,11 +502,21 @@ function formatSchemaIssues(issues: readonly { path: PropertyKey[]; message: str
 
 /** Write the validated schema to the canonical staging copy, then mirror
  *  it into the active `.claude/skills/` tree discovery reads — an internal
- *  write doesn't fire the skill-bridge hook, so we mirror explicitly. */
-async function writeAndMirrorSchema(slug: string, schema: unknown, deps: ManageCollectionDeps): Promise<void> {
+ *  write doesn't fire the skill-bridge hook, so we mirror explicitly.
+ *
+ *  A root with NO staging tree has no bridge to mirror through either, so the
+ *  active skill dir IS the canonical copy and is written directly. Mirroring
+ *  there would read a staging file that never exists. */
+async function writeAndMirrorSchema(slug: string, skillDir: string, schema: unknown, deps: ManageCollectionDeps): Promise<void> {
   const base = resolveBase(deps);
-  await writeFileAtomic(path.join(dataSkillDir(base, slug), SCHEMA_FILE), `${JSON.stringify(schema, null, 2)}\n`);
-  mirrorSkillWrite(base, { slug, relSegments: [SCHEMA_FILE] });
+  const serialized = `${JSON.stringify(schema, null, 2)}\n`;
+  const staging = stagingSkillDir(base, slug);
+  if (staging === null) {
+    await writeFileAtomic(path.join(skillDir, SCHEMA_FILE), serialized);
+  } else {
+    await writeFileAtomic(path.join(staging, SCHEMA_FILE), serialized);
+    mirrorSkillWrite(base, { slug, relSegments: [SCHEMA_FILE] });
+  }
   try {
     await deps.refreshAfterWrite?.();
   } catch {
@@ -532,7 +563,7 @@ async function handlePutSchema(slug: string, schemaArg: unknown, deps: ManageCol
     return `manageCollection: schema rejected — ${gate} (call schemaDocs for the field reference). It passes basic validation but discovery would skip it, hiding the collection.`;
   }
   // Path from the discovered (sanitized) slug, never the raw arg.
-  await writeAndMirrorSchema(collection.slug, parsed.data, deps);
+  await writeAndMirrorSchema(collection.slug, collection.skillDir, parsed.data, deps);
   return JSON.stringify({ collection: collection.slug, written: true });
 }
 
