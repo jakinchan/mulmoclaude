@@ -116,3 +116,19 @@ test("getSchema reads the same copy putSchema wrote, in every combination", asyn
     assert.equal(read.title, "Renamed", `${label}: getSchema must not return a stale copy from the other tree`);
   }
 });
+
+test("the create-it-here message names the directory this root actually reads", async () => {
+  // An error string is acted on immediately, so naming `data/skills/` under a
+  // root with no staging tree sends the agent to a directory nothing reads —
+  // the same silent failure the root-aware guide exists to prevent.
+  stagingEnabled = false;
+  const root = makeRoot("ac-msg-direct-");
+  const message = await run(root, undefined, { action: "putSchema", slug: "nope", schema: renamed });
+  assert.match(message, /under \.claude\/skills\/nope\//);
+  assert.doesNotMatch(message, /data\/skills/);
+
+  stagingEnabled = true;
+  const staged = makeRoot("ac-msg-staged-");
+  const stagedMessage = await run(staged, undefined, { action: "putSchema", slug: "nope", schema: renamed });
+  assert.match(stagedMessage, /under data\/skills\/nope\//);
+});

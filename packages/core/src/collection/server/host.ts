@@ -9,10 +9,16 @@
 // host-only modules (`server/workspace/workspace.ts`, the host logger).
 
 import path from "node:path";
+import { canonicalRoot } from "../../files/root.js";
 import { createForwardingLogger, createHostSlot, type StructuredLogger } from "../../host/hostSlot.js";
 
 /** Public alias of the shared `StructuredLogger` — keeps the domain surface name-stable. */
 export type CollectionLogger = StructuredLogger;
+
+/** Re-exported so collection-engine callers (the watcher, the reconciler) keep
+ *  one import surface; the definition lives in `@mulmoclaude/core/files`
+ *  because a root is an identity in subsystems that do not depend on this one. */
+export { canonicalRoot };
 
 /** `err.code` on the throw from `getWorkspaceRoot()` under an explicit-root
  *  binding: this CALL is missing its `workspaceRoot` option. Exported because
@@ -20,24 +26,6 @@ export type CollectionLogger = StructuredLogger;
  *  watcher is already running — and a host catching both in one place should
  *  not have to match on message text to tell them apart. */
 export const COLLECTION_ROOT_REQUIRED = "COLLECTION_ROOT_REQUIRED";
-
-/** The canonical form of a root, for every place a root becomes an IDENTITY
- *  rather than a path to read: a watcher generation key, a change payload's
- *  `root`, a completion bell's id.
- *
- *  `path.resolve` only — it collapses `.`/`..` and the trailing separator, so
- *  `/work/project` and `/work/project/` are one root instead of two generations
- *  over the same tree publishing two of every event and bell.
- *
- *  Deliberately NOT `realpath`. Resolving symlinks is async (so it could not run
- *  on the synchronous claim path), it fails for a root that does not exist yet,
- *  and it would put a path the host never named into an id that is written to
- *  disk. The policy is therefore lexical: a host that hands the same tree under
- *  two different symlink spellings gets two roots, and it is the host's job to
- *  name a project the same way every time. */
-export function canonicalRoot(root: string): string {
-  return path.resolve(root);
-}
 
 /** INVARIANT — **a slug is unique within a root and nowhere else.**
  *
@@ -124,7 +112,10 @@ type CollectionChangePublisher = (payload: CollectionChangePayload) => void;
  *  way, and so a single-workspace host's payload shape stays byte-identical to
  *  what it saw before multi-root support. */
 export function collectionChangePayload(base: Omit<CollectionChangePayload, "root">, root: string | undefined): CollectionChangePayload {
-  return root === undefined ? base : { ...base, root };
+  // Canonical, because a host keys its live-update fan-out on this value: a
+  // direct `writeItem({ workspaceRoot: "/proj/" })` and the watcher's own
+  // publish for `/proj` must land on the same channel, not two.
+  return root === undefined ? base : { ...base, root: canonicalRoot(root) };
 }
 
 const hostSlot = createHostSlot<CollectionHost>("@mulmoclaude/core/collection/server: configureCollectionHost()");

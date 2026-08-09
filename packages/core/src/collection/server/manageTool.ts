@@ -500,11 +500,20 @@ async function handleGetSchema(slug: string, deps: ManageCollectionDeps): Promis
   return `manageCollection: '${defangForPrompt(slug)}' has no readable ${SCHEMA_FILE}.`;
 }
 
+/** Where the agent should CREATE a collection skill in this root, named in the
+ *  messages that tell it to. Naming `data/skills/` under a root that has no
+ *  staging tree sends the agent to a directory nothing reads — the exact
+ *  silent failure the root-aware authoring guide exists to prevent, reappearing
+ *  in an error string the agent is far more likely to act on immediately. */
+function authoringDirLabel(deps: ManageCollectionDeps, slug: string): string {
+  return authoringTarget(deps, slug).variant === "staged" ? `data/skills/${slug}/` : `.claude/skills/${slug}/`;
+}
+
 /** Refuse a schema edit the host can't honour: user-scope/feed collections
  *  are read-only, and presets (mc-*) re-seed on restart so an edit is lost. */
-function schemaEditRefusal(collection: LoadedCollection, slug: string): string | null {
+function schemaEditRefusal(collection: LoadedCollection, slug: string, deps: ManageCollectionDeps): string | null {
   if (collection.source !== "project") {
-    return `manageCollection: '${defangForPrompt(slug)}' is ${collection.source}-scope and read-only here — only project collections (data/skills/) can be edited.`;
+    return `manageCollection: '${defangForPrompt(slug)}' is ${collection.source}-scope and read-only here — only project collections (${authoringDirLabel(deps, "<slug>")}) can be edited.`;
   }
   if (isPresetSlug(slug)) {
     return `manageCollection: '${defangForPrompt(slug)}' is a preset (mc-*) and re-seeds on restart — copy it under a different slug to customise.`;
@@ -564,17 +573,17 @@ function schemaDiscoveryGate(schema: CollectionSchema, base: string): string | n
 }
 
 /** Validate a schema against CollectionSchemaZ and, on success, persist it.
- *  Edit-only: a new collection is created by writing SKILL.md + schema.json
- *  under data/skills/<slug>/ (the normal create flow), not through here. */
+ *  Edit-only: a new collection is created by writing SKILL.md + schema.json in
+ *  the root's authoring dir (the normal create flow), not through here. */
 async function handlePutSchema(slug: string, schemaArg: unknown, deps: ManageCollectionDeps): Promise<string> {
   if (!schemaArg || typeof schemaArg !== "object" || Array.isArray(schemaArg)) {
     return "manageCollection: `schema` is required for putSchema — the full collection schema object.";
   }
   const collection = await loadCollection(slug, deps);
   if (!collection) {
-    return `manageCollection: unknown collection '${defangForPrompt(slug)}' — create it by writing SKILL.md + ${SCHEMA_FILE} under data/skills/${defangForPrompt(slug)}/, then edit it here.`;
+    return `manageCollection: unknown collection '${defangForPrompt(slug)}' — create it by writing SKILL.md + ${SCHEMA_FILE} under ${authoringDirLabel(deps, defangForPrompt(slug))}, then edit it here.`;
   }
-  const refusal = schemaEditRefusal(collection, slug);
+  const refusal = schemaEditRefusal(collection, slug, deps);
   if (refusal) return refusal;
   const parsed = CollectionSchemaZ.safeParse(schemaArg);
   if (!parsed.success) return formatSchemaIssues(parsed.error.issues);

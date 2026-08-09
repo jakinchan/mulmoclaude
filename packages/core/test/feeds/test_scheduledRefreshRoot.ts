@@ -32,3 +32,12 @@ test("a per-root def still honours the interval override", () => {
   const def = feedRefreshTaskDef({ workspaceRoot: "/tmp/proj-a", intervalMs: 1234 });
   assert.deepEqual(def.schedule, { type: "interval", intervalMs: 1234 });
 });
+
+test("lexically equivalent roots resolve to ONE task id", () => {
+  // A task id is the scheduler's primary key. Registering `/tmp/proj` and
+  // `/tmp/proj/` as two ids creates two jobs over one tree, each with its own
+  // persisted state, refreshing the same feeds twice.
+  assert.equal(feedRefreshTaskId("/tmp/proj/"), feedRefreshTaskId("/tmp/proj"));
+  assert.equal(feedRefreshTaskId("/tmp/proj/."), feedRefreshTaskId("/tmp/proj"));
+  assert.equal(feedRefreshTaskDef({ workspaceRoot: "/tmp/proj/" }).id, feedRefreshTaskDef({ workspaceRoot: "/tmp/proj" }).id);
+});

@@ -5,6 +5,7 @@
 // can't drift between hosts. See plans/done/feat-shareable-feed-refresh-registration.md.
 import { SCHEDULE_TYPES, MISSED_RUN_POLICIES } from "@receptron/task-scheduler";
 import type { SystemTaskDef } from "../../scheduler/adapter.js";
+import { canonicalRoot } from "../../files/root.js";
 import { refreshDue } from "./engine.js";
 
 // Id kept stable so the scheduler-state row isn't orphaned across hosts/renames.
@@ -16,7 +17,10 @@ export const FEED_REFRESH_TASK_ID = "system:feed-refresh";
  *  scheduler's primary key, so N roots registered under one id would collide
  *  and only the last would ever run. */
 export function feedRefreshTaskId(workspaceRoot?: string): string {
-  return workspaceRoot === undefined ? FEED_REFRESH_TASK_ID : `${FEED_REFRESH_TASK_ID}:${workspaceRoot}`;
+  // Canonical: `/proj` and `/proj/` are one project, so they must resolve to
+  // one task id. Registering both spellings otherwise creates two jobs over one
+  // tree, each with its own persisted state, refreshing the same feeds twice.
+  return workspaceRoot === undefined ? FEED_REFRESH_TASK_ID : `${FEED_REFRESH_TASK_ID}:${canonicalRoot(workspaceRoot)}`;
 }
 // Single source of truth for the default refresh cadence (one hour). Core has no
 // shared time module — `server/utils/time.ts` is host-only — so the named export
