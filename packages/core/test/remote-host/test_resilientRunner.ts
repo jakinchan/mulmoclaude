@@ -31,13 +31,27 @@ interface PendingTask {
   task: () => void;
 }
 
+const nextDue = (pending: Map<number, PendingTask>, targetMs: number): [number, PendingTask] | undefined =>
+  [...pending.entries()].filter(([, timer]) => timer.atMs <= targetMs).sort(([, left], [, right]) => left.atMs - right.atMs)[0];
+
+// Run everything due by `targetMs`, oldest first, then land the clock there.
+// Never backwards: after a `sleep` the due time is already in the past.
+const runDue = (pending: Map<number, PendingTask>, state: { nowMs: number }, targetMs: number): void => {
+  for (;;) {
+    const due = nextDue(pending, targetMs);
+    if (!due) break;
+    pending.delete(due[0]);
+    state.nowMs = Math.max(state.nowMs, due[1].atMs);
+    due[1].task();
+  }
+  state.nowMs = Math.max(state.nowMs, targetMs);
+};
+
 // A controllable clock: the windows here are minutes long, so tests drive time
 // rather than wait for it.
 const fakeClock = () => {
   const state = { nowMs: 1_000_000, nextKey: 1 };
   const pending = new Map<number, PendingTask>();
-  const nextDue = (targetMs: number): [number, PendingTask] | undefined =>
-    [...pending.entries()].filter(([, timer]) => timer.atMs <= targetMs).sort(([, left], [, right]) => left.atMs - right.atMs)[0];
   return {
     now: () => state.nowMs,
     schedule: (task: () => void, delayMs: number) => {
@@ -55,18 +69,7 @@ const fakeClock = () => {
     sleep: (deltaMs: number) => {
       state.nowMs += deltaMs;
     },
-    advance: (deltaMs: number) => {
-      const targetMs = state.nowMs + deltaMs;
-      for (;;) {
-        const due = nextDue(targetMs);
-        if (!due) break;
-        pending.delete(due[0]);
-        // Never backwards: after a `sleep` the due time is already in the past.
-        state.nowMs = Math.max(state.nowMs, due[1].atMs);
-        due[1].task();
-      }
-      state.nowMs = Math.max(state.nowMs, targetMs);
-    },
+    advance: (deltaMs: number) => runDue(pending, state, state.nowMs + deltaMs),
   };
 };
 

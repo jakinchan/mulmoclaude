@@ -6,7 +6,7 @@ issue: #2845
 
 ユーザー報告:
 
-```
+```text
 Remote host disconnected
 Your phone can no longer reach this Mac. Last error: presence: no presence write acknowledged for 459s — the remote cannot see this host.
 ```

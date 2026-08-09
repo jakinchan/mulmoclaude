@@ -14,7 +14,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { createPresenceBeat, type PresenceBeatDeps } from "../../src/remote-host/server/presenceBeat.js";
+import { createPresenceBeat, type PresenceBeat, type PresenceBeatDeps } from "../../src/remote-host/server/presenceBeat.js";
 
 const STALE_AFTER_BEATS = 3;
 const HEARTBEAT_MS = 60_000;
@@ -30,38 +30,54 @@ interface WriteRecord {
   reject: (reason: unknown) => void;
 }
 
+interface FakeClock {
+  nowMs: number;
+}
+
+// A write that settles only when the test says so — which is the point: Firestore
+// holds an undeliverable mutation rather than failing it.
+const pendingWrite =
+  (writes: WriteRecord[]) =>
+  (online: boolean): Promise<void> =>
+    new Promise<void>((resolve, reject) => {
+      writes.push({ online, resolve: () => resolve(), reject });
+    });
+
+// A missing write means the beat never attempted one — fail there, not on `.reject` of undefined.
+const writeAtOf =
+  (writes: WriteRecord[]) =>
+  (index: number): WriteRecord => {
+    const write = writes[index];
+    assert.ok(write, `expected a write at index ${index}, got ${writes.length}`);
+    return write;
+  };
+
+// The timer firing on schedule: one beat per heartbeat, the clock moving with it.
+const beatTimesOf =
+  (clock: FakeClock, beat: PresenceBeat) =>
+  (count: number): void => {
+    Array.from({ length: count }).forEach(() => {
+      clock.nowMs += HEARTBEAT_MS;
+      beat.beat();
+    });
+  };
+
 // A beat whose writes stay pending until the test decides their fate, plus the
 // clock it reads. `writes` is every write attempted, newest last.
 const makeBeat = (overrides: Partial<PresenceBeatDeps> = {}) => {
-  const clock = { nowMs: 1_000_000 };
+  const clock: FakeClock = { nowMs: 1_000_000 };
   const writes: WriteRecord[] = [];
   const stale: number[] = [];
   const errors: string[] = [];
   const beat = createPresenceBeat({
-    write: (online) =>
-      new Promise<void>((resolve, reject) => {
-        writes.push({ online, resolve: () => resolve(), reject });
-      }),
+    write: pendingWrite(writes),
     onStale: (silentMs) => stale.push(silentMs),
     onError: (message) => errors.push(message),
     staleAfterBeats: STALE_AFTER_BEATS,
     now: () => clock.nowMs,
     ...overrides,
   });
-  // A missing write means the beat never attempted one — fail there, not on `.reject` of undefined.
-  const writeAt = (index: number): WriteRecord => {
-    const write = writes[index];
-    assert.ok(write, `expected a write at index ${index}, got ${writes.length}`);
-    return write;
-  };
-  // The timer firing on schedule: one beat per heartbeat, the clock moving with it.
-  const beatTimes = (count: number): void => {
-    Array.from({ length: count }).forEach(() => {
-      clock.nowMs += HEARTBEAT_MS;
-      beat.beat();
-    });
-  };
-  return { beat, beatTimes, clock, writes, writeAt, stale, errors };
+  return { beat, beatTimes: beatTimesOf(clock, beat), clock, writes, writeAt: writeAtOf(writes), stale, errors };
 };
 
 describe("createPresenceBeat", () => {
