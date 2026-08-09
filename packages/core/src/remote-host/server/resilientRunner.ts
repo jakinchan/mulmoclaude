@@ -9,13 +9,17 @@
 // parked blob — the only path that fixes an actually-dead credential.
 //
 // The give-up rule is TIME, not a count of relaunches, so a long outage does not
-// burn through a budget while nothing can possibly succeed.
+// burn through a budget while nothing can possibly succeed. Time this process was
+// not RUNNING is excluded from it, which is what `after` is for (#2845).
 //
 // It lives here rather than in each host because its correctness is a relation
 // between constants: SETTLE_MS must outlast `LISTEN_RETRY_WINDOW_MS`'s reporting
-// delay, and PROBE_INTERVAL_MS must sit above `presenceStaleAfterMs()`. While the
-// two hosts each kept a copy, raising LISTEN_RETRY_WINDOW_MS from ~31s to 5 minutes
-// silently disabled `giveUp` in the copy that had not been told (#2643).
+// delay, PROBE_INTERVAL_MS must sit above `presenceStaleAfterMs()`, and
+// RESUME_GAP_MS must sit above ordinary timer jitter yet below GIVE_UP_MS — above,
+// or every late timer restarts the budget and nothing ever escalates; below, or a
+// gap can still spend the whole budget undetected. While the two hosts each kept a
+// copy, raising LISTEN_RETRY_WINDOW_MS from ~31s to 5 minutes silently disabled
+// `giveUp` in the copy that had not been told (#2643).
 import type { RunnerHealth, RunnerHealthState } from "../health.js";
 import type { HostRunnerOptions } from "./hostRunner.js";
 import type { RemoteHostLogger } from "./lifecycle.js";
@@ -127,7 +131,9 @@ const after = (ctx: RunnerContext, delayMs: number, task: () => void): CancelTim
   return ctx.schedule(() => {
     const overshootMs = ctx.now() - dueMs;
     if (overshootMs > RESUME_GAP_MS) {
-      ctx.deps.log.warn(`host runner resumed after a ${Math.round(overshootMs / ONE_SECOND_MS)}s gap; the outage budget starts again`);
+      // Says only what is true in both cases: this fires while healthy too, where
+      // there is no outage for the budget to be "restarting".
+      ctx.deps.log.warn(`host runner resumed after a ${Math.round(overshootMs / ONE_SECOND_MS)}s gap; that time does not count as outage`);
       ctx.downSinceMs = null;
       ctx.attempt = 0;
     }
