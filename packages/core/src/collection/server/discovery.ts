@@ -44,9 +44,16 @@ function applyFeedSchemaDefaults(parsed: unknown, slug: string): unknown {
  *  one-line reason discovery would skip the schema. */
 export type SchemaAcceptance = { ok: true; dataDir: string; dataSourceFile?: string; storageFile?: string } | { ok: false; reason: string };
 
-/** The conventional per-slug records dir a `dataSource` collection gets as
- *  its `dataDir` (records never live there, but archive/delete paths stay
- *  well-defined — same shape the registry's R3 normalization uses). */
+/** The conventional per-slug records dir a `dataSource` / `storage` collection
+ *  gets as its `dataDir` (records never live there, but archive/delete paths
+ *  stay well-defined — same shape the registry's R3 normalization uses).
+ *
+ *  INVARIANT — this is NOT a default `dataPath`, and must not be used as one.
+ *  It applies only to the two backends whose records are not per-file JSON. A
+ *  normal collection declares its own location and exactly one of `dataPath` /
+ *  `dataSource` / `storage`; a schema with none of the three is REJECTED, not
+ *  quietly pointed here. Handing a per-file collection this path would silently
+ *  relocate its records away from the folder the user (and its SKILL.md) sees. */
 function conventionalDataPath(slug: string): string {
   return `data/collections/${slug}/items`;
 }

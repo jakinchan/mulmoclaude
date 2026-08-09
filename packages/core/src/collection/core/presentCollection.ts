@@ -17,6 +17,38 @@ export interface PresentCollectionData {
   collectionSlug: string;
   /** Optional primary-key value of a single item to open on mount. */
   itemId?: string | undefined;
+  /** Which ROOT this card's collection lives in, as a host-opaque scope token.
+   *
+   *  A collection's identity is `(root, slug)`, but a card payload named only
+   *  the slug — so the host re-resolved it through whatever binding was current
+   *  when the card RENDERED, which in a multi-root host may be a different
+   *  project than the one the card was made in. A card built in project A could
+   *  then read project B's data.
+   *
+   *  Host-injected (the LLM never sets it; it is not in the tool schema) and
+   *  host-opaque: the engine only carries it and treats it as part of the
+   *  card's identity. Pass an opaque project id, NEVER an absolute path — this
+   *  payload reaches the browser and, through a view, an LLM-authored iframe.
+   *
+   *  Absent — the single-workspace case — the payload and every reconciliation
+   *  decision are exactly what they were before this field existed. */
+  scope?: string | undefined;
+}
+
+/** A card's identity for reconciliation. Two cards match only when they name
+ *  the same collection IN THE SAME SCOPE, so two projects' `tasks` cards stay
+ *  two cards. With no scope on either side this is the slug, unchanged. */
+export function collectionCardKey(data: Pick<PresentCollectionData, "collectionSlug" | "scope">): string {
+  return data.scope === undefined ? data.collectionSlug : `${data.scope}\u0000${data.collectionSlug}`;
+}
+
+/** Do two card payloads address the same card? The reconciliation predicate a
+ *  host should use instead of comparing slugs. */
+export function sameCollectionCard(
+  one: Pick<PresentCollectionData, "collectionSlug" | "scope">,
+  other: Pick<PresentCollectionData, "collectionSlug" | "scope">,
+): boolean {
+  return collectionCardKey(one) === collectionCardKey(other);
 }
 
 export type PresentCollectionArgs = PresentCollectionData;
@@ -55,7 +87,16 @@ export const executePresentCollection = async (
     };
   }
   const itemId = typeof args.itemId === "string" && args.itemId.trim().length > 0 ? args.itemId.trim() : undefined;
-  const data: PresentCollectionData = itemId ? { collectionSlug, itemId } : { collectionSlug };
+  // `scope` is host-injected (see PresentCollectionData). Built up key by key
+  // rather than spread, so a payload with no scope is byte-identical to what a
+  // single-workspace host has always produced — including the absence of the
+  // property, which `assert.deepEqual` and JSON serialization both notice.
+  const scope = typeof args.scope === "string" && args.scope.trim().length > 0 ? args.scope.trim() : undefined;
+  const data: PresentCollectionData = {
+    collectionSlug,
+    ...(itemId ? { itemId } : {}),
+    ...(scope ? { scope } : {}),
+  };
   const target = itemId ? `${collectionSlug} / ${itemId}` : collectionSlug;
   return {
     message: `Presented collection ${target}`,

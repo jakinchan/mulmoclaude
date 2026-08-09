@@ -8,6 +8,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Changed
+
+#### Multi-root, finished: identity, the authoring docs, and per-root operation
+
+`@mulmoclaude/core@3.1.0`. A collection's identity is `(root, slug)`, but everything that
+referred to one across a boundary still carried the slug alone — including the authoring
+reference both hosts serve to the agent, which told it to write where only a managed
+workspace can. MulmoClaude's behaviour is unchanged throughout: every item is additive with
+a default that preserves today's path.
+
+- `manageCollection` `schemaDocs` now serves a root-appropriate authoring guide
+  (`stagedSkillAuthoring`, default `true`). Without the flag the text is byte-identical to
+  before; with `false` it tells the agent to author under `.claude/skills/<slug>/`, which is
+  the only location a bridge-less project root ever discovers.
+- `CollectionHost.paths.skillsStagingDir` may return `null` for a root with no staging tree.
+  A host that supplies a `(root) => string` still type-checks (the widening is on the return
+  the ENGINE reads, not on what the host must provide), which is why this is a minor.
+- Completion-bell ids and navigate targets carry the root when one was passed, and only
+  then, so a single-workspace host's `active.json` entries keep matching while two projects'
+  same-slug records stop deduping into one bell.
+- The watcher runs one generation per root, concurrently; `stopCollectionWatchers({ workspaceRoot })`
+  stops just one. `WATCHER_ROOT_CONFLICT` is no longer thrown (still exported).
+- A presented card carries an optional host-opaque `scope`, part of its reconciliation identity.
+- `feedRefreshTaskDef({ workspaceRoot })` is root-parameterised, with a per-root task id.
+
+**For a multi-root host, three of these change behaviour and want a deliberate upgrade**, even
+though a caret floats here: a bell id built with an explicit root has a new shape (existing
+`active.json` entries stop matching once, then converge), `feedRefreshTaskDef({ workspaceRoot })`
+returns a new task id (the old scheduler-state row is orphaned), and `WATCHER_ROOT_CONFLICT` is
+no longer thrown, so a second root now mounts a second generation instead of being refused. None
+of the three is reachable from a single-workspace host, which passes no root anywhere.
+
+Ships `@mulmoclaude/core@3.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.1.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
 ## [1.13.0] - 2026-08-09
 
 **A package-line release: it carries the 3.x core and plugins to npm. No app behaviour changes.**

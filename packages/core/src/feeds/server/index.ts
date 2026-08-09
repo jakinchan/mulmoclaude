@@ -5,7 +5,7 @@
 
 export { listFeeds, removeFeed } from "./registry.js";
 export { refreshOne, refreshDue, hasLocalContent, ingestedFields, type RefreshResult } from "./engine.js";
-export { feedRefreshTaskDef, FEED_REFRESH_TASK_ID, DEFAULT_FEED_REFRESH_INTERVAL_MS } from "./scheduledRefresh.js";
+export { feedRefreshTaskDef, feedRefreshTaskId, FEED_REFRESH_TASK_ID, DEFAULT_FEED_REFRESH_INTERVAL_MS } from "./scheduledRefresh.js";
 export { refreshViaAgent } from "./agentIngest.js";
 export { readFeedState, type FeedState } from "./state.js";
 export { feedsRoot, feedDir, feedStatePath, ingestStateDir, ingestStatePath, FEEDS_DIR } from "../paths.js";
