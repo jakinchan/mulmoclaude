@@ -46,6 +46,12 @@ let notifierDir: string;
 
 const SLUG = "test-watcher";
 
+// These tests boot the watcher with an EXPLICIT `workspaceRoot` (a tmpdir), so
+// the bell ids they produce carry that root. Production does not: the host
+// starts its watchers with no root override, and its ids stay the bare
+// `collection-completion:<slug>:<itemId>` that `active.json` already holds.
+const legacyIdFor = (slug: string, itemId: string): string => `collection-completion:@${workdir}\u0000${slug}:${itemId}`;
+
 function buildSchema(extra: Partial<CollectionSchema> = {}): CollectionSchema {
   return {
     title: "Test Watcher",
@@ -126,7 +132,7 @@ describe("startCollectionWatchers boot reconcile", () => {
 
     const entries = await activeCompletionEntries();
     const legacyIds = entries.map((entry) => entry.legacyId).sort();
-    assert.deepEqual(legacyIds, [`collection-completion:${SLUG}:a`, `collection-completion:${SLUG}:c`]);
+    assert.deepEqual(legacyIds, [legacyIdFor(SLUG, "a"), legacyIdFor(SLUG, "c")]);
   });
 
   it("ignores collections that don't declare completionField", async () => {
@@ -176,7 +182,7 @@ describe("syncWatchers runtime drift", () => {
 
     const entries = await activeCompletionEntries();
     assert.equal(entries.length, 1);
-    assert.equal(entries[0]?.legacyId, `collection-completion:${SLUG}:a`);
+    assert.equal(entries[0]?.legacyId, legacyIdFor(SLUG, "a"));
   });
 
   it("clears entries when completionField is removed from the schema", async () => {
@@ -272,12 +278,12 @@ describe("storage (sqlite) collection reconciliation", () => {
     await store.write("a", { id: "a", read: false });
     await _scheduleCollectionReconcileForTesting(DB_SLUG);
     let legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(legacyIds.includes(`collection-completion:${DB_SLUG}:a`), `expected a bell for a, got ${JSON.stringify(legacyIds)}`);
+    assert.ok(legacyIds.includes(legacyIdFor(DB_SLUG, "a")), `expected a bell for a, got ${JSON.stringify(legacyIds)}`);
 
     await store.write("a", { id: "a", read: true });
     await _scheduleCollectionReconcileForTesting(DB_SLUG);
     legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(!legacyIds.includes(`collection-completion:${DB_SLUG}:a`), "bell must clear once the record is done");
+    assert.ok(!legacyIds.includes(legacyIdFor(DB_SLUG, "a")), "bell must clear once the record is done");
   });
 
   it("clears the bell when a pending sqlite record is DELETED (stale sweep)", async () => {
@@ -295,7 +301,7 @@ describe("storage (sqlite) collection reconciliation", () => {
     await store.write("b", { id: "b", read: false });
     await _scheduleCollectionReconcileForTesting(DB_SLUG);
     let legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(legacyIds.includes(`collection-completion:${DB_SLUG}:b`));
+    assert.ok(legacyIds.includes(legacyIdFor(DB_SLUG, "b")));
 
     // One db file holds every record — a delete produces no per-item event,
     // so the full-pass reconcile must pair with the stale sweep (PR #2204
@@ -303,7 +309,7 @@ describe("storage (sqlite) collection reconciliation", () => {
     await store.delete("b");
     await _scheduleCollectionReconcileForTesting(DB_SLUG);
     legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(!legacyIds.includes(`collection-completion:${DB_SLUG}:b`), "bell must clear when the record is deleted");
+    assert.ok(!legacyIds.includes(legacyIdFor(DB_SLUG, "b")), "bell must clear when the record is deleted");
   });
 });
 
@@ -414,7 +420,7 @@ describe("dataSource (csv) collection — bells now reconcile", () => {
       triggerTickIntervalMs: null,
     });
     const legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(legacyIds.includes(`collection-completion:${CSV_SLUG}:a`), "a pending CSV row must bell");
+    assert.ok(legacyIds.includes(legacyIdFor(CSV_SLUG, "a")), "a pending CSV row must bell");
   });
 
   it("clears the bell once the row turns done", async () => {
@@ -430,7 +436,7 @@ describe("dataSource (csv) collection — bells now reconcile", () => {
     await _scheduleCollectionReconcileForTesting(CSV_SLUG);
 
     const legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(!legacyIds.includes(`collection-completion:${CSV_SLUG}:a`), "the bell must clear when the row is done");
+    assert.ok(!legacyIds.includes(legacyIdFor(CSV_SLUG, "a")), "the bell must clear when the row is done");
   });
 
   // Codex review on PR #2243: the clock tick hard-skipped dataSource, with
@@ -462,7 +468,7 @@ describe("dataSource (csv) collection — bells now reconcile", () => {
     await _tickTimeTriggersForTesting(new Date(2026, 5, 10));
 
     const legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.deepEqual(legacyIds, [`collection-completion:${CSV_SLUG}:a`], "the clock tick must bell the now-due row");
+    assert.deepEqual(legacyIds, [legacyIdFor(CSV_SLUG, "a")], "the clock tick must bell the now-due row");
   });
 
   // Codex review on PR #2243: routing CSV through the shared reconcile made
@@ -490,7 +496,7 @@ describe("dataSource (csv) collection — bells now reconcile", () => {
     await _syncWatchersForTesting();
 
     const legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.deepEqual(legacyIds, [`collection-completion:${CSV_SLUG}:a`], "the schema pass must derive the new bell");
+    assert.deepEqual(legacyIds, [legacyIdFor(CSV_SLUG, "a")], "the schema pass must derive the new bell");
   });
 });
 
@@ -558,6 +564,6 @@ describe("a watch that cannot arm is retried, not marked mounted", () => {
     assert.equal(await _syncWatchersForTesting(), true, "the retry must mount the collection it failed to arm");
 
     const legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.deepEqual(legacyIds, [`collection-completion:${SLUG}:a`], "and its boot reconcile must bell the pending item");
+    assert.deepEqual(legacyIds, [legacyIdFor(SLUG, "a")], "and its boot reconcile must bell the pending item");
   });
 });

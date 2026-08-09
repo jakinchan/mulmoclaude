@@ -8,10 +8,17 @@
 // workspace root) unchanged while removing the package's dependency on
 // host-only modules (`server/workspace/workspace.ts`, the host logger).
 
+import path from "node:path";
+import { canonicalRoot } from "../../files/root.js";
 import { createForwardingLogger, createHostSlot, type StructuredLogger } from "../../host/hostSlot.js";
 
 /** Public alias of the shared `StructuredLogger` — keeps the domain surface name-stable. */
 export type CollectionLogger = StructuredLogger;
+
+/** Re-exported so collection-engine callers (the watcher, the reconciler) keep
+ *  one import surface; the definition lives in `@mulmoclaude/core/files`
+ *  because a root is an identity in subsystems that do not depend on this one. */
+export { canonicalRoot };
 
 /** `err.code` on the throw from `getWorkspaceRoot()` under an explicit-root
  *  binding: this CALL is missing its `workspaceRoot` option. Exported because
@@ -20,6 +27,17 @@ export type CollectionLogger = StructuredLogger;
  *  not have to match on message text to tell them apart. */
 export const COLLECTION_ROOT_REQUIRED = "COLLECTION_ROOT_REQUIRED";
 
+/** INVARIANT — **a slug is unique within a root and nowhere else.**
+ *
+ *  A collection's identity is `(root, slug)`. Anything keyed by slug ALONE —
+ *  a cache, a pubsub channel, a view token, a notification id, a rendered
+ *  card — is a cross-root collision waiting to happen the moment two projects
+ *  each own a `tasks` collection. A single-workspace host never sees it, which
+ *  is exactly why it keeps being written that way.
+ *
+ *  Every engine surface that crosses a host boundary therefore carries the
+ *  root: `CollectionChangePayload.root`, the completion bell's legacy id, the
+ *  presented card's scope. When you add another, key it on the pair. */
 export interface CollectionHost {
   /** Absolute path to the host workspace root (e.g. `~/mulmoclaude`). The
    *  default root for every path/containment check that isn't given an
@@ -43,8 +61,19 @@ export interface CollectionHost {
     projectSkillsDir: (workspaceRoot: string) => string;
     /** Absolute feeds-registry root for a workspace (`<root>/data/feeds`). */
     feedsRoot: (workspaceRoot: string) => string;
-    /** Absolute project-skills *staging* dir for a workspace (`<root>/data/skills`). */
-    skillsStagingDir: (workspaceRoot: string) => string;
+    /** Absolute project-skills *staging* dir for a root (`<root>/data/skills`),
+     *  or `null` when this root has NO staging tree.
+     *
+     *  Staging exists because a managed workspace gates writes into `.claude/`
+     *  and a skill-bridge hook mirrors `data/skills/<slug>/` across. A root
+     *  with no such bridge (a plain project folder) has nothing to mirror, so
+     *  the skill dir IS the authoring location and there is no staging.
+     *
+     *  Return `null` there — do NOT hand back the skill dir instead. It looks
+     *  equivalent (the read list becomes the same dir twice) but the delete
+     *  path `rm -rf`s the staging dir by name, which would then remove the
+     *  committed skill under the label "staging". */
+    skillsStagingDir: (workspaceRoot: string) => string | null;
     /** Workspace-relative archive dir (a removed collection's files move here). */
     archiveDir: string;
     /** Absolute path to the user-supplied extra-registries config file for a
@@ -83,7 +112,10 @@ type CollectionChangePublisher = (payload: CollectionChangePayload) => void;
  *  way, and so a single-workspace host's payload shape stays byte-identical to
  *  what it saw before multi-root support. */
 export function collectionChangePayload(base: Omit<CollectionChangePayload, "root">, root: string | undefined): CollectionChangePayload {
-  return root === undefined ? base : { ...base, root };
+  // Canonical, because a host keys its live-update fan-out on this value: a
+  // direct `writeItem({ workspaceRoot: "/proj/" })` and the watcher's own
+  // publish for `/proj` must land on the same channel, not two.
+  return root === undefined ? base : { ...base, root: canonicalRoot(root) };
 }
 
 const hostSlot = createHostSlot<CollectionHost>("@mulmoclaude/core/collection/server: configureCollectionHost()");
@@ -159,8 +191,16 @@ export function projectSkillsDir(workspaceRoot: string): string {
 export function feedsRoot(workspaceRoot: string): string {
   return requireHost().paths.feedsRoot(workspaceRoot);
 }
-export function skillsStagingDir(workspaceRoot: string): string {
+export function skillsStagingDir(workspaceRoot: string): string | null {
   return requireHost().paths.skillsStagingDir(workspaceRoot);
+}
+
+/** `<staging>/<slug>` for a root, or `null` when the root has no staging tree.
+ *  The single place the staging-or-not branch is spelled, so every caller
+ *  (read bases, schema write targets, archive, delete) agrees on it. */
+export function stagingSkillDir(workspaceRoot: string, slug: string): string | null {
+  const staging = requireHost().paths.skillsStagingDir(workspaceRoot);
+  return staging === null ? null : path.join(staging, slug);
 }
 export function archiveDir(): string {
   return requireHost().paths.archiveDir;

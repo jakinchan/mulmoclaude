@@ -25,12 +25,31 @@ export interface CollectionNotificationAdapter {
   pluginPkg: string;
   /** Map a record's completion priority onto the host's bell severity. */
   priorityToSeverity: (priority: CompletionPriority) => NotifierSeverity;
-  /** Build the in-app deep-link the bell row routes to on click. */
-  buildNavigateTarget: (slug: string, itemId: string) => string;
+  /** Build the in-app deep-link the bell row routes to on click.
+   *
+   *  `root` is the absolute project/workspace root the record lives under, and
+   *  is present ONLY when the engine call carried an explicit `workspaceRoot`
+   *  — so a single-workspace host never sees it and its targets are unchanged.
+   *  A multi-root host uses it to deep-link into the RIGHT project: two roots
+   *  can own the same slug, and a slug-only target would open whichever project
+   *  happens to be selected. The URL shape is entirely the host's — the engine
+   *  only guarantees to pass the root through. Resolve it to an OPAQUE project
+   *  id in the target rather than embedding the absolute path. */
+  buildNavigateTarget: (slug: string, itemId: string, root?: string) => string;
   /** Wrap the reconciler's internal key + priority into the host's
    *  `pluginData` shape. Stored verbatim on the entry; recovered via
    *  `readEntry`. */
-  buildPluginData: (input: { legacyId: string; slug: string; itemId: string; priority: CompletionPriority; navigateTarget: string }) => unknown;
+  buildPluginData: (input: {
+    legacyId: string;
+    slug: string;
+    itemId: string;
+    priority: CompletionPriority;
+    navigateTarget: string;
+    /** The record's root, present only under an explicit-root call (see
+     *  `buildNavigateTarget`). `legacyId` already encodes it; this is the
+     *  parsed form so a host doesn't have to decode the key. */
+    root?: string | undefined;
+  }) => unknown;
   /** Recognise a bell entry produced by this reconciler and recover its
    *  internal key + stored priority. Returns null for entries that didn't
    *  originate here, so `listAll()` scans skip foreign entries. */

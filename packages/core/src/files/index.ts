@@ -8,6 +8,7 @@ export { writeFileAtomic, writeFileAtomicSync, type WriteAtomicOptions } from ".
 export { writeJsonAtomic } from "./json.js";
 export { isEnoent, resolveWithinRoot } from "./safe.js";
 export { toPosixRelPath, joinPosixRelPath } from "./relPath.js";
+export { canonicalRoot } from "./root.js";
 // presentDocument / presentHtml's `path` argument: resolving a caller-supplied
 // file path, and serving a page that is not an artifact. Both hosts share these
 // so one tool call cannot mean two different things.

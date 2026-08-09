@@ -17,6 +17,54 @@ export interface PresentCollectionData {
   collectionSlug: string;
   /** Optional primary-key value of a single item to open on mount. */
   itemId?: string | undefined;
+  /** Which ROOT this card's collection lives in, as a host-opaque scope token.
+   *
+   *  A collection's identity is `(root, slug)`, but a card payload named only
+   *  the slug — so the host re-resolved it through whatever binding was current
+   *  when the card RENDERED, which in a multi-root host may be a different
+   *  project than the one the card was made in. A card built in project A could
+   *  then read project B's data.
+   *
+   *  **Stamped by the HOST, never accepted from tool arguments.** The tool args
+   *  are a model-controlled channel: a model that could name the scope could
+   *  name another project's, and the card — and any token minted for it — would
+   *  address a project the user never opened in this conversation. So
+   *  `executePresentCollection` DROPS any `scope` it is handed, and a host adds
+   *  its own with {@link withCardScope} when it applies the result, where it
+   *  already knows which binding produced the call.
+   *
+   *  Host-opaque: pass an opaque project id, NEVER an absolute path — this
+   *  payload reaches the browser and, through a view, an LLM-authored iframe.
+   *
+   *  Absent — the single-workspace case — the payload and every reconciliation
+   *  decision are exactly what they were before this field existed. */
+  scope?: string | undefined;
+}
+
+/** Stamp a host's opaque project scope onto a card payload. The ONLY way a
+ *  scope gets in: the executor refuses to take one from tool arguments (see
+ *  `PresentCollectionData.scope`). `undefined` returns the payload untouched,
+ *  so a single-workspace host calling this unconditionally still produces a
+ *  payload with no `scope` property at all. */
+export function withCardScope(data: PresentCollectionData, scope: string | undefined): PresentCollectionData {
+  const trimmed = typeof scope === "string" ? scope.trim() : "";
+  return trimmed.length > 0 ? { ...data, scope: trimmed } : data;
+}
+
+/** A card's identity for reconciliation. Two cards match only when they name
+ *  the same collection IN THE SAME SCOPE, so two projects' `tasks` cards stay
+ *  two cards. With no scope on either side this is the slug, unchanged. */
+export function collectionCardKey(data: Pick<PresentCollectionData, "collectionSlug" | "scope">): string {
+  return data.scope === undefined ? data.collectionSlug : `${data.scope}\u0000${data.collectionSlug}`;
+}
+
+/** Do two card payloads address the same card? The reconciliation predicate a
+ *  host should use instead of comparing slugs. */
+export function sameCollectionCard(
+  one: Pick<PresentCollectionData, "collectionSlug" | "scope">,
+  other: Pick<PresentCollectionData, "collectionSlug" | "scope">,
+): boolean {
+  return collectionCardKey(one) === collectionCardKey(other);
 }
 
 export type PresentCollectionArgs = PresentCollectionData;
@@ -43,19 +91,43 @@ export const TOOL_DEFINITION: ToolDefinition = {
   prompt: `After making changes to schema-driven collections, use ${TOOL_NAME} to present either the collection or the item`,
 };
 
+/** A trimmed non-empty string, or undefined. The tool's args arrive from an
+ *  LLM (and `scope` from the host), so every field is validated the same way
+ *  rather than trusted. */
+const cleaned = (value: unknown): string | undefined => (typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined);
+
+/** Normalise the tool args into the card payload, or `null` when the required
+ *  slug is missing. Pure and exported so the addressing rules are testable
+ *  without going through a `ToolResult`.
+ *
+ *  `scope` is deliberately NOT read from the args — see
+ *  `PresentCollectionData.scope`. Everything here comes from a model-controlled
+ *  channel, and the scope decides which project the card reads; a host stamps
+ *  it afterwards with `withCardScope`.
+ *
+ *  Keys are added one at a time rather than spread with `undefined` values, so
+ *  a payload with no `itemId` OMITS the property entirely — which is what keeps
+ *  a single-workspace card byte-identical to what it has always been, in both
+ *  `deepEqual` and JSON. */
+export const toPresentCollectionData = (args: PresentCollectionArgs): PresentCollectionData | null => {
+  const collectionSlug = cleaned(args?.collectionSlug);
+  if (!collectionSlug) return null;
+  const itemId = cleaned(args.itemId);
+  return { collectionSlug, ...(itemId ? { itemId } : {}) };
+};
+
 export const executePresentCollection = async (
   _context: ToolContext,
   args: PresentCollectionArgs,
 ): Promise<ToolResult<PresentCollectionData, PresentCollectionData>> => {
-  const collectionSlug = typeof args?.collectionSlug === "string" ? args.collectionSlug.trim() : "";
-  if (!collectionSlug) {
+  const data = toPresentCollectionData(args);
+  if (!data) {
     return {
       message: "presentCollection error: collectionSlug is required",
       instructions: "Tell the user you couldn't display the collection because no collection was specified, and ask which collection they mean.",
     };
   }
-  const itemId = typeof args.itemId === "string" && args.itemId.trim().length > 0 ? args.itemId.trim() : undefined;
-  const data: PresentCollectionData = itemId ? { collectionSlug, itemId } : { collectionSlug };
+  const { collectionSlug, itemId } = data;
   const target = itemId ? `${collectionSlug} / ${itemId}` : collectionSlug;
   return {
     message: `Presented collection ${target}`,

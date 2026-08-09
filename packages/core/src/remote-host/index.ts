@@ -163,6 +163,41 @@ export const byCreatedAt = (left: Pick<Command, "createdAt">, right: Pick<Comman
 export type CommandHandler = (params: JsonObject) => JsonValue | Promise<JsonValue>;
 export type CommandHandlers = Record<string, CommandHandler>;
 
+/** The param name a collection-serving command uses to say WHICH project's
+ *  collections it means. Reserved and documented now, before a phone client
+ *  ships, because the parts that are hard to change later are the ones being
+ *  written today. Four rules go with it:
+ *
+ *  1. **It is an OPAQUE scope, never a path.** The phone is a genuinely remote
+ *     client; an absolute root in a command, an artifact or a token publishes
+ *     the user's home directory over the wire. Mint a project id host-side and
+ *     resolve it host-side.
+ *  2. **The phone must be able to LEARN the list.** A picker needs
+ *     `{ id, label }` pairs from the host — a command of its own, or a field on
+ *     an existing listing. Designing the scope value now is what keeps that the
+ *     ONLY new thing when the feature lands.
+ *  3. **Handlers RESOLVE a scope; they do not hard-code one.** Write each
+ *     collection handler as "read the scope from params, defaulting to the
+ *     host's root" rather than calling the workspace accessor inline. Today
+ *     every call resolves the default and behaves exactly as it does now; the
+ *     day the param arrives, no handler changes.
+ *  4. **The artifact stays host-built.** A remote view's srcdoc, its inlined
+ *     image thumbnails and its token are assembled on the host, so the phone
+ *     never resolves a path itself. That is what makes (1) hold without
+ *     trusting the client. */
+export const COMMAND_SCOPE_PARAM = "project";
+
+/** Read the opaque project scope off a command's params, or `undefined` for
+ *  "the host's own root" — which is what every command means today. A
+ *  non-string (or empty) value is treated as absent rather than as an error: a
+ *  scope the host cannot resolve must fall back to the default, never to a
+ *  guess. Hosts pass the result to their own id → root resolver; this module
+ *  deliberately never sees a path. */
+export const readCommandScope = (params: JsonObject): string | undefined => {
+  const raw = params[COMMAND_SCOPE_PARAM];
+  return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : undefined;
+};
+
 // Bumped when the command-channel wire protocol changes in a way the remote must
 // gate on. Advertised in the presence doc so the remote can check compatibility
 // before issuing commands.

@@ -20,7 +20,7 @@
 import { cp, mkdir, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { log, getWorkspaceRoot, isPresetSlug, skillsStagingDir, archiveDir as archiveRelDir } from "./host";
+import { log, getWorkspaceRoot, isPresetSlug, stagingSkillDir, archiveDir as archiveRelDir } from "./host";
 import { isContainedInRoot } from "./paths";
 import { checkpointSqliteDatabase } from "./sqliteStore";
 import { ingestStatePath } from "../../feeds/paths";
@@ -61,11 +61,6 @@ export interface DeleteCollectionOptions {
   dateStamp?: string;
 }
 
-/** The canonical staging dir for a slug: `data/skills/<slug>`. */
-function stagingSkillDir(workspaceRoot: string, slug: string): string {
-  return path.join(skillsStagingDir(workspaceRoot), slug);
-}
-
 async function pathExists(target: string): Promise<boolean> {
   try {
     await stat(target);
@@ -83,8 +78,9 @@ function todayStamp(): string {
 /** Every directory the delete will touch must resolve under the
  *  workspace root — guards against a symlinked ancestor escaping it. */
 function deleteTargets(collection: LoadedCollection, workspaceRoot: string): string[] {
+  const staging = stagingSkillDir(workspaceRoot, collection.slug);
   return [
-    stagingSkillDir(workspaceRoot, collection.slug),
+    ...(staging === null ? [] : [staging]),
     collection.skillDir,
     collection.dataDir,
     ingestStatePath(collection.slug, workspaceRoot),
@@ -142,14 +138,24 @@ function restoreRecordsStep(schema: LoadedCollection["schema"]): string {
    Write them one by one).`;
 }
 
-function buildRestoreDoc(collection: LoadedCollection): string {
-  const { slug, schema } = collection;
-  return `# Restore "${schema.title}" (collection \`${slug}\`)
+/** Step 1 of the restore doc, which depends on the root's authoring layout.
+ *
+ *  A staged root routes around the `.claude/` permission gate and relies on the
+ *  bridge hook; a root with no staging tree has neither, so the same
+ *  instructions would have the user restore into `data/skills/<slug>/`, where
+ *  nothing would ever read it — the collection would stay deleted while the
+ *  document said it was restored. */
+function restoreSkillStep(slug: string, staged: boolean): string {
+  if (!staged) {
+    return `1. Recreate the skill files in \`.claude/skills/${slug}/\`: read each
+   file under \`skill/\` and write it to the matching path — \`SKILL.md\`,
+   \`schema.json\`, any \`templates/*\`, and any \`views/*\`.
 
-This folder is an automatic backup made when the collection was deleted.
-Follow these steps to restore it.
-
-1. Recreate the skill files in \`data/skills/${slug}/\` using the **Write
+   This project has no \`data/skills/\` staging tree and no bridge hook, so
+   the skill directory is read directly and no mirroring step follows. Do
+   NOT restore into \`data/skills/${slug}/\` — nothing reads it there.`;
+  }
+  return `1. Recreate the skill files in \`data/skills/${slug}/\` using the **Write
    tool**: read each file under \`skill/\` and Write it to the matching
    path — \`SKILL.md\`, \`schema.json\`, and any \`templates/*\`.
 
@@ -160,7 +166,17 @@ Follow these steps to restore it.
    \`cp\` would leave the files in staging with no \`.claude/skills/\`
    mirror — the collection would stay invisible. (Writing
    \`.claude/skills/\` directly is not an option either: that path is
-   permission-gated.)
+   permission-gated.)`;
+}
+
+function buildRestoreDoc(collection: LoadedCollection, staged: boolean): string {
+  const { slug, schema } = collection;
+  return `# Restore "${schema.title}" (collection \`${slug}\`)
+
+This folder is an automatic backup made when the collection was deleted.
+Follow these steps to restore it.
+
+${restoreSkillStep(slug, staged)}
 
 ${restoreRecordsStep(schema)}
 
@@ -177,7 +193,7 @@ async function writeArchive(collection: LoadedCollection, archiveDir: string, wo
   // Prefer the canonical staging dir; fall back to the active mirror
   // for a project collection that was created without the bridge.
   const staging = stagingSkillDir(workspaceRoot, collection.slug);
-  const skillSrc = (await pathExists(staging)) ? staging : collection.skillDir;
+  const skillSrc = staging !== null && (await pathExists(staging)) ? staging : collection.skillDir;
   await cp(skillSrc, path.join(archiveDir, "skill"), { recursive: true });
   if (await pathExists(collection.dataDir)) {
     await cp(collection.dataDir, path.join(archiveDir, "records"), { recursive: true });
@@ -200,14 +216,18 @@ async function writeArchive(collection: LoadedCollection, archiveDir: string, wo
       }
     }
   }
-  await writeFile(path.join(archiveDir, "RESTORE.md"), buildRestoreDoc(collection), "utf-8");
+  await writeFile(path.join(archiveDir, "RESTORE.md"), buildRestoreDoc(collection, staging !== null), "utf-8");
 }
 
 /** Remove all three locations. `rm -rf`-style (force) so a missing dir
  *  is a no-op; the now-empty data parent (`data/<slug>/` after its
  *  `items/` is gone) is swept too, but only when empty. */
 async function removeLocations(collection: LoadedCollection, workspaceRoot: string): Promise<void> {
-  await rm(stagingSkillDir(workspaceRoot, collection.slug), { recursive: true, force: true });
+  // Only when the root HAS a staging tree. A host that returned the skill dir
+  // here instead of null would have this `rm -rf` delete the committed skill
+  // under the name "staging" — see the `skillsStagingDir` contract.
+  const staging = stagingSkillDir(workspaceRoot, collection.slug);
+  if (staging !== null) await rm(staging, { recursive: true, force: true });
   await rm(collection.skillDir, { recursive: true, force: true });
   await rm(collection.dataDir, { recursive: true, force: true });
   await rmdir(path.dirname(collection.dataDir)).catch(() => undefined);

@@ -156,7 +156,22 @@ export type CollectionCustomView = z.infer<typeof CustomViewZ>;
  *  collection's data endpoint. `read` returns enriched records (getItems
  *  semantics); `write` validates-and-stores rows (putItems semantics).
  *  There is deliberately no `delete` — a view can never do more than the
- *  agent's own `manageCollection` tool. */
+ *  agent's own `manageCollection` tool.
+ *
+ *  TWO HOST INVARIANTS ride on this token, and both are easy to break in a
+ *  multi-root host:
+ *
+ *  1. **The token carries an OPAQUE scope, never a path.** A collection's
+ *     identity is `(root, slug)`, so a token minted in a multi-root host has to
+ *     say which root — but the token is signed, not encrypted, and is handed to
+ *     an LLM-authored iframe. An absolute root in the payload publishes the
+ *     user's home directory to that iframe. Mint an opaque project id and
+ *     resolve it host-side.
+ *  2. **The scope goes in the TOKEN, not on `dataUrl`.** `__MC_VIEW.dataUrl` is
+ *     a bare base URL that views concatenate onto (`+ "?fields=…"`,
+ *     `+ "/query"`, `+ "/actions/…"`, `+ "/image?path=…"` — see
+ *     `assets/helps/custom-view.md`). A host that appends its own query
+ *     parameter there to carry the project breaks every one of those calls. */
 export type CollectionViewCapability = NonNullable<CollectionCustomView["capabilities"]>[number];
 
 /** How a `spawn` advances the source item's `triggerField` date to

@@ -35,7 +35,7 @@
     "test": "echo 'no in-package tests; presentChart logic is covered by host integration tests'"
   },
   "dependencies": {
-    "@mulmoclaude/core": "^3.0.1"
+    "@mulmoclaude/core": "^3.1.0"
   },
   "peerDependencies": {
     "echarts": "^6.0.0",

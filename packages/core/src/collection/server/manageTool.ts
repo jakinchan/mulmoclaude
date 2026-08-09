@@ -61,10 +61,10 @@ import { enrichItems } from "./derive";
 import { validateCollectionRecords, validateRecordObject } from "./validate";
 import { buildWorkspaceOntology } from "./ontology";
 import { resolveDataDir } from "./paths";
-import { getWorkspaceRoot } from "./host";
+import { getWorkspaceRoot, stagingSkillDir } from "./host";
 import { writeFileAtomic } from "../../files/atomic.js";
-import { dataSkillDir, mirrorSkillWrite } from "../../skill-bridge/index.js";
-import { renderSchemaDocs } from "./schemaDocs";
+import { mirrorSkillWrite } from "../../skill-bridge/index.js";
+import { renderSchemaDocs, type AuthoringVariant } from "./schemaDocs";
 // NOTE: only the browser-safe `slug` module — workspace-setup's assets.ts uses
 // `import.meta.url` and is ESM-only (build pass 2), while this entry builds
 // dual ESM+CJS. The bundled-docs dir is injected instead (`bundledHelpsDir`).
@@ -84,6 +84,10 @@ export const MAX_SCHEMA_ISSUES = 20;
 /** The workspace help-docs dir both hosts seed (`@mulmoclaude/core/workspace-setup`
  *  syncs the bundled assets here) — the user-editable copy schemaDocs prefers. */
 const HELPS_DIR = "config/helps";
+/** `schemaDocs` names no collection, but the authoring layout is resolved per
+ *  slug (staging is `<staging>/<slug>`). This stands in, so the doc variant and
+ *  a later `putSchema` on any slug in this root cannot disagree. */
+const SCHEMA_DOCS_PROBE_SLUG = "_";
 
 /** Workspace-targeting overrides, threaded to every collections call.
  *  Production: `{}` (the configured collection host's workspace).
@@ -105,12 +109,47 @@ export type ManageCollectionDeps = DiscoveryOptions & {
    *  while this entry builds dual ESM+CJS. Omitted, only the workspace
    *  copy is tried. */
   bundledHelpsDir?: (() => string) | undefined;
+  /** Does THIS root author collection skills through a `data/skills/` staging
+   *  tree that a skill-bridge hook mirrors into `.claude/skills/`?
+   *
+   *  `true` (the default, and the managed-workspace behaviour) serves the
+   *  authoring reference telling the agent to write under `data/skills/<slug>/`
+   *  — correct there, because `.claude/` is gated and the bridge mirrors across.
+   *
+   *  `false` is for a root with NO bridge (a plain project folder). There the
+   *  same instruction fails silently and completely: the agent writes
+   *  `data/skills/<slug>/schema.json`, nothing mirrors it, discovery only scans
+   *  `<root>/.claude/skills`, and the collection is never discovered — with no
+   *  error anywhere. The unstaged text tells the agent to author directly under
+   *  `.claude/skills/<slug>/` instead.
+   *
+   *  A host that binds one root per project passes this per call, alongside
+   *  `workspaceRoot`; it is deliberately NOT derived from `skillsStagingDir`
+   *  returning null, because the doc variant is a statement the host makes, not
+   *  something the package should infer. */
+  stagedSkillAuthoring?: boolean | undefined;
 };
 
 /** Resolve the workspace root the same way every collections call does:
  *  the injected override (tests) or the configured collection host. */
 function resolveBase(deps: ManageCollectionDeps): string {
   return deps.workspaceRoot ?? getWorkspaceRoot();
+}
+
+/** Where a collection skill is authored in THIS root, and therefore both which
+ *  authoring guide `schemaDocs` serves and where `getSchema` / `putSchema`
+ *  read and write. `null` staging means "author in the active skill dir".
+ *
+ *  ONE predicate on purpose. Two knobs describe this — the host's
+ *  `stagedSkillAuthoring` and its `skillsStagingDir` — and either alone can
+ *  disagree with the other: a host that says `stagedSkillAuthoring: false`
+ *  while still returning a staging path would have the agent told to write
+ *  `.claude/skills/<slug>/` while `putSchema` wrote `data/skills/` and mirrored
+ *  from there, so the tool would silently contradict its own documentation.
+ *  Staged requires BOTH to agree; anything else is direct. */
+function authoringTarget(deps: ManageCollectionDeps, slug: string): { variant: AuthoringVariant; stagingDir: string | null } {
+  const stagingDir = deps.stagedSkillAuthoring === false ? null : stagingSkillDir(resolveBase(deps), slug);
+  return { variant: stagingDir === null ? "direct" : "staged", stagingDir };
 }
 
 /** Shared "unknown collection" message — its schema.json is missing or
@@ -424,13 +463,16 @@ async function handleGetOntology(deps: ManageCollectionDeps): Promise<string> {
  *  fallback. Both reads guarded; if neither resolves the agent still
  *  gets an actionable message instead of a thrown call. */
 async function handleSchemaDocs(deps: ManageCollectionDeps, topic?: string): Promise<string> {
+  // The slug is irrelevant to the doc variant — only the root's layout is — so
+  // any placeholder resolves the same branch `getSchema` / `putSchema` take.
+  const { variant } = authoringTarget(deps, SCHEMA_DOCS_PROBE_SLUG);
   const candidates = [
     path.join(resolveBase(deps), HELPS_DIR, SCHEMA_DOCS_FILE),
     ...(deps.bundledHelpsDir ? [path.join(deps.bundledHelpsDir(), SCHEMA_DOCS_FILE)] : []),
   ];
   for (const candidate of candidates) {
     try {
-      return renderSchemaDocs(await readFile(candidate, "utf-8"), topic);
+      return renderSchemaDocs(await readFile(candidate, "utf-8"), topic, variant);
     } catch {
       // try the next source
     }
@@ -446,7 +488,8 @@ async function handleGetSchema(slug: string, deps: ManageCollectionDeps): Promis
   const collection = await loadCollection(slug, deps);
   if (!collection) return unknownCollection(slug);
   // Path from the discovered (sanitized) slug, never the raw arg.
-  const candidates = [path.join(dataSkillDir(resolveBase(deps), collection.slug), SCHEMA_FILE), path.join(collection.skillDir, SCHEMA_FILE)];
+  const { stagingDir } = authoringTarget(deps, collection.slug);
+  const candidates = [...(stagingDir === null ? [] : [path.join(stagingDir, SCHEMA_FILE)]), path.join(collection.skillDir, SCHEMA_FILE)];
   for (const candidate of candidates) {
     try {
       return await readFile(candidate, "utf-8");
@@ -457,11 +500,20 @@ async function handleGetSchema(slug: string, deps: ManageCollectionDeps): Promis
   return `manageCollection: '${defangForPrompt(slug)}' has no readable ${SCHEMA_FILE}.`;
 }
 
+/** Where the agent should CREATE a collection skill in this root, named in the
+ *  messages that tell it to. Naming `data/skills/` under a root that has no
+ *  staging tree sends the agent to a directory nothing reads — the exact
+ *  silent failure the root-aware authoring guide exists to prevent, reappearing
+ *  in an error string the agent is far more likely to act on immediately. */
+function authoringDirLabel(deps: ManageCollectionDeps, slug: string): string {
+  return authoringTarget(deps, slug).variant === "staged" ? `data/skills/${slug}/` : `.claude/skills/${slug}/`;
+}
+
 /** Refuse a schema edit the host can't honour: user-scope/feed collections
  *  are read-only, and presets (mc-*) re-seed on restart so an edit is lost. */
-function schemaEditRefusal(collection: LoadedCollection, slug: string): string | null {
+function schemaEditRefusal(collection: LoadedCollection, slug: string, deps: ManageCollectionDeps): string | null {
   if (collection.source !== "project") {
-    return `manageCollection: '${defangForPrompt(slug)}' is ${collection.source}-scope and read-only here — only project collections (data/skills/) can be edited.`;
+    return `manageCollection: '${defangForPrompt(slug)}' is ${collection.source}-scope and read-only here — only project collections (${authoringDirLabel(deps, "<slug>")}) can be edited.`;
   }
   if (isPresetSlug(slug)) {
     return `manageCollection: '${defangForPrompt(slug)}' is a preset (mc-*) and re-seeds on restart — copy it under a different slug to customise.`;
@@ -481,11 +533,21 @@ function formatSchemaIssues(issues: readonly { path: PropertyKey[]; message: str
 
 /** Write the validated schema to the canonical staging copy, then mirror
  *  it into the active `.claude/skills/` tree discovery reads — an internal
- *  write doesn't fire the skill-bridge hook, so we mirror explicitly. */
-async function writeAndMirrorSchema(slug: string, schema: unknown, deps: ManageCollectionDeps): Promise<void> {
+ *  write doesn't fire the skill-bridge hook, so we mirror explicitly.
+ *
+ *  A root with NO staging tree has no bridge to mirror through either, so the
+ *  active skill dir IS the canonical copy and is written directly. Mirroring
+ *  there would read a staging file that never exists. */
+async function writeAndMirrorSchema(slug: string, skillDir: string, schema: unknown, deps: ManageCollectionDeps): Promise<void> {
   const base = resolveBase(deps);
-  await writeFileAtomic(path.join(dataSkillDir(base, slug), SCHEMA_FILE), `${JSON.stringify(schema, null, 2)}\n`);
-  mirrorSkillWrite(base, { slug, relSegments: [SCHEMA_FILE] });
+  const serialized = `${JSON.stringify(schema, null, 2)}\n`;
+  const { stagingDir } = authoringTarget(deps, slug);
+  if (stagingDir === null) {
+    await writeFileAtomic(path.join(skillDir, SCHEMA_FILE), serialized);
+  } else {
+    await writeFileAtomic(path.join(stagingDir, SCHEMA_FILE), serialized);
+    mirrorSkillWrite(base, { slug, relSegments: [SCHEMA_FILE] });
+  }
   try {
     await deps.refreshAfterWrite?.();
   } catch {
@@ -511,17 +573,17 @@ function schemaDiscoveryGate(schema: CollectionSchema, base: string): string | n
 }
 
 /** Validate a schema against CollectionSchemaZ and, on success, persist it.
- *  Edit-only: a new collection is created by writing SKILL.md + schema.json
- *  under data/skills/<slug>/ (the normal create flow), not through here. */
+ *  Edit-only: a new collection is created by writing SKILL.md + schema.json in
+ *  the root's authoring dir (the normal create flow), not through here. */
 async function handlePutSchema(slug: string, schemaArg: unknown, deps: ManageCollectionDeps): Promise<string> {
   if (!schemaArg || typeof schemaArg !== "object" || Array.isArray(schemaArg)) {
     return "manageCollection: `schema` is required for putSchema — the full collection schema object.";
   }
   const collection = await loadCollection(slug, deps);
   if (!collection) {
-    return `manageCollection: unknown collection '${defangForPrompt(slug)}' — create it by writing SKILL.md + ${SCHEMA_FILE} under data/skills/${defangForPrompt(slug)}/, then edit it here.`;
+    return `manageCollection: unknown collection '${defangForPrompt(slug)}' — create it by writing SKILL.md + ${SCHEMA_FILE} under ${authoringDirLabel(deps, defangForPrompt(slug))}, then edit it here.`;
   }
-  const refusal = schemaEditRefusal(collection, slug);
+  const refusal = schemaEditRefusal(collection, slug, deps);
   if (refusal) return refusal;
   const parsed = CollectionSchemaZ.safeParse(schemaArg);
   if (!parsed.success) return formatSchemaIssues(parsed.error.issues);
@@ -532,7 +594,7 @@ async function handlePutSchema(slug: string, schemaArg: unknown, deps: ManageCol
     return `manageCollection: schema rejected — ${gate} (call schemaDocs for the field reference). It passes basic validation but discovery would skip it, hiding the collection.`;
   }
   // Path from the discovered (sanitized) slug, never the raw arg.
-  await writeAndMirrorSchema(collection.slug, parsed.data, deps);
+  await writeAndMirrorSchema(collection.slug, collection.skillDir, parsed.data, deps);
   return JSON.stringify({ collection: collection.slug, written: true });
 }
 

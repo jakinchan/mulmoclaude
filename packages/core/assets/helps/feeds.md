@@ -16,9 +16,11 @@ engine does that automatically: the first time the feed's view is opened, on an
 hourly schedule thereafter, and when the user clicks **Refresh feed**. Records
 render in the standard collection view at `/feeds/<slug>`.
 
-This is the project philosophy: _the workspace is the database; you are the
-intelligent interface._ Adding a feed = **fetch the URL, look at its real
-fields, and write one `schema.json`.**
+This is the project philosophy: _the folder is the database; you are the
+intelligent interface._ (That folder is the collection's own root — the managed
+workspace, or the project folder the collection lives in; every path below is
+relative to it.) Adding a feed = **fetch the URL, look at its real fields, and
+write one `schema.json`.**
 
 ## Workflow to add a feed
 
@@ -120,4 +122,4 @@ lists all registered feeds, and its delete button does the same.
 - A feed can carry **custom views** just like any collection — author the HTML at
   `feeds/<slug>/views/<name>.html` and register it in the feed's `schema.json`
   under `views[]`. See `config/helps/custom-view.md` (note the feed path is
-  `feeds/<slug>/`, not `data/skills/<slug>/`).
+  `feeds/<slug>/` under the collection's root, not the skill dir).

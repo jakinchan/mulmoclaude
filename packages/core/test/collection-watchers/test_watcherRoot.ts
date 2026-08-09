@@ -17,7 +17,7 @@ import {
   type CollectionChangePayload,
   type LoadedCollection,
 } from "../../src/collection/server/index.ts";
-import { configureNotifier, setNotifierFilePaths } from "../../src/notifier/index.ts";
+import { clear as notifierClear, configureNotifier, listAll, setNotifierFilePaths } from "../../src/notifier/index.ts";
 import {
   configureCollectionWatchers,
   startCollectionWatchers,
@@ -74,12 +74,14 @@ const asCollection = (slug: string, dataDir: string): LoadedCollection =>
 const published: CollectionChangePayload[] = [];
 setCollectionChangePublisher((payload) => published.push(payload));
 
-function seededDataDir(): string {
-  const dir = mkdtempSync(path.join(root, "coll-"));
+function seededDataDirIn(base: string): string {
+  const dir = mkdtempSync(path.join(base, "coll-"));
   writeFileSync(path.join(dir, "t1.json"), JSON.stringify({ id: "t1", name: "Pending" }));
   published.length = 0;
   return dir;
 }
+
+const seededDataDir = (): string => seededDataDirIn(root);
 
 test("a watcher started for an explicit root stamps that root on its payloads", async () => {
   const projectRoot = makeTempDir("cw-proj-");
@@ -97,51 +99,92 @@ test("a watcher started for an explicit root stamps that root on its payloads", 
   }
 });
 
-test("starting a second watcher generation for a different root throws instead of leaving it unwatched", async () => {
-  // This module holds one watcher generation per process. Before, the second
-  // call hit `if (started) return` and root B was simply never watched — direct
-  // file writes there emitted neither live-refresh events nor bells, silently.
+test("two roots are watched at once, each stamping its OWN root — no bleed", async () => {
+  // This used to throw: the module held one generation per process, so the
+  // second root was either refused or (before that) silently unwatched. A
+  // multi-root host needs both live at the same time, and neither may publish
+  // under the other's root — two projects each owning a `tasks` collection
+  // would otherwise refresh each other's open views.
   const rootOne = makeTempDir("cw-one-");
   const rootTwo = makeTempDir("cw-two-");
   await startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootOne }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
+  await startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootTwo }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
   try {
-    await assert.rejects(
-      () => startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootTwo }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null }),
-      /one watcher generation/,
-    );
     // Same root stays idempotent — that is the production restart path.
     await assert.doesNotReject(() =>
       startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootOne }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null }),
+    );
+
+    const dataDir = seededDataDir();
+    await _scheduleItemReconcileForTesting(asCollection("tasks", dataDir), "t1", rootOne);
+    await _scheduleItemReconcileForTesting(asCollection("tasks", dataDir), "t1", rootTwo);
+    assert.deepEqual(
+      published.map((payload) => payload.root),
+      [rootOne, rootTwo],
+    );
+
+    // Stopping ONE root leaves the other running.
+    await stopCollectionWatchers({ workspaceRoot: rootOne });
+    published.length = 0;
+    await _scheduleItemReconcileForTesting(asCollection("tasks", dataDir), "t1", rootTwo);
+    assert.deepEqual(
+      published.map((payload) => payload.root),
+      [rootTwo],
     );
   } finally {
     await stopCollectionWatchers();
   }
 });
 
-test("two CONCURRENT starts for different roots cannot both boot", async () => {
-  // `started` flips only after two awaits, so guarding on it alone let both
-  // callers through: they overwrote each other's `discoveryOpts` mid-boot and
-  // each armed an interval, the first of which then escaped teardown. The
-  // generation claim has to be taken before the first await.
-  const rootOne = makeTempDir("cw-race-a-");
-  const rootTwo = makeTempDir("cw-race-b-");
-  const settled = await Promise.allSettled([
-    startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootOne }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null }),
-    startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootTwo }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null }),
-  ]);
+test("lexically equivalent spellings of one root are ONE generation, not two", async () => {
+  // `/work/proj` and `/work/proj/` are the same tree. Keyed on the raw string
+  // they mount two watcher sets over it, so every direct write publishes twice
+  // and every pending record bells twice — under two ids that can never clear
+  // each other. The claim is canonicalised (`path.resolve`) for that reason.
+  const projectRoot = makeTempDir("cw-canon-");
+  await startCollectionWatchers({ discoveryOpts: { workspaceRoot: projectRoot }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
   try {
-    assert.equal(settled.filter((outcome) => outcome.status === "fulfilled").length, 1);
-    const rejected = settled.find((outcome) => outcome.status === "rejected");
-    assert.match(String(rejected?.status === "rejected" ? rejected.reason : ""), /one watcher generation/);
+    await startCollectionWatchers({ discoveryOpts: { workspaceRoot: `${projectRoot}/` }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
+    await startCollectionWatchers({ discoveryOpts: { workspaceRoot: path.join(projectRoot, ".") }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
 
-    // The winner's root is the one payloads are stamped with — proof the loser
-    // did not overwrite `discoveryOpts` on its way out.
-    const dataDir = seededDataDir();
-    await _scheduleItemReconcileForTesting(asCollection("tasks", dataDir), "t1");
-    assert.equal(published.length, 1);
-    assert.equal(published[0]?.root, rootOne);
+    const dataDir = seededDataDirIn(projectRoot);
+    await _scheduleItemReconcileForTesting(asCollection("tasks", dataDir), "t1", projectRoot);
+    assert.deepEqual(published, [{ slug: "tasks", ids: ["t1"], op: "upsert", root: projectRoot }]);
+
+    // And a stop naming the trailing-slash spelling tears down that same one.
+    await stopCollectionWatchers({ workspaceRoot: `${projectRoot}/` });
+    published.length = 0;
+    await _scheduleItemReconcileForTesting(asCollection("tasks", dataDir), "t1", projectRoot);
+    assert.deepEqual(published, [{ slug: "tasks", ids: ["t1"], op: "upsert" }], "the generation is gone, so the detached fallback publishes rootless");
   } finally {
     await stopCollectionWatchers();
+  }
+});
+
+test("two roots' bells do not dedupe into each other", async () => {
+  // The bell identity is what made concurrency unsafe before: `legacyId` was
+  // `<slug>:<itemId>`, so root B's pending `tasks/t1` found root A's entry and
+  // published nothing. Both apps read one notifier file, so this is a
+  // cross-app contract, not an internal map.
+  const rootOne = makeTempDir("cw-bell-a-");
+  const rootTwo = makeTempDir("cw-bell-b-");
+  // Records must live UNDER the root their generation runs for — the store's
+  // containment check is what makes the two projects separate on disk.
+  const dirOne = seededDataDirIn(rootOne);
+  const dirTwo = seededDataDirIn(rootTwo);
+  const bellSchema = { primaryKey: "id", title: "Tasks", displayField: "name", completionField: "done", completionDoneValues: ["yes"] } as never;
+  const withBells = (dataDir: string): LoadedCollection =>
+    ({ slug: "tasks", source: "project", schema: bellSchema, dataDir, skillDir: dataDir }) as unknown as LoadedCollection;
+  await startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootOne }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
+  await startCollectionWatchers({ discoveryOpts: { workspaceRoot: rootTwo }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
+  try {
+    await _scheduleItemReconcileForTesting(withBells(dirOne), "t1", rootOne);
+    await _scheduleItemReconcileForTesting(withBells(dirTwo), "t1", rootTwo);
+    const ids = (await listAll()).map((entry) => (entry.pluginData as { legacyId?: string }).legacyId);
+    assert.equal(new Set(ids).size, 2, `expected two distinct bells, got ${JSON.stringify(ids)}`);
+  } finally {
+    await stopCollectionWatchers();
+    for (const entry of await listAll()) await notifierClear(entry.id);
   }
 });
 
@@ -164,28 +207,27 @@ test("stop then start for a DIFFERENT root switches generations — the project-
   }
 });
 
-test("naming the host's own configured root explicitly is the same generation, not a conflict", async () => {
+test("naming the host's own configured root explicitly is the same generation, not a second one", async () => {
   // `start()` and `start({ workspaceRoot: <the host default> })` mean the same
-  // thing. Comparing the raw option would have called them different roots and
-  // thrown at a host that merely became explicit about what it already had.
+  // thing. Comparing the raw option would mount two watcher sets over one tree
+  // and publish every change twice.
   await startCollectionWatchers({ rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
   try {
-    await assert.doesNotReject(() =>
-      startCollectionWatchers({ discoveryOpts: { workspaceRoot: root }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null }),
-    );
-    await assert.rejects(
-      () => startCollectionWatchers({ discoveryOpts: { workspaceRoot: makeTempDir("cw-other-") }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null }),
-      (err: unknown) => (err as { code?: string }).code === WATCHER_ROOT_CONFLICT,
-    );
+    await startCollectionWatchers({ discoveryOpts: { workspaceRoot: root }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
+    const dataDir = seededDataDir();
+    await _scheduleItemReconcileForTesting(asCollection("tasks", dataDir), "t1");
+    // One generation ⇒ one publish, and the FIRST start's root-less options win
+    // (the payload carries no root, as a single-workspace host expects).
+    assert.deepEqual(published, [{ slug: "tasks", ids: ["t1"], op: "upsert" }]);
   } finally {
     await stopCollectionWatchers();
   }
 });
 
-test("the two root failures are told apart by code, not by message text", () => {
-  // A host catches watcher startup in one fire-and-forget `.catch`, so both
-  // land on the same log line. The fixes differ — stop the running generation
-  // versus pass the missing option — so the codes have to differ too.
+test("the two root codes stay distinct", () => {
+  // `WATCHER_ROOT_CONFLICT` is no longer thrown — a second root now mounts a
+  // second generation — but it stays exported for hosts that catch it, and it
+  // must never collide with the "this call forgot its workspaceRoot" code.
   assert.notEqual(WATCHER_ROOT_CONFLICT, COLLECTION_ROOT_REQUIRED);
 });
 

@@ -23,7 +23,7 @@ import { isErrorWithCode, isRecord, isUnknownArray } from "@mulmoclaude/common";
 import { readFile, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "../../files/atomic.js";
-import { getWorkspaceRoot, isPresetSlug, skillsStagingDir } from "./host";
+import { getWorkspaceRoot, isPresetSlug, stagingSkillDir } from "./host";
 import { resolveTemplatePath, safeSlugName, SCHEMA_FILE } from "./paths";
 import type { IoOptions } from "./io";
 import type { LoadedCollection } from "./discoveredCollection";
@@ -54,8 +54,8 @@ async function fileExists(target: string): Promise<boolean> {
  *  deletes agree on both layouts. */
 async function canonicalBase(collection: Pick<LoadedCollection, "source" | "skillDir">, workspaceRoot: string, safeSlug: string): Promise<string> {
   if (collection.source !== "project") return collection.skillDir;
-  const staging = path.join(skillsStagingDir(workspaceRoot), safeSlug);
-  if (await fileExists(path.join(staging, SCHEMA_FILE))) return staging;
+  const staging = stagingSkillDir(workspaceRoot, safeSlug);
+  if (staging !== null && (await fileExists(path.join(staging, SCHEMA_FILE)))) return staging;
   return collection.skillDir;
 }
 
@@ -67,9 +67,9 @@ async function canonicalBase(collection: Pick<LoadedCollection, "source" | "skil
 async function schemaWriteTargets(collection: Pick<LoadedCollection, "source" | "skillDir">, workspaceRoot: string, safeSlug: string): Promise<string[]> {
   const active = path.join(collection.skillDir, SCHEMA_FILE);
   if (collection.source !== "project") return [active];
-  const stagingSchema = path.join(skillsStagingDir(workspaceRoot), safeSlug, SCHEMA_FILE);
+  const staging = stagingSkillDir(workspaceRoot, safeSlug);
   const targets: string[] = [];
-  if (await fileExists(stagingSchema)) targets.push(stagingSchema);
+  if (staging !== null && (await fileExists(path.join(staging, SCHEMA_FILE)))) targets.push(path.join(staging, SCHEMA_FILE));
   targets.push(active);
   return targets;
 }

@@ -5,7 +5,26 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 
 import { writeImportedCollection, claudeSkillDir, dataSkillDir, hasNonDirAncestor } from "../../src/collection/registry/server/importWriter.ts";
+import { configureCollectionHost } from "../../src/collection/server/index.ts";
 import type { RegistryEntry } from "../../src/collection/registry/registryIndex.ts";
+
+// The import writer asks the host where a skill is INSTALLED in this root —
+// the staging tree when there is one, the active skill dir when there is not —
+// so it needs a host binding like the rest of the engine. This one describes
+// the standard staged layout, which is what every case below assumes.
+configureCollectionHost({
+  workspaceRoot: null,
+  log: { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} },
+  paths: {
+    userSkillsDir: path.join(tmpdir(), "iw-user-skills-empty"),
+    projectSkillsDir: (root) => path.join(root, ".claude", "skills"),
+    feedsRoot: (root) => path.join(root, "data", "feeds"),
+    skillsStagingDir: (root) => path.join(root, "data", "skills"),
+    archiveDir: "data/archive",
+    collectionsRegistriesConfig: (root) => path.join(root, "config", "collections-registries.json"),
+  },
+  isPresetSlug: () => false,
+});
 
 // `registryName` is the short label the multi-registry refactor passes through
 // (`"official"` for receptron/mulmoclaude-collections, otherwise the user's
