@@ -14,8 +14,16 @@
 //
 // The write is injected so this file needs no Firestore: hostRunner binds it to
 // setDoc, tests bind it to a promise they control.
+//
+// Beats are COUNTED, not timed (#2845). Counting how much time passed answers a
+// different question than the one being asked: three beats' worth of wall clock
+// also elapses while the machine is asleep, while the event loop is blocked, and
+// when NTP steps the clock — in every one of those the beat never ran, so nothing
+// was ever attempted, let alone failed. Counting only the beats that RAN cannot
+// confuse the two, and needs no clock at all.
+import { monotonicNowMs } from "./monotonicClock.js";
 
-// Beats a write may go unacknowledged before the host stops claiming to be online.
+// Beats that may RUN unacknowledged before the host stops claiming to be online.
 // One missed beat is a blip; three means the phone has had nothing fresh to read
 // for as long as it takes to notice.
 export const PRESENCE_STALE_BEATS = 3;
@@ -23,11 +31,12 @@ export const PRESENCE_STALE_BEATS = 3;
 export interface PresenceBeatDeps {
   /** Announce online/offline. Resolves when the backend has the write. */
   write: (online: boolean) => Promise<void>;
-  /** No write has been acknowledged for `silentMs` — the phone cannot see this host. */
+  /** `staleAfterBeats` beats have run with nothing acknowledged — the phone cannot see
+   *  this host. `silentMs` is how long that took, for the report only. */
   onStale: (silentMs: number) => void;
   /** A write was refused (auth, rules, quota). Carries the reason, which used to be dropped. */
   onError: (message: string) => void;
-  staleAfterMs: number;
+  staleAfterBeats: number;
   now?: () => number;
 }
 
@@ -57,16 +66,18 @@ const notify = (report: () => void, onThrow?: (error: unknown) => void): void =>
 };
 
 export const createPresenceBeat = (deps: PresenceBeatDeps): PresenceBeat => {
-  const now = deps.now ?? Date.now;
+  const now = deps.now ?? monotonicNowMs;
   // Starts at "just acknowledged" so a host is given a full window to land its
   // first beat rather than being declared stale before it has written anything.
-  const state = { lastAckMs: now() };
+  // `lastAckMs` is carried for the report; `beatsSinceAck` is what decides.
+  const state = { lastAckMs: now(), beatsSinceAck: 0 };
 
   const announce = (online: boolean): void => {
     const fail = (error: unknown) => notify(() => deps.onError(errorText(error)));
     const ack = () =>
       notify(() => {
         state.lastAckMs = now();
+        state.beatsSinceAck = 0;
       });
     // A write can also fail SYNCHRONOUSLY — Firestore validates the payload before
     // it returns a promise (that is how one bad field throws before anything is
@@ -77,11 +88,11 @@ export const createPresenceBeat = (deps: PresenceBeatDeps): PresenceBeat => {
   };
 
   const beat = (): void => {
-    const silentMs = now() - state.lastAckMs;
+    state.beatsSinceAck += 1;
     // Deliberately no write here: another mutation would only queue up behind the
     // ones already stuck, and the answer for this beat is already known.
-    if (silentMs >= deps.staleAfterMs) {
-      notify(() => deps.onStale(silentMs));
+    if (state.beatsSinceAck >= deps.staleAfterBeats) {
+      notify(() => deps.onStale(now() - state.lastAckMs));
       return;
     }
     announce(true);

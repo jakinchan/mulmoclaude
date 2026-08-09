@@ -8,7 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
-### Changed
+### Package releases
 
 #### Multi-root, finished: identity, the authoring docs, and per-root operation
 
@@ -55,6 +55,36 @@ change payload, a bell id — so `/work/proj` and `/work/proj/` are one project 
 Symlinks are deliberately not resolved; see `canonicalRoot`.
 
 Ships `@mulmoclaude/core@3.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.1.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+#### `@mulmoclaude/core` 3.0.0 → 3.0.1 — remote host stops mistaking its own downtime for a dead channel (#2845, #2846)
+
+The remote host judged "can my phone still reach this Mac?" by wall clock, so any stretch where the
+process was not running — sleep, a clock jump, a stalled event loop — was counted as time the channel
+had been failing. A user saw `no presence write acknowledged for 459s`, which a genuine outage cannot
+produce: with a 60s heartbeat and a 3-beat threshold, a real disconnect always reports at 180s. 459s
+means the 60s timer did not fire for roughly five minutes.
+
+It failed twice over: the false "disconnected" report, and then the outer ring — whose give-up budget
+was also wall-clock — spending its whole 5-minute allowance on the gap and giving up **without
+attempting a single reconnect**, leaving the user to reconnect by hand.
+
+- Presence now counts **beats that actually ran** (`staleAfterBeats`) instead of elapsed milliseconds,
+  so a beat that never fired cannot age the channel. A real outage still reports on the third beat.
+- The resilient runner treats a task firing more than `RESUME_GAP_MS` (1 min) late as evidence the
+  process was not running: it resets the outage window and backoff, and that task becomes the first
+  attempt after the gap. Give-up remains measured in time, as specified.
+- Elapsed-time measurement moved to a monotonic clock, with the wall clock kept separately for
+  `changedAt` timestamps.
+- The error string now reads `no presence write acknowledged across 3 beats (180s)` — surfaced in
+  MulmoTerminal as `Last error:` — so a future report distinguishes "the clock jumped" from "the host
+  is genuinely down" on one line.
+
+`staleAfterMs` → `staleAfterBeats` is internal to core; the published `presenceStaleAfterMs()` and
+`createPresenceProbe` signatures are unchanged, so downstream hosts need no change. Every consumer's
+declared range was swept to `^3.0.1`; a caret floats across a patch, so no plugin or launcher
+republish is required to deliver it.
+
+Ships `@mulmoclaude/accounting-plugin@2.1.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@3.0.1`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ## [1.13.0] - 2026-08-09
 

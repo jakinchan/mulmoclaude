@@ -31,13 +31,27 @@ interface PendingTask {
   task: () => void;
 }
 
+const nextDue = (pending: Map<number, PendingTask>, targetMs: number): [number, PendingTask] | undefined =>
+  [...pending.entries()].filter(([, timer]) => timer.atMs <= targetMs).sort(([, left], [, right]) => left.atMs - right.atMs)[0];
+
+// Run everything due by `targetMs`, oldest first, then land the clock there.
+// Never backwards: after a `sleep` the due time is already in the past.
+const runDue = (pending: Map<number, PendingTask>, state: { nowMs: number }, targetMs: number): void => {
+  for (;;) {
+    const due = nextDue(pending, targetMs);
+    if (!due) break;
+    pending.delete(due[0]);
+    state.nowMs = Math.max(state.nowMs, due[1].atMs);
+    due[1].task();
+  }
+  state.nowMs = Math.max(state.nowMs, targetMs);
+};
+
 // A controllable clock: the windows here are minutes long, so tests drive time
 // rather than wait for it.
 const fakeClock = () => {
   const state = { nowMs: 1_000_000, nextKey: 1 };
   const pending = new Map<number, PendingTask>();
-  const nextDue = (targetMs: number): [number, PendingTask] | undefined =>
-    [...pending.entries()].filter(([, timer]) => timer.atMs <= targetMs).sort(([, left], [, right]) => left.atMs - right.atMs)[0];
   return {
     now: () => state.nowMs,
     schedule: (task: () => void, delayMs: number) => {
@@ -49,17 +63,13 @@ const fakeClock = () => {
       };
     },
     pendingCount: () => pending.size,
-    advance: (deltaMs: number) => {
-      const targetMs = state.nowMs + deltaMs;
-      for (;;) {
-        const due = nextDue(targetMs);
-        if (!due) break;
-        pending.delete(due[0]);
-        state.nowMs = due[1].atMs;
-        due[1].task();
-      }
-      state.nowMs = targetMs;
+    // Time passing with the process NOT running — a system sleep, a blocked event
+    // loop. Due timers stay pending and fire, late, on the next advance. `advance`
+    // cannot express this: it runs every task at the exact moment it came due.
+    sleep: (deltaMs: number) => {
+      state.nowMs += deltaMs;
     },
+    advance: (deltaMs: number) => runDue(pending, state, state.nowMs + deltaMs),
   };
 };
 
@@ -81,19 +91,26 @@ const fakeRunner = () => {
   };
 };
 
+// How far the fake wall clock sits from the fake elapsed clock. Offset on purpose:
+// `changedAt` is an epoch the UI renders as a time, and a test in which both clocks
+// read the same number could not tell one being used for the other (#2845).
+const EPOCH_OFFSET_MS = 1_700_000_000_000;
+
 const setup = (overrides: Partial<ResilientHostRunnerDeps> = {}) => {
   const clock = fakeClock();
   const runner = fakeRunner();
   const logs = { info: [] as string[], warn: [] as string[] };
+  const wallNow = () => clock.now() + EPOCH_OFFSET_MS;
   const stop = startResilientHostRunner({
     start: runner.start,
     options: {},
     log: { info: (msg) => logs.info.push(msg), warn: (msg) => logs.warn.push(msg) },
     schedule: clock.schedule,
     now: clock.now,
+    wallNow,
     ...overrides,
   });
-  return { clock, runner, logs, stop };
+  return { clock, runner, logs, stop, wallNow };
 };
 
 // An outage nothing recovers from: every relaunch is killed before it can settle,
@@ -473,20 +490,25 @@ describe("startResilientHostRunner — health reporting", () => {
   });
 
   it("carries the channel error, and drops it again on recovery", async () => {
-    const { clock, runner, health } = withHealth();
+    const { clock, runner, health, wallNow } = withHealth();
     runner.started[0]?.onEvent?.({ phase: "error", method: "listen", message: "unavailable" });
     runner.die();
     assert.equal(health.at(-1)?.lastError, "listen: unavailable");
 
     await advanceAsync(clock, 1_000 + SETTLE_MS);
-    assert.deepEqual(health.at(-1), { state: "online", lastError: null, changedAt: clock.now() });
+    assert.deepEqual(health.at(-1), { state: "online", lastError: null, changedAt: wallNow() });
   });
 
-  it("stamps each change with the clock it was given", () => {
-    const { clock, runner, health } = withHealth();
+  // `changedAt` is documented as "ms epoch of the last state change, so the UI can
+  // say how long it has been down". The clock the runner measures outages with is
+  // monotonic and counts from process start, so stamping this from it would render
+  // as 1970 (#2845).
+  it("stamps each change with the wall clock, not the elapsed-time clock", () => {
+    const { clock, runner, health, wallNow } = withHealth();
     clock.advance(5_000);
     runner.die();
-    assert.equal(health.at(-1)?.changedAt, clock.now());
+    assert.equal(health.at(-1)?.changedAt, wallNow());
+    assert.notEqual(health.at(-1)?.changedAt, clock.now());
   });
 
   // A host with no health UI passes no callback; nothing here may depend on one.
@@ -517,5 +539,59 @@ describe("startResilientHostRunner — health reporting", () => {
       logs.warn.some((msg) => msg.includes("health observer threw: observer blew up")),
       logs.warn.join(" | "),
     );
+  });
+});
+
+// #2845. The give-up rule is TIME, and time is exactly what a frozen process keeps
+// spending: a host reported "no presence write acknowledged for 459s" — a number
+// its 60s beat could not reach while running — and by the time anything ran again
+// the five-minute budget was gone, so the ring escalated to the client without one
+// attempt against the network as it then stood. A gap in which nothing ran is not
+// an outage the channel is responsible for.
+describe("startResilientHostRunner — a gap in which nothing ran does not spend the budget", () => {
+  const GAP_MS = GIVE_UP_MS + 60_000;
+
+  it("does not give up when an overdue relaunch fires after a gap longer than the whole budget", async () => {
+    const closures = { count: 0 };
+    const { clock, runner, logs } = setup({
+      options: {
+        onClosed: () => {
+          closures.count += 1;
+        },
+      },
+    });
+    runner.die(); // the outage starts; a relaunch is queued one second out
+    clock.sleep(GAP_MS); // asleep / stalled: the wall clock moves, nothing runs
+    await advanceAsync(clock, 0); // and now the overdue relaunch fires
+
+    assert.equal(closures.count, 0, "gave up without one attempt against the network as it now stands");
+    assert.equal(runner.started.length, 2, "the overdue relaunch still runs");
+    assert.ok(
+      logs.warn.some((msg) => msg.includes("resumed after a")),
+      logs.warn.join(" | "),
+    );
+  });
+
+  it("still gives up if the channel keeps failing after the gap", async () => {
+    const closures = { count: 0 };
+    const { clock, runner } = setup({
+      options: {
+        onClosed: () => {
+          closures.count += 1;
+        },
+      },
+    });
+    runner.die();
+    clock.sleep(GAP_MS);
+    await advanceAsync(clock, 0);
+
+    keepFailing(clock, runner, 11); // 363s of real, attempted failure > the 5-minute window
+    assert.equal(closures.count, 1);
+  });
+
+  it("leaves the budget alone when a task merely fires on time", () => {
+    const { clock, runner, logs } = setup({ options: { onClosed: () => undefined } });
+    keepFailing(clock, runner, 11);
+    assert.ok(!logs.warn.some((msg) => msg.includes("resumed after a")), "ordinary backoff must not read as a gap");
   });
 });

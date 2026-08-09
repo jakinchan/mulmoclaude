@@ -38,6 +38,7 @@ import {
 } from "../index.js";
 import { stripUndefined, undefinedPaths, unexpectedPaths } from "./firestoreSafeResult.js";
 import { PRESENCE_STALE_BEATS, createPresenceBeat, type PresenceBeat } from "./presenceBeat.js";
+import { monotonicNowMs } from "./monotonicClock.js";
 
 // Exported so a host that judges presence freshness from the outside (a probe that
 // reads the doc back) measures against the same beat the runner writes on.
@@ -241,7 +242,8 @@ interface ListenerRun {
   retryTimer: ReturnType<typeof setTimeout> | null;
   attempt: number;
   // Start of the current outage, or null while healthy. `attempt` still drives the
-  // backoff ladder; only the give-up decision reads the clock.
+  // backoff ladder; only the give-up decision reads the clock — a MONOTONIC one, so
+  // a clock step cannot spend this window on its own.
   downSinceMs: number | null;
 }
 
@@ -250,6 +252,8 @@ interface ListenerRun {
 // orderBy("createdAt") because a Firestore orderBy silently EXCLUDES docs missing
 // the field, dropping every pre-offline-queue command.
 const dispatchAddedCommands = (ctx: RunnerContext, snapshot: QuerySnapshot): void => {
+  // Wall clock on purpose, unlike the outage timers below: this is compared with a
+  // command's `expiresAt`, which the phone stamped from its own clock.
   const now = Date.now();
   snapshot
     .docChanges()
@@ -281,7 +285,7 @@ function scheduleResubscribe(run: ListenerRun): void {
 function handleListenError(run: ListenerRun, error: FirestoreError): void {
   run.ctx.options.onEvent?.({ phase: "error", method: "listen", message: error.message });
   if (run.stopped) return;
-  const now = Date.now();
+  const now = monotonicNowMs();
   run.downSinceMs ??= now;
   if (classifyListenerError(error) === "fatal" || shouldGiveUpListening(run.downSinceMs, now)) {
     run.goOffline();
@@ -339,8 +343,8 @@ export const presenceStaleAfterMs = (options: HostRunnerOptions = {}): number =>
 
 // Advertise online/offline + the capability set (method names + protocol version)
 // on the same doc the remote already listens to for presence, and watch whether
-// those writes are landing — see presenceBeat.ts for why the sensor is the age of
-// the last acknowledgement rather than a count of failures.
+// those writes are landing — see presenceBeat.ts for why the sensor counts the
+// beats that ran rather than the time that passed.
 const buildPresenceBeat = (
   firestore: Firestore,
   channel: Channel,
@@ -354,10 +358,10 @@ const buildPresenceBeat = (
     write: (online) => setDoc(presence, { ...buildHostPresence(channel, handlers, online), updatedAt: serverTimestamp() }),
     onError: (message) => report(`presence write failed: ${message}`),
     onStale: (silentMs) => {
-      report(`no presence write acknowledged for ${Math.round(silentMs / 1_000)}s — the remote cannot see this host`);
+      report(`no presence write acknowledged across ${PRESENCE_STALE_BEATS} beats (${Math.round(silentMs / 1_000)}s) — the remote cannot see this host`);
       onStale();
     },
-    staleAfterMs: presenceStaleAfterMs(options),
+    staleAfterBeats: PRESENCE_STALE_BEATS,
   });
 };
 
