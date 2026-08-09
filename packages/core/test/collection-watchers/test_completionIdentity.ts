@@ -12,7 +12,13 @@ import path from "node:path";
 
 import { configureCollectionHost, type LoadedCollection } from "../../src/collection/server/index.ts";
 import { clear as notifierClear, configureNotifier, listAll, setNotifierFilePaths } from "../../src/notifier/index.ts";
-import { configureCollectionWatchers, reconcileItem, clearItemNotification, type CollectionNotificationAdapter } from "../../src/collection-watchers/index.ts";
+import {
+  configureCollectionWatchers,
+  reconcileItem,
+  clearItemNotification,
+  sweepStaleActiveEntries,
+  type CollectionNotificationAdapter,
+} from "../../src/collection-watchers/index.ts";
 import { makeTempDir } from "../helpers/tempDir.js";
 
 const root = makeTempDir("ci-root-");
@@ -40,12 +46,29 @@ configureNotifier({
   publishEvent: () => {},
 });
 
+/** A host's project-id table. The adapter resolves a root to an OPAQUE id and
+ *  never puts the path itself in the target — a deep link ends up in URLs, and
+ *  from there in tokens and iframes, so an absolute root would publish the
+ *  user's home directory. The test asserts the opaque form for that reason. */
+const projectIds = new Map<string, string>();
+const projectId = (forRoot: string): string => {
+  const existing = projectIds.get(forRoot);
+  if (existing) return existing;
+  const minted = `p${projectIds.size + 1}`;
+  projectIds.set(forRoot, minted);
+  return minted;
+};
+
 const navigateTargets: string[] = [];
+/** What the adapter was handed, so the root can be asserted without requiring
+ *  it to appear in the target. */
+const navigateRoots: (string | undefined)[] = [];
 const adapter: CollectionNotificationAdapter = {
   pluginPkg: "test-bells",
   priorityToSeverity: () => "nudge",
   buildNavigateTarget: (slug, itemId, entryRoot) => {
-    const target = entryRoot === undefined ? `/x/${slug}/${itemId}` : `/x/${encodeURIComponent(entryRoot)}/${slug}/${itemId}`;
+    navigateRoots.push(entryRoot);
+    const target = entryRoot === undefined ? `/x/${slug}/${itemId}` : `/x/${projectId(entryRoot)}/${slug}/${itemId}`;
     navigateTargets.push(target);
     return target;
   },
@@ -75,6 +98,7 @@ function fixture(base: string): string {
   const notifDir = mkdtempSync(path.join(root, "notif-"));
   setNotifierFilePaths({ active: path.join(notifDir, "active.json"), history: path.join(notifDir, "history.json") });
   navigateTargets.length = 0;
+  navigateRoots.length = 0;
   return dir;
 }
 
@@ -85,6 +109,7 @@ test("with no root the legacyId and the navigate target are exactly what they al
   await reconcileItem(asCollection(dataDir), "t1");
   assert.deepEqual(await legacyIds(), ["collection-completion:tasks:t1"]);
   assert.deepEqual(navigateTargets, ["/x/tasks/t1"]);
+  assert.deepEqual(navigateRoots, [undefined]);
 });
 
 test("with a root the id carries it, and the adapter is told which project to deep-link into", async () => {
@@ -92,7 +117,10 @@ test("with a root the id carries it, and the adapter is told which project to de
   const dataDir = fixture(projectRoot);
   await reconcileItem(asCollection(dataDir), "t1", { workspaceRoot: projectRoot });
   assert.deepEqual(await legacyIds(), [rootedId(projectRoot)]);
-  assert.deepEqual(navigateTargets, [`/x/${encodeURIComponent(projectRoot)}/tasks/t1`]);
+  // The adapter is told the root; the TARGET carries only the opaque id.
+  assert.deepEqual(navigateRoots, [projectRoot]);
+  assert.deepEqual(navigateTargets, [`/x/${projectId(projectRoot)}/tasks/t1`]);
+  assert.ok(!(navigateTargets[0] ?? "").includes(projectRoot), "the absolute root must not appear in a deep link");
 });
 
 test("two roots, one slug, one itemId — two bells, not one", async () => {
@@ -123,6 +151,45 @@ test("a root-less clear does not touch a rooted entry", async () => {
   assert.equal((await listAll()).length, 2);
 
   await clearItemNotification("tasks", "t1");
+  assert.deepEqual(await legacyIds(), [rootedId(projectRoot)]);
+  for (const entry of await listAll()) await notifierClear(entry.id);
+});
+
+test("a rooted sweep clears LEGACY rootless entries instead of stranding them", async () => {
+  // Upgrade path. A host that passes roots has entries in `active.json` written
+  // before ids carried one. Nothing it does from now on produces a rootless id,
+  // so skipping them as "another root's" would strand a bell that no pass can
+  // ever clear — while the reconcile publishes a second, rooted one beside it.
+  // Clearing converges: the record republishes rooted if it is still pending.
+  const rootOne = makeTempDir("ci-legacy-a-");
+  const rootTwo = makeTempDir("ci-legacy-b-");
+  const legacyDir = fixture(root);
+  const otherDir = mkdtempSync(path.join(rootTwo, "coll-"));
+  writeFileSync(path.join(otherDir, "t1.json"), JSON.stringify({ id: "t1", name: "Pending", done: "no" }));
+
+  await reconcileItem(asCollection(legacyDir), "t1"); // legacy: no root
+  await reconcileItem(asCollection(otherDir), "t1", { workspaceRoot: rootTwo });
+  assert.equal((await listAll()).length, 2);
+
+  await sweepStaleActiveEntries({ workspaceRoot: rootOne });
+
+  // The legacy entry is gone; the entry belonging to ANOTHER root is untouched,
+  // because this sweep cannot see that tree and every check would read "gone".
+  assert.deepEqual(await legacyIds(), [rootedId(rootTwo)]);
+  for (const entry of await listAll()) await notifierClear(entry.id);
+});
+
+test("a rootless sweep leaves a ROOTED entry alone", async () => {
+  // The mirror of the case above, and the one that protects a single-workspace
+  // host: it sweeps with no root and must not clear a bell belonging to a
+  // project it knows nothing about.
+  const projectRoot = makeTempDir("ci-legacy-c-");
+  fixture(root);
+  const projectDir = mkdtempSync(path.join(projectRoot, "coll-"));
+  writeFileSync(path.join(projectDir, "t1.json"), JSON.stringify({ id: "t1", name: "Pending", done: "no" }));
+
+  await reconcileItem(asCollection(projectDir), "t1", { workspaceRoot: projectRoot });
+  await sweepStaleActiveEntries({});
   assert.deepEqual(await legacyIds(), [rootedId(projectRoot)]);
   for (const entry of await listAll()) await notifierClear(entry.id);
 });

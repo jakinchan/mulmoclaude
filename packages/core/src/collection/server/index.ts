@@ -37,6 +37,7 @@
 
 export {
   configureCollectionHost,
+  canonicalRoot,
   getWorkspaceRoot,
   peekWorkspaceRoot,
   COLLECTION_ROOT_REQUIRED,

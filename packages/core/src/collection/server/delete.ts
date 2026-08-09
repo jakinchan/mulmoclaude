@@ -138,14 +138,24 @@ function restoreRecordsStep(schema: LoadedCollection["schema"]): string {
    Write them one by one).`;
 }
 
-function buildRestoreDoc(collection: LoadedCollection): string {
-  const { slug, schema } = collection;
-  return `# Restore "${schema.title}" (collection \`${slug}\`)
+/** Step 1 of the restore doc, which depends on the root's authoring layout.
+ *
+ *  A staged root routes around the `.claude/` permission gate and relies on the
+ *  bridge hook; a root with no staging tree has neither, so the same
+ *  instructions would have the user restore into `data/skills/<slug>/`, where
+ *  nothing would ever read it — the collection would stay deleted while the
+ *  document said it was restored. */
+function restoreSkillStep(slug: string, staged: boolean): string {
+  if (!staged) {
+    return `1. Recreate the skill files in \`.claude/skills/${slug}/\`: read each
+   file under \`skill/\` and write it to the matching path — \`SKILL.md\`,
+   \`schema.json\`, any \`templates/*\`, and any \`views/*\`.
 
-This folder is an automatic backup made when the collection was deleted.
-Follow these steps to restore it.
-
-1. Recreate the skill files in \`data/skills/${slug}/\` using the **Write
+   This project has no \`data/skills/\` staging tree and no bridge hook, so
+   the skill directory is read directly and no mirroring step follows. Do
+   NOT restore into \`data/skills/${slug}/\` — nothing reads it there.`;
+  }
+  return `1. Recreate the skill files in \`data/skills/${slug}/\` using the **Write
    tool**: read each file under \`skill/\` and Write it to the matching
    path — \`SKILL.md\`, \`schema.json\`, and any \`templates/*\`.
 
@@ -156,7 +166,17 @@ Follow these steps to restore it.
    \`cp\` would leave the files in staging with no \`.claude/skills/\`
    mirror — the collection would stay invisible. (Writing
    \`.claude/skills/\` directly is not an option either: that path is
-   permission-gated.)
+   permission-gated.)`;
+}
+
+function buildRestoreDoc(collection: LoadedCollection, staged: boolean): string {
+  const { slug, schema } = collection;
+  return `# Restore "${schema.title}" (collection \`${slug}\`)
+
+This folder is an automatic backup made when the collection was deleted.
+Follow these steps to restore it.
+
+${restoreSkillStep(slug, staged)}
 
 ${restoreRecordsStep(schema)}
 
@@ -196,7 +216,7 @@ async function writeArchive(collection: LoadedCollection, archiveDir: string, wo
       }
     }
   }
-  await writeFile(path.join(archiveDir, "RESTORE.md"), buildRestoreDoc(collection), "utf-8");
+  await writeFile(path.join(archiveDir, "RESTORE.md"), buildRestoreDoc(collection, staging !== null), "utf-8");
 }
 
 /** Remove all three locations. `rm -rf`-style (force) so a missing dir

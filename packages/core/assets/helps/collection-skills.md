@@ -20,7 +20,7 @@ You **author** the skill under `data/skills/<slug>/` (a plain, writable data
 dir). A host-side hook then **mirrors** the files into `.claude/skills/<slug>/`,
 which is where the host actually discovers and renders the collection from:
 
-```
+```text
 data/skills/<slug>/            ← YOU write here (Write / Edit)
   SKILL.md          ← instructions you read later (how to CRUD the records)
   schema.json       ← the DSL: data model + relations + UI + actions
@@ -40,7 +40,7 @@ You **author** the skill directly under `.claude/skills/<slug>/`. This root has
 no `data/skills/` staging tree and no mirroring hook, so the skill dir is both
 where you write and where the host discovers and renders the collection from:
 
-```
+```text
 .claude/skills/<slug>/         ← YOU write here (Write / Edit), host reads here
   SKILL.md          ← instructions you read later (how to CRUD the records)
   schema.json       ← the DSL: data model + relations + UI + actions

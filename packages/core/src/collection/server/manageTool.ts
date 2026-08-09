@@ -84,6 +84,10 @@ export const MAX_SCHEMA_ISSUES = 20;
 /** The workspace help-docs dir both hosts seed (`@mulmoclaude/core/workspace-setup`
  *  syncs the bundled assets here) — the user-editable copy schemaDocs prefers. */
 const HELPS_DIR = "config/helps";
+/** `schemaDocs` names no collection, but the authoring layout is resolved per
+ *  slug (staging is `<staging>/<slug>`). This stands in, so the doc variant and
+ *  a later `putSchema` on any slug in this root cannot disagree. */
+const SCHEMA_DOCS_PROBE_SLUG = "_";
 
 /** Workspace-targeting overrides, threaded to every collections call.
  *  Production: `{}` (the configured collection host's workspace).
@@ -130,6 +134,22 @@ export type ManageCollectionDeps = DiscoveryOptions & {
  *  the injected override (tests) or the configured collection host. */
 function resolveBase(deps: ManageCollectionDeps): string {
   return deps.workspaceRoot ?? getWorkspaceRoot();
+}
+
+/** Where a collection skill is authored in THIS root, and therefore both which
+ *  authoring guide `schemaDocs` serves and where `getSchema` / `putSchema`
+ *  read and write. `null` staging means "author in the active skill dir".
+ *
+ *  ONE predicate on purpose. Two knobs describe this — the host's
+ *  `stagedSkillAuthoring` and its `skillsStagingDir` — and either alone can
+ *  disagree with the other: a host that says `stagedSkillAuthoring: false`
+ *  while still returning a staging path would have the agent told to write
+ *  `.claude/skills/<slug>/` while `putSchema` wrote `data/skills/` and mirrored
+ *  from there, so the tool would silently contradict its own documentation.
+ *  Staged requires BOTH to agree; anything else is direct. */
+function authoringTarget(deps: ManageCollectionDeps, slug: string): { variant: AuthoringVariant; stagingDir: string | null } {
+  const stagingDir = deps.stagedSkillAuthoring === false ? null : stagingSkillDir(resolveBase(deps), slug);
+  return { variant: stagingDir === null ? "direct" : "staged", stagingDir };
 }
 
 /** Shared "unknown collection" message — its schema.json is missing or
@@ -443,7 +463,9 @@ async function handleGetOntology(deps: ManageCollectionDeps): Promise<string> {
  *  fallback. Both reads guarded; if neither resolves the agent still
  *  gets an actionable message instead of a thrown call. */
 async function handleSchemaDocs(deps: ManageCollectionDeps, topic?: string): Promise<string> {
-  const variant: AuthoringVariant = deps.stagedSkillAuthoring === false ? "direct" : "staged";
+  // The slug is irrelevant to the doc variant — only the root's layout is — so
+  // any placeholder resolves the same branch `getSchema` / `putSchema` take.
+  const { variant } = authoringTarget(deps, SCHEMA_DOCS_PROBE_SLUG);
   const candidates = [
     path.join(resolveBase(deps), HELPS_DIR, SCHEMA_DOCS_FILE),
     ...(deps.bundledHelpsDir ? [path.join(deps.bundledHelpsDir(), SCHEMA_DOCS_FILE)] : []),
@@ -466,8 +488,8 @@ async function handleGetSchema(slug: string, deps: ManageCollectionDeps): Promis
   const collection = await loadCollection(slug, deps);
   if (!collection) return unknownCollection(slug);
   // Path from the discovered (sanitized) slug, never the raw arg.
-  const staging = stagingSkillDir(resolveBase(deps), collection.slug);
-  const candidates = [...(staging === null ? [] : [path.join(staging, SCHEMA_FILE)]), path.join(collection.skillDir, SCHEMA_FILE)];
+  const { stagingDir } = authoringTarget(deps, collection.slug);
+  const candidates = [...(stagingDir === null ? [] : [path.join(stagingDir, SCHEMA_FILE)]), path.join(collection.skillDir, SCHEMA_FILE)];
   for (const candidate of candidates) {
     try {
       return await readFile(candidate, "utf-8");
@@ -510,11 +532,11 @@ function formatSchemaIssues(issues: readonly { path: PropertyKey[]; message: str
 async function writeAndMirrorSchema(slug: string, skillDir: string, schema: unknown, deps: ManageCollectionDeps): Promise<void> {
   const base = resolveBase(deps);
   const serialized = `${JSON.stringify(schema, null, 2)}\n`;
-  const staging = stagingSkillDir(base, slug);
-  if (staging === null) {
+  const { stagingDir } = authoringTarget(deps, slug);
+  if (stagingDir === null) {
     await writeFileAtomic(path.join(skillDir, SCHEMA_FILE), serialized);
   } else {
-    await writeFileAtomic(path.join(staging, SCHEMA_FILE), serialized);
+    await writeFileAtomic(path.join(stagingDir, SCHEMA_FILE), serialized);
     mirrorSkillWrite(base, { slug, relSegments: [SCHEMA_FILE] });
   }
   try {

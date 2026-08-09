@@ -34,11 +34,23 @@ a default that preserves today's path.
 - `feedRefreshTaskDef({ workspaceRoot })` is root-parameterised, with a per-root task id.
 
 **For a multi-root host, three of these change behaviour and want a deliberate upgrade**, even
-though a caret floats here: a bell id built with an explicit root has a new shape (existing
-`active.json` entries stop matching once, then converge), `feedRefreshTaskDef({ workspaceRoot })`
-returns a new task id (the old scheduler-state row is orphaned), and `WATCHER_ROOT_CONFLICT` is
-no longer thrown, so a second root now mounts a second generation instead of being refused. None
-of the three is reachable from a single-workspace host, which passes no root anywhere.
+though a caret floats here:
+
+- A bell id built with an explicit root has a new shape. Entries written before this release
+  carry no root, so a rooted sweep would skip them forever while the reconcile published a
+  second, rooted bell beside each one. The sweep therefore CLEARS a rootless entry when it is
+  running for a root, and the reconcile republishes it rooted if the record is still pending —
+  that is the migration, and it runs once on the first boot after upgrading.
+- `feedRefreshTaskDef({ workspaceRoot })` returns a new task id, so the old scheduler-state row
+  is orphaned and should be dropped.
+- `WATCHER_ROOT_CONFLICT` is no longer thrown: a second root now mounts a second generation
+  instead of being refused.
+
+None of the three is reachable from a single-workspace host, which passes no root anywhere.
+
+Roots are canonicalised (`path.resolve`) wherever one becomes an identity — a generation key, a
+change payload, a bell id — so `/work/proj` and `/work/proj/` are one project rather than two.
+Symlinks are deliberately not resolved; see `canonicalRoot`.
 
 Ships `@mulmoclaude/core@3.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.1.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 

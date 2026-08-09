@@ -66,6 +66,7 @@
 
 import { access } from "node:fs/promises";
 import {
+  canonicalRoot,
   collectionChangePayload,
   discoverCollections,
   itemFilePath,
@@ -185,7 +186,20 @@ export const WATCHER_ROOT_CONFLICT = "WATCHER_ROOT_CONFLICT";
  *  is a comparison, and under an explicit-root binding there is no default to
  *  read, which is not an error here. */
 function effectiveRoot(opts: DiscoveryOptions | undefined): string | undefined {
-  return opts?.workspaceRoot ?? peekWorkspaceRoot() ?? undefined;
+  const root = opts?.workspaceRoot ?? peekWorkspaceRoot() ?? undefined;
+  // Canonical, because this value IS the generation's identity — `/work/proj`
+  // and `/work/proj/` must not mount two watcher sets over one tree.
+  return root === undefined ? undefined : canonicalRoot(root);
+}
+
+/** The discovery options a generation runs under, with an explicit root put in
+ *  canonical form. Everything downstream — the change payload's `root`, the
+ *  bell id the reconciler derives — reads it from here, so canonicalising once
+ *  at the claim is what keeps those three consistent. An omitted root stays
+ *  omitted: "no explicit root" is a distinct state, not a root to normalise. */
+function canonicalDiscoveryOpts(opts: DiscoveryOptions | undefined): DiscoveryOptions {
+  const base = opts ?? {};
+  return base.workspaceRoot === undefined ? base : { ...base, workspaceRoot: canonicalRoot(base.workspaceRoot) };
 }
 
 function newGeneration(discoveryOpts: DiscoveryOptions): WatcherGeneration {
@@ -261,9 +275,9 @@ export async function startCollectionWatchers(opts: CollectionWatcherOptions = {
     await existing.bootInFlight;
     return;
   }
-  const gen = newGeneration(opts.discoveryOpts ?? {});
+  const gen = newGeneration(canonicalDiscoveryOpts(opts.discoveryOpts));
   generations.set(key, gen);
-  gen.bootInFlight = bootWatchers(gen, opts);
+  gen.bootInFlight = bootWatchers(key, gen, opts);
   try {
     await gen.bootInFlight;
   } finally {
@@ -274,7 +288,7 @@ export async function startCollectionWatchers(opts: CollectionWatcherOptions = {
 /** The boot pass itself, owned by exactly one caller — `startCollectionWatchers`
  *  serialises entry into it. On failure it resets `discoveryOpts` so a
  *  supervisor / test harness can retry instead of being permanently latched. */
-async function bootWatchers(gen: WatcherGeneration, opts: CollectionWatcherOptions): Promise<void> {
+async function bootWatchers(key: string, gen: WatcherGeneration, opts: CollectionWatcherOptions): Promise<void> {
   try {
     // Boot reconcile is split in two: sweep first (drop bell entries whose
     // files / collections / schemas vanished while the server was down),
@@ -317,9 +331,14 @@ async function bootWatchers(gen: WatcherGeneration, opts: CollectionWatcherOptio
     gen.started = true;
   } catch (err) {
     // Drop the claim so a supervisor / test harness can retry instead of being
-    // permanently latched on a half-booted generation.
+    // permanently latched on a half-booted generation. Uses the key the CLAIM
+    // was made under, not a recomputed one: a root-less claim resolves through
+    // `peekWorkspaceRoot()`, so if the host's configured root changed in
+    // between, recomputing would delete some other generation and leave this
+    // dead one in the map — where a later start would find it, await a null
+    // `bootInFlight`, and return believing watchers were up.
     gen.alive = false;
-    generations.delete(generationKey(effectiveRoot(gen.discoveryOpts)));
+    generations.delete(key);
     throw err;
   }
 }

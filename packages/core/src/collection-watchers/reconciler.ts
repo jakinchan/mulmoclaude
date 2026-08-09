@@ -24,6 +24,7 @@
 import { clear as notifierClear, listAll, publish as notifierPublish, updateForPlugin as notifierUpdate, type NotifierEntry } from "../notifier";
 import { fieldText, itemIsDone, whenMatches, type CollectionItem, type CollectionSchema } from "../collection";
 import {
+  canonicalRoot,
   type DiscoveryOptions,
   type IoOptions,
   isTriggerDue,
@@ -62,9 +63,14 @@ const ROOT_SEP = "\0";
  *  - a root is included ONLY when one was supplied, which is what lets two
  *    roots owning the same slug hold two distinct bells instead of deduping
  *    into each other;
- *  - `parseCompletionLegacyId` accepts BOTH forms, forever. */
+ *  - `parseCompletionLegacyId` accepts BOTH forms, forever.
+ *
+ *  The root is canonicalised here as well as at the watcher's claim, because
+ *  this id is written to disk: a caller reaching `reconcileItem` directly with
+ *  `/proj/` where the watcher used `/proj` would otherwise publish a SECOND
+ *  bell for the same record, and neither pass would ever clear the other's. */
 function completionLegacyId(slug: string, itemId: string, root?: string): string {
-  const scope = root === undefined ? "" : `${ROOT_MARK}${root}${ROOT_SEP}`;
+  const scope = root === undefined ? "" : `${ROOT_MARK}${canonicalRoot(root)}${ROOT_SEP}`;
   return `${LEGACY_ID_PREFIX}${scope}${slug}:${itemId}`;
 }
 
@@ -338,6 +344,38 @@ export async function reconcileAllItems(collection: LoadedCollection, ioOpts: Io
  *  file is gone, whose collection was deleted, whose schema no longer
  *  tracks completion, or whose item is now done. Reverse-covers the cases
  *  `reconcileAllItems` misses (it only walks files that exist). */
+/** What this sweep should do with an entry, given the root it belongs to and
+ *  the root the sweep is running for.
+ *
+ *  - `mine` — same root (or both root-less: the single-workspace case, which
+ *    behaves exactly as it always did). Judge it against the records on disk.
+ *  - `skip` — ANOTHER root's entry. Its collection and records live in a tree
+ *    this sweep cannot see, so every check would read "gone" and clear a
+ *    perfectly live bell. Two roots share one notifier file; this is the
+ *    boundary between them.
+ *  - `drop-legacy` — a root-less entry seen by a sweep that HAS a root: a
+ *    leftover from before bell ids carried one. Nothing this host does from now
+ *    on produces a root-less id, so skipping it would strand a bell no pass can
+ *    ever clear, while the reconcile publishes a second rooted one beside it.
+ *    Clearing converges — the record republishes rooted if still pending. */
+function sweepVerdict(entryRoot: string | undefined, ownRoot: string | undefined): "mine" | "skip" | "drop-legacy" {
+  if (entryRoot === ownRoot) return "mine";
+  if (entryRoot === undefined) return "drop-legacy";
+  return "skip";
+}
+
+/** Should this entry's bell be dropped? True when the collection is gone, no
+ *  longer tracks completion, or the record is missing / done / outside
+ *  `notifyWhen`. The reverse of the reconcile invariant, applied to an entry
+ *  whose record the forward pass can never walk to (a delete leaves a bell that
+ *  a walk over the SURVIVING records cannot clear). */
+async function isStaleEntry(slug: string, itemId: string, opts: DiscoveryOptions): Promise<boolean> {
+  const collection = await loadCollection(slug, opts);
+  if (!collection || !collection.schema.completionField) return true;
+  const item = await storeFor(collection, opts).read(itemId);
+  return item === null || itemIsDone(collection.schema, item) || !whenMatches(collection.schema.notifyWhen, item);
+}
+
 export async function sweepStaleActiveEntries(opts: DiscoveryOptions = {}): Promise<void> {
   const adapter = requireAdapter();
   let entries;
@@ -347,29 +385,21 @@ export async function sweepStaleActiveEntries(opts: DiscoveryOptions = {}): Prom
     log().warn("sweep list failed", { error: errMsg(err) });
     return;
   }
-  const ownRoot = opts.workspaceRoot;
+  const ownRoot = opts.workspaceRoot === undefined ? undefined : canonicalRoot(opts.workspaceRoot);
   for (const entry of entries) {
     const own = adapter.readEntry(entry.pluginData);
     if (!own) continue;
     const parsed = parseCompletionLegacyId(own.legacyId);
     if (!parsed) continue;
-    // An entry belonging to ANOTHER root is not ours to judge: its collection
-    // and its records live in a tree this sweep cannot see, so every check
-    // below would read "gone" and clear a perfectly live bell. Two roots share
-    // one notifier file, so this is the boundary between them. (Both undefined
-    // is the single-workspace case and matches, as it always did.)
-    if (parsed.root !== ownRoot) continue;
+    const verdict = sweepVerdict(parsed.root, ownRoot);
+    if (verdict === "skip") continue;
+    if (verdict === "drop-legacy") {
+      await notifierClear(entry.id);
+      continue;
+    }
     const { slug, itemId } = parsed;
     try {
-      const collection = await loadCollection(slug, opts);
-      if (!collection || !collection.schema.completionField) {
-        await notifierClear(entry.id);
-        continue;
-      }
-      const item = await storeFor(collection, opts).read(itemId);
-      if (item === null || itemIsDone(collection.schema, item) || !whenMatches(collection.schema.notifyWhen, item)) {
-        await notifierClear(entry.id);
-      }
+      if (await isStaleEntry(slug, itemId, opts)) await notifierClear(entry.id);
     } catch (err) {
       log().warn("sweep entry failed", { slug, itemId, error: errMsg(err) });
     }

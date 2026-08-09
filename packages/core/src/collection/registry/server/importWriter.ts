@@ -27,7 +27,7 @@ import { acceptParsedSchema, CollectionSchemaZ, isSafeActionTemplatePath, safeRe
 import type { CollectionSchema } from "../../index.js";
 import { claudeSkillDir, dataSkillDir, mirrorSkillWrite } from "../../../skill-bridge/index.js";
 
-import { log } from "../../server/host.js";
+import { log, projectSkillsDir, skillsStagingDir } from "../../server/host.js";
 import { errorMessage } from "../../server/util.js";
 import { writeFileAtomic } from "../../../files/atomic.js";
 import { isRecord } from "../guards.js";
@@ -156,16 +156,35 @@ async function findMatchingInstall(skillsDir: string, registry: string, entry: R
 // import we never migrated), picking that slug would silently overwrite
 // their SKILL.md/schema.json and prune the rest of their files (CodeRabbit
 // review on #1839).
+/** Where an import INSTALLS in this root, and whether a mirror step follows.
+ *
+ *  With a staging tree the install is the usual two-step: write
+ *  `data/skills/<slug>/` and mirror the allowlist into `.claude/skills/<slug>/`.
+ *  A root with NO staging tree has no bridge to mirror through, so the active
+ *  skill dir IS the install — and installing into `data/skills/` there would be
+ *  worse than useless: the mirror makes the collection discoverable, but its
+ *  `.origin.json` and every non-allowlisted asset (notably `views/`) stay in a
+ *  tree that reads and deletes now deliberately ignore. Update would not find
+ *  the provenance, and delete would leave the install behind. */
+function importInstall(workspaceRoot: string): { skillsDir: string; mirrors: boolean } {
+  const staging = skillsStagingDir(workspaceRoot);
+  return staging === null ? { skillsDir: projectSkillsDir(workspaceRoot), mirrors: false } : { skillsDir: staging, mirrors: true };
+}
+
+const installDir = (workspaceRoot: string, slug: string): string => path.join(importInstall(workspaceRoot).skillsDir, slug);
+
 async function resolveTarget(workspaceRoot: string, registry: string, entry: RegistryEntry): Promise<TargetResolution> {
-  const skillsDir = path.dirname(dataSkillDir(workspaceRoot, entry.slug));
+  const { skillsDir, mirrors } = importInstall(workspaceRoot);
   const existing = await findMatchingInstall(skillsDir, registry, entry);
-  if (existing) return { targetDir: dataSkillDir(workspaceRoot, existing), localSlug: existing, updated: true };
+  if (existing) return { targetDir: path.join(skillsDir, existing), localSlug: existing, updated: true };
   for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
     const localSlug = renameCandidate(entry.slug, attempt);
-    const sourceAbsent = (await statType(dataSkillDir(workspaceRoot, localSlug))) === "absent";
-    const mirrorAbsent = (await statType(claudeSkillDir(workspaceRoot, localSlug))) === "absent";
+    const sourceAbsent = (await statType(path.join(skillsDir, localSlug))) === "absent";
+    // Without a mirror the two checks are the same directory, so the install
+    // dir being free is the whole condition.
+    const mirrorAbsent = !mirrors || (await statType(claudeSkillDir(workspaceRoot, localSlug))) === "absent";
     if (sourceAbsent && mirrorAbsent) {
-      return { targetDir: dataSkillDir(workspaceRoot, localSlug), localSlug, updated: false };
+      return { targetDir: path.join(skillsDir, localSlug), localSlug, updated: false };
     }
   }
   return { conflict: `couldn't find an available slug for '${entry.slug}'` };
@@ -354,7 +373,10 @@ export async function writeImportedCollection(params: {
   // prior install remains accessible to the agent until the next mirror
   // attempt. Logged-not-thrown matches the hook's posture for agent writes.
   try {
-    await mirrorToClaudeSkills(workspaceRoot, localSlug, bundle);
+    // Skipped where the install already IS the active skill dir — there is
+    // nothing to mirror to, and `mirrorSkillWrite` would read a staging file
+    // that never exists.
+    if (importInstall(workspaceRoot).mirrors) await mirrorToClaudeSkills(workspaceRoot, localSlug, bundle);
   } catch (err) {
     log.warn("collections-registry", "mirror to .claude/skills/ failed (data/skills write succeeded; prior mirror left intact)", {
       localSlug,
@@ -397,4 +419,4 @@ export async function performImport(author: string, slug: string, workspaceRoot:
 
 // Exported for downstream code that wants the path conventions without
 // importing skill-bridge directly.
-export { claudeSkillDir, dataSkillDir, hasNonDirAncestor };
+export { claudeSkillDir, dataSkillDir, installDir, hasNonDirAncestor };

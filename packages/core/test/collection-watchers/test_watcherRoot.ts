@@ -136,6 +136,31 @@ test("two roots are watched at once, each stamping its OWN root — no bleed", a
   }
 });
 
+test("lexically equivalent spellings of one root are ONE generation, not two", async () => {
+  // `/work/proj` and `/work/proj/` are the same tree. Keyed on the raw string
+  // they mount two watcher sets over it, so every direct write publishes twice
+  // and every pending record bells twice — under two ids that can never clear
+  // each other. The claim is canonicalised (`path.resolve`) for that reason.
+  const projectRoot = makeTempDir("cw-canon-");
+  await startCollectionWatchers({ discoveryOpts: { workspaceRoot: projectRoot }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
+  try {
+    await startCollectionWatchers({ discoveryOpts: { workspaceRoot: `${projectRoot}/` }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
+    await startCollectionWatchers({ discoveryOpts: { workspaceRoot: path.join(projectRoot, ".") }, rediscoveryIntervalMs: null, triggerTickIntervalMs: null });
+
+    const dataDir = seededDataDirIn(projectRoot);
+    await _scheduleItemReconcileForTesting(asCollection("tasks", dataDir), "t1", projectRoot);
+    assert.deepEqual(published, [{ slug: "tasks", ids: ["t1"], op: "upsert", root: projectRoot }]);
+
+    // And a stop naming the trailing-slash spelling tears down that same one.
+    await stopCollectionWatchers({ workspaceRoot: `${projectRoot}/` });
+    published.length = 0;
+    await _scheduleItemReconcileForTesting(asCollection("tasks", dataDir), "t1", projectRoot);
+    assert.deepEqual(published, [{ slug: "tasks", ids: ["t1"], op: "upsert" }], "the generation is gone, so the detached fallback publishes rootless");
+  } finally {
+    await stopCollectionWatchers();
+  }
+});
+
 test("two roots' bells do not dedupe into each other", async () => {
   // The bell identity is what made concurrency unsafe before: `legacyId` was
   // `<slug>:<itemId>`, so root B's pending `tasks/t1` found root A's entry and

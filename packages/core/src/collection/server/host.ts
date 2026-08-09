@@ -21,6 +21,24 @@ export type CollectionLogger = StructuredLogger;
  *  not have to match on message text to tell them apart. */
 export const COLLECTION_ROOT_REQUIRED = "COLLECTION_ROOT_REQUIRED";
 
+/** The canonical form of a root, for every place a root becomes an IDENTITY
+ *  rather than a path to read: a watcher generation key, a change payload's
+ *  `root`, a completion bell's id.
+ *
+ *  `path.resolve` only — it collapses `.`/`..` and the trailing separator, so
+ *  `/work/project` and `/work/project/` are one root instead of two generations
+ *  over the same tree publishing two of every event and bell.
+ *
+ *  Deliberately NOT `realpath`. Resolving symlinks is async (so it could not run
+ *  on the synchronous claim path), it fails for a root that does not exist yet,
+ *  and it would put a path the host never named into an id that is written to
+ *  disk. The policy is therefore lexical: a host that hands the same tree under
+ *  two different symlink spellings gets two roots, and it is the host's job to
+ *  name a project the same way every time. */
+export function canonicalRoot(root: string): string {
+  return path.resolve(root);
+}
+
 /** INVARIANT — **a slug is unique within a root and nowhere else.**
  *
  *  A collection's identity is `(root, slug)`. Anything keyed by slug ALONE —

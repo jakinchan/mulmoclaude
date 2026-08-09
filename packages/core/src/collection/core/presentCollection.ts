@@ -75,28 +75,39 @@ export const TOOL_DEFINITION: ToolDefinition = {
   prompt: `After making changes to schema-driven collections, use ${TOOL_NAME} to present either the collection or the item`,
 };
 
+/** A trimmed non-empty string, or undefined. The tool's args arrive from an
+ *  LLM (and `scope` from the host), so every field is validated the same way
+ *  rather than trusted. */
+const cleaned = (value: unknown): string | undefined => (typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined);
+
+/** Normalise the tool args into the card payload, or `null` when the required
+ *  slug is missing. Pure and exported so the addressing rules are testable
+ *  without going through a `ToolResult`.
+ *
+ *  Keys are added one at a time rather than spread with `undefined` values, so
+ *  a payload with no `itemId` / `scope` OMITS those properties entirely — which
+ *  is what keeps a single-workspace card byte-identical to what it has always
+ *  been, in both `deepEqual` and JSON. */
+export const toPresentCollectionData = (args: PresentCollectionArgs): PresentCollectionData | null => {
+  const collectionSlug = cleaned(args?.collectionSlug);
+  if (!collectionSlug) return null;
+  const itemId = cleaned(args.itemId);
+  const scope = cleaned(args.scope);
+  return { collectionSlug, ...(itemId ? { itemId } : {}), ...(scope ? { scope } : {}) };
+};
+
 export const executePresentCollection = async (
   _context: ToolContext,
   args: PresentCollectionArgs,
 ): Promise<ToolResult<PresentCollectionData, PresentCollectionData>> => {
-  const collectionSlug = typeof args?.collectionSlug === "string" ? args.collectionSlug.trim() : "";
-  if (!collectionSlug) {
+  const data = toPresentCollectionData(args);
+  if (!data) {
     return {
       message: "presentCollection error: collectionSlug is required",
       instructions: "Tell the user you couldn't display the collection because no collection was specified, and ask which collection they mean.",
     };
   }
-  const itemId = typeof args.itemId === "string" && args.itemId.trim().length > 0 ? args.itemId.trim() : undefined;
-  // `scope` is host-injected (see PresentCollectionData). Built up key by key
-  // rather than spread, so a payload with no scope is byte-identical to what a
-  // single-workspace host has always produced — including the absence of the
-  // property, which `assert.deepEqual` and JSON serialization both notice.
-  const scope = typeof args.scope === "string" && args.scope.trim().length > 0 ? args.scope.trim() : undefined;
-  const data: PresentCollectionData = {
-    collectionSlug,
-    ...(itemId ? { itemId } : {}),
-    ...(scope ? { scope } : {}),
-  };
+  const { collectionSlug, itemId } = data;
   const target = itemId ? `${collectionSlug} / ${itemId}` : collectionSlug;
   return {
     message: `Presented collection ${target}`,
