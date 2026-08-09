@@ -8,11 +8,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-08-09
+
+**A package-line release: it carries the 3.x core and plugins to npm. No app behaviour changes.**
+
+Nothing under `server/` or `src/` changed since 1.12.0 — this launcher exists to deliver the `@mulmoclaude/core@3.0.0` line and the seven plugins republished against it. `mulmoclaude@1.12.0` is internally consistent on the 2.x line and is not broken; it simply cannot reach 3.x, because a caret does not float across a major.
+
+### Highlights
+
+#### The collection engine is safely multi-root (#2838)
+
+`@mulmoclaude/core` 3.0.0 makes the server-side collection engine safe to drive with a per-request workspace root, so a downstream host — MulmoTerminal — can serve a collection out of any project directory rather than only the one shared workspace.
+
+**MulmoClaude's behaviour is unchanged.** It is a single-workspace host, it keeps passing no root, and every item is additive with a default that preserves today's path. The back-compat pin is explicit rather than assumed: the watcher suite compares published payloads with `deepStrictEqual`, so an added `root: undefined` key would have failed it, and `test_changePayloadBackCompat.ts` states that contract in its own test.
+
+What the change buys upstream: the live-update ping now carries the root it was given, so a write to project A's `tasks` can no longer refresh project B's open view of a collection with the same slug; a host can bind `workspaceRoot: null` and have `getWorkspaceRoot()` throw rather than guess, turning a forgotten root from a silent read against the wrong project into an error; and `stopCollectionWatchers()` became a production API, since `stop()` → `start(otherRoot)` is the project-switch path. Watcher startup is serialized and roots are normalized, so two overlapping starts cannot both claim a generation.
+
+Breaking for library consumers, not for this app: `isContainedInWorkspace(absPath)` is gone (zero callers; it checked containment against the ambient root — the exact silent-wrong-project failure the rest of the release exists to prevent) in favour of the pure `isContainedInRoot(absPath, rootPath)`, and `CollectionHost.workspaceRoot` widened to `string | null`.
+
 ### Package releases
 
-The seven plugins that depend on `@mulmoclaude/core` are republished so their corrected `^3.0.0` range actually reaches npm. The ranges were swept when core went to 3.0.0 (#2838), but a caret does not float across a major, so the published plugins still required `^2.x` and the correction reached nobody.
+The seven plugins that depend on `@mulmoclaude/core` were republished so their corrected `^3.0.0` range actually reaches npm. The ranges were swept when core went to 3.0.0 (#2838), but a caret does not float across a major, so the published plugins still required `^2.x` and the correction reached nobody.
 
-Left as-is, a fresh install resolves a **second, nested `@mulmoclaude/core@2.x`** beside the top-level 3.0.0. The concrete hazard is `@mulmoclaude/core/plugin-vue`, imported by `html-plugin`, `markdown-plugin` and `accounting-plugin`: two copies of a Vue-side runtime in one bundle is how a plugin registers into one copy while the host reads the other. This is not only MulmoTerminal's problem — the launcher already declares `@mulmoclaude/core: ^3.0.0` while declaring the plugins at `^2.x`.
+Left as-is, a fresh install of this launcher would resolve a **second, nested `@mulmoclaude/core@2.x`** beside the top-level 3.0.0. The concrete hazard is `@mulmoclaude/core/plugin-vue`, imported by `html-plugin`, `markdown-plugin` and `accounting-plugin`: two copies of a Vue-side runtime in one bundle is how a plugin registers into one copy while the host reads the other. Publishing the plugins ahead of this launcher is what keeps the tree resolving to a single core.
 
 Major where core is a **peerDependency** (moving a peer range across a major is breaking for that plugin's consumers), minor where it is a plain dependency (internal, invisible to consumers):
 
@@ -26,9 +44,14 @@ Major where core is a **peerDependency** (moving a peer range across a major is 
 | `@mulmoclaude/google-plugin` | 2.0.0 → **2.1.0** | core is a plain dependency |
 | `@mulmoclaude/mulmoscript-plugin` | 2.0.0 → **2.1.0** | core is a plain dependency |
 
-No plugin source changed — this is a version + range release; each plugin's code already declares what it needs. The launcher's ranges are swept to the new versions, but the launcher is deliberately **not** bumped or published here, so **npm users of `mulmoclaude` do not receive the new plugins until a launcher release**.
+No plugin source changed — that was a version + range release; each plugin's code already declared what it needs. This launcher is what carries the result to npm users.
 
-The roster below is what the NEXT launcher release will pull in. It lives here rather than in the published `[1.12.0]` section because `mulmoclaude@1.12.0` shipped the 2.x line and its record must keep saying so; `/publish-mulmoclaude` renames this heading when the launcher is actually versioned.
+### Also in this release
+
+- The launcher audit walks the repo root rather than only its own directory, so a dependency imported from `server/` can no longer pass the check by being absent from the launcher's own tree (#2827, #2830).
+- A CI check compares the CHANGELOG's `Ships` roster against the launcher's declared dependencies, so a release note claiming a package version the launcher does not actually pull in fails rather than shipping (#2829, #2831).
+- The Codex review workflow moved to the latest CLI and model (#2832, #2833).
+- `nanoid` 3.3.16 → 3.3.18 (#2840).
 
 Ships `@mulmoclaude/core@3.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.1.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
