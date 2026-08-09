@@ -20,6 +20,7 @@ import type { RunnerHealth, RunnerHealthState } from "../health.js";
 import type { HostRunnerOptions } from "./hostRunner.js";
 import type { RemoteHostLogger } from "./lifecycle.js";
 import type { Liveness } from "./presenceProbe.js";
+import { monotonicNowMs } from "./monotonicClock.js";
 
 const ONE_SECOND_MS = 1_000;
 const ONE_MINUTE_MS = 60 * ONE_SECOND_MS;
@@ -34,6 +35,10 @@ const GIVE_UP_MS = 5 * ONE_MINUTE_MS;
 // How often to ask whether the phone can still see us. Slower than the one-minute
 // heartbeat, because the question is "are the beats landing", not "did this one".
 const PROBE_INTERVAL_MS = 90 * ONE_SECOND_MS;
+// A task firing this much later than it asked for did not merely run late: the
+// process was not running at all (system sleep, a blocked event loop). Ordinary
+// load costs a timer milliseconds, not a minute.
+const RESUME_GAP_MS = ONE_MINUTE_MS;
 
 export const reconnectDelayMs = (attempt: number): number => Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
 
@@ -54,13 +59,20 @@ export interface ResilientHostRunnerDeps {
   onHealth?: (health: RunnerHealth) => void;
   log: Pick<RemoteHostLogger, "info" | "warn">;
   schedule?: (task: () => void, delayMs: number) => CancelTimer;
+  /** Measures how long things have taken. MONOTONIC by default — never render one
+   *  of its readings, and never compare it with a wall-clock time. */
   now?: () => number;
+  /** Wall-clock epoch ms, and used for `RunnerHealth.changedAt` alone, which the UI
+   *  renders as a time. Separate from `now` on purpose: an epoch that quietly became
+   *  "ms since this process started" reads as 1970 in the UI. */
+  wallNow?: () => number;
 }
 
 interface RunnerContext {
   deps: ResilientHostRunnerDeps;
   schedule: (task: () => void, delayMs: number) => CancelTimer;
   now: () => number;
+  wallNow: () => number;
   stopUnderlying: (() => void) | null;
   cancelTimer: CancelTimer | null;
   attempt: number;
@@ -86,7 +98,7 @@ const scheduleWithTimeout = (task: () => void, delayMs: number): CancelTimer => 
 const setState = (ctx: RunnerContext, next: RunnerHealthState): void => {
   ctx.state = next;
   try {
-    ctx.deps.onHealth?.({ state: next, lastError: ctx.lastError, changedAt: ctx.now() });
+    ctx.deps.onHealth?.({ state: next, lastError: ctx.lastError, changedAt: ctx.wallNow() });
   } catch (error) {
     ctx.deps.log.warn(`host runner health observer threw: ${errorText(error)}`);
   }
@@ -102,12 +114,33 @@ const clearProbe = (ctx: RunnerContext): void => {
   ctx.cancelProbe = null;
 };
 
+// Schedule, and notice when the process was not running for part of the wait.
+//
+// Time this host spent frozen is not time the channel spent failing, but the outage
+// budget cannot tell them apart on its own: a gap longer than GIVE_UP_MS spends the
+// whole budget while nothing was ever attempted, and the ring then escalates to the
+// client without one try against the network as it now stands (#2845). So a gap
+// restarts the budget and the backoff ladder, and the task runs as the first attempt
+// after it.
+const after = (ctx: RunnerContext, delayMs: number, task: () => void): CancelTimer => {
+  const dueMs = ctx.now() + delayMs;
+  return ctx.schedule(() => {
+    const overshootMs = ctx.now() - dueMs;
+    if (overshootMs > RESUME_GAP_MS) {
+      ctx.deps.log.warn(`host runner resumed after a ${Math.round(overshootMs / ONE_SECOND_MS)}s gap; the outage budget starts again`);
+      ctx.downSinceMs = null;
+      ctx.attempt = 0;
+    }
+    task();
+  }, delayMs);
+};
+
 // Only worth asking while we believe we are up: during a reconnect the answer is
 // already known, and the recovery it would trigger is the one already running.
 function scheduleProbe(ctx: RunnerContext): void {
   if (ctx.stopped || !ctx.deps.checkAlive) return;
   clearProbe(ctx);
-  ctx.cancelProbe = ctx.schedule(() => void runProbe(ctx), PROBE_INTERVAL_MS);
+  ctx.cancelProbe = after(ctx, PROBE_INTERVAL_MS, () => void runProbe(ctx));
 }
 
 // `alive: null` (no probe wired, or nothing judgeable yet) is not an answer — the
@@ -203,7 +236,7 @@ function scheduleRelaunch(ctx: RunnerContext): void {
   // Re-announcing on every relaunch would restamp `changedAt`, and a UI reading it
   // as "down since" would reset to zero each cycle of the outage it is reporting.
   if (ctx.state !== "reconnecting") setState(ctx, "reconnecting");
-  ctx.cancelTimer = ctx.schedule(() => launch(ctx), delayMs);
+  ctx.cancelTimer = after(ctx, delayMs, () => launch(ctx));
 }
 
 function onUnderlyingClosed(ctx: RunnerContext): void {
@@ -247,14 +280,15 @@ function launch(ctx: RunnerContext): void {
     onUnderlyingClosed(ctx);
     return;
   }
-  ctx.cancelTimer = ctx.schedule(() => void settle(ctx), SETTLE_MS);
+  ctx.cancelTimer = after(ctx, SETTLE_MS, () => void settle(ctx));
 }
 
 export function startResilientHostRunner(deps: ResilientHostRunnerDeps): () => void {
   const ctx: RunnerContext = {
     deps,
     schedule: deps.schedule ?? scheduleWithTimeout,
-    now: deps.now ?? Date.now,
+    now: deps.now ?? monotonicNowMs,
+    wallNow: deps.wallNow ?? Date.now,
     stopUnderlying: null,
     cancelTimer: null,
     attempt: 0,
