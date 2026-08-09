@@ -7,8 +7,12 @@
 // `src/config/pubsubChannels.ts` so the publisher cannot drift from
 // the View-side subscribers.
 
-import { bookChannel as accountingBookChannel, ACCOUNTING_BOOKS_CHANNEL, type BookChannelPayload as AccountingBookChannelPayload } from "../shared";
-import { log, type IPubSub } from "./context.js";
+import {
+  bookChannel as accountingBookChannel,
+  booksChannel as accountingBooksChannel,
+  type BookChannelPayload as AccountingBookChannelPayload,
+} from "../shared";
+import { channelScopeFor, log, type IPubSub } from "./context.js";
 import { errorMessage } from "../shared";
 
 let pubsub: IPubSub | null = null;
@@ -33,16 +37,21 @@ function safePublish(channel: string, payload: unknown): void {
 
 /** Per-book change notification. `period` should be the entry's
  *  YYYY-MM bucket (or the earliest invalidated month for snapshot
- *  events). */
-export function publishBookChange(bookId: string, payload: AccountingBookChannelPayload): void {
-  safePublish(accountingBookChannel(bookId), payload);
+ *  events).
+ *
+ *  `workspaceRoot` is the root the write happened under; the channel
+ *  name is namespaced by the host's opaque scope for it (see
+ *  `channelScopeFor`). Omit it — as a single-root host's service calls
+ *  do — and the name is what it has always been. */
+export function publishBookChange(bookId: string, payload: AccountingBookChannelPayload, workspaceRoot?: string): void {
+  safePublish(accountingBookChannel(bookId, channelScopeFor(workspaceRoot)), payload);
 }
 
 /** Fired when the *list* of books changes (createBook, deleteBook).
  *  Payload is intentionally empty — subscribers refetch from
- *  /api/accounting. */
-export function publishBooksChanged(): void {
-  safePublish(ACCOUNTING_BOOKS_CHANNEL, {});
+ *  /api/accounting. Scoped by root like `publishBookChange`. */
+export function publishBooksChanged(workspaceRoot?: string): void {
+  safePublish(accountingBooksChannel(channelScopeFor(workspaceRoot)), {});
 }
 
 /** Test-only — drop the module singleton so each test starts clean. */

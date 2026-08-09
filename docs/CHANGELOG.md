@@ -10,6 +10,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Package releases
 
+#### Accounting can follow a project root, the way collections already do
+
+`@mulmoclaude/accounting-plugin@2.2.0`. The engine was root-parameterised down in the io and
+service layers but bound to one workspace at the top: every dispatch action resolved the
+ambient root, and everything keyed by `bookId` alone would collide the moment two project
+directories each held a book of that name. MulmoClaude wires none of the new options and its
+requests, channel names and card envelopes are byte-identical to before.
+
+- `AccountingServerDeps.workspaceRoot` widens to `string | null`. `null` is explicit-root
+  mode: `defaultWorkspaceRoot()` throws rather than guessing, because with N roots a
+  forgotten option is not a crash but a silent write to the wrong project.
+- `createAccountingRouter({ resolveWorkspaceRoot })` resolves a root per request, threaded
+  through all 15 dispatch actions. The resolver is host-owned; the package never reads a root
+  or project id off a request body, and `manageAccounting`'s tool schema has no project
+  parameter (now pinned by a test), so the model cannot pick a project.
+- `bookChannel(bookId, scope?)` / `booksChannel(scope?)`, fed by the new
+  `channelScopeForRoot` dep, namespace the pub/sub names by the host's OPAQUE project id —
+  an id, never a path, because these names reach the browser.
+- The snapshot rebuild queue is keyed by `(root, bookId)`. Previously one project's write
+  cancelled another's in-flight rebuild and `awaitRebuildIdle` returned early.
+- An `openBook` result carries that scope, so a mounted card fetches its own project rather
+  than whatever the host has selected when it renders; the Vue surface takes a `projectScope`
+  seam that rides requests and channel subscriptions.
+- The `listAccountingBooks` remote-host handler resolves a scope from its params, defaulting
+  to the host root, so a phone-side project picker is an added parameter and not a protocol
+  change.
+
 #### Multi-root, finished: identity, the authoring docs, and per-root operation
 
 `@mulmoclaude/core@3.1.0`. A collection's identity is `(root, slug)`, but everything that
@@ -54,7 +81,7 @@ Roots are canonicalised (`path.resolve`) wherever one becomes an identity — a 
 change payload, a bell id — so `/work/proj` and `/work/proj/` are one project rather than two.
 Symlinks are deliberately not resolved; see `canonicalRoot`.
 
-Ships `@mulmoclaude/core@3.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.1.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/core@3.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 #### `@mulmoclaude/core` 3.0.0 → 3.0.1 — remote host stops mistaking its own downtime for a dead channel (#2845, #2846)
 

@@ -35,10 +35,22 @@ export type AccountingSubscribe = (channel: string, handler: (payload: unknown) 
  *  this tag onto it, so it shares NO i18n resources with the host. */
 export type AccountingLocaleTag = () => string;
 
+/** Project seam — the host's OPAQUE id for the project (root) the
+ *  mounted accounting surface belongs to, or `null` for the host's
+ *  default root. A single-root host omits it entirely and every
+ *  request and channel name stays exactly what it is today.
+ *
+ *  It rides dispatch requests as `ACCOUNTING_PROJECT_FIELD` and
+ *  namespaces the pub/sub channel names, so two projects that both hold
+ *  a book called `main` neither read nor refresh each other. It must be
+ *  an id the host can resolve, never a path — it reaches the browser. */
+export type AccountingProjectScope = () => string | null;
+
 export interface AccountingHostContext {
   apiCall: AccountingApiCall;
   subscribe: AccountingSubscribe;
   localeTag: AccountingLocaleTag;
+  projectScope?: AccountingProjectScope;
 }
 
 let ctx: AccountingHostContext | null = null;
@@ -67,4 +79,11 @@ export function hostSubscribe(channel: string, handler: (payload: unknown) => vo
  *  vue-i18n instance (see `./lang`). */
 export function hostLocaleTag(): string {
   return requireCtx().localeTag();
+}
+
+/** The host's opaque project id for the mounted surface, or `null` when
+ *  the host serves a single root (MulmoClaude) or the surface belongs to
+ *  its default one. */
+export function hostProjectScope(): string | null {
+  return ctx?.projectScope?.() ?? null;
 }

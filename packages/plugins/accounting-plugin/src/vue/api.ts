@@ -8,10 +8,11 @@
 // validation) flow through the same shape. The actual network client is
 // host-injected (see hostContext.ts) so the package stays host-agnostic.
 
-import { hostApiCall as apiCall, type ApiResult } from "./hostContext";
+import { hostApiCall as apiCall, hostProjectScope, type ApiResult } from "./hostContext";
 import {
   ACCOUNTING_ACTIONS,
   ACCOUNTING_API,
+  ACCOUNTING_PROJECT_FIELD,
   type SupportedCountryCode,
   type FiscalYearEnd,
   type TimeSeriesGranularity,
@@ -53,6 +54,12 @@ export type {
 
 export interface OpenAppPayload {
   kind: "accounting-app";
+  /** The host's opaque project id for the root this book lives under,
+   *  stamped by the server on an `openBook` result. Absent for a
+   *  single-root host. A host that renders cards from more than one
+   *  project keys them by `(scope, bookId)` — a bookId is unique within
+   *  a root and nowhere else. */
+  scope?: string;
   /** `null` when the workspace has zero books — the View renders the
    *  empty state and prompts for book creation. */
   bookId: string | null;
@@ -65,7 +72,11 @@ const DISPATCH_URL = ACCOUNTING_API.dispatch.path;
 const DISPATCH_METHOD = ACCOUNTING_API.dispatch.method;
 
 function call<T>(action: string, args: Record<string, unknown> = {}): Promise<ApiResult<T>> {
-  return apiCall<T>(DISPATCH_URL, { method: DISPATCH_METHOD, body: { action, ...args } });
+  // The project rides every request, last so a caller cannot shadow it.
+  // Absent (single-root host) the body is byte-identical to before.
+  const project = hostProjectScope();
+  const scopeField = project ? { [ACCOUNTING_PROJECT_FIELD]: project } : {};
+  return apiCall<T>(DISPATCH_URL, { method: DISPATCH_METHOD, body: { action, ...args, ...scopeField } });
 }
 
 // ── Books ────────────────────────────────────────────────────────────

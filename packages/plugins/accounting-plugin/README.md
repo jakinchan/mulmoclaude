@@ -4,6 +4,42 @@ Double-entry accounting plugin for MulmoClaude and MulmoTerminal. Three surfaces
 
 A plugin for [MulmoClaude](https://github.com/receptron/mulmoclaude) and [MulmoTerminal](https://github.com/receptron/mulmoterminal) — loaded by the host, not run standalone.
 
+## Host wiring
+
+A single-workspace host (MulmoClaude) wires three calls once at boot:
+
+```ts
+configureAccountingServer({ workspaceRoot, logger });
+initAccountingEventPublisher(pubsub);
+app.use(createAccountingRouter());
+```
+
+A host that serves one root per project directory (MulmoTerminal) wires the same three
+differently:
+
+```ts
+configureAccountingServer({
+  workspaceRoot: null,                    // explicit-root mode: a forgotten root throws
+  logger,
+  channelScopeForRoot: (root) => projectIdForRoot(root), // opaque id, or null for the default root
+});
+app.use(createAccountingRouter({ resolveWorkspaceRoot: (req) => rootForRequest(req) }));
+configureAccountingHost({ apiCall, subscribe, localeTag, projectScope });  // the Vue surface
+```
+
+Both are opt-in and default to today's behaviour. The invariants behind them:
+
+1. **A bookId is unique within a root and nowhere else.** Anything keyed by bookId alone —
+   a channel, a rebuild queue, a card — is a cross-project collision waiting to happen.
+2. **`workspaceRoot: null` is the safety net.** With N roots, a forgotten root is not a
+   crash but a silent read or write against the wrong project; explicit-root mode turns it
+   into a clear throw.
+3. **A project is named by an opaque id, never a path.** Channel names and card envelopes
+   reach the browser; an absolute root there publishes the user's home directory.
+4. **The model never picks a project.** `manageAccounting`'s schema has no project
+   parameter (pinned by a test), and this package never resolves one off a request body —
+   only the host's own `resolveWorkspaceRoot` does.
+
 ## Dev loop
 
 ```bash

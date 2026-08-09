@@ -18,8 +18,8 @@
 // own `./shared` so publisher and subscriber stay in lockstep.
 
 import { ref, watch, onUnmounted, type Ref } from "vue";
-import { bookChannel, ACCOUNTING_BOOKS_CHANNEL, BOOK_EVENT_KINDS, type BookChannelPayload } from "../shared";
-import { hostSubscribe } from "./hostContext";
+import { bookChannel, booksChannel, BOOK_EVENT_KINDS, type BookChannelPayload } from "../shared";
+import { hostProjectScope, hostSubscribe } from "./hostContext";
 
 const BOOK_EVENT_KIND_VALUES = Object.values(BOOK_EVENT_KINDS);
 
@@ -48,7 +48,11 @@ export function useAccountingChannel(bookId: Ref<string | null>, onPayload?: (pa
     unsubscribe = null;
     version.value = 0;
     if (!nextBookId) return;
-    unsubscribe = hostSubscribe(bookChannel(nextBookId), (data) => {
+    // Scoped by the host's opaque project id (null for a single-root
+    // host, which keeps the name `accounting:<bookId>`): a bookId is
+    // unique within a root, so without it a write in one project would
+    // refresh an open view of the same-named book in another.
+    unsubscribe = hostSubscribe(bookChannel(nextBookId, hostProjectScope()), (data) => {
       version.value += 1;
       const event = toBookChannelPayload(data);
       if (event) onPayload?.(event);
@@ -67,6 +71,6 @@ export function useAccountingChannel(bookId: Ref<string | null>, onPayload?: (pa
  *  BookSwitcher.vue to refetch the dropdown contents when a sibling
  *  tab adds / deletes a book. */
 export function useAccountingBooksChannel(onChange: () => void): void {
-  const unsubscribe = hostSubscribe(ACCOUNTING_BOOKS_CHANNEL, onChange);
+  const unsubscribe = hostSubscribe(booksChannel(hostProjectScope()), onChange);
   onUnmounted(() => unsubscribe());
 }

@@ -36,10 +36,10 @@ import {
 } from "./service.js";
 import type { BookSummary } from "../shared/types.js";
 import { ACCOUNTING_ACTIONS, ACCOUNTING_API } from "../shared";
-import { log } from "./context.js";
+import { channelScopeFor, log } from "./context.js";
 import { asyncHandler, type ErrorBody } from "./http.js";
 
-interface AccountingActionBody {
+export interface AccountingActionBody {
   action: string;
   [key: string]: unknown;
 }
@@ -65,32 +65,47 @@ interface OpenBookToolResult {
    *  openBook doesn't need a follow-up getBooks round-trip to learn
    *  what other books exist before its next action. */
   books: BookSummary[];
+  /** The host's OPAQUE scope id for the root this book lives under, so
+   *  the mounted card fetches ITS OWN project rather than whatever the
+   *  host has selected when it renders. Absent for a single-root host
+   *  (and for a multi-root host's default root), which keeps the
+   *  envelope byte-identical to what it has always been.
+   *
+   *  Stamped by the SERVER from the resolved root — it is never read
+   *  off the request body, so the model cannot pick a project. */
+  scope?: string;
 }
 
 type ActionRest = Omit<AccountingActionBody, "action">;
-type ActionHandler = (rest: ActionRest) => Promise<unknown>;
+/** `root` is the workspace root this request resolved to — `undefined`
+ *  means "the host's configured one", the single-root path. Every
+ *  handler MUST pass it on to the service layer: under a multi-root
+ *  host a dropped root is not an error but a silent read or write
+ *  against the wrong project. */
+type ActionHandler = (rest: ActionRest, root: string | undefined) => Promise<unknown>;
 
 // Each action is a tiny adapter that pulls the typed slice it needs
 // out of the loosely-typed body. Parsing of the slice shape itself
 // lives inside the service layer (parseEntry, parseOpening,
 // parseAccountInput) so the adapters can stay one-liners.
 
-async function handleOpenBook(rest: ActionRest): Promise<OpenBookToolResult> {
+async function handleOpenBook(rest: ActionRest, root: string | undefined): Promise<OpenBookToolResult> {
   // openBook requires an explicit `bookId` that resolves to an
   // existing book. On a fresh workspace the LLM is expected to
   // call `createBook` first and then `openBook` with the new id.
   if (typeof rest.bookId !== "string" || rest.bookId === "") {
     throw new AccountingError(400, "openBook: bookId is required. Call 'getBooks' to enumerate, or 'createBook' first on a fresh workspace.");
   }
-  const list = await listBooks();
+  const list = await listBooks(root);
   if (!list.books.some((book) => book.id === rest.bookId)) {
     throw new AccountingError(404, `openBook: book ${JSON.stringify(rest.bookId)} not found`);
   }
   const initialTab = typeof rest.initialTab === "string" ? rest.initialTab : undefined;
-  return { kind: "accounting-app", bookId: rest.bookId, initialTab, books: list.books };
+  const scope = channelScopeFor(root);
+  return { kind: "accounting-app", bookId: rest.bookId, initialTab, books: list.books, ...(scope ? { scope } : {}) };
 }
 
-async function handleGetReport(rest: ActionRest): Promise<unknown> {
+async function handleGetReport(rest: ActionRest, root: string | undefined): Promise<unknown> {
   const kind = typeof rest.kind === "string" ? rest.kind : "";
   const periodInput = optionalReportPeriod(rest.period);
   const bookId = optionalString(rest.bookId);
@@ -110,11 +125,11 @@ async function handleGetReport(rest: ActionRest): Promise<unknown> {
   if (periodSent && !periodInput) throw periodRequired(`getReport ${kind || "(no kind)"}`);
   if (kind === "balance") {
     if (!periodInput) throw periodRequired("getReport balance");
-    return getBalanceSheetReport({ bookId, period: periodInput });
+    return getBalanceSheetReport({ bookId, period: periodInput }, root);
   }
   if (kind === "pl") {
     if (!periodInput) throw periodRequired("getReport pl");
-    return getProfitLossReport({ bookId, period: periodInput });
+    return getProfitLossReport({ bookId, period: periodInput }, root);
   }
   if (kind === "ledger") {
     // period is optional for ledger — full-history view from the
@@ -124,81 +139,100 @@ async function handleGetReport(rest: ActionRest): Promise<unknown> {
     if (typeof rest.accountCode !== "string" || rest.accountCode === "") {
       throw new AccountingError(400, "getReport ledger: accountCode is required");
     }
-    return getLedgerReport({ bookId, accountCode: rest.accountCode, period: periodInput });
+    return getLedgerReport({ bookId, accountCode: rest.accountCode, period: periodInput }, root);
   }
   throw new AccountingError(400, `getReport: unknown kind ${JSON.stringify(kind)}`);
 }
 
 const ACTION_HANDLERS: Record<string, ActionHandler> = {
   [ACCOUNTING_ACTIONS.openBook]: handleOpenBook,
-  [ACCOUNTING_ACTIONS.getBooks]: () => listBooks(),
-  [ACCOUNTING_ACTIONS.createBook]: async (rest) => {
+  [ACCOUNTING_ACTIONS.getBooks]: (_rest, root) => listBooks(root),
+  [ACCOUNTING_ACTIONS.createBook]: async (rest, root) => {
     // Surface bookId at the top level so the dispatch envelope's
     // `data` carries it like every other write action — the View
     // uses it to preselect the new book on mount.
-    const result = await createBook({
-      name: typeof rest.name === "string" ? rest.name : "",
-      currency: typeof rest.currency === "string" ? rest.currency : undefined,
-      country: typeof rest.country === "string" ? rest.country : undefined,
-      // Passed through raw — the service coerces + validates it (number,
-      // numeric string, or a legacy "Q1".."Q4" token), 400ing garbage.
-      fiscalYearEnd: rest.fiscalYearEnd,
-    });
+    const result = await createBook(
+      {
+        name: typeof rest.name === "string" ? rest.name : "",
+        currency: typeof rest.currency === "string" ? rest.currency : undefined,
+        country: typeof rest.country === "string" ? rest.country : undefined,
+        // Passed through raw — the service coerces + validates it (number,
+        // numeric string, or a legacy "Q1".."Q4" token), 400ing garbage.
+        fiscalYearEnd: rest.fiscalYearEnd,
+      },
+      root,
+    );
     return { bookId: result.book.id, ...result };
   },
-  [ACCOUNTING_ACTIONS.updateBook]: async (rest) => {
-    const result = await updateBook({
-      bookId: typeof rest.bookId === "string" ? rest.bookId : "",
-      name: typeof rest.name === "string" ? rest.name : undefined,
-      country: typeof rest.country === "string" ? rest.country : undefined,
-      // Passed through raw — the service coerces + validates it.
-      fiscalYearEnd: rest.fiscalYearEnd,
-    });
+  [ACCOUNTING_ACTIONS.updateBook]: async (rest, root) => {
+    const result = await updateBook(
+      {
+        bookId: typeof rest.bookId === "string" ? rest.bookId : "",
+        name: typeof rest.name === "string" ? rest.name : undefined,
+        country: typeof rest.country === "string" ? rest.country : undefined,
+        // Passed through raw — the service coerces + validates it.
+        fiscalYearEnd: rest.fiscalYearEnd,
+      },
+      root,
+    );
     return { bookId: result.book.id, ...result };
   },
-  [ACCOUNTING_ACTIONS.deleteBook]: (rest) => deleteBook({ bookId: typeof rest.bookId === "string" ? rest.bookId : "", confirm: rest.confirm === true }),
-  [ACCOUNTING_ACTIONS.getAccounts]: (rest) => listAccounts({ bookId: optionalString(rest.bookId) }),
+  [ACCOUNTING_ACTIONS.deleteBook]: (rest, root) =>
+    deleteBook({ bookId: typeof rest.bookId === "string" ? rest.bookId : "", confirm: rest.confirm === true }, root),
+  [ACCOUNTING_ACTIONS.getAccounts]: (rest, root) => listAccounts({ bookId: optionalString(rest.bookId) }, root),
   // `account` / `entries` / `lines` travel to the service as `unknown`:
   // the parsers there own the narrowing, so a bad field keeps its own
   // message ("debit must be a non-negative finite number") instead of
   // collapsing into a generic shape error the LLM can't repair from.
-  [ACCOUNTING_ACTIONS.upsertAccount]: (rest) => upsertAccount({ bookId: optionalString(rest.bookId), account: rest.account }),
-  [ACCOUNTING_ACTIONS.addEntries]: (rest) => addEntries({ bookId: optionalString(rest.bookId), entries: rest.entries }),
-  [ACCOUNTING_ACTIONS.voidEntry]: (rest) =>
-    voidEntry({
-      bookId: optionalString(rest.bookId),
-      entryId: typeof rest.entryId === "string" ? rest.entryId : "",
-      reason: optionalString(rest.reason),
-      voidDate: optionalString(rest.voidDate),
-    }),
-  [ACCOUNTING_ACTIONS.getJournalEntries]: (rest) =>
-    listEntries({
-      bookId: optionalString(rest.bookId),
-      from: optionalString(rest.from),
-      to: optionalString(rest.to),
-      accountCode: optionalString(rest.accountCode),
-    }),
-  [ACCOUNTING_ACTIONS.getOpeningBalances]: (rest) => getOpeningBalances({ bookId: optionalString(rest.bookId) }),
-  [ACCOUNTING_ACTIONS.setOpeningBalances]: (rest) =>
-    setOpeningBalances({
-      bookId: optionalString(rest.bookId),
-      asOfDate: typeof rest.asOfDate === "string" ? rest.asOfDate : "",
-      // Omitted `lines` means the zero-line opening marker that unlocks
-      // the View's gate, so it stays an empty array rather than a 400.
-      lines: rest.lines ?? [],
-      memo: optionalString(rest.memo),
-    }),
+  [ACCOUNTING_ACTIONS.upsertAccount]: (rest, root) => upsertAccount({ bookId: optionalString(rest.bookId), account: rest.account }, root),
+  [ACCOUNTING_ACTIONS.addEntries]: (rest, root) => addEntries({ bookId: optionalString(rest.bookId), entries: rest.entries }, root),
+  [ACCOUNTING_ACTIONS.voidEntry]: (rest, root) =>
+    voidEntry(
+      {
+        bookId: optionalString(rest.bookId),
+        entryId: typeof rest.entryId === "string" ? rest.entryId : "",
+        reason: optionalString(rest.reason),
+        voidDate: optionalString(rest.voidDate),
+      },
+      root,
+    ),
+  [ACCOUNTING_ACTIONS.getJournalEntries]: (rest, root) =>
+    listEntries(
+      {
+        bookId: optionalString(rest.bookId),
+        from: optionalString(rest.from),
+        to: optionalString(rest.to),
+        accountCode: optionalString(rest.accountCode),
+      },
+      root,
+    ),
+  [ACCOUNTING_ACTIONS.getOpeningBalances]: (rest, root) => getOpeningBalances({ bookId: optionalString(rest.bookId) }, root),
+  [ACCOUNTING_ACTIONS.setOpeningBalances]: (rest, root) =>
+    setOpeningBalances(
+      {
+        bookId: optionalString(rest.bookId),
+        asOfDate: typeof rest.asOfDate === "string" ? rest.asOfDate : "",
+        // Omitted `lines` means the zero-line opening marker that unlocks
+        // the View's gate, so it stays an empty array rather than a 400.
+        lines: rest.lines ?? [],
+        memo: optionalString(rest.memo),
+      },
+      root,
+    ),
   [ACCOUNTING_ACTIONS.getReport]: handleGetReport,
-  [ACCOUNTING_ACTIONS.getTimeSeries]: (rest) =>
-    getTimeSeriesReport({
-      bookId: optionalString(rest.bookId),
-      metric: rest.metric,
-      granularity: rest.granularity,
-      from: rest.from,
-      to: rest.to,
-      accountCode: rest.accountCode,
-    }),
-  [ACCOUNTING_ACTIONS.rebuildSnapshots]: (rest) => rebuildSnapshots({ bookId: optionalString(rest.bookId) }),
+  [ACCOUNTING_ACTIONS.getTimeSeries]: (rest, root) =>
+    getTimeSeriesReport(
+      {
+        bookId: optionalString(rest.bookId),
+        metric: rest.metric,
+        granularity: rest.granularity,
+        from: rest.from,
+        to: rest.to,
+        accountCode: rest.accountCode,
+      },
+      root,
+    ),
+  [ACCOUNTING_ACTIONS.rebuildSnapshots]: (rest, root) => rebuildSnapshots({ bookId: optionalString(rest.bookId) }, root),
 };
 
 // Actions whose tool-result envelope should carry a `data` field so
@@ -324,7 +358,7 @@ function previewMessage(action: string, fields: Record<string, unknown>): string
   return head ? `${head} ${VIEW_VISIBLE_TRAILER}` : VIEW_VISIBLE_TRAILER;
 }
 
-async function dispatch(body: AccountingActionBody): Promise<unknown> {
+async function dispatch(body: AccountingActionBody, root: string | undefined): Promise<unknown> {
   const { action, ...rest } = body;
   const handler = ownEntry(ACTION_HANDLERS, action);
   if (!handler) throw new AccountingError(400, `unknown action ${JSON.stringify(action)}`);
@@ -335,7 +369,7 @@ async function dispatch(body: AccountingActionBody): Promise<unknown> {
   // because the result envelope is persisted to the chat log.
   // Direct browser callers (the AccountingApp view) ignore the field.
   // Service responses that already set `action` win via the spread.
-  const result = await handler(rest);
+  const result = await handler(rest, root);
   // `isRecord` rejects arrays where the previous `typeof === "object"`
   // check accepted them — an array result would have spread into
   // `{0: …, 1: …}`. Every service function returns a plain object, so
@@ -367,11 +401,33 @@ async function dispatch(body: AccountingActionBody): Promise<unknown> {
   return { action, ...handlerFields, ...messageField, ...dataField };
 }
 
+/** The request shape the dispatch route hands a host resolver — the
+ *  same one the route itself is typed with, so a host can read headers,
+ *  query and the parsed body without casting. */
+export type AccountingDispatchRequest = Request<object, unknown, AccountingActionBody>;
+
+export interface AccountingRouterOptions {
+  /** Resolve the workspace root ONE request operates on, for a host
+   *  that serves more than one (MulmoTerminal: one root per project
+   *  directory). Return `undefined` to use the host's configured root.
+   *
+   *  The resolver is entirely host-owned and the package never reads a
+   *  root or a project id off the request body itself. That is what
+   *  keeps the model out of it: `manageAccounting`'s tool schema has no
+   *  project parameter, so an LLM cannot name a project even by
+   *  guessing — the host derives the scope from the session, exactly as
+   *  `manageCollection` does. A host that DOES accept a project id from
+   *  a browser must resolve it against its own list of projects and
+   *  never accept a path (see `AccountingServerDeps.channelScopeForRoot`). */
+  resolveWorkspaceRoot?: (req: AccountingDispatchRequest) => string | undefined;
+}
+
 /** Build the accounting Express router. The host injects its workspace
  *  root + logger via `configureAccountingServer(...)` and pub/sub via
  *  `initAccountingEventPublisher(...)`, then mounts the returned router
- *  with `app.use(...)`. */
-export function createAccountingRouter(): Router {
+ *  with `app.use(...)`. Pass `resolveWorkspaceRoot` to serve more than
+ *  one root; omit it and every request uses the configured one. */
+export function createAccountingRouter(options: AccountingRouterOptions = {}): Router {
   const router = Router();
   router.post(
     ACCOUNTING_API.dispatch.path,
@@ -389,9 +445,10 @@ export function createAccountingRouter(): Router {
           return;
         }
         const { action } = body;
+        const root = options.resolveWorkspaceRoot?.(req);
         log.info("accounting", "POST dispatch: start", { action });
         try {
-          const result = await dispatch(body);
+          const result = await dispatch(body, root);
           log.info("accounting", "POST dispatch: ok", { action });
           res.json(result);
         } catch (err) {

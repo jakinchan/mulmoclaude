@@ -26,9 +26,27 @@ export type AccountingLogger = StructuredLogger;
 
 export interface AccountingServerDeps {
   /** Absolute path to the workspace root (where `data/` lives). Used as
-   *  the default when a service/io call doesn't pass an explicit root. */
-  workspaceRoot: string;
+   *  the default when a service/io call doesn't pass an explicit root.
+   *
+   *  `null` declares STRICT mode: this host always passes an explicit
+   *  root per call, and `defaultWorkspaceRoot()` throws instead of
+   *  guessing. A multi-root host (MulmoTerminal, one root per project
+   *  directory) MUST use it — with N roots a forgotten option is not a
+   *  crash but a silent read/write against the wrong project. Mirrors
+   *  `CollectionHost.workspaceRoot: string | null` in
+   *  `@mulmoclaude/core/collection/server`. */
+  workspaceRoot: string | null;
   logger: AccountingLogger;
+  /** Optional: map an absolute root to the OPAQUE scope id the host uses
+   *  for that project, used to namespace pub/sub channel names so two
+   *  roots owning one bookId do not cross-notify. Return `null` for the
+   *  host's default root, which keeps channel names byte-identical to a
+   *  single-root host's (`accounting:<bookId>`).
+   *
+   *  It must be an opaque id, NEVER a path: channel names reach the
+   *  browser, and an absolute root there publishes the user's home
+   *  directory to the client. Same rule as a collection view token. */
+  channelScopeForRoot?: (workspaceRoot: string) => string | null;
 }
 
 let deps: AccountingServerDeps | null = null;
@@ -40,12 +58,30 @@ export function configureAccountingServer(context: AccountingServerDeps): void {
 
 /** Default workspace root for io calls that don't pass one explicitly.
  *  Throws if the host never configured the server — a real wiring bug
- *  (unit tests always pass an explicit root, so they never hit this). */
+ *  (unit tests always pass an explicit root, so they never hit this) —
+ *  and also under STRICT mode (`workspaceRoot: null`), where there is no
+ *  ambient root to fall back to and a missing option is a bug rather
+ *  than a default. */
 export function defaultWorkspaceRoot(): string {
   if (!deps) {
     throw new Error("@mulmoclaude/accounting-plugin: configureAccountingServer() must be called before serving accounting requests");
   }
+  if (deps.workspaceRoot === null) {
+    throw new Error(
+      "@mulmoclaude/accounting-plugin: this host is configured with workspaceRoot: null (explicit-root mode), so every call must pass a workspaceRoot. A call reached the engine without one.",
+    );
+  }
   return deps.workspaceRoot;
+}
+
+/** The opaque channel scope for a root, or `null` when the host declared
+ *  none (single-root hosts, and a multi-root host's default root). Used
+ *  by the event publisher; never contains a path. */
+export function channelScopeFor(workspaceRoot?: string): string | null {
+  if (!deps?.channelScopeForRoot) return null;
+  const root = workspaceRoot ?? (deps.workspaceRoot === null ? null : deps.workspaceRoot);
+  if (root === null) return null;
+  return deps.channelScopeForRoot(root);
 }
 
 const consoleLogger: AccountingLogger = {
