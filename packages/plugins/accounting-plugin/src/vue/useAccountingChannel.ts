@@ -17,7 +17,7 @@
 // (see hostContext.ts) — the channel NAMES come from this package's
 // own `./shared` so publisher and subscriber stay in lockstep.
 
-import { ref, watch, onUnmounted, type Ref } from "vue";
+import { computed, ref, watch, onUnmounted, type Ref } from "vue";
 import { bookChannel, booksChannel, BOOK_EVENT_KINDS, type BookChannelPayload } from "../shared";
 import { hostProjectScope, hostSubscribe } from "./hostContext";
 
@@ -39,17 +39,30 @@ export interface UseAccountingChannelReturn {
   version: Ref<number>;
 }
 
-/** `scope` pins the subscription to one project for the life of the
- *  caller — pass the scope the surface was opened for. Omit it and the
- *  channel follows whatever project the host currently considers
- *  active, which is right for a surface the host itself scopes and
- *  always `null` on a single-root host. */
+/** The project a subscription belongs to: a fixed value, a getter for
+ *  one that can change (the selected card's), or omitted to follow
+ *  whatever project the host currently considers active. */
+export type AccountingChannelScope = string | null | (() => string | null);
+
+/** Resolves the scope REACTIVELY, so a subscription re-binds instead of
+ *  sitting on a channel that stopped being the caller's. A host whose
+ *  `projectScope` getter reads reactive state gets that for free on the
+ *  host-following path too; one that does not simply never changes. */
+function resolveScope(scope: AccountingChannelScope | undefined): Ref<string | null> {
+  return computed(() => (scope === undefined ? hostProjectScope() : typeof scope === "function" ? scope() : scope));
+}
+
+/** `scope` binds the subscription to one project — pass the scope the
+ *  surface was opened for. Omit it and the channel follows whatever
+ *  project the host currently considers active, which is right for a
+ *  surface the host itself scopes and always `null` on a single-root
+ *  host. */
 export function useAccountingChannel(
   bookId: Ref<string | null>,
   onPayload?: (payload: BookChannelPayload) => void,
-  scope?: string | null,
+  scope?: AccountingChannelScope,
 ): UseAccountingChannelReturn {
-  const channelScope = scope === undefined ? hostProjectScope() : scope;
+  const channelScope = resolveScope(scope);
   const version = ref(0);
   let unsubscribe: (() => void) | null = null;
 
@@ -62,14 +75,17 @@ export function useAccountingChannel(
     // host, which keeps the name `accounting:<bookId>`): a bookId is
     // unique within a root, so without it a write in one project would
     // refresh an open view of the same-named book in another.
-    unsubscribe = hostSubscribe(bookChannel(nextBookId, channelScope), (data) => {
+    unsubscribe = hostSubscribe(bookChannel(nextBookId, channelScope.value), (data) => {
       version.value += 1;
       const event = toBookChannelPayload(data);
       if (event) onPayload?.(event);
     });
   }
 
-  watch(bookId, bind, { immediate: true });
+  // The scope is watched alongside the book: a card retargeted at
+  // another project must leave the old project's channel, not keep
+  // receiving its events under the same bookId.
+  watch([bookId, channelScope], ([nextBookId]) => bind(nextBookId), { immediate: true });
   onUnmounted(() => {
     unsubscribe?.();
     unsubscribe = null;
@@ -79,8 +95,21 @@ export function useAccountingChannel(
 
 /** Subscribe to "the list of books changed" events. Use in
  *  BookSwitcher.vue to refetch the dropdown contents when a sibling
- *  tab adds / deletes a book. */
-export function useAccountingBooksChannel(onChange: () => void, scope?: string | null): void {
-  const unsubscribe = hostSubscribe(booksChannel(scope === undefined ? hostProjectScope() : scope), onChange);
-  onUnmounted(() => unsubscribe());
+ *  tab adds / deletes a book. Re-binds on a scope change, like
+ *  `useAccountingChannel`. */
+export function useAccountingBooksChannel(onChange: () => void, scope?: AccountingChannelScope): void {
+  const channelScope = resolveScope(scope);
+  let unsubscribe: (() => void) | null = null;
+  watch(
+    channelScope,
+    (nextScope) => {
+      unsubscribe?.();
+      unsubscribe = hostSubscribe(booksChannel(nextScope), onChange);
+    },
+    { immediate: true },
+  );
+  onUnmounted(() => {
+    unsubscribe?.();
+    unsubscribe = null;
+  });
 }

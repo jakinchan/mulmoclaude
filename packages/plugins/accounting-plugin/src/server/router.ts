@@ -36,7 +36,7 @@ import {
 } from "./service.js";
 import type { BookSummary } from "../shared/types.js";
 import { ACCOUNTING_ACTIONS, ACCOUNTING_API } from "../shared";
-import { channelScopeFor, log } from "./context.js";
+import { channelScopeFor, isProjectScopedHost, log } from "./context.js";
 import { asyncHandler, type ErrorBody } from "./http.js";
 
 export interface AccountingActionBody {
@@ -67,13 +67,19 @@ interface OpenBookToolResult {
   books: BookSummary[];
   /** The host's OPAQUE scope id for the root this book lives under, so
    *  the mounted card fetches ITS OWN project rather than whatever the
-   *  host has selected when it renders. Absent for a single-root host
-   *  (and for a multi-root host's default root), which keeps the
-   *  envelope byte-identical to what it has always been.
+   *  host has selected when it renders.
+   *
+   *  `null` is a real answer on a project-scoped host — the default root
+   *  — and is spelled out rather than omitted, because an ABSENT field
+   *  means "resolve the host's active project at mount" and a host that
+   *  switches project between the tool result and the render would then
+   *  point a default-root card at the new one. The field is absent only
+   *  on a host that declared no scoping at all, which keeps a
+   *  single-root envelope byte-identical to what it has always been.
    *
    *  Stamped by the SERVER from the resolved root — it is never read
    *  off the request body, so the model cannot pick a project. */
-  scope?: string;
+  scope?: string | null;
 }
 
 type ActionRest = Omit<AccountingActionBody, "action">;
@@ -101,8 +107,8 @@ async function handleOpenBook(rest: ActionRest, root: string | undefined): Promi
     throw new AccountingError(404, `openBook: book ${JSON.stringify(rest.bookId)} not found`);
   }
   const initialTab = typeof rest.initialTab === "string" ? rest.initialTab : undefined;
-  const scope = channelScopeFor(root);
-  return { kind: "accounting-app", bookId: rest.bookId, initialTab, books: list.books, ...(scope ? { scope } : {}) };
+  const scopeField = isProjectScopedHost() ? { scope: channelScopeFor(root) } : {};
+  return { kind: "accounting-app", bookId: rest.bookId, initialTab, books: list.books, ...scopeField };
 }
 
 async function handleGetReport(rest: ActionRest, root: string | undefined): Promise<unknown> {

@@ -156,9 +156,10 @@ interface AccountingAppPayload {
    *  `id` we use to highlight the row in JournalList. */
   entries?: { id?: string }[];
   /** The host's opaque project id, stamped by the server on the
-   *  envelope that opened this card. It pins the card to the project it
-   *  was opened for — see `cardScope` below. */
-  scope?: string;
+   *  envelope that opened this card — `null` meaning the default root.
+   *  It pins the card to the project it was opened for; see `cardScope`
+   *  below. */
+  scope?: string | null;
   /** Present on `voidEntry` envelopes — the kind="void-marker" row
    *  posted alongside the reversing entry. We surface this row (not
    *  the reverseEntry) because the marker is the visual "this entry
@@ -193,17 +194,25 @@ function isTabKey(value: string | undefined): value is TabKey {
 
 const initialPayload = computed<AccountingAppPayload>(() => props.selectedResult?.data ?? props.selectedResult?.jsonData ?? {});
 
-// The project this card belongs to, resolved ONCE at mount and never
-// again. A multi-root host can change its active project while this
-// card stays open; without pinning, every request and subscription
-// below would follow it and the card would silently start reading —
-// and writing — another project's books under the same bookId. An
-// envelope with no scope (a single-root host, or one made before the
-// server stamped it) falls back to whatever the host considered active
-// at mount, which for a single-root host is always `null`.
-const cardScope = initialPayload.value.scope ?? hostProjectScope();
-// Binds every child component's api client to that project too.
-const api = provideAccountingApi(cardScope);
+// The project this card belongs to — taken from the ENVELOPE that
+// opened it, not from whatever the host considers active. A multi-root
+// host can change its active project while this card stays open, and
+// following that would silently repoint the card's reads and writes at
+// another project's books under the same bookId.
+//
+// PRESENCE, not truthiness: `null` is a real scope (the host's default
+// root) and binds like any other. Only a genuinely absent field — a
+// host that declared no scoping, or a card made before the server
+// stamped it — falls back to what the host considers active, which on a
+// single-root host is always `null` anyway.
+const cardScope = computed<string | null>(() => {
+  const payload = initialPayload.value;
+  return "scope" in payload ? (payload.scope ?? null) : hostProjectScope();
+});
+// Binds every child component's api client to that project too, and
+// follows the card this View is showing: `selectedResult` can be
+// retargeted at another result without remounting.
+const api = provideAccountingApi(() => cardScope.value);
 const initialTab = computed<TabKey>(() => (isTabKey(initialPayload.value.initialTab) ? initialPayload.value.initialTab : "journal"));
 
 const currentTab = ref<TabKey>(initialTab.value);
@@ -261,8 +270,11 @@ const activeFiscalYearEnd = computed(() => activeBook.value?.fiscalYearEnd);
 // SSE round-trip drives the table/report refetch. No parallel
 // localVersion bump — it only ever fired the same watchers a second
 // time in the same tick.
-const { version: bookVersion } = useAccountingChannel(activeBookId, undefined, cardScope);
-useAccountingBooksChannel(() => void refetchBooks(), cardScope);
+const { version: bookVersion } = useAccountingChannel(activeBookId, undefined, () => cardScope.value);
+useAccountingBooksChannel(
+  () => void refetchBooks(),
+  () => cardScope.value,
+);
 
 function pickInitialBookId(): string | null {
   // Priority: explicit `initialPayload.bookId` (carried in the

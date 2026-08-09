@@ -56,6 +56,9 @@ let server: Server;
 let baseUrl: string;
 let rootA: string;
 let rootB: string;
+/** The scoped host's DEFAULT root — a real project whose opaque id is
+ *  `null`, which is a different thing from a host with no scoping. */
+let rootDefault: string;
 
 // The host's own resolver: an opaque project id from the request body,
 // looked up against the host's list. A path is never accepted.
@@ -98,8 +101,10 @@ const dispatch = (payload: Record<string, unknown>): Promise<DispatchResult> => 
 before(async () => {
   rootA = makeTmp();
   rootB = makeTmp();
+  rootDefault = makeTmp();
   PROJECT_IDS.pa = rootA;
   PROJECT_IDS.pb = rootB;
+  PROJECT_IDS.pw = rootDefault;
 
   const app = express();
   app.use(express.json());
@@ -123,6 +128,7 @@ describe("explicit-root mode", () => {
       workspaceRoot: null,
       logger: silentLogger,
       channelScopeForRoot: (root) => (root === rootA ? "pa" : root === rootB ? "pb" : null),
+      // …so `rootDefault` maps to `null`: the host's default project.
     });
   });
 
@@ -197,6 +203,17 @@ describe("explicit-root mode", () => {
     const opened = await dispatch({ action: ACCOUNTING_ACTIONS.openBook, bookId, [ACCOUNTING_PROJECT_FIELD]: "pb" });
     assert.equal(opened.status, 200);
     assert.equal(opened.body.scope, "pb");
+  });
+
+  it("a default-root card still records its identity, as an explicit null", async () => {
+    // Absent would mean "ask the host what is active when you mount",
+    // and a host that switches project between the tool result and the
+    // render would then point this card at the new one.
+    const created = await dispatch({ action: ACCOUNTING_ACTIONS.createBook, name: "Head Office", [ACCOUNTING_PROJECT_FIELD]: "pw" });
+    const opened = await dispatch({ action: ACCOUNTING_ACTIONS.openBook, bookId: created.body.bookId, [ACCOUNTING_PROJECT_FIELD]: "pw" });
+    assert.equal(opened.status, 200);
+    assert.equal("scope" in opened.body, true, "a scoped host always records the card's project");
+    assert.equal(opened.body.scope, null);
   });
 
   it("channel names are namespaced by the scope, never by a path", async () => {

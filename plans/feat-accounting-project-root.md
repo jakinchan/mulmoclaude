@@ -42,9 +42,11 @@ a host wires both the same way.
 4. **The rebuild queue is keyed by `(root, bookId)`**, not by bookId. Two projects holding a
    book of the same name previously shared one queue: B's write would cancel A's rebuild and
    `awaitRebuildIdle` would return while the other project's rebuild was still writing.
-5. **The card envelope carries the scope, and the card is PINNED to it.** `openBook` stamps
-   the host's opaque project id; `View.vue` reads it once at mount and binds its whole
-   subtree — every request and both channel subscriptions — to that project through
+5. **The card envelope carries the scope, and the card is BOUND to it.** `openBook` stamps
+   the host's opaque project id — as an explicit `null` for the host's default root, because
+   an absent field means "ask the host what is active now" and a host that switched project
+   between the tool result and the render would repoint the card. `View.vue` reads it and
+   binds its whole subtree — every request and both channel subscriptions — to that project through
    `provideAccountingApi` / `useAccountingApi`. Stamping alone would not have been enough:
    the host can change its active project while a card stays open, and an unpinned card
    would then read and write another project's book under the same bookId.

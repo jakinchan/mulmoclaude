@@ -90,6 +90,18 @@ export function channelScopeFor(workspaceRoot?: string): string | null {
   return deps.channelScopeForRoot(workspaceRoot ?? defaultWorkspaceRoot());
 }
 
+/** Whether the host declared project scoping at all.
+ *
+ *  The difference matters where a card records the project it belongs
+ *  to: on a scoped host, "no scope" is a REAL answer (the default root)
+ *  and must be recorded as `null`, not left out — an omitted field means
+ *  "ask the host what is active now", which is precisely the drift a
+ *  pinned card exists to prevent. On an unscoped host the field is left
+ *  out entirely and every payload stays byte-identical to today's. */
+export function isProjectScopedHost(): boolean {
+  return Boolean(deps?.channelScopeForRoot);
+}
+
 const consoleLogger: AccountingLogger = {
   error: (namespace, msg, data) => console.error(`[${namespace}] ${msg}`, data ?? ""),
   warn: (namespace, msg, data) => console.warn(`[${namespace}] ${msg}`, data ?? ""),

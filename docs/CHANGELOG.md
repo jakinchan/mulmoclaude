@@ -30,10 +30,13 @@ requests, channel names and card envelopes are byte-identical to before.
   an id, never a path, because these names reach the browser.
 - The snapshot rebuild queue is keyed by `(root, bookId)`. Previously one project's write
   cancelled another's in-flight rebuild and `awaitRebuildIdle` returned early.
-- An `openBook` result carries that scope and the mounted View PINS itself to it at mount —
+- An `openBook` result carries that scope — explicitly `null` for a scoped host's default
+  root, since an absent field means "resolve the host's active project" — and the mounted
+  View binds itself to it:
   every request and both channel subscriptions in the card's subtree go to the project the
-  card was opened for, not to whatever the host has selected later. The Vue surface also
-  takes a `projectScope` seam for surfaces the host scopes itself.
+  card was opened for, not to whatever the host has selected later, and they re-bind if the
+  surface is retargeted at another card. The Vue surface also takes a `projectScope` seam for
+  surfaces the host scopes itself.
 - The `listAccountingBooks` remote-host handler resolves a scope from its params, defaulting
   to the host root, so a phone-side project picker is an added parameter and not a protocol
   change.

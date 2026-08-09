@@ -57,11 +57,12 @@ export type {
 export interface OpenAppPayload {
   kind: "accounting-app";
   /** The host's opaque project id for the root this book lives under,
-   *  stamped by the server on an `openBook` result. Absent for a
-   *  single-root host. A host that renders cards from more than one
-   *  project keys them by `(scope, bookId)` — a bookId is unique within
-   *  a root and nowhere else. */
-  scope?: string;
+   *  stamped by the server on an `openBook` result. `null` is the
+   *  default root; the field is absent only on a host that declared no
+   *  scoping. A host that renders cards from more than one project keys
+   *  them by `(scope, bookId)` — a bookId is unique within a root and
+   *  nowhere else. */
+  scope?: string | null;
   /** `null` when the workspace has zero books — the View renders the
    *  empty state and prompts for book creation. */
   bookId: string | null;
@@ -302,16 +303,18 @@ const hostScopedApi = makeApi(hostProjectScope);
 
 const API_KEY: InjectionKey<AccountingApi> = Symbol("accounting-api");
 
-/** Bind a component tree to ONE project for its whole life.
+/** Bind a component tree to the project its surface belongs to.
  *
  *  A card was opened against the project its server envelope named
  *  (`OpenAppPayload.scope`). If its requests kept resolving the host's
- *  CURRENT project instead, then switching projects would silently
- *  repoint an already-open card's reads and writes at another project's
- *  books — same bookId, different company. Call this once, in the
- *  mounted app's setup, with the scope the card was opened for. */
-export function provideAccountingApi(scope: string | null): AccountingApi {
-  const api = createAccountingApi(scope);
+ *  CURRENT project instead, switching projects would silently repoint
+ *  an already-open card's reads and writes at another project's books —
+ *  same bookId, different company. Call this once in the mounted app's
+ *  setup, passing a GETTER: the surface's own scope can change when it
+ *  is retargeted at another card, and the tree must follow the card it
+ *  is showing rather than the one it first showed. */
+export function provideAccountingApi(getScope: () => string | null): AccountingApi {
+  const api = makeApi(getScope);
   provide(API_KEY, api);
   return api;
 }
