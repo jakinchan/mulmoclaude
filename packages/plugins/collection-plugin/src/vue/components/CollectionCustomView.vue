@@ -34,7 +34,7 @@ import { ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { useCollectionI18n } from "../lang";
 import { errorMessage } from "@mulmoclaude/core/collection";
 import type { CollectionCustomView } from "@mulmoclaude/core/collection";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 
 const { t } = useCollectionI18n();
 
@@ -56,6 +56,11 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const srcdoc = ref<string | null>(null);
 const iframeEl = ref<HTMLIFrameElement | null>(null);
+
+// Resolved once in setup: inside a chat card this is the card's project-scoped
+// binding, elsewhere the global one. Captured here because the loads below run
+// outside setup, where the scope can no longer be injected.
+const cui = useCollectionUi();
 
 // The injected token expires (VIEW_TOKEN_TTL_MS, 1h). The sandboxed view can't
 // re-mint itself (it has no global bearer), so a view left mounted past expiry
@@ -91,7 +96,7 @@ async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   srcdoc.value = null;
-  const binding = collectionUi();
+  const binding = cui;
   try {
     // 1. Mint a scoped token for this view's declared capabilities.
     const mint = await binding.mintViewToken(props.slug, props.view.id);
@@ -139,7 +144,7 @@ async function load(): Promise<void> {
 // back. `localeTag()` is documented as reactive (the binding doc on
 // `CollectionUi.localeTag`); reading it inside the watch source array lets
 // Vue track that dep transparently.
-watch([() => props.slug, () => props.view.id, () => collectionUi().localeTag()], () => void load(), { immediate: true });
+watch([() => props.slug, () => props.view.id, () => cui.localeTag()], () => void load(), { immediate: true });
 
 // ── Live updates ──
 // The sandboxed iframe can't open its own authenticated pub/sub socket, so the
@@ -162,7 +167,7 @@ watch(
   (slug) => {
     changeUnsub?.();
     changeUnsub = null;
-    const subscribe = collectionUi().subscribeChanges;
+    const subscribe = cui.subscribeChanges;
     if (slug && subscribe) changeUnsub = subscribe(slug, relayChange);
   },
   { immediate: true },

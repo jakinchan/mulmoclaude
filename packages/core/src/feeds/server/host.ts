@@ -24,6 +24,18 @@ export type AgentWorkerRunner = (args: {
   message: string;
   roleId: string;
   hidden: boolean;
+  /** Absolute root this refresh is for — the root `refreshViaAgent` was called
+   *  with, forwarded because the seed prompt's `dataPath` is RELATIVE to it.
+   *
+   *  A multi-root host must spawn the worker THERE (as its cwd), or the worker
+   *  resolves `data/collections/<slug>/items` against whatever root it happens
+   *  to run in and writes another project's records — silently, since both
+   *  paths exist and neither side errors.
+   *
+   *  Optional so a single-workspace host's runner (MulmoClaude's) can ignore it
+   *  and behave exactly as before: there is only one root, and it is the one the
+   *  worker already runs in. */
+  workspaceRoot?: string | undefined;
   onComplete?: ((outcome: { didError: boolean }) => void | Promise<void>) | undefined;
 }) => Promise<AgentWorkerResult>;
 

@@ -350,7 +350,8 @@ import CollectionRemoteViewPreview from "./CollectionRemoteViewPreview.vue";
 import CollectionTable from "./CollectionTable.vue";
 import { useCollectionRendering } from "../useCollectionRendering";
 import { writeCollectionViewMode, writeCollectionSort, writeCollectionFlagFilters, type CollectionViewMode, type BuiltInViewMode } from "../collectionViewMode";
-import { collectionUi, type CollectionPushResult } from "../uiContext";
+import type { CollectionPushResult } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 import { pushProblems } from "../calendarPushResult";
 import { useTableSort } from "../composables/useTableSort";
 import { useCollectionActions } from "../composables/useCollectionActions";
@@ -437,7 +438,7 @@ const { t, locale } = useCollectionI18n();
 // All host couplings (data, routing, confirm, chat, shortcuts, notifications,
 // the pin toggle) come through the injected CollectionUi binding. The aliases
 // keep the body's call sites unchanged where the host shape matched 1:1.
-const cui = collectionUi();
+const cui = useCollectionUi();
 const { confirm: openConfirm, unpin, startChat } = cui;
 const appApi = { startNewChat: startChat };
 

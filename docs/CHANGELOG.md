@@ -10,6 +10,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Package releases
 
+#### The two pieces a multi-root host still cannot get from here
+
+`@mulmoclaude/core@3.2.0`, `@mulmoclaude/collection-plugin@3.1.0`. Both are additive, and
+MulmoClaude — one workspace — behaves exactly as before: it stamps no card scope and its worker
+runner ignores the new field.
+
+- `AgentWorkerRunner` receives the `workspaceRoot` the refresh was called with. The agent-ingest
+  seed prompt addresses records ROOT-RELATIVELY (`promptPathsFor`), so a host that was handed only
+  the message resolved `data/collections/<slug>/items` against whatever root the worker ran in —
+  a scheduled refresh for one project writing into another project's same-named collection, with
+  no error on either side. Declarative RSS/JSON feeds were never affected (they write through the
+  engine under an explicit root), but a host cannot register only those: the refresh walks a
+  root's collections internally.
+- A presented card now READS the `scope` core 3.1.0 taught it to carry. The chat payload parser
+  kept the slug and dropped the scope, so a card fetched through whatever project was ambient when
+  it rendered rather than the one it was made in. `CollectionUi.withScope(scope)` is the new
+  optional host capability; the card provides the resolved binding to its own subtree and every
+  component reads it through `useCollectionUi()` instead of the global `collectionUi()`. A host
+  that omits `withScope` — and a card with no scope — resolve to the global binding, unchanged.
+
 #### Accounting can follow a project root, the way collections already do
 
 `@mulmoclaude/accounting-plugin@2.2.0`. The engine was root-parameterised down in the io and
@@ -85,7 +105,7 @@ Roots are canonicalised (`path.resolve`) wherever one becomes an identity — a 
 change payload, a bell id — so `/work/proj` and `/work/proj/` are one project rather than two.
 Symlinks are deliberately not resolved; see `canonicalRoot`.
 
-Ships `@mulmoclaude/core@3.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/core@3.2.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 #### `@mulmoclaude/core` 3.0.0 → 3.0.1 — remote host stops mistaking its own downtime for a dead channel (#2845, #2846)
 

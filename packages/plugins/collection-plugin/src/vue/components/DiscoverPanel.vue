@@ -89,10 +89,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useCollectionI18n } from "../lang";
-import { collectionUi, type RegistryEntry } from "../uiContext";
+import type { RegistryEntry } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 
 const { t } = useCollectionI18n();
-const cui = collectionUi();
+const cui = useCollectionUi();
 // Emitted after a successful import so the parent can refresh its installed list
 // (the newly-installed collection should show up on the Installed tab right away).
 const emit = defineEmits<{ imported: [] }>();

@@ -69,6 +69,10 @@ export async function refreshViaAgent(workspaceRoot: string, collection: LoadedC
       message,
       roleId: ingest.role,
       hidden,
+      // The seed prompt addresses records root-relatively (`promptPathsFor`), so
+      // the root travels WITH it: a multi-root host spawns the worker there. A
+      // single-workspace host ignores the field — same root either way.
+      workspaceRoot,
       // A visible manual run is watched directly — only hidden runs get the
       // completion hook (failure bell + consecutiveFailures); `finalizeRun` only
       // fires it for system-origin sessions anyway.

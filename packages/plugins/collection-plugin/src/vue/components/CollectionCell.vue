@@ -151,7 +151,7 @@
 </template>
 
 <script setup lang="ts">
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 import { useCollectionI18n } from "../lang";
 import { activateRefLink, activatePathLink } from "../refLink";
 import type { CollectionRendering } from "../useCollectionRendering";
@@ -188,7 +188,7 @@ const emit = defineEmits<{
   commitInlineEdit: [item: CollectionItem, key: string, field: FieldSpec, raw: boolean | string];
 }>();
 
-const cui = collectionUi();
+const cui = useCollectionUi();
 const { t, locale } = useCollectionI18n();
 
 /** A flag FIELD's computed boolean for one row: reads the enriched record so a

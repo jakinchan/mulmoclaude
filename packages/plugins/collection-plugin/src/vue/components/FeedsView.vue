@@ -117,12 +117,12 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from "vue";
 import { useCollectionI18n } from "../lang";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 import type { FeedSummary } from "@mulmoclaude/core/collection";
 
 const { t } = useCollectionI18n();
 // Host couplings (list/refresh/navigate/chat/shortcuts/pin) via the binding.
-const cui = collectionUi();
+const cui = useCollectionUi();
 const { pinToggle, reconcileShortcuts } = cui;
 
 const feeds = ref<FeedSummary[]>([]);

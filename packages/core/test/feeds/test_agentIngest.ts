@@ -94,6 +94,38 @@ describe("refreshViaAgent — dispatch", () => {
     assert.equal(state.lastFetchedAt, null, "no dispatch ⇒ no lastFetchedAt, so the next tick retries");
   });
 
+  it("forwards the root it was called with, so a multi-root host spawns the worker THERE", async () => {
+    const root = makeTempDir("agent-ingest-");
+    const collection = makeAgentCollection(root, "quotes-root", true);
+    let seenRoot: string | undefined = "unset";
+    setTestWorker(async (args): Promise<AgentWorkerResult> => {
+      seenRoot = args.workspaceRoot;
+      return { ok: true, chatId: "chat-root" };
+    });
+
+    await refreshViaAgent(root, collection);
+    // The seed prompt's `dataPath` is relative to this root; without it the
+    // worker would resolve it against whichever root it happens to run in.
+    assert.equal(seenRoot, root, "the refresh's root reaches the runner");
+  });
+
+  it("dispatches through a runner that never declares workspaceRoot (the single-workspace shape)", async () => {
+    const root = makeTempDir("agent-ingest-");
+    const collection = makeAgentCollection(root, "quotes-legacy", true);
+    // Deliberately destructures only the fields a single-workspace host reads —
+    // the extra argument must be inert, not a break.
+    setTestWorker(async ({ message, roleId }): Promise<AgentWorkerResult> => {
+      assert.ok(message.length > 0);
+      assert.equal(roleId, "investor");
+      return { ok: true, chatId: "chat-legacy" };
+    });
+
+    const result = await refreshViaAgent(root, collection);
+    assert.equal(result.dispatched, true);
+    const state = await readFeedState(root, collection);
+    assert.ok(state.lastFetchedAt, "lastFetchedAt stamped exactly as before");
+  });
+
   it("reports a missing template without dispatching", async () => {
     const root = makeTempDir("agent-ingest-");
     const collection = makeAgentCollection(root, "quotes-notmpl", false);

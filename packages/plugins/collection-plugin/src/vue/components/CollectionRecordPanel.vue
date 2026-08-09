@@ -544,7 +544,7 @@ import { useCollectionI18n } from "../lang";
 import CollectionBacklinksView from "./CollectionBacklinksView.vue";
 import CollectionEmbedView from "./CollectionEmbedView.vue";
 import { COMPUTED_TYPES, fieldVisible, resolveEnumColor, emptyRow } from "@mulmoclaude/core/collection";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 import { activateRefLink, activatePathLink } from "../refLink";
 import type { CollectionRendering } from "../useCollectionRendering";
 import type {
@@ -559,7 +559,7 @@ import type {
 // The UI binding: ref/file navigation (router-optional) + the host's raw-file
 // `imageSrc`. `resolveImageSrc` keeps its local name so the template's `:src` is
 // unchanged.
-const cui = collectionUi();
+const cui = useCollectionUi();
 const resolveImageSrc = cui.imageSrc;
 
 const props = defineProps<{

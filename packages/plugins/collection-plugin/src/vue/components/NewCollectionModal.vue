@@ -72,7 +72,7 @@
 
 <script setup lang="ts">
 import { useCollectionI18n } from "../lang";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 import { useTranslatedStarters } from "../useStarterTranslations";
 import CollectionRecordModal from "./CollectionRecordModal.vue";
 import type { CollectionStarter } from "../starters";
@@ -80,7 +80,7 @@ import type { CollectionStarter } from "../starters";
 const emit = defineEmits<{ close: [] }>();
 
 const { t, locale } = useCollectionI18n();
-const cui = collectionUi();
+const cui = useCollectionUi();
 const starters = useTranslatedStarters(locale);
 
 // Free-form: seed an editable draft with the conventions-reading preamble (no
