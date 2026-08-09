@@ -40,22 +40,52 @@ import { evalNow } from "./clock.js";
  *  active bell. */
 const LEGACY_ID_PREFIX = "collection-completion:";
 
-/** Stable key encoding slug + item, round-tripped through the entry's
+/** Marks a key that carries a root. Placed FIRST so a rooted key can never be
+ *  mistaken for a slug — `<prefix>@<root>\0<slug>:<itemId>` vs the original
+ *  `<prefix><slug>:<itemId>`. NUL cannot occur in a path, a slug or an itemId,
+ *  so the split is unambiguous. */
+const ROOT_MARK = "@";
+const ROOT_SEP = "\0";
+
+/** Stable key encoding (root, slug, item), round-tripped through the entry's
  *  `pluginData` so we can find it later without a side state file. Slug +
  *  itemId are upstream-validated via `safeSlugName`, which forbids the
- *  colon separator, so the two-segment parse below is unambiguous. */
-function completionLegacyId(slug: string, itemId: string): string {
-  return `${LEGACY_ID_PREFIX}${slug}:${itemId}`;
+ *  colon separator, so the two-segment parse below is unambiguous.
+ *
+ *  COMPATIBILITY RULE — read this before changing the format. Both apps
+ *  (MulmoClaude and MulmoTerminal) read ONE notifier file,
+ *  `<ws>/data/notifier/active.json`; they never run simultaneously, but an id
+ *  written by one must not produce a duplicate bell for the other. So:
+ *
+ *  - with NO root, the id is byte-identical to the pre-multi-root format, and a
+ *    single-workspace host's existing `active.json` entries keep matching;
+ *  - a root is included ONLY when one was supplied, which is what lets two
+ *    roots owning the same slug hold two distinct bells instead of deduping
+ *    into each other;
+ *  - `parseCompletionLegacyId` accepts BOTH forms, forever. */
+function completionLegacyId(slug: string, itemId: string, root?: string): string {
+  const scope = root === undefined ? "" : `${ROOT_MARK}${root}${ROOT_SEP}`;
+  return `${LEGACY_ID_PREFIX}${scope}${slug}:${itemId}`;
 }
 
-/** Decode a key back into its (slug, itemId) pair, or null if the string
- *  didn't originate from this module. Used by the sweep step. */
-function parseCompletionLegacyId(legacyId: string): { slug: string; itemId: string } | null {
+/** Decode a key back into its (root, slug, itemId), or null if the string
+ *  didn't originate from this module. Accepts both the rooted and the
+ *  original root-less form — see the compatibility rule above. Used by the
+ *  sweep step. */
+function parseCompletionLegacyId(legacyId: string): { root?: string; slug: string; itemId: string } | null {
   if (!legacyId.startsWith(LEGACY_ID_PREFIX)) return null;
-  const body = legacyId.slice(LEGACY_ID_PREFIX.length);
+  let body = legacyId.slice(LEGACY_ID_PREFIX.length);
+  let root: string | undefined;
+  if (body.startsWith(ROOT_MARK)) {
+    const sep = body.indexOf(ROOT_SEP);
+    if (sep < 0) return null;
+    root = body.slice(ROOT_MARK.length, sep);
+    body = body.slice(sep + ROOT_SEP.length);
+  }
   const colon = body.indexOf(":");
   if (colon < 0) return null;
-  return { slug: body.slice(0, colon), itemId: body.slice(colon + 1) };
+  const parsed = { slug: body.slice(0, colon), itemId: body.slice(colon + 1) };
+  return root === undefined ? parsed : { root, ...parsed };
 }
 
 /** The human-readable label shown in a completion notification's title.
@@ -78,15 +108,15 @@ export { itemIsDone };
 /** Every active bell entry whose key matches this (slug, itemId).
  *  Returns multiple when defensive cleanup is needed. Scans `listAll()`
  *  — cheap because the active set is bounded. */
-async function findActiveEntries(slug: string, itemId: string): Promise<NotifierEntry[]> {
+async function findActiveEntries(slug: string, itemId: string, root: string | undefined): Promise<NotifierEntry[]> {
   const adapter = requireAdapter();
-  const legacyId = completionLegacyId(slug, itemId);
+  const legacyId = completionLegacyId(slug, itemId, root);
   const entries = await listAll();
   return entries.filter((entry) => adapter.readEntry(entry.pluginData)?.legacyId === legacyId);
 }
 
-async function findActiveEntryIds(slug: string, itemId: string): Promise<string[]> {
-  return (await findActiveEntries(slug, itemId)).map((entry) => entry.id);
+async function findActiveEntryIds(slug: string, itemId: string, root: string | undefined): Promise<string[]> {
+  return (await findActiveEntries(slug, itemId, root)).map((entry) => entry.id);
 }
 
 /** Per-key in-flight lock. Serializes concurrent `ensureItemNotification`
@@ -118,8 +148,9 @@ async function ensureItemNotification(
   itemId: string,
   displayLabel: string,
   priority: CompletionPriority,
+  root: string | undefined,
 ): Promise<void> {
-  const legacyId = completionLegacyId(slug, itemId);
+  const legacyId = completionLegacyId(slug, itemId, root);
   // Drain any in-flight publish for this key BEFORE our check + set. The
   // drain + claim runs synchronously between `ensureLocks.get` and
   // `ensureLocks.set`, so two callers can't both observe an empty slot.
@@ -129,7 +160,7 @@ async function ensureItemNotification(
     if (!inflight) break;
     await inflight.promise;
   }
-  const lock: EnsureLock = { promise: doEnsureItemNotification(slug, schema, itemId, legacyId, displayLabel, priority) };
+  const lock: EnsureLock = { promise: doEnsureItemNotification({ slug, schema, itemId, legacyId, displayLabel, priority, root }) };
   ensureLocks.set(legacyId, lock);
   try {
     await lock.promise;
@@ -146,7 +177,13 @@ async function ensureItemNotification(
  *  place (preserving id / position / createdAt) so a record whose flagged
  *  value changed while it stayed pending re-colours the bell without a
  *  clear+republish flicker. No-op when the stored priority already matches. */
-async function reconcileEntrySeverity(slug: string, itemId: string, entries: NotifierEntry[], priority: CompletionPriority): Promise<void> {
+async function reconcileEntrySeverity(
+  slug: string,
+  itemId: string,
+  entries: NotifierEntry[],
+  priority: CompletionPriority,
+  root: string | undefined,
+): Promise<void> {
   const adapter = requireAdapter();
   for (const entry of entries) {
     const parsed = adapter.readEntry(entry.pluginData);
@@ -158,28 +195,32 @@ async function reconcileEntrySeverity(slug: string, itemId: string, entries: Not
         slug,
         itemId,
         priority,
-        navigateTarget: adapter.buildNavigateTarget(slug, itemId),
+        navigateTarget: adapter.buildNavigateTarget(slug, itemId, root),
+        root,
       }),
     });
   }
 }
 
-async function doEnsureItemNotification(
-  slug: string,
-  schema: CollectionSchema,
-  itemId: string,
-  legacyId: string,
-  displayLabel: string,
-  priority: CompletionPriority,
-): Promise<void> {
+interface EnsureInput {
+  slug: string;
+  schema: CollectionSchema;
+  itemId: string;
+  legacyId: string;
+  displayLabel: string;
+  priority: CompletionPriority;
+  root: string | undefined;
+}
+
+async function doEnsureItemNotification({ slug, schema, itemId, legacyId, displayLabel, priority, root }: EnsureInput): Promise<void> {
   const adapter = requireAdapter();
   try {
-    const existing = await findActiveEntries(slug, itemId);
+    const existing = await findActiveEntries(slug, itemId, root);
     if (existing.length > 0) {
-      await reconcileEntrySeverity(slug, itemId, existing, priority);
+      await reconcileEntrySeverity(slug, itemId, existing, priority, root);
       return;
     }
-    const navigateTarget = adapter.buildNavigateTarget(slug, itemId);
+    const navigateTarget = adapter.buildNavigateTarget(slug, itemId, root);
     // `lifecycle: "action"` — these are state-of-the-world entries
     // mirroring an outstanding obligation (the item is pending), not
     // transient pings. Validation requires a non-info severity and a
@@ -190,7 +231,7 @@ async function doEnsureItemNotification(
       lifecycle: "action",
       title: `${schema.title}: ${displayLabel}`,
       navigateTarget,
-      pluginData: adapter.buildPluginData({ legacyId, slug, itemId, priority, navigateTarget }),
+      pluginData: adapter.buildPluginData({ legacyId, slug, itemId, priority, navigateTarget, root }),
     });
   } catch (err) {
     log().warn("notify ensure failed", { slug, itemId, error: errMsg(err) });
@@ -200,9 +241,9 @@ async function doEnsureItemNotification(
 /** Idempotently clear EVERY bell entry that matches this (slug, itemId).
  *  Silent no-op when nothing matches. The "every" is defensive: if a
  *  duplicate ever slips through, this drains the lot. */
-export async function clearItemNotification(slug: string, itemId: string): Promise<void> {
+export async function clearItemNotification(slug: string, itemId: string, root?: string): Promise<void> {
   try {
-    const ids = await findActiveEntryIds(slug, itemId);
+    const ids = await findActiveEntryIds(slug, itemId, root);
     for (const entryId of ids) {
       await notifierClear(entryId);
     }
@@ -221,14 +262,18 @@ export async function clearItemNotification(slug: string, itemId: string): Promi
  *  `{ workspaceRoot: <tmpdir> }` so the check accepts a fixture dataDir. */
 export async function reconcileItem(collection: LoadedCollection, itemId: string, ioOpts: IoOptions = {}, now: Date = evalNow()): Promise<void> {
   const { slug, schema } = collection;
+  // The bell's root follows the same rule as the change payload's: present
+  // only when THIS call carried an explicit `workspaceRoot`, so a
+  // single-workspace host's ids stay byte-identical to what it already wrote.
+  const root = ioOpts.workspaceRoot;
   if (!schema.completionField) {
     // Schema doesn't track completion — drop any stale entry.
-    await clearItemNotification(slug, itemId);
+    await clearItemNotification(slug, itemId, root);
     return;
   }
   const item = await storeFor(collection, ioOpts).read(itemId);
   if (item === null) {
-    await clearItemNotification(slug, itemId);
+    await clearItemNotification(slug, itemId, root);
     return;
   }
   // Recurrence: predicate-gated + create-if-absent, idempotent and
@@ -236,7 +281,7 @@ export async function reconcileItem(collection: LoadedCollection, itemId: string
   // below so marking an item done still spawns its successor.
   await maybeSpawnSuccessor(collection, item, itemId, ioOpts);
   if (itemIsDone(schema, item)) {
-    await clearItemNotification(slug, itemId);
+    await clearItemNotification(slug, itemId, root);
     return;
   }
   // Time gate: when the schema declares `triggerField`, suppress the bell
@@ -252,7 +297,7 @@ export async function reconcileItem(collection: LoadedCollection, itemId: string
       log().warn("trigger date unparseable, suppressing bell", { slug, itemId, triggerField: schema.triggerField });
     }
     if (due !== true) {
-      await clearItemNotification(slug, itemId);
+      await clearItemNotification(slug, itemId, root);
       return;
     }
   }
@@ -260,10 +305,10 @@ export async function reconcileItem(collection: LoadedCollection, itemId: string
   // records matching the predicate. Convergent — a record that stops
   // matching has its bell cleared.
   if (!whenMatches(schema.notifyWhen, item)) {
-    await clearItemNotification(slug, itemId);
+    await clearItemNotification(slug, itemId, root);
     return;
   }
-  await ensureItemNotification(slug, schema, itemId, resolveDisplayLabel(schema, item, itemId), notifyPriorityForItem(schema, item));
+  await ensureItemNotification(slug, schema, itemId, resolveDisplayLabel(schema, item, itemId), notifyPriorityForItem(schema, item), root);
 }
 
 /** Boot-time reconcile: walk every record of the collection once (through
@@ -302,11 +347,18 @@ export async function sweepStaleActiveEntries(opts: DiscoveryOptions = {}): Prom
     log().warn("sweep list failed", { error: errMsg(err) });
     return;
   }
+  const ownRoot = opts.workspaceRoot;
   for (const entry of entries) {
     const own = adapter.readEntry(entry.pluginData);
     if (!own) continue;
     const parsed = parseCompletionLegacyId(own.legacyId);
     if (!parsed) continue;
+    // An entry belonging to ANOTHER root is not ours to judge: its collection
+    // and its records live in a tree this sweep cannot see, so every check
+    // below would read "gone" and clear a perfectly live bell. Two roots share
+    // one notifier file, so this is the boundary between them. (Both undefined
+    // is the single-workspace case and matches, as it always did.)
+    if (parsed.root !== ownRoot) continue;
     const { slug, itemId } = parsed;
     try {
       const collection = await loadCollection(slug, opts);
