@@ -93,11 +93,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useAccountingI18n } from "../lang";
-import { getOpeningBalances, setOpeningBalances, type Account, type JournalEntry, type JournalLine } from "../api";
+import { useAccountingApi, type Account, type JournalEntry, type JournalLine } from "../api";
 import { formatAmount, inputStepFor, localDateString } from "../../shared";
 import { useLatestRequest } from "./useLatestRequest";
 import AccountsModal from "./AccountsModal.vue";
 import { errorMessage } from "../../shared/errors";
+
+const api = useAccountingApi();
 
 const { t } = useAccountingI18n();
 
@@ -216,7 +218,7 @@ async function loadExisting(): Promise<void> {
   // opening doesn't inherit the previous book's draft values.
   const token = beginLoad();
   const next = freshRows();
-  const result = await getOpeningBalances(props.bookId);
+  const result = await api.getOpeningBalances(props.bookId);
   // Drop the result if the user has switched books since this
   // call started — otherwise stale rows would land on the new
   // book's form.
@@ -244,7 +246,7 @@ async function onSubmit(): Promise<void> {
   error.value = null;
   successMessage.value = null;
   try {
-    const result = await setOpeningBalances({ bookId: props.bookId, asOfDate: asOfDate.value, lines: toApiLines() });
+    const result = await api.setOpeningBalances({ bookId: props.bookId, asOfDate: asOfDate.value, lines: toApiLines() });
     if (!result.ok) {
       error.value = result.error;
       return;

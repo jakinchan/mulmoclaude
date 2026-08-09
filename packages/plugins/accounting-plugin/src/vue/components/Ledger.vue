@@ -68,11 +68,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useAccountingI18n } from "../lang";
-import { getLedger, type Account, type Ledger, type ReportPeriod } from "../api";
+import { useAccountingApi, type Account, type Ledger, type ReportPeriod } from "../api";
 import { formatAmount as formatAmountWithCurrency, currentFiscalYearRange, resolveFiscalYearEnd, type DateRange, type FiscalYearEnd } from "../../shared";
 import { isTaxAccountCode } from "./accountNumbering";
 import { useLatestRequest } from "./useLatestRequest";
 import DateRangePicker from "./DateRangePicker.vue";
+
+const api = useAccountingApi();
 
 const { t } = useAccountingI18n();
 
@@ -153,7 +155,7 @@ async function refresh(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const result = await getLedger(accountCode.value, periodFromRange(range.value), props.bookId);
+    const result = await api.getLedger(accountCode.value, periodFromRange(range.value), props.bookId);
     // Drop the result if a newer refresh started (bookId or
     // accountCode changed under us) — otherwise a slower earlier
     // request could overwrite the fresh ledger.

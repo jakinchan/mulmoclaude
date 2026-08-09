@@ -23,6 +23,7 @@ configureAccountingServer({
   logger,
   channelScopeForRoot: (root) => projectIdForRoot(root), // opaque id, or null for the default root
 });
+initAccountingEventPublisher(pubsub);     // unchanged — the scope comes from the dep above
 app.use(createAccountingRouter({ resolveWorkspaceRoot: (req) => rootForRequest(req) }));
 configureAccountingHost({ apiCall, subscribe, localeTag, projectScope });  // the Vue surface
 ```

@@ -176,11 +176,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useAccountingI18n } from "../lang";
-import { addEntries, voidEntry, type Account, type JournalEntry, type JournalLine } from "../api";
+import { useAccountingApi, type Account, type JournalEntry, type JournalLine } from "../api";
 import { formatAmount, inputStepFor, localDateString, countryHasFeature, type SupportedCountryCode } from "../../shared";
 import { isTaxAccountCode } from "./accountNumbering";
 import AccountsModal from "./AccountsModal.vue";
 import { errorMessage } from "../../shared/errors";
+
+const api = useAccountingApi();
 
 const { t } = useAccountingI18n();
 
@@ -383,7 +385,7 @@ async function onSubmit(): Promise<void> {
     const editingId = props.entryToEdit?.id;
     if (editingId) {
       editAttempted.value = true;
-      const voidResult = await voidEntry({
+      const voidResult = await api.voidEntry({
         bookId: props.bookId,
         entryId: editingId,
         reason: t("pluginAccounting.entryForm.editVoidReason"),
@@ -393,7 +395,7 @@ async function onSubmit(): Promise<void> {
         return;
       }
     }
-    const result = await addEntries({
+    const result = await api.addEntries({
       bookId: props.bookId,
       entries: [
         {

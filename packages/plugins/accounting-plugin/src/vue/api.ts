@@ -8,6 +8,8 @@
 // validation) flow through the same shape. The actual network client is
 // host-injected (see hostContext.ts) so the package stays host-agnostic.
 
+import { inject, provide, type InjectionKey } from "vue";
+
 import { hostApiCall as apiCall, hostProjectScope, type ApiResult } from "./hostContext";
 import {
   ACCOUNTING_ACTIONS,
@@ -71,62 +73,6 @@ export interface OpenAppPayload {
 const DISPATCH_URL = ACCOUNTING_API.dispatch.path;
 const DISPATCH_METHOD = ACCOUNTING_API.dispatch.method;
 
-function call<T>(action: string, args: Record<string, unknown> = {}): Promise<ApiResult<T>> {
-  // The project rides every request, last so a caller cannot shadow it.
-  // Absent (single-root host) the body is byte-identical to before.
-  const project = hostProjectScope();
-  const scopeField = project ? { [ACCOUNTING_PROJECT_FIELD]: project } : {};
-  return apiCall<T>(DISPATCH_URL, { method: DISPATCH_METHOD, body: { action, ...args, ...scopeField } });
-}
-
-// ── Books ────────────────────────────────────────────────────────────
-
-export function getBooks(): Promise<ApiResult<{ books: BookSummary[] }>> {
-  return call(ACCOUNTING_ACTIONS.getBooks);
-}
-
-export function createBook(input: {
-  name: string;
-  currency?: string | undefined;
-  country?: SupportedCountryCode | undefined;
-  /** Closing month 1-12 — required at the form boundary, but the
-   *  server silently defaults an absent value to 12 (December). */
-  fiscalYearEnd?: FiscalYearEnd | undefined;
-}): Promise<ApiResult<{ book: BookSummary }>> {
-  return call(ACCOUNTING_ACTIONS.createBook, input);
-}
-
-export function updateBook(input: {
-  bookId: string;
-  name?: string | undefined;
-  /** Pass `""` to explicitly clear the country (server treats it as
-   *  the "drop the field" sentinel). Any other value must be one of
-   *  the curated `SupportedCountryCode`s. */
-  country?: SupportedCountryCode | "" | undefined;
-  /** Closing month 1-12 — pure metadata, only changes how the
-   *  date-range shortcuts resolve. No "clear" path; absence leaves the
-   *  existing value untouched. */
-  fiscalYearEnd?: FiscalYearEnd | undefined;
-}): Promise<ApiResult<{ book: BookSummary }>> {
-  return call(ACCOUNTING_ACTIONS.updateBook, input);
-}
-
-export function deleteBook(bookId: string): Promise<ApiResult<{ deletedBookId: string; deletedBookName: string }>> {
-  return call(ACCOUNTING_ACTIONS.deleteBook, { bookId, confirm: true });
-}
-
-// ── Accounts ─────────────────────────────────────────────────────────
-
-export function getAccounts(bookId: string): Promise<ApiResult<{ bookId: string; accounts: Account[] }>> {
-  return call(ACCOUNTING_ACTIONS.getAccounts, { bookId });
-}
-
-export function upsertAccount(account: Account, bookId: string): Promise<ApiResult<{ bookId: string; account: Account; accounts: Account[] }>> {
-  return call(ACCOUNTING_ACTIONS.upsertAccount, { account, bookId });
-}
-
-// ── Entries ──────────────────────────────────────────────────────────
-
 export interface AddEntriesItemInput {
   date: string;
   lines: JournalLine[];
@@ -136,62 +82,6 @@ export interface AddEntriesItemInput {
    *  `replacesEntryId` separately just before this call — there is
    *  no atomic transaction. */
   replacesEntryId?: string | undefined;
-}
-
-export function addEntries(input: {
-  bookId: string;
-  /** One or more entries to post. The server validates every entry
-   *  before any write, so a single bad entry rejects the whole
-   *  batch. Pass a single-element array to post just one entry. */
-  entries: AddEntriesItemInput[];
-}): Promise<ApiResult<{ bookId: string; entries: JournalEntry[] }>> {
-  return call(ACCOUNTING_ACTIONS.addEntries, input);
-}
-
-export function voidEntry(input: {
-  entryId: string;
-  reason?: string | undefined;
-  bookId: string;
-}): Promise<ApiResult<{ bookId: string; reverseEntry: JournalEntry; markerEntry: JournalEntry }>> {
-  return call(ACCOUNTING_ACTIONS.voidEntry, input);
-}
-
-export function getJournalEntries(input: {
-  from?: string | undefined;
-  to?: string | undefined;
-  accountCode?: string | undefined;
-  bookId: string;
-}): Promise<ApiResult<{ bookId: string; entries: JournalEntry[]; voidedEntryIds: string[] }>> {
-  return call(ACCOUNTING_ACTIONS.getJournalEntries, input);
-}
-
-// ── Opening balances ─────────────────────────────────────────────────
-
-export function getOpeningBalances(bookId: string): Promise<ApiResult<{ bookId: string; opening: JournalEntry | null }>> {
-  return call(ACCOUNTING_ACTIONS.getOpeningBalances, { bookId });
-}
-
-export function setOpeningBalances(input: {
-  asOfDate: string;
-  lines: JournalLine[];
-  memo?: string | undefined;
-  bookId: string;
-}): Promise<ApiResult<{ bookId: string; openingEntry: JournalEntry; replacedExisting: boolean }>> {
-  return call(ACCOUNTING_ACTIONS.setOpeningBalances, input);
-}
-
-// ── Reports ──────────────────────────────────────────────────────────
-
-export function getBalanceSheet(period: ReportPeriod, bookId: string): Promise<ApiResult<{ bookId: string; balanceSheet: BalanceSheet }>> {
-  return call(ACCOUNTING_ACTIONS.getReport, { kind: "balance", period, bookId });
-}
-
-export function getProfitLoss(period: ReportPeriod, bookId: string): Promise<ApiResult<{ bookId: string; profitLoss: ProfitLoss }>> {
-  return call(ACCOUNTING_ACTIONS.getReport, { kind: "pl", period, bookId });
-}
-
-export function getLedger(accountCode: string, period: ReportPeriod | undefined, bookId: string): Promise<ApiResult<{ bookId: string; ledger: Ledger }>> {
-  return call(ACCOUNTING_ACTIONS.getReport, { kind: "ledger", accountCode, period, bookId });
 }
 
 export interface TimeSeriesPoint {
@@ -226,15 +116,209 @@ export interface TimeSeriesResult {
   points: TimeSeriesPoint[];
 }
 
-export function getTimeSeries(input: TimeSeriesInput): Promise<ApiResult<TimeSeriesResult>> {
-  // Spread so the named interface is widened into a fresh object
-  // literal — `call()` takes `Record<string, unknown>` which a
-  // declared interface doesn't satisfy structurally in TS.
-  return call(ACCOUNTING_ACTIONS.getTimeSeries, { ...input });
+/** The dispatch seam every helper below is written against. */
+type Call = <T>(action: string, args?: Record<string, unknown>) => Promise<ApiResult<T>>;
+
+/** The one call every helper goes through, bound to a scope RESOLVER
+ *  rather than a fixed scope, so the host-scoped client tracks a host
+ *  that changes its active project while a pinned one does not. Absent
+ *  (single-root host) every request body is byte-identical to what it
+ *  was before scopes existed. */
+function makeCall(getScope: () => string | null): Call {
+  return function call<T>(action: string, args: Record<string, unknown> = {}): Promise<ApiResult<T>> {
+    // The project rides every request, last so a caller cannot shadow it.
+    const project = getScope();
+    const scopeField = project ? { [ACCOUNTING_PROJECT_FIELD]: project } : {};
+    return apiCall<T>(DISPATCH_URL, { method: DISPATCH_METHOD, body: { action, ...args, ...scopeField } });
+  };
 }
 
-// ── Admin ────────────────────────────────────────────────────────────
+/** Books — the list and its lifecycle. */
+function booksApi(call: Call) {
+  function getBooks(): Promise<ApiResult<{ books: BookSummary[] }>> {
+    return call(ACCOUNTING_ACTIONS.getBooks);
+  }
 
-export function rebuildSnapshots(bookId: string): Promise<ApiResult<{ bookId: string; rebuilt: string[] }>> {
-  return call(ACCOUNTING_ACTIONS.rebuildSnapshots, { bookId });
+  function createBook(input: {
+    name: string;
+    currency?: string | undefined;
+    country?: SupportedCountryCode | undefined;
+    /** Closing month 1-12 — required at the form boundary, but the
+     *  server silently defaults an absent value to 12 (December). */
+    fiscalYearEnd?: FiscalYearEnd | undefined;
+  }): Promise<ApiResult<{ book: BookSummary }>> {
+    return call(ACCOUNTING_ACTIONS.createBook, input);
+  }
+
+  function updateBook(input: {
+    bookId: string;
+    name?: string | undefined;
+    /** Pass `""` to explicitly clear the country (server treats it as
+     *  the "drop the field" sentinel). Any other value must be one of
+     *  the curated `SupportedCountryCode`s. */
+    country?: SupportedCountryCode | "" | undefined;
+    /** Closing month 1-12 — pure metadata, only changes how the
+     *  date-range shortcuts resolve. No "clear" path; absence leaves the
+     *  existing value untouched. */
+    fiscalYearEnd?: FiscalYearEnd | undefined;
+  }): Promise<ApiResult<{ book: BookSummary }>> {
+    return call(ACCOUNTING_ACTIONS.updateBook, input);
+  }
+
+  function deleteBook(bookId: string): Promise<ApiResult<{ deletedBookId: string; deletedBookName: string }>> {
+    return call(ACCOUNTING_ACTIONS.deleteBook, { bookId, confirm: true });
+  }
+
+  return {
+    getBooks,
+    createBook,
+    updateBook,
+    deleteBook,
+  };
+}
+
+/** The chart of accounts. */
+function accountsApi(call: Call) {
+  function getAccounts(bookId: string): Promise<ApiResult<{ bookId: string; accounts: Account[] }>> {
+    return call(ACCOUNTING_ACTIONS.getAccounts, { bookId });
+  }
+
+  function upsertAccount(account: Account, bookId: string): Promise<ApiResult<{ bookId: string; account: Account; accounts: Account[] }>> {
+    return call(ACCOUNTING_ACTIONS.upsertAccount, { account, bookId });
+  }
+
+  return {
+    getAccounts,
+    upsertAccount,
+  };
+}
+
+/** Journal entries and the opening balance. */
+function journalApi(call: Call) {
+  function addEntries(input: {
+    bookId: string;
+    /** One or more entries to post. The server validates every entry
+     *  before any write, so a single bad entry rejects the whole
+     *  batch. Pass a single-element array to post just one entry. */
+    entries: AddEntriesItemInput[];
+  }): Promise<ApiResult<{ bookId: string; entries: JournalEntry[] }>> {
+    return call(ACCOUNTING_ACTIONS.addEntries, input);
+  }
+
+  function voidEntry(input: {
+    entryId: string;
+    reason?: string | undefined;
+    bookId: string;
+  }): Promise<ApiResult<{ bookId: string; reverseEntry: JournalEntry; markerEntry: JournalEntry }>> {
+    return call(ACCOUNTING_ACTIONS.voidEntry, input);
+  }
+
+  function getJournalEntries(input: {
+    from?: string | undefined;
+    to?: string | undefined;
+    accountCode?: string | undefined;
+    bookId: string;
+  }): Promise<ApiResult<{ bookId: string; entries: JournalEntry[]; voidedEntryIds: string[] }>> {
+    return call(ACCOUNTING_ACTIONS.getJournalEntries, input);
+  }
+
+  function getOpeningBalances(bookId: string): Promise<ApiResult<{ bookId: string; opening: JournalEntry | null }>> {
+    return call(ACCOUNTING_ACTIONS.getOpeningBalances, { bookId });
+  }
+
+  function setOpeningBalances(input: {
+    asOfDate: string;
+    lines: JournalLine[];
+    memo?: string | undefined;
+    bookId: string;
+  }): Promise<ApiResult<{ bookId: string; openingEntry: JournalEntry; replacedExisting: boolean }>> {
+    return call(ACCOUNTING_ACTIONS.setOpeningBalances, input);
+  }
+
+  return {
+    addEntries,
+    voidEntry,
+    getJournalEntries,
+    getOpeningBalances,
+    setOpeningBalances,
+  };
+}
+
+/** Reports, series, and snapshot maintenance. */
+function reportsApi(call: Call) {
+  function getBalanceSheet(period: ReportPeriod, bookId: string): Promise<ApiResult<{ bookId: string; balanceSheet: BalanceSheet }>> {
+    return call(ACCOUNTING_ACTIONS.getReport, { kind: "balance", period, bookId });
+  }
+
+  function getProfitLoss(period: ReportPeriod, bookId: string): Promise<ApiResult<{ bookId: string; profitLoss: ProfitLoss }>> {
+    return call(ACCOUNTING_ACTIONS.getReport, { kind: "pl", period, bookId });
+  }
+
+  function getLedger(accountCode: string, period: ReportPeriod | undefined, bookId: string): Promise<ApiResult<{ bookId: string; ledger: Ledger }>> {
+    return call(ACCOUNTING_ACTIONS.getReport, { kind: "ledger", accountCode, period, bookId });
+  }
+
+  function getTimeSeries(input: TimeSeriesInput): Promise<ApiResult<TimeSeriesResult>> {
+    // Spread so the named interface is widened into a fresh object
+    // literal — `call()` takes `Record<string, unknown>` which a
+    // declared interface doesn't satisfy structurally in TS.
+    return call(ACCOUNTING_ACTIONS.getTimeSeries, { ...input });
+  }
+
+  function rebuildSnapshots(bookId: string): Promise<ApiResult<{ bookId: string; rebuilt: string[] }>> {
+    return call(ACCOUNTING_ACTIONS.rebuildSnapshots, { bookId });
+  }
+
+  return {
+    getBalanceSheet,
+    getProfitLoss,
+    getLedger,
+    getTimeSeries,
+    rebuildSnapshots,
+  };
+}
+
+/** Build an api client bound to ONE project scope. */
+function makeApi(getScope: () => string | null) {
+  const call = makeCall(getScope);
+  return { ...booksApi(call), ...accountsApi(call), ...journalApi(call), ...reportsApi(call) };
+}
+
+/** The full accounting client surface, bound to one project. */
+export type AccountingApi = ReturnType<typeof makeApi>;
+
+/** A client pinned to one project for good — `null` meaning the host's
+ *  default root. Use it for anything whose project is decided once
+ *  (a card, a panel); use the tree-injected client (`useAccountingApi`)
+ *  inside components. */
+export function createAccountingApi(scope: string | null): AccountingApi {
+  return makeApi(() => scope);
+}
+
+/** Follows whatever project the HOST currently considers active. Used
+ *  by any surface mounted outside a scoped tree, and by every
+ *  single-root host, where the scope is always `null`. */
+const hostScopedApi = makeApi(hostProjectScope);
+
+const API_KEY: InjectionKey<AccountingApi> = Symbol("accounting-api");
+
+/** Bind a component tree to ONE project for its whole life.
+ *
+ *  A card was opened against the project its server envelope named
+ *  (`OpenAppPayload.scope`). If its requests kept resolving the host's
+ *  CURRENT project instead, then switching projects would silently
+ *  repoint an already-open card's reads and writes at another project's
+ *  books — same bookId, different company. Call this once, in the
+ *  mounted app's setup, with the scope the card was opened for. */
+export function provideAccountingApi(scope: string | null): AccountingApi {
+  const api = createAccountingApi(scope);
+  provide(API_KEY, api);
+  return api;
+}
+
+/** The api client for the surrounding tree, falling back to the
+ *  host-scoped one for a surface nobody bound (a single-root host's
+ *  every surface). */
+export function useAccountingApi(): AccountingApi {
+  return inject(API_KEY, hostScopedApi);
 }

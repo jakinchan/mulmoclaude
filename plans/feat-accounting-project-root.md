@@ -42,11 +42,15 @@ a host wires both the same way.
 4. **The rebuild queue is keyed by `(root, bookId)`**, not by bookId. Two projects holding a
    book of the same name previously shared one queue: B's write would cancel A's rebuild and
    `awaitRebuildIdle` would return while the other project's rebuild was still writing.
-5. **The card envelope carries the scope.** `openBook` stamps the host's opaque project id,
-   so a mounted card fetches ITS OWN project rather than whatever the host has selected when
-   it renders. Absent for a single-root host.
-6. **The Vue surface can be scoped**: `configureAccountingHost({ …, projectScope })` — the
-   opaque id rides dispatch requests as `ACCOUNTING_PROJECT_FIELD` and namespaces the
+5. **The card envelope carries the scope, and the card is PINNED to it.** `openBook` stamps
+   the host's opaque project id; `View.vue` reads it once at mount and binds its whole
+   subtree — every request and both channel subscriptions — to that project through
+   `provideAccountingApi` / `useAccountingApi`. Stamping alone would not have been enough:
+   the host can change its active project while a card stays open, and an unpinned card
+   would then read and write another project's book under the same bookId.
+6. **The Vue surface can be scoped**: `configureAccountingHost({ …, projectScope })` for a
+   surface the host scopes itself, `createAccountingApi(scope)` for one pinned to a project.
+   The opaque id rides dispatch requests as `ACCOUNTING_PROJECT_FIELD` and namespaces the
    channels the View subscribes to.
 7. **Remote-host prep.** `createListAccountingBooks` resolves a scope from its params,
    defaulting to the host root, so the day a phone can pick a project the parameter is
@@ -72,10 +76,13 @@ a host wires both the same way.
 
 ## Testing
 
-`packages/plugins/accounting-plugin/test/accounting/test_multiRoot.ts` covers two-root
-isolation through the real router, the explicit-root throw, scope-namespaced channels, the
-stamped card envelope, per-`(root, bookId)` queues, and — the item that protects MulmoClaude
-— a single-root host whose channels, envelope and request bodies are unchanged.
+`packages/plugins/accounting-plugin/test/accounting/test_multiRoot.ts` covers the collision
+case itself (one bookId, two projects, different numbers, read through the real router), the
+explicit-root throw, an unknown project id answered as a 4xx rather than a 500,
+scope-namespaced channels, the stamped card envelope, per-`(root, bookId)` queues, and — the
+item that protects MulmoClaude — a single-root host whose channels, envelope and request
+bodies are unchanged. `test/test_apiScope.ts` pins the client half: a card keeps its project
+after the host's active project moves on.
 
 ## Delivery
 

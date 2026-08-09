@@ -107,7 +107,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useAccountingI18n } from "../lang";
-import { deleteBook, rebuildSnapshots, updateBook } from "../api";
+import { useAccountingApi } from "../api";
 import {
   SUPPORTED_COUNTRY_CODES,
   isSupportedCountryCode,
@@ -118,6 +118,8 @@ import {
   resolveFiscalYearEnd,
   type FiscalYearEnd,
 } from "../../shared";
+
+const api = useAccountingApi();
 
 const { t, locale } = useAccountingI18n();
 
@@ -190,7 +192,7 @@ async function onRebuild(): Promise<void> {
   rebuildOk.value = null;
   rebuildError.value = null;
   try {
-    const result = await rebuildSnapshots(props.bookId);
+    const result = await api.rebuildSnapshots(props.bookId);
     if (!result.ok) {
       rebuildError.value = result.error;
       return;
@@ -212,7 +214,7 @@ async function onSaveBookInfo(): Promise<void> {
     // empty string is the sentinel that clears the country server-side.
     const rawCountry = selectedCountry.value;
     const country: SupportedCountryCode | "" = rawCountry === "" || isSupportedCountryCode(rawCountry) ? rawCountry : "";
-    const result = await updateBook({
+    const result = await api.updateBook({
       bookId: props.bookId,
       name: selectedName.value.trim(),
       country,
@@ -234,7 +236,7 @@ async function onDelete(): Promise<void> {
   deleting.value = true;
   deleteError.value = null;
   try {
-    const result = await deleteBook(props.bookId);
+    const result = await api.deleteBook(props.bookId);
     if (!result.ok) {
       deleteError.value = result.error;
       return;

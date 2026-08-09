@@ -63,7 +63,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from "vue";
 import { useAccountingI18n } from "../lang";
-import { createBook, type BookSummary } from "../api";
+import { useAccountingApi, type BookSummary } from "../api";
 import {
   SUPPORTED_CURRENCY_CODES,
   localizedCurrencyName,
@@ -76,6 +76,8 @@ import {
   fiscalYearEndMonthLabel,
   type FiscalYearEnd,
 } from "../../shared";
+
+const api = useAccountingApi();
 
 const { t, locale } = useAccountingI18n();
 
@@ -202,7 +204,7 @@ async function onSubmit(): Promise<void> {
     // empty string is the dropdown's "(choose a country)" sentinel
     // and must not land on disk as a literal "" value.
     const pickedCountry: SupportedCountryCode | undefined = country.value === "" ? undefined : country.value;
-    const result = await createBook({
+    const result = await api.createBook({
       name: name.value.trim(),
       currency: currency.value,
       country: pickedCountry,

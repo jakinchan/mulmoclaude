@@ -67,13 +67,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { useAccountingI18n } from "../lang";
-import { upsertAccount, type Account, type AccountType } from "../api";
+import { useAccountingApi, type Account, type AccountType } from "../api";
 import AccountRow from "./AccountRow.vue";
 import AccountEditor from "./AccountEditor.vue";
 import type { AccountDraft } from "./accountDraft";
 import { validateAccountDraft, type AccountValidationError } from "./accountValidation";
 import { suggestNextCode } from "./accountNumbering";
 import { errorMessage } from "../../shared/errors";
+
+const api = useAccountingApi();
 
 const { t } = useAccountingI18n();
 
@@ -210,7 +212,7 @@ async function onSave(next: AccountDraft): Promise<void> {
       const existing = props.accounts.find((entry) => entry.code === account.code);
       if (existing?.active === false) account.active = false;
     }
-    const result = await upsertAccount(account, props.bookId);
+    const result = await api.upsertAccount(account, props.bookId);
     if (!result.ok) {
       error.value = result.error;
       return;
@@ -262,7 +264,7 @@ async function onToggleActive(account: Account): Promise<void> {
     // existing flag and would otherwise turn Reactivate into a
     // no-op.
     next.active = !willDeactivate;
-    const result = await upsertAccount(next, props.bookId);
+    const result = await api.upsertAccount(next, props.bookId);
     if (!result.ok) {
       toggleError.value = result.error;
       return;

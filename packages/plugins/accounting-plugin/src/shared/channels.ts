@@ -38,10 +38,17 @@ export const ACCOUNTING_BOOKS_CHANNEL = "accounting:books";
 
 /** Scoped form of `ACCOUNTING_BOOKS_CHANNEL` — same rules as
  *  `bookChannel`'s `scope`. Unscoped it IS `ACCOUNTING_BOOKS_CHANNEL`.
- *  A book id cannot contain `:` (see `isSafeBookId`), so a scoped books
- *  channel can never collide with a scoped per-book one. */
+ *
+ *  The `#` is load-bearing: `books` is a legal book id (`isSafeBookId`),
+ *  so a plain `accounting:<scope>:books` would be exactly
+ *  `bookChannel("books", scope)` and the two streams would cross. `#` is
+ *  not a legal id character, so the scoped names cannot collide. The
+ *  UNSCOPED pair still can — `accounting:books` has meant the book list
+ *  since before scopes existed and renaming it would break every
+ *  subscriber — which is a pre-existing spurious-refresh quirk for a
+ *  book literally named `books`, not something this scope introduces. */
 export function booksChannel(scope?: string | null): string {
-  return scope ? `accounting:${scope}:books` : ACCOUNTING_BOOKS_CHANNEL;
+  return scope ? `accounting:${scope}:#books` : ACCOUNTING_BOOKS_CHANNEL;
 }
 
 /** Event kinds that ride `bookChannel(bookId)`. Single source of

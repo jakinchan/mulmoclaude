@@ -75,7 +75,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useAccountingI18n } from "../lang";
-import { getBalanceSheet, type BalanceSheet } from "../api";
+import { useAccountingApi, type BalanceSheet } from "../api";
 import {
   formatAmount as formatAmountWithCurrency,
   decemberOfPreviousYearString,
@@ -84,6 +84,8 @@ import {
   previousMonthString,
 } from "../../shared";
 import { useLatestRequest } from "./useLatestRequest";
+
+const api = useAccountingApi();
 
 const { t } = useAccountingI18n();
 
@@ -177,7 +179,7 @@ async function refresh(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const result = await getBalanceSheet({ kind: "month", period: period.value }, props.bookId);
+    const result = await api.getBalanceSheet({ kind: "month", period: period.value }, props.bookId);
     if (!isCurrent(token)) return;
     if (!result.ok) {
       error.value = result.error;

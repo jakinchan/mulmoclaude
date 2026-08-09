@@ -445,9 +445,14 @@ export function createAccountingRouter(options: AccountingRouterOptions = {}): R
           return;
         }
         const { action } = body;
-        const root = options.resolveWorkspaceRoot?.(req);
         log.info("accounting", "POST dispatch: start", { action });
         try {
+          // Inside the try: a host resolver rejects an unknown project id
+          // by throwing, and that is a 4xx about the request, not a
+          // server fault — resolving it out here would skip the
+          // AccountingError mapping below and answer a bad project with
+          // a generic 500.
+          const root = options.resolveWorkspaceRoot?.(req);
           const result = await dispatch(body, root);
           log.info("accounting", "POST dispatch: ok", { action });
           res.json(result);

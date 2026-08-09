@@ -21,9 +21,16 @@ export function initAccountingEventPublisher(instance: IPubSub): void {
   pubsub = instance;
 }
 
-function safePublish(channel: string, payload: unknown): void {
+/** `channelFor` is called INSIDE the guard, not before it: resolving the
+ *  scope can throw (a write that reached the publisher with no root
+ *  under explicit-root mode), and a lost event with a warning beats
+ *  either crashing the write or publishing to the unscoped channel that
+ *  every project can hear. */
+function safePublish(channelFor: () => string, payload: unknown): void {
   if (!pubsub) return;
+  let channel = "(unresolved)";
   try {
+    channel = channelFor();
     pubsub.publish(channel, payload);
   } catch (err) {
     // Same fire-and-forget rationale as the file-change publisher:
@@ -44,14 +51,14 @@ function safePublish(channel: string, payload: unknown): void {
  *  `channelScopeFor`). Omit it — as a single-root host's service calls
  *  do — and the name is what it has always been. */
 export function publishBookChange(bookId: string, payload: AccountingBookChannelPayload, workspaceRoot?: string): void {
-  safePublish(accountingBookChannel(bookId, channelScopeFor(workspaceRoot)), payload);
+  safePublish(() => accountingBookChannel(bookId, channelScopeFor(workspaceRoot)), payload);
 }
 
 /** Fired when the *list* of books changes (createBook, deleteBook).
  *  Payload is intentionally empty — subscribers refetch from
  *  /api/accounting. Scoped by root like `publishBookChange`. */
 export function publishBooksChanged(workspaceRoot?: string): void {
-  safePublish(accountingBooksChannel(channelScopeFor(workspaceRoot)), {});
+  safePublish(() => accountingBooksChannel(channelScopeFor(workspaceRoot)), {});
 }
 
 /** Test-only — drop the module singleton so each test starts clean. */

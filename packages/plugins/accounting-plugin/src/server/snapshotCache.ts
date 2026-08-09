@@ -172,7 +172,14 @@ const rebuildQueues = new Map<string, RebuildQueueEntry>();
  *  throws — deliberately loud: a `cancelRebuild` / `awaitRebuildIdle`
  *  that quietly keyed a queue nobody scheduled would return while the
  *  real rebuild is still writing, which is how `deleteBook` races a
- *  `writeSnapshot` back into existence. */
+ *  `writeSnapshot` back into existence.
+ *
+ *  Lexical resolution only — symlinks are deliberately NOT resolved,
+ *  matching `canonicalRoot` in `@mulmoclaude/core`'s collection engine,
+ *  so one project has one identity across both packages. A host that
+ *  hands the engine a real path in one call and a symlink alias in the
+ *  next would split the queue; the fix belongs in the host's own root
+ *  resolution, which is where the two packages agree it lives. */
 function rootKey(workspaceRoot: string | undefined): string {
   return path.resolve(workspaceRoot ?? defaultWorkspaceRoot());
 }

@@ -76,12 +76,18 @@ export function defaultWorkspaceRoot(): string {
 
 /** The opaque channel scope for a root, or `null` when the host declared
  *  none (single-root hosts, and a multi-root host's default root). Used
- *  by the event publisher; never contains a path. */
+ *  by the event publisher; never contains a path.
+ *
+ *  A missing root throws under explicit-root mode, exactly as
+ *  `defaultWorkspaceRoot()` does. Returning `null` there would be worse
+ *  than the io-path bug it mirrors: the event would go out on the
+ *  UNSCOPED channel name, which every project's default-scope
+ *  subscriber receives. The publisher catches it and logs, so a dropped
+ *  root costs one event and a warning rather than a silent cross-project
+ *  notification. */
 export function channelScopeFor(workspaceRoot?: string): string | null {
   if (!deps?.channelScopeForRoot) return null;
-  const root = workspaceRoot ?? (deps.workspaceRoot === null ? null : deps.workspaceRoot);
-  if (root === null) return null;
-  return deps.channelScopeForRoot(root);
+  return deps.channelScopeForRoot(workspaceRoot ?? defaultWorkspaceRoot());
 }
 
 const consoleLogger: AccountingLogger = {

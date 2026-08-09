@@ -24,7 +24,7 @@ import type { Server } from "node:http";
 import { configureAccountingServer } from "../../src/server/context.js";
 import { createAccountingRouter, type AccountingDispatchRequest } from "../../src/server/router.js";
 import { initAccountingEventPublisher, _resetAccountingEventPublisherForTesting } from "../../src/server/eventPublisher.js";
-import { listBooks } from "../../src/server/service.js";
+import { AccountingError, addEntries, createBook, listBooks } from "../../src/server/service.js";
 import { _resetRebuildQueueForTesting, inspectRebuildQueue, scheduleRebuild } from "../../src/server/snapshotCache.js";
 import { ACCOUNTING_ACTIONS, ACCOUNTING_API, ACCOUNTING_PROJECT_FIELD } from "../../src/shared/index.js";
 
@@ -62,17 +62,38 @@ let rootB: string;
 const PROJECT_IDS: Record<string, string> = {};
 const resolveWorkspaceRoot = (req: AccountingDispatchRequest): string | undefined => {
   const raw = (req.body as Record<string, unknown>)[ACCOUNTING_PROJECT_FIELD];
-  return typeof raw === "string" ? PROJECT_IDS[raw] : undefined;
+  if (typeof raw !== "string") return undefined;
+  const root = PROJECT_IDS[raw];
+  // What a real host does with an id it cannot look up: refuse the
+  // request, rather than quietly serving another project's books.
+  if (root === undefined) throw new AccountingError(404, `unknown project ${JSON.stringify(raw)}`);
+  return root;
 };
 
-const dispatch = async (payload: Record<string, unknown>): Promise<DispatchResult> => {
-  const response = await fetch(`${baseUrl}${ACCOUNTING_API.dispatch.path}`, {
-    method: ACCOUNTING_API.dispatch.method,
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+/** One place every request in this file goes through, so a network
+ *  failure or a non-JSON body fails as itself instead of as a confusing
+ *  assertion further down. The status is RETURNED rather than asserted:
+ *  several tests here are about a 4xx being a 4xx. */
+const request = async (url: string, payload: Record<string, unknown>): Promise<DispatchResult> => {
+  let response: Response;
+  try {
+    response = await fetch(`${url}${ACCOUNTING_API.dispatch.path}`, {
+      method: ACCOUNTING_API.dispatch.method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    throw new Error(`accounting dispatch request failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const text = await response.text();
+  try {
+    return { status: response.status, body: JSON.parse(text) as Record<string, unknown> };
+  } catch {
+    throw new Error(`accounting dispatch returned ${response.status} with a non-JSON body: ${text.slice(0, 200)}`);
+  }
 };
+
+const dispatch = (payload: Record<string, unknown>): Promise<DispatchResult> => request(baseUrl, payload);
 
 before(async () => {
   rootA = makeTmp();
@@ -115,23 +136,63 @@ describe("explicit-root mode", () => {
   });
 
   it("two roots holding the same book id do not see each other's data", async () => {
-    const created = await dispatch({ action: ACCOUNTING_ACTIONS.createBook, name: "Books A", [ACCOUNTING_PROJECT_FIELD]: "pa" });
-    assert.equal(created.status, 200);
-    const { bookId } = created.body;
-    assert.equal(typeof bookId, "string");
+    // The collision case itself: ONE id, two projects, different
+    // companies. The ids are set through the service because the
+    // dispatch route generates them — the point is the pair, not how
+    // they were named.
+    await createBook({ id: "main", name: "A Ltd" }, rootA);
+    await createBook({ id: "main", name: "B Ltd" }, rootB);
+    for (const [root, amount] of [
+      [rootA, 100],
+      [rootB, 250],
+    ] as const) {
+      await addEntries(
+        {
+          bookId: "main",
+          entries: [
+            {
+              date: "2026-04-01",
+              lines: [
+                { accountCode: "1000", debit: amount },
+                { accountCode: "4000", credit: amount },
+              ],
+            },
+          ],
+        },
+        root,
+      );
+    }
 
     const listA = await dispatch({ action: ACCOUNTING_ACTIONS.getBooks, [ACCOUNTING_PROJECT_FIELD]: "pa" });
     const listB = await dispatch({ action: ACCOUNTING_ACTIONS.getBooks, [ACCOUNTING_PROJECT_FIELD]: "pb" });
-    assert.equal((listA.body.books as unknown[]).length, 1);
-    assert.deepEqual(listB.body.books, []);
+    assert.deepEqual(
+      (listA.body.books as { name: string }[]).map((book) => book.name),
+      ["A Ltd"],
+    );
+    assert.deepEqual(
+      (listB.body.books as { name: string }[]).map((book) => book.name),
+      ["B Ltd"],
+    );
 
-    // …and the write landed only under project A's directory.
-    assert.ok(existsSync(path.join(rootA, "data", "accounting", "config.json")));
-    assert.ok(!existsSync(path.join(rootB, "data", "accounting", "config.json")));
+    // …and reading the SAME bookId through each project returns that
+    // project's numbers, not the other's.
+    const amountsFor = async (project: string): Promise<number[]> => {
+      const result = await dispatch({ action: ACCOUNTING_ACTIONS.getJournalEntries, bookId: "main", [ACCOUNTING_PROJECT_FIELD]: project });
+      const entries = result.body.entries as { lines: { debit?: number }[] }[];
+      return entries.flatMap((entry) => entry.lines.map((line) => line.debit ?? 0)).filter((debit) => debit > 0);
+    };
+    assert.deepEqual(await amountsFor("pa"), [100]);
+    assert.deepEqual(await amountsFor("pb"), [250]);
+
+    // Each write landed under its own root's directory.
+    for (const root of [rootA, rootB]) {
+      assert.ok(existsSync(path.join(root, "data", "accounting", "books", "main", "journal")));
+    }
   });
 
   it("openBook stamps the host's opaque scope onto the card envelope", async () => {
     const created = await dispatch({ action: ACCOUNTING_ACTIONS.createBook, name: "Books B", [ACCOUNTING_PROJECT_FIELD]: "pb" });
+    assert.equal(created.status, 200);
     const bookId = created.body.bookId as string;
     const opened = await dispatch({ action: ACCOUNTING_ACTIONS.openBook, bookId, [ACCOUNTING_PROJECT_FIELD]: "pb" });
     assert.equal(opened.status, 200);
@@ -142,8 +203,14 @@ describe("explicit-root mode", () => {
     const { pubsub, channels } = recordingPubSub();
     initAccountingEventPublisher(pubsub);
     await dispatch({ action: ACCOUNTING_ACTIONS.createBook, name: "Channel A", [ACCOUNTING_PROJECT_FIELD]: "pa" });
-    assert.deepEqual(channels, ["accounting:pa:books"]);
+    assert.deepEqual(channels, ["accounting:pa:#books"]);
     assert.ok(!channels.some((channel) => channel.includes(rootA)));
+  });
+
+  it("a project id the host cannot look up is a 4xx, not a 500", async () => {
+    const response = await dispatch({ action: ACCOUNTING_ACTIONS.getBooks, [ACCOUNTING_PROJECT_FIELD]: "no-such-project" });
+    assert.equal(response.status, 404);
+    assert.match(String(response.body.error), /unknown project/);
   });
 
   it("a rebuild queue is per (root, bookId), so one project cannot drain another's", async () => {
@@ -177,30 +244,16 @@ describe("single-root back-compat", () => {
   it("publishes on the unscoped channel names and omits the card scope", async () => {
     const { pubsub, channels } = recordingPubSub();
     initAccountingEventPublisher(pubsub);
-    const created = await fetch(`${soloUrl}${ACCOUNTING_API.dispatch.path}`, {
-      method: ACCOUNTING_API.dispatch.method,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: ACCOUNTING_ACTIONS.createBook, name: "Solo" }),
-    });
-    const body = (await created.json()) as Record<string, unknown>;
+    const created = await request(soloUrl, { action: ACCOUNTING_ACTIONS.createBook, name: "Solo" });
     assert.deepEqual(channels, ["accounting:books"]);
 
-    const opened = await fetch(`${soloUrl}${ACCOUNTING_API.dispatch.path}`, {
-      method: ACCOUNTING_API.dispatch.method,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: ACCOUNTING_ACTIONS.openBook, bookId: body.bookId }),
-    });
-    const envelope = (await opened.json()) as Record<string, unknown>;
-    assert.equal("scope" in envelope, false, "a single-root host's envelope must be byte-identical to today's");
+    const opened = await request(soloUrl, { action: ACCOUNTING_ACTIONS.openBook, bookId: created.body.bookId });
+    assert.equal("scope" in opened.body, false, "a single-root host's envelope must be byte-identical to today's");
   });
 
   it("a project id in the body is ignored when the host wired no resolver", async () => {
-    const response = await fetch(`${soloUrl}${ACCOUNTING_API.dispatch.path}`, {
-      method: ACCOUNTING_API.dispatch.method,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: ACCOUNTING_ACTIONS.getBooks, [ACCOUNTING_PROJECT_FIELD]: "pb" }),
-    });
-    const body = (await response.json()) as { books: unknown[] };
+    const response = await request(soloUrl, { action: ACCOUNTING_ACTIONS.getBooks, [ACCOUNTING_PROJECT_FIELD]: "pb" });
+    const body = response.body as { books: unknown[] };
     // Project B has its own book; this must still be project A's list.
     assert.ok(body.books.some((book) => (book as { name: string }).name === "Solo"));
     assert.ok(!body.books.some((book) => (book as { name: string }).name === "Books B"));
