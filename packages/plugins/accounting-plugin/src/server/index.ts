@@ -8,8 +8,19 @@
 //   configureAccountingServer({ workspaceRoot, logger });
 //   initAccountingEventPublisher(pubsub);
 //   app.use(createAccountingRouter());
+//
+// Multi-root hosts (MulmoTerminal — one root per project directory)
+// wire the same three, differently:
+//   configureAccountingServer({ workspaceRoot: null, logger, channelScopeForRoot });
+//   app.use(createAccountingRouter({ resolveWorkspaceRoot }));
+// `workspaceRoot: null` makes a forgotten root throw rather than
+// silently resolve another project's books; `channelScopeForRoot` maps
+// a root to the host's OPAQUE project id, which namespaces the pub/sub
+// channel names. Both are opt-in: omit them and behaviour is exactly a
+// single-workspace host's.
 
 export { createAccountingRouter } from "./router.js";
+export type { AccountingRouterOptions, AccountingDispatchRequest, AccountingActionBody } from "./router.js";
 export { configureAccountingServer } from "./context.js";
 export type { AccountingServerDeps, AccountingLogger, IPubSub } from "./context.js";
 export { initAccountingEventPublisher } from "./eventPublisher.js";

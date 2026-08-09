@@ -248,7 +248,7 @@ export async function createBook(
   await writeAccounts(bookId, [...DEFAULT_ACCOUNTS], workspaceRoot);
   const nextConfig: AccountingConfig = { books: [...config.books, book] };
   await writeConfig(nextConfig, workspaceRoot);
-  publishBooksChanged();
+  publishBooksChanged(workspaceRoot);
   return { book };
 }
 
@@ -283,7 +283,7 @@ export async function updateBook(
     books: config.books.map((book) => (book.id === input.bookId ? next : book)),
   };
   await writeConfig(nextConfig, workspaceRoot);
-  publishBooksChanged();
+  publishBooksChanged(workspaceRoot);
   return { book: next };
 }
 
@@ -302,12 +302,12 @@ export async function deleteBook(
   // Stop any in-flight rebuild before removing the directory; otherwise
   // writeSnapshot could re-create the tree via mkdir-recursive after
   // we delete it, leaving an orphaned book folder on disk.
-  cancelRebuild(input.bookId);
-  await awaitRebuildIdle(input.bookId);
+  cancelRebuild(input.bookId, workspaceRoot);
+  await awaitRebuildIdle(input.bookId, workspaceRoot);
   await removeBookDir(input.bookId, workspaceRoot);
   const remaining = config.books.filter((book) => book.id !== input.bookId);
   await writeConfig({ books: remaining }, workspaceRoot);
-  publishBooksChanged();
+  publishBooksChanged(workspaceRoot);
   // Capture the name BEFORE the splice so the LLM-facing message
   // can reference the human-readable book the user just deleted.
   return { deletedBookId: input.bookId, deletedBookName: target.name };
@@ -373,7 +373,7 @@ export async function upsertAccount(
     scheduleRebuild(bookId, "0000-00", workspaceRoot);
     await invalidateAllSnapshots(bookId, workspaceRoot);
   }
-  publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.accounts });
+  publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.accounts }, workspaceRoot);
   return { bookId, account, accounts: next };
 }
 
@@ -442,7 +442,7 @@ export async function addEntries(
   // new pending mark before our invalidate races with its write.
   scheduleRebuild(bookId, earliestPeriod, workspaceRoot);
   await invalidateSnapshotsFrom(bookId, earliestPeriod, workspaceRoot);
-  publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.journal, period: earliestPeriod });
+  publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.journal, period: earliestPeriod }, workspaceRoot);
   return { bookId, entries: built };
 }
 
@@ -475,7 +475,7 @@ export async function voidEntry(
   const fromPeriod = target.date < voidDate ? periodFromDate(target.date) : periodFromDate(voidDate);
   scheduleRebuild(bookId, fromPeriod, workspaceRoot);
   await invalidateSnapshotsFrom(bookId, fromPeriod, workspaceRoot);
-  publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.journal, period: fromPeriod });
+  publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.journal, period: fromPeriod }, workspaceRoot);
   return { bookId, reverseEntry: reverse, markerEntry: marker };
 }
 
@@ -566,7 +566,7 @@ export async function setOpeningBalances(
   await appendJournal(bookId, opening, workspaceRoot);
   scheduleRebuild(bookId, "0000-00", workspaceRoot);
   await invalidateAllSnapshots(bookId, workspaceRoot);
-  publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.opening });
+  publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.opening }, workspaceRoot);
   return { bookId, openingEntry: opening, replacedExisting: existing !== null };
 }
 
@@ -760,7 +760,7 @@ export async function rebuildSnapshots(input: { bookId?: string | undefined }, w
   const config = await loadOrInitConfig(workspaceRoot);
   const bookId = resolveBookId(config, input.bookId);
   const result = await rebuildAllSnapshots(bookId, workspaceRoot);
-  publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.snapshotsReady });
+  publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.snapshotsReady }, workspaceRoot);
   return { bookId, rebuilt: result.rebuilt };
 }
 

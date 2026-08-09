@@ -135,7 +135,8 @@ import Ledger from "./components/Ledger.vue";
 import BalanceSheet from "./components/BalanceSheet.vue";
 import ProfitLoss from "./components/ProfitLoss.vue";
 import BookSettings from "./components/BookSettings.vue";
-import { getOpeningBalances, getAccounts, getBooks, type Account, type BookSummary } from "./api";
+import { provideAccountingApi, type Account, type BookSummary } from "./api";
+import { hostProjectScope } from "./hostContext";
 import { ACCOUNTING_ACTIONS } from "../shared";
 import { useAccountingChannel, useAccountingBooksChannel } from "./useAccountingChannel";
 import { errorMessage } from "../shared/errors";
@@ -154,6 +155,11 @@ interface AccountingAppPayload {
    *  entries returned by the service. Each carries a server-stamped
    *  `id` we use to highlight the row in JournalList. */
   entries?: { id?: string }[];
+  /** The host's opaque project id, stamped by the server on the
+   *  envelope that opened this card — `null` meaning the default root.
+   *  It pins the card to the project it was opened for; see `cardScope`
+   *  below. */
+  scope?: string | null;
   /** Present on `voidEntry` envelopes — the kind="void-marker" row
    *  posted alongside the reversing entry. We surface this row (not
    *  the reverseEntry) because the marker is the visual "this entry
@@ -187,6 +193,26 @@ function isTabKey(value: string | undefined): value is TabKey {
 }
 
 const initialPayload = computed<AccountingAppPayload>(() => props.selectedResult?.data ?? props.selectedResult?.jsonData ?? {});
+
+// The project this card belongs to — taken from the ENVELOPE that
+// opened it, not from whatever the host considers active. A multi-root
+// host can change its active project while this card stays open, and
+// following that would silently repoint the card's reads and writes at
+// another project's books under the same bookId.
+//
+// PRESENCE, not truthiness: `null` is a real scope (the host's default
+// root) and binds like any other. Only a genuinely absent field — a
+// host that declared no scoping, or a card made before the server
+// stamped it — falls back to what the host considers active, which on a
+// single-root host is always `null` anyway.
+const cardScope = computed<string | null>(() => {
+  const payload = initialPayload.value;
+  return "scope" in payload ? (payload.scope ?? null) : hostProjectScope();
+});
+// Binds every child component's api client to that project too, and
+// follows the card this View is showing: `selectedResult` can be
+// retargeted at another result without remounting.
+const api = provideAccountingApi(() => cardScope.value);
 const initialTab = computed<TabKey>(() => (isTabKey(initialPayload.value.initialTab) ? initialPayload.value.initialTab : "journal"));
 
 const currentTab = ref<TabKey>(initialTab.value);
@@ -244,8 +270,11 @@ const activeFiscalYearEnd = computed(() => activeBook.value?.fiscalYearEnd);
 // SSE round-trip drives the table/report refetch. No parallel
 // localVersion bump — it only ever fired the same watchers a second
 // time in the same tick.
-const { version: bookVersion } = useAccountingChannel(activeBookId);
-useAccountingBooksChannel(() => void refetchBooks());
+const { version: bookVersion } = useAccountingChannel(activeBookId, undefined, () => cardScope.value);
+useAccountingBooksChannel(
+  () => void refetchBooks(),
+  () => cardScope.value,
+);
 
 function pickInitialBookId(): string | null {
   // Priority: explicit `initialPayload.bookId` (carried in the
@@ -270,7 +299,7 @@ async function refetchBooks(): Promise<void> {
   // with `activeBook` already pointing at a now-stale entry.
   const previousActive = activeBook.value;
   try {
-    const result = await getBooks();
+    const result = await api.getBooks();
     if (!result.ok) {
       // Surface load failures as a distinct error state so the user
       // doesn't see "No books yet" (and the auto-open modal) when
@@ -370,7 +399,7 @@ async function refetchAccounts(): Promise<void> {
     accounts.value = [];
     return;
   }
-  const result = await getAccounts(activeBookId.value);
+  const result = await api.getAccounts(activeBookId.value);
   if (!result.ok) return;
   accounts.value = result.data.accounts;
 }
@@ -381,7 +410,7 @@ async function refetchOpening(): Promise<void> {
     activeOpeningDate.value = undefined;
     return;
   }
-  const result = await getOpeningBalances(activeBookId.value);
+  const result = await api.getOpeningBalances(activeBookId.value);
   if (!result.ok) return;
   hasOpening.value = result.data.opening !== null;
   activeOpeningDate.value = result.data.opening?.date;

@@ -16,9 +16,17 @@
 
 /** Channel factory for per-book event streams. Subscribers:
  *  `useAccountingChannel(bookId)`. Publisher: the package's server
- *  surface `eventPublisher`. */
-export function bookChannel(bookId: string): string {
-  return `accounting:${bookId}`;
+ *  surface `eventPublisher`.
+ *
+ *  `scope` is the host's OPAQUE project id for the root the book lives
+ *  under, for a multi-root host where a bookId is unique within a root
+ *  and nowhere else — without it, a write to `main` in project A
+ *  refreshes an open view of `main` in project B. Absent / `null` means
+ *  the host's default root, and the name stays byte-identical to a
+ *  single-root host's. It is an id, never a path: these names reach the
+ *  browser. */
+export function bookChannel(bookId: string, scope?: string | null): string {
+  return scope ? `accounting:${scope}:${bookId}` : `accounting:${bookId}`;
 }
 
 /** Book-list-level channel — a book was created / deleted. Subscribers
@@ -27,6 +35,21 @@ export function bookChannel(bookId: string): string {
  *  the host META stays the codegen-discoverable source for the
  *  aggregator merge). */
 export const ACCOUNTING_BOOKS_CHANNEL = "accounting:books";
+
+/** Scoped form of `ACCOUNTING_BOOKS_CHANNEL` — same rules as
+ *  `bookChannel`'s `scope`. Unscoped it IS `ACCOUNTING_BOOKS_CHANNEL`.
+ *
+ *  The `#` is load-bearing: `books` is a legal book id (`isSafeBookId`),
+ *  so a plain `accounting:<scope>:books` would be exactly
+ *  `bookChannel("books", scope)` and the two streams would cross. `#` is
+ *  not a legal id character, so the scoped names cannot collide. The
+ *  UNSCOPED pair still can — `accounting:books` has meant the book list
+ *  since before scopes existed and renaming it would break every
+ *  subscriber — which is a pre-existing spurious-refresh quirk for a
+ *  book literally named `books`, not something this scope introduces. */
+export function booksChannel(scope?: string | null): string {
+  return scope ? `accounting:${scope}:#books` : ACCOUNTING_BOOKS_CHANNEL;
+}
 
 /** Event kinds that ride `bookChannel(bookId)`. Single source of
  *  truth for both publishers (server/accounting) and subscribers

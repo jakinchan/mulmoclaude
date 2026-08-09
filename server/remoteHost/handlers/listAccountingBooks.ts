@@ -15,13 +15,30 @@ import type { CommandHandler, JsonObject } from "../commandChannel.js";
 
 export interface ListAccountingBooksDeps {
   listBooks: typeof listBooks;
+  /** Resolve which project's books a command asks for. MulmoClaude is a
+   *  single-workspace host and wires none, so every command resolves the
+   *  configured workspace exactly as it always has.
+   *
+   *  It exists so the handler is written as "resolve a scope from the
+   *  params, defaulting to the host's root" rather than calling the
+   *  workspace accessor inline: the day a multi-root host (MulmoTerminal)
+   *  lets a phone pick a project, the parameter is additive and no
+   *  handler changes. Three rules the resolver must keep, because a
+   *  phone is a genuinely remote client:
+   *    · a project is named by an OPAQUE id the host looks up, never by
+   *      a path — a root in a command or an artifact publishes the
+   *      user's home directory over the wire;
+   *    · the phone must be able to LEARN the list ({ id, label } pairs
+   *      from the host), so it never has to construct a scope itself;
+   *    · the rendered artifact stays host-built, which is what makes the
+   *      first rule hold without trusting the client. */
+  resolveWorkspaceRoot?: (params: JsonObject) => string | undefined;
 }
 
 export const createListAccountingBooks =
   (deps: ListAccountingBooksDeps): CommandHandler =>
-  // Takes no params (the `__` prefix marks it intentionally unused per lint).
-  async (__params: JsonObject) => {
-    const { books } = await deps.listBooks();
+  async (params: JsonObject) => {
+    const { books } = await deps.listBooks(deps.resolveWorkspaceRoot?.(params));
     // No `toJsonObject` needed here, unlike the sibling handlers: the `.map`
     // rebuilds each entry as an anonymous object literal, and those DO get
     // TypeScript's implicit index signature. `BookSummary`'s own lack of one

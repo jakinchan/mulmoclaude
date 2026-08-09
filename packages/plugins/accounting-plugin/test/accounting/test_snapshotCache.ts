@@ -140,9 +140,9 @@ describe("scheduleRebuild + queue", () => {
 
     scheduleRebuild("default", "2026-02", root);
     // The queue is busy immediately after scheduling.
-    assert.equal(inspectRebuildQueue("default").running, true);
+    assert.equal(inspectRebuildQueue("default", root).running, true);
 
-    await awaitRebuildIdle("default");
+    await awaitRebuildIdle("default", root);
     // Snapshots for the invalidated periods are back on disk.
     assert.ok((await readSnapshot("default", "2026-02", root)) !== null);
     assert.ok((await readSnapshot("default", "2026-03", root)) !== null);
@@ -162,11 +162,11 @@ describe("scheduleRebuild + queue", () => {
     for (let idx = 0; idx < 5; idx += 1) {
       scheduleRebuild("default", "2026-02", root);
     }
-    const state = inspectRebuildQueue("default");
+    const state = inspectRebuildQueue("default", root);
     assert.equal(state.running, true);
     assert.ok(state.coalescedWriteCount >= 5, `expected ≥5 coalesced writes, got ${state.coalescedWriteCount}`);
 
-    await awaitRebuildIdle("default");
+    await awaitRebuildIdle("default", root);
 
     const channelEvents = events.get(accountingBookChannel("default")) ?? [];
     const rebuildingCount = channelEvents.filter((event) => event.kind === "snapshots-rebuilding").length;
@@ -180,7 +180,7 @@ describe("scheduleRebuild + queue", () => {
     await seed(root);
 
     scheduleRebuild("default", "2026-01", root);
-    await awaitRebuildIdle("default");
+    await awaitRebuildIdle("default", root);
 
     const channelEvents = events.get(accountingBookChannel("default")) ?? [];
     const firstRebuilding = channelEvents.findIndex((event) => event.kind === "snapshots-rebuilding");
@@ -202,7 +202,7 @@ describe("scheduleRebuild + queue", () => {
     const lazy = await getOrBuildSnapshot("default", "2026-03", root);
     assert.ok(balancesEqual(lazy.balances, fromJournal));
 
-    await awaitRebuildIdle("default");
+    await awaitRebuildIdle("default", root);
     const afterRebuild = await getOrBuildSnapshot("default", "2026-03", root);
     assert.ok(balancesEqual(afterRebuild.balances, fromJournal));
   });
@@ -210,7 +210,7 @@ describe("scheduleRebuild + queue", () => {
   it("awaitRebuildIdle on an idle book resolves immediately", async () => {
     // Microtask resolution — using a promise.race against a
     // setImmediate sentinel verifies we don't hang.
-    const idle = awaitRebuildIdle("never-scheduled");
+    const idle = awaitRebuildIdle("never-scheduled", makeTmp());
     const sentinel = new Promise<string>((resolve) => setImmediate(() => resolve("timeout")));
     const result = await Promise.race([idle.then(() => "idle"), sentinel]);
     assert.equal(result, "idle");
@@ -224,14 +224,14 @@ describe("scheduleRebuild + queue", () => {
 
     // First scheduled rebuild succeeds, draining the queue.
     scheduleRebuild("default", "2026-01", root);
-    await awaitRebuildIdle("default");
+    await awaitRebuildIdle("default", root);
 
     // Second one starts fresh (`running` flips back to true) — proves
     // the entry was cleared after the first finished.
     scheduleRebuild("default", "2026-02", root);
-    assert.equal(inspectRebuildQueue("default").running, true);
-    await awaitRebuildIdle("default");
-    assert.equal(inspectRebuildQueue("default").running, false);
+    assert.equal(inspectRebuildQueue("default", root).running, true);
+    await awaitRebuildIdle("default", root);
+    assert.equal(inspectRebuildQueue("default", root).running, false);
 
     const channelEvents = events.get(accountingBookChannel("default")) ?? [];
     const rebuildingCount = channelEvents.filter((event) => event.kind === "snapshots-rebuilding").length;

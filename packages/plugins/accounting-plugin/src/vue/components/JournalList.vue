@@ -200,12 +200,14 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useAccountingI18n } from "../lang";
-import { getJournalEntries, voidEntry, type Account, type JournalEntry, type JournalEntryKind, type JournalLine } from "../api";
+import { useAccountingApi, type Account, type JournalEntry, type JournalEntryKind, type JournalLine } from "../api";
 import { formatAmount, currentFiscalYearRange, resolveFiscalYearEnd, type DateRange, type FiscalYearEnd, type SupportedCountryCode } from "../../shared";
 import { useLatestRequest } from "./useLatestRequest";
 import DateRangePicker from "./DateRangePicker.vue";
 import JournalEntryForm from "./JournalEntryForm.vue";
 import { errorMessage } from "../../shared/errors";
+
+const api = useAccountingApi();
 
 const { t } = useAccountingI18n();
 
@@ -398,7 +400,7 @@ async function refresh(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const result = await getJournalEntries({
+    const result = await api.getJournalEntries({
       bookId: props.bookId,
       from: range.value.from || undefined,
       to: range.value.to || undefined,
@@ -456,7 +458,7 @@ async function onVoid(entry: JournalEntry): Promise<void> {
   const reason = window.prompt(t("pluginAccounting.journalList.voidReason"));
   if (reason === null) return;
   try {
-    const result = await voidEntry({ entryId: entry.id, reason: reason || undefined, bookId: props.bookId });
+    const result = await api.voidEntry({ entryId: entry.id, reason: reason || undefined, bookId: props.bookId });
     if (!result.ok) error.value = result.error;
   } catch (err) {
     error.value = errorMessage(err);

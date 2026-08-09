@@ -14,3 +14,16 @@ export const ACCOUNTING_API = {
     method: "POST",
   },
 } as const;
+
+/** Body field carrying the host's OPAQUE project id on a dispatch
+ *  request, for a host that serves more than one root. The package
+ *  writes it (the Vue client, from `configureAccountingHost`'s
+ *  `projectScope`) and the HOST reads it, through the
+ *  `resolveWorkspaceRoot` resolver it passes to `createAccountingRouter`
+ *  — the package itself never resolves it, so a project can only ever
+ *  be named by the host's own client, never by the LLM (the
+ *  `manageAccounting` tool schema has no such parameter).
+ *
+ *  It is an id the host can look up, NEVER a path. A single-root host
+ *  neither sends nor reads it, and its requests are unchanged. */
+export const ACCOUNTING_PROJECT_FIELD = "project";

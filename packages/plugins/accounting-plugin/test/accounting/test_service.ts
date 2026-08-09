@@ -42,9 +42,11 @@ after(() => {
 
 // Helper for tests that follow up an entry-write with a read — drain
 // any background rebuild before asserting so we don't race the
-// snapshot writer.
-async function drainRebuilds(bookId: string): Promise<void> {
-  await awaitRebuildIdle(bookId);
+// snapshot writer. The root is required: a rebuild queue is keyed by
+// (root, bookId), so draining without one waits on a queue nobody
+// scheduled and returns while the real rebuild is still writing.
+async function drainRebuilds(bookId: string, root: string): Promise<void> {
+  await awaitRebuildIdle(bookId, root);
 }
 
 describe("createBook id validation", () => {
@@ -363,7 +365,7 @@ describe("addEntries / listEntries", () => {
     const raw = await fsPromises.readFile(journalFile, "utf-8");
     const lines = raw.split("\n").filter((line) => line !== "");
     assert.equal(lines.length, 2, "same-period batch must land in one JSONL with both entries");
-    await drainRebuilds(bookId);
+    await drainRebuilds(bookId, root);
     const list = await listEntries({ bookId }, root);
     assert.equal(list.entries.length, 2);
   });
@@ -424,7 +426,7 @@ describe("addEntries / listEntries", () => {
         root,
       );
     await Promise.all([makeBatch(0), makeBatch(100), makeBatch(200)]);
-    await drainRebuilds(bookId);
+    await drainRebuilds(bookId, root);
     const list = await listEntries({ bookId }, root);
     assert.equal(list.entries.length, 15, "every entry from every concurrent batch must persist");
   });
@@ -482,7 +484,7 @@ describe("addEntries / listEntries", () => {
       },
       root,
     );
-    await drainRebuilds(bookId);
+    await drainRebuilds(bookId, root);
     const list = await listEntries({ bookId }, root);
     assert.equal(list.entries.length, 1);
     const [storedEntry] = list.entries;
@@ -785,7 +787,7 @@ describe("reports end-to-end", () => {
       },
       root,
     );
-    await drainRebuilds(bookId);
+    await drainRebuilds(bookId, root);
     const report = await getBalanceSheetReport({ bookId, period: { kind: "month", period: "2026-04" } }, root);
     assert.ok(Math.abs(report.balanceSheet.imbalance) < 0.0001, `imbalance was ${report.balanceSheet.imbalance}`);
     const equity = report.balanceSheet.sections.find((section) => section.type === "equity");
@@ -831,7 +833,7 @@ describe("reports end-to-end", () => {
       },
       root,
     );
-    await drainRebuilds(bookId);
+    await drainRebuilds(bookId, root);
     const balanceSheet = await getBalanceSheetReport({ bookId, period: { kind: "month", period: "2026-04" } }, root);
     const [assetSection] = balanceSheet.balanceSheet.sections;
     assert.ok(assetSection);

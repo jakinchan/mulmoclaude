@@ -25,6 +25,8 @@
 // are diagnostics that let tests assert on queue state without
 // sleep-and-poll. Production code never needs them.
 
+import path from "node:path";
+
 import {
   invalidateSnapshotsFrom as ioInvalidateFrom,
   invalidateAllSnapshots as ioInvalidateAll,
@@ -35,7 +37,7 @@ import {
 } from "./io.js";
 import { aggregateBalances, sortedBalancesFromMap } from "./report.js";
 import { publishBookChange } from "./eventPublisher.js";
-import { log } from "./context.js";
+import { defaultWorkspaceRoot, log } from "./context.js";
 import { errorMessage, BOOK_EVENT_KINDS as ACCOUNTING_BOOK_EVENT_KINDS } from "../shared";
 import type { MonthSnapshot } from "./types.js";
 import type { AccountBalance, JournalEntry } from "../shared/types.js";
@@ -155,14 +157,45 @@ interface RebuildQueueEntry {
   cancelled: boolean;
 }
 
+// Keyed by (root, bookId), not by bookId. A bookId is unique WITHIN a
+// root and nowhere else, so a multi-root host (MulmoTerminal, one root
+// per project directory) running two projects that both hold a book
+// called `main` would otherwise share one queue: project B's write
+// would cancel project A's rebuild, and `awaitRebuildIdle` would
+// return while the other project's rebuild is still writing.
 const rebuildQueues = new Map<string, RebuildQueueEntry>();
+
+/** Canonical key for the root a rebuild belongs to. An absent root
+ *  resolves to the host's configured one, so a call that passes it
+ *  explicitly and one that relies on the default share a queue. Under
+ *  explicit-root mode there is no default and `defaultWorkspaceRoot()`
+ *  throws — deliberately loud: a `cancelRebuild` / `awaitRebuildIdle`
+ *  that quietly keyed a queue nobody scheduled would return while the
+ *  real rebuild is still writing, which is how `deleteBook` races a
+ *  `writeSnapshot` back into existence.
+ *
+ *  Lexical resolution only — symlinks are deliberately NOT resolved,
+ *  matching `canonicalRoot` in `@mulmoclaude/core`'s collection engine,
+ *  so one project has one identity across both packages. A host that
+ *  hands the engine a real path in one call and a symlink alias in the
+ *  next would split the queue; the fix belongs in the host's own root
+ *  resolution, which is where the two packages agree it lives. */
+function rootKey(workspaceRoot: string | undefined): string {
+  return path.resolve(workspaceRoot ?? defaultWorkspaceRoot());
+}
+
+function queueKey(bookId: string, workspaceRoot: string | undefined): string {
+  // NUL cannot appear in either half (a book id is `[A-Za-z0-9_-]`,
+  // a path cannot contain it), so the join is unambiguous.
+  return `${rootKey(workspaceRoot)}\u0000${bookId}`;
+}
 
 function minPeriod(lhs: string | null, rhs: string): string {
   if (lhs === null) return rhs;
   return lhs < rhs ? lhs : rhs;
 }
 
-function isInvalidatedDuringRebuild(bookId: string, period: string): boolean {
+function isInvalidatedDuringRebuild(key: string, period: string): boolean {
   // A pending invalidation that covers `period` means the queued
   // follow-up rebuild will redo this period. Skip the in-flight
   // write so we don't pollute the cache with stale data while a
@@ -170,32 +203,32 @@ function isInvalidatedDuringRebuild(bookId: string, period: string): boolean {
   // sequence "rebuild reads journal → caller writes a new entry →
   // caller invalidates → rebuild writes (stale) snapshot" leaves
   // the cache lying about the latest state.
-  const queue = rebuildQueues.get(bookId);
+  const queue = rebuildQueues.get(key);
   return queue !== undefined && queue.pendingFromPeriod !== null && period >= queue.pendingFromPeriod;
 }
 
-function isCancelled(bookId: string): boolean {
-  return rebuildQueues.get(bookId)?.cancelled === true;
+function isCancelled(key: string): boolean {
+  return rebuildQueues.get(key)?.cancelled === true;
 }
 
-async function runRebuild(bookId: string, fromPeriod: string, workspaceRoot: string | undefined): Promise<void> {
+async function runRebuild(key: string, bookId: string, fromPeriod: string, workspaceRoot: string | undefined): Promise<void> {
   const startedAt = Date.now();
   log.info("accounting", "snapshot rebuild started", { bookId, fromPeriod });
-  publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.snapshotsRebuilding, period: fromPeriod });
+  publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.snapshotsRebuilding, period: fromPeriod }, workspaceRoot);
   const periods = await listJournalPeriods(bookId, workspaceRoot);
   const targets = periods.filter((monthKey) => monthKey >= fromPeriod);
   let written = 0;
   for (const monthKey of targets) {
-    if (isCancelled(bookId)) break;
-    if (isInvalidatedDuringRebuild(bookId, monthKey)) break;
+    if (isCancelled(key)) break;
+    if (isInvalidatedDuringRebuild(key, monthKey)) break;
     // Compute fresh from journal — bypasses getOrBuildSnapshot's
     // own write side-effect so the staleness check below is the
     // only writer in the rebuild path.
     const balances = await balancesAtEndOf(bookId, monthKey, workspaceRoot);
-    if (isCancelled(bookId)) break;
-    if (isInvalidatedDuringRebuild(bookId, monthKey)) break;
+    if (isCancelled(key)) break;
+    if (isInvalidatedDuringRebuild(key, monthKey)) break;
     await writeSnapshot(bookId, { period: monthKey, balances, builtAt: new Date().toISOString() }, workspaceRoot);
-    if (isCancelled(bookId)) {
+    if (isCancelled(key)) {
       // The book was deleted between our last check and the write —
       // `writeSnapshot` will have re-created the book directory tree
       // via mkdir-recursive. Undo it so we don't leave an orphaned
@@ -203,7 +236,7 @@ async function runRebuild(bookId: string, fromPeriod: string, workspaceRoot: str
       await ioInvalidateFrom(bookId, monthKey, workspaceRoot);
       break;
     }
-    if (isInvalidatedDuringRebuild(bookId, monthKey)) {
+    if (isInvalidatedDuringRebuild(key, monthKey)) {
       // A concurrent invalidate raced ahead between our last check
       // and the disk write. The data we just wrote may be stale
       // relative to the latest journal — undo so the queued
@@ -212,12 +245,12 @@ async function runRebuild(bookId: string, fromPeriod: string, workspaceRoot: str
       break;
     }
     written += 1;
-    publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.snapshotsReady, period: monthKey });
+    publishBookChange(bookId, { kind: ACCOUNTING_BOOK_EVENT_KINDS.snapshotsReady, period: monthKey }, workspaceRoot);
   }
   log.info("accounting", "snapshot rebuild done", { bookId, periods: written, durationMs: Date.now() - startedAt });
 }
 
-function startRebuild(bookId: string, fromPeriod: string, workspaceRoot: string | undefined): RebuildQueueEntry {
+function startRebuild(key: string, bookId: string, fromPeriod: string, workspaceRoot: string | undefined): RebuildQueueEntry {
   const entry: RebuildQueueEntry = {
     running: Promise.resolve(),
     pendingFromPeriod: null,
@@ -226,7 +259,7 @@ function startRebuild(bookId: string, fromPeriod: string, workspaceRoot: string 
     runningFromPeriod: fromPeriod,
     cancelled: false,
   };
-  entry.running = runRebuild(bookId, fromPeriod, workspaceRoot)
+  entry.running = runRebuild(key, bookId, fromPeriod, workspaceRoot)
     .catch((err) => {
       // A rebuild failure is logged but does not poison the queue —
       // the next `scheduleRebuild` call will start a fresh promise.
@@ -234,24 +267,24 @@ function startRebuild(bookId: string, fromPeriod: string, workspaceRoot: string 
     })
     .then(() => {
       // Drain any work that piled up while we were running.
-      const current = rebuildQueues.get(bookId);
+      const current = rebuildQueues.get(key);
       if (!current) return;
       // If the book was cancelled mid-rebuild (e.g. deleteBook ran),
       // drop the queue entry entirely — we must not start a successor
       // that would re-create the deleted book directory.
       if (current.cancelled) {
-        rebuildQueues.delete(bookId);
+        rebuildQueues.delete(key);
         return;
       }
       if (current.pendingFromPeriod !== null) {
         const nextFrom = current.pendingFromPeriod;
         const nextRoot = current.pendingWorkspaceRoot;
         const carriedCount = current.coalescedWriteCount;
-        const successor = startRebuild(bookId, nextFrom, nextRoot);
+        const successor = startRebuild(key, bookId, nextFrom, nextRoot);
         successor.coalescedWriteCount += carriedCount;
-        rebuildQueues.set(bookId, successor);
+        rebuildQueues.set(key, successor);
       } else {
-        rebuildQueues.delete(bookId);
+        rebuildQueues.delete(key);
       }
     });
   return entry;
@@ -262,9 +295,10 @@ function startRebuild(bookId: string, fromPeriod: string, workspaceRoot: string 
  *  follow-up rebuild that covers the minimum `fromPeriod` seen.
  *  Returns immediately — the rebuild runs on its own promise chain. */
 export function scheduleRebuild(bookId: string, fromPeriod: string, workspaceRoot?: string): void {
-  const existing = rebuildQueues.get(bookId);
+  const key = queueKey(bookId, workspaceRoot);
+  const existing = rebuildQueues.get(key);
   if (!existing) {
-    rebuildQueues.set(bookId, startRebuild(bookId, fromPeriod, workspaceRoot));
+    rebuildQueues.set(key, startRebuild(key, bookId, fromPeriod, workspaceRoot));
     return;
   }
   existing.pendingFromPeriod = minPeriod(existing.pendingFromPeriod, fromPeriod);
@@ -276,9 +310,10 @@ export function scheduleRebuild(bookId: string, fromPeriod: string, workspaceRoo
  *  `bookId`. Also called by `deleteBook` after `cancelRebuild` to
  *  ensure a previously running rebuild has fully stopped before the
  *  caller removes the book's directory on disk. */
-export async function awaitRebuildIdle(bookId: string): Promise<void> {
-  while (rebuildQueues.has(bookId)) {
-    const entry = rebuildQueues.get(bookId);
+export async function awaitRebuildIdle(bookId: string, workspaceRoot?: string): Promise<void> {
+  const key = queueKey(bookId, workspaceRoot);
+  while (rebuildQueues.has(key)) {
+    const entry = rebuildQueues.get(key);
     if (!entry) return;
     await entry.running;
   }
@@ -289,8 +324,8 @@ export async function awaitRebuildIdle(bookId: string): Promise<void> {
  *  `removeBookDir` cannot race with a `writeSnapshot` that would
  *  re-create the directory tree. Pair with `awaitRebuildIdle(bookId)`
  *  to wait for the in-flight rebuild to finish bailing. */
-export function cancelRebuild(bookId: string): void {
-  const entry = rebuildQueues.get(bookId);
+export function cancelRebuild(bookId: string, workspaceRoot?: string): void {
+  const entry = rebuildQueues.get(queueKey(bookId, workspaceRoot));
   if (!entry) return;
   entry.cancelled = true;
   // Drop pending too — a cancelled book should not get a successor
@@ -300,13 +335,16 @@ export function cancelRebuild(bookId: string): void {
 
 /** Test/diagnostic: snapshot of the per-book queue state. Stable
  *  enough to assert against; fields may grow over time. */
-export function inspectRebuildQueue(bookId: string): {
+export function inspectRebuildQueue(
+  bookId: string,
+  workspaceRoot?: string,
+): {
   running: boolean;
   runningFromPeriod: string | null;
   pendingFromPeriod: string | null;
   coalescedWriteCount: number;
 } {
-  const entry = rebuildQueues.get(bookId);
+  const entry = rebuildQueues.get(queueKey(bookId, workspaceRoot));
   if (!entry) {
     return { running: false, runningFromPeriod: null, pendingFromPeriod: null, coalescedWriteCount: 0 };
   }
