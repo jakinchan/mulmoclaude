@@ -10,7 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Package releases
 
-#### The two pieces a multi-root host still cannot get from here
+#### The two pieces a multi-root host was still missing
 
 `@mulmoclaude/core@3.2.0`, `@mulmoclaude/collection-plugin@3.1.0`. Both are additive, and
 MulmoClaude — one workspace — behaves exactly as before: it stamps no card scope and its worker
@@ -27,7 +27,10 @@ runner ignores the new field.
   kept the slug and dropped the scope, so a card fetched through whatever project was ambient when
   it rendered rather than the one it was made in. `CollectionUi.withScope(scope)` is the new
   optional host capability; the card provides the resolved binding to its own subtree and every
-  component reads it through `useCollectionUi()` instead of the global `collectionUi()`. A host
+  component reads it through `useCollectionUi()` instead of the global `collectionUi()`, link
+  activation included, so a plain click lands in the same project as the `href` beside it. The
+  mounted view is keyed by `collectionCardKey`, so a card switched to the same slug in another
+  project remounts rather than showing one project's records while writing to another's. A host
   that omits `withScope` — and a card with no scope — resolve to the global binding, unchanged.
 
 #### Accounting can follow a project root, the way collections already do

@@ -214,8 +214,12 @@ import { computed, toRef } from "vue";
 import { useCollectionI18n } from "../lang";
 import { useCollectionUi } from "../scopedUi";
 import { useRelatedMenu } from "../composables/useRelatedMenu";
-import { activatePathLink } from "../refLink";
+import { useRefLinkActivators } from "../refLink";
 import { agentActionRunKey, type CollectionAction, type CollectionDetail } from "@mulmoclaude/core/collection";
+
+// Link activation resolves the binding at click time, so a scoped card's plain
+// clicks navigate in the card's project — like the `href` beside them.
+const { activatePathLink } = useRefLinkActivators();
 
 const props = defineProps<{
   collection: CollectionDetail | null;

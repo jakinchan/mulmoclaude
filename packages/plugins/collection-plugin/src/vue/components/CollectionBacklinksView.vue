@@ -43,8 +43,12 @@
 // `navigateToRecord`), like every other ref/embed link site, so a
 // router-less host (MulmoTerminal) can map it to its own view state.
 import { useCollectionI18n } from "../lang";
-import { activateRefLink } from "../refLink";
+import { useRefLinkActivators } from "../refLink";
 import type { BacklinksView } from "@mulmoclaude/core/collection";
+
+// Link activation resolves the binding at click time, so a scoped card's plain
+// clicks navigate in the card's project — like the `href` beside them.
+const { activateRefLink } = useRefLinkActivators();
 
 defineProps<{ view: BacklinksView; fieldKey: string }>();
 

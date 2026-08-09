@@ -350,7 +350,7 @@ import CollectionRemoteViewPreview from "./CollectionRemoteViewPreview.vue";
 import CollectionTable from "./CollectionTable.vue";
 import { useCollectionRendering } from "../useCollectionRendering";
 import { writeCollectionViewMode, writeCollectionSort, writeCollectionFlagFilters, type CollectionViewMode, type BuiltInViewMode } from "../collectionViewMode";
-import type { CollectionPushResult } from "../uiContext";
+import type { CollectionConfirmOptions, CollectionPushResult } from "../uiContext";
 import { useCollectionUi } from "../scopedUi";
 import { pushProblems } from "../calendarPushResult";
 import { useTableSort } from "../composables/useTableSort";
@@ -439,8 +439,12 @@ const { t, locale } = useCollectionI18n();
 // the pin toggle) come through the injected CollectionUi binding. The aliases
 // keep the body's call sites unchanged where the host shape matched 1:1.
 const cui = useCollectionUi();
-const { confirm: openConfirm, unpin, startChat } = cui;
-const appApi = { startNewChat: startChat };
+// Called THROUGH `cui`, never copied off it: the binding a card resolves can
+// change under this component (another card, another project), and a captured
+// method would keep confirming / unpinning / seeding chats in the old project.
+const openConfirm = (options: CollectionConfirmOptions): Promise<boolean> => cui.confirm(options);
+const unpin = (kind: "collection" | "feed", slug: string): Promise<boolean> => cui.unpin(kind, slug);
+const appApi = { startNewChat: (prompt: string, role: string): void => cui.startChat(prompt, role) };
 
 /** Embedded when a `slug` prop is supplied; standalone (route-driven)
  *  otherwise. Switches the slug/selected source and the open/close

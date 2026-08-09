@@ -78,8 +78,12 @@
 // locale via `useCollectionUi().localeTag()`.
 import { useCollectionI18n } from "../lang";
 import { useCollectionUi } from "../scopedUi";
-import { activateRefLink } from "../refLink";
+import { useRefLinkActivators } from "../refLink";
 import type { EmbedView } from "@mulmoclaude/core/collection";
+
+// Link activation resolves the binding at click time, so a scoped card's plain
+// clicks navigate in the card's project — like the `href` beside them.
+const { activateRefLink } = useRefLinkActivators();
 
 defineProps<{ view: EmbedView; fieldKey: string }>();
 

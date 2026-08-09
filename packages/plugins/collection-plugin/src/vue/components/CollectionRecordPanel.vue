@@ -545,7 +545,7 @@ import CollectionBacklinksView from "./CollectionBacklinksView.vue";
 import CollectionEmbedView from "./CollectionEmbedView.vue";
 import { COMPUTED_TYPES, fieldVisible, resolveEnumColor, emptyRow } from "@mulmoclaude/core/collection";
 import { useCollectionUi } from "../scopedUi";
-import { activateRefLink, activatePathLink } from "../refLink";
+import { useRefLinkActivators } from "../refLink";
 import type { CollectionRendering } from "../useCollectionRendering";
 import type {
   CollectionAction,
@@ -555,6 +555,10 @@ import type {
   EditState,
   TableRowDraft,
 } from "@mulmoclaude/core/collection";
+
+// Link activation resolves the binding at click time, so a scoped card's plain
+// clicks navigate in the card's project — like the `href` beside them.
+const { activateRefLink, activatePathLink } = useRefLinkActivators();
 
 // The UI binding: ref/file navigation (router-optional) + the host's raw-file
 // `imageSrc`. `resolveImageSrc` keeps its local name so the template's `:src` is

@@ -8,6 +8,7 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
+import { collectionCardKey, type PresentCollectionData } from "@mulmoclaude/core/collection";
 import { toPresentCollectionData } from "../../../packages/plugins/collection-plugin/src/vue/chat/presentCollectionData";
 import { configureCollectionUi, type CollectionUi } from "../../../packages/plugins/collection-plugin/src/vue/uiContext";
 import { resolveScopedCollectionUi, resetScopedCollectionUi } from "../../../packages/plugins/collection-plugin/src/vue/scopedUi";
@@ -18,6 +19,14 @@ const binding = (tag: string, withScope?: (scope: string) => CollectionUi): Coll
   ({ tag, ...(withScope ? { withScope } : {}) }) as unknown as CollectionUi;
 
 const tagOf = (resolved: CollectionUi): string => (resolved as unknown as { tag: string }).tag;
+
+/** Parse a payload that is expected to be valid — the card key path only runs
+ *  once the slug has already been read out. */
+const parsed = (value: unknown): PresentCollectionData => {
+  const data = toPresentCollectionData(value);
+  assert.ok(data, "payload should parse");
+  return data;
+};
 
 beforeEach(() => {
   resetScopedCollectionUi();
@@ -74,5 +83,21 @@ describe("resolveScopedCollectionUi", () => {
     // must still resolve to the one binding rather than failing.
     configureCollectionUi(binding("global"));
     assert.equal(tagOf(resolveScopedCollectionUi("proj-a")), "global");
+  });
+});
+
+describe("the mounted view's identity", () => {
+  // The card keys `CollectionView` by this. Keyed on the slug alone, a card
+  // switched to the same collection in ANOTHER project would keep the mounted
+  // view — which reloads only when its slug changes — and show project A's
+  // records while its writes resolved through project B's binding.
+  it("separates two projects' same-slug cards", () => {
+    const inA = parsed({ collectionSlug: "tasks", scope: "proj-a" });
+    const inB = parsed({ collectionSlug: "tasks", scope: "proj-b" });
+    assert.notEqual(collectionCardKey(inA), collectionCardKey(inB));
+  });
+
+  it("is the bare slug with no scope, so a single-workspace card remounts exactly when it used to", () => {
+    assert.equal(collectionCardKey(parsed({ collectionSlug: "tasks", itemId: "t1" })), "tasks");
   });
 });

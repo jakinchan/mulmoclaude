@@ -153,7 +153,7 @@
 <script setup lang="ts">
 import { useCollectionUi } from "../scopedUi";
 import { useCollectionI18n } from "../lang";
-import { activateRefLink, activatePathLink } from "../refLink";
+import { useRefLinkActivators } from "../refLink";
 import type { CollectionRendering } from "../useCollectionRendering";
 import {
   cellKey,
@@ -166,6 +166,10 @@ import {
   type CollectionItem,
   type CollectionFieldSpec as FieldSpec,
 } from "@mulmoclaude/core/collection";
+
+// Link activation resolves the binding at click time, so a scoped card's plain
+// clicks navigate in the card's project — like the `href` beside them.
+const { activateRefLink, activatePathLink } = useRefLinkActivators();
 
 const props = defineProps<{
   field: FieldSpec;
