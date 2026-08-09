@@ -173,7 +173,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useCollectionI18n } from "../lang";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 import DiscoverPanel from "./DiscoverPanel.vue";
 import CollectionOntologyGraphView from "./CollectionOntologyGraphView.vue";
 import NewCollectionModal from "./NewCollectionModal.vue";
@@ -181,7 +181,7 @@ import type { CollectionSummary } from "@mulmoclaude/core/collection";
 
 const { t } = useCollectionI18n();
 // Host couplings (list/navigate/chat/shortcuts/pin) via the injected binding.
-const cui = collectionUi();
+const cui = useCollectionUi();
 const { pinToggle, reconcileShortcuts } = cui;
 
 const tab = ref<"installed" | "discover" | "map">("installed");

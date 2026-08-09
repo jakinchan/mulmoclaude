@@ -25,12 +25,12 @@ import * as echarts from "echarts";
 import { buildOntologyGraph, type OntologyGraph, type OntologyGraphEdge, type OntologyGraphNode } from "@mulmoclaude/core/collection";
 import { escapeHtml } from "@mulmoclaude/core/wiki";
 import { useCollectionI18n } from "../lang";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 
 const emit = defineEmits<{ open: [slug: string] }>();
 
 const { t } = useCollectionI18n();
-const cui = collectionUi();
+const cui = useCollectionUi();
 
 const container = ref<HTMLDivElement | null>(null);
 const loading = ref(true);

@@ -40,6 +40,7 @@ export {
   type RegistryListResponse,
   type RegistryImportResponse,
 } from "./uiContext";
+export { useCollectionUi, useCollectionUiGetter, provideCollectionScope, resolveScopedCollectionUi, resetScopedCollectionUi } from "./scopedUi";
 export { useCollectionRendering, type CollectionRendering } from "./useCollectionRendering";
 export {
   readCollectionViewMode,

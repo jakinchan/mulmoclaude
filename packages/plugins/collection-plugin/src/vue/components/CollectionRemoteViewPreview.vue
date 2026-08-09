@@ -45,7 +45,7 @@ import {
   type RemoteViewPage,
   type RemoteViewPageRequest,
 } from "@mulmoclaude/core/remote-view";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 
 const { t } = useCollectionI18n();
 
@@ -77,6 +77,10 @@ const sizeCaption = computed(() => {
   return stats.omitted > 0 ? `${base} · ${stats.inlined} images (${stats.omitted} over budget)` : `${base} · ${stats.inlined} images`;
 });
 
+// Resolved once in setup (see CollectionCustomView) — the loads below run
+// outside setup, where the card's scope can no longer be injected.
+const cui = useCollectionUi();
+
 // Monotonic load id — same stale-load guard as CollectionCustomView.
 let loadSeq = 0;
 
@@ -86,7 +90,7 @@ async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   srcdoc.value = null;
-  const binding = collectionUi();
+  const binding = cui;
   try {
     // The host wraps the srcdoc server-side (CSP + bootstrap) — the preview
     // receives the exact artifact the phone gets over the command channel.
@@ -111,7 +115,7 @@ async function load(): Promise<void> {
 
 // Reload when the view / collection / app locale changes (the dict is picked
 // server-side per locale, like the desktop custom view).
-watch([() => props.slug, () => props.view.id, () => collectionUi().localeTag()], () => void load(), { immediate: true });
+watch([() => props.slug, () => props.view.id, () => cui.localeTag()], () => void load(), { immediate: true });
 
 // ── The parent side of the remote-view bridge ──
 // Answers ONLY what the phone parent answers — `getItems` pages and `startChat`
@@ -124,7 +128,7 @@ watch([() => props.slug, () => props.view.id, () => collectionUi().localeTag()],
 // the same host page (real thumbnails, byte budget) the phone will, over the
 // identical `createRemoteViewItems` builder (plans/done/feat-remote-view-images.md).
 async function getPage(request: RemoteViewPageRequest): Promise<RemoteViewPage> {
-  const binding = collectionUi();
+  const binding = cui;
   if (!binding.fetchRemoteViewItems) throw new Error("fetchRemoteViewItems is not wired on this host");
   const resp = await binding.fetchRemoteViewItems(props.slug, props.view.id, request);
   if (!resp.ok) throw new Error(resp.error);
@@ -139,7 +143,7 @@ async function getPage(request: RemoteViewPageRequest): Promise<RemoteViewPage> 
 // mutate (read-only / non-editable field / …) throws the host's message, which
 // the bridge relays to the view as `ok: false`.
 async function onMutate(request: RemoteViewMutateRequest): Promise<RemoteViewMutateResult> {
-  const binding = collectionUi();
+  const binding = cui;
   if (!binding.mutateRemoteView) throw new Error("mutateRemoteView is not wired on this host");
   const resp = await binding.mutateRemoteView(props.slug, props.view.id, request);
   if (!resp.ok) throw new Error(resp.error);

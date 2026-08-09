@@ -35,14 +35,14 @@
 
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref } from "vue";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 
 const emit = defineEmits<{ close: [] }>();
 
 // Teleport target — `body` by default; a Shadow-DOM host overrides it with an
 // in-shadow node so the modal keeps the injected styles. Stable for the modal's
 // lifetime, so resolve it once.
-const teleportTarget = collectionUi().modalTeleportTarget?.() ?? "body";
+const teleportTarget = useCollectionUi().modalTeleportTarget?.() ?? "body";
 
 const dialogEl = ref<HTMLDivElement | null>(null);
 

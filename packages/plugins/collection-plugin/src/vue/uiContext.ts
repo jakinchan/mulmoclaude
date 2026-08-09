@@ -347,6 +347,20 @@ export interface CollectionUi {
    *  modal passes this value straight through. Without it a Shadow-DOM host — the
    *  case this option exists for — cannot satisfy the type without a cast. */
   modalTeleportTarget?: () => string | HTMLElement | ShadowRoot;
+  /** Re-bind every capability to ONE project, named by the host's own opaque
+   *  scope token (`PresentCollectionData.scope`). A chat card calls this with
+   *  the scope it was made in, so it keeps reading that project's records even
+   *  when the user moves the app to another one.
+   *
+   *  Optional and additive: a single-workspace host (MulmoClaude) omits it, and
+   *  a card's scope — which such a host never stamps — resolves to this binding,
+   *  unchanged. A multi-root host returns a binding whose requests carry the
+   *  given project instead of the ambient one. The returned binding is cached
+   *  per scope by the view layer, so it may be built eagerly.
+   *
+   *  The token is host-opaque here: the view layer only ever passes back what the
+   *  host stamped. */
+  withScope?: (scope: string) => CollectionUi;
   /** Translate a batch of UI strings into the active locale via the host's
    *  `/api/translation` route (host: `apiPost`, global bearer attached). The
    *  contract is host-agnostic (`@mulmoclaude/core/translation/client`); the LLM

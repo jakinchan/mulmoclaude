@@ -75,14 +75,18 @@
 // `<router-link>`, so a router-less host (e.g. MulmoTerminal) can map it to its
 // own view state. Translation keys resolve through the plugin's own
 // `useCollectionI18n()` instance (self-contained); a host only feeds the active
-// locale via `collectionUi().localeTag()`.
+// locale via `useCollectionUi().localeTag()`.
 import { useCollectionI18n } from "../lang";
-import { collectionUi } from "../uiContext";
-import { activateRefLink } from "../refLink";
+import { useCollectionUi } from "../scopedUi";
+import { useRefLinkActivators } from "../refLink";
 import type { EmbedView } from "@mulmoclaude/core/collection";
+
+// Link activation resolves the binding at click time, so a scoped card's plain
+// clicks navigate in the card's project — like the `href` beside them.
+const { activateRefLink } = useRefLinkActivators();
 
 defineProps<{ view: EmbedView; fieldKey: string }>();
 
 const { t } = useCollectionI18n();
-const cui = collectionUi();
+const cui = useCollectionUi();
 </script>

@@ -6,7 +6,8 @@
 // ONCE per collection surface; pass the caches down to the renderers.
 
 import { ref, type Ref } from "vue";
-import { collectionUi, type CollectionApiResult } from "./uiContext";
+import type { CollectionApiResult } from "./uiContext";
+import { useCollectionUiGetter } from "./scopedUi";
 import { buildRefDisplayMap, buildRefRecordMap } from "./useCollectionRendering.helpers";
 import { uniqueBacklinkSources, uniqueEmbedTargets, uniqueRefTargets } from "@mulmoclaude/core/collection";
 import type { CollectionDetail, CollectionDetailResponse, CollectionSchema, EmbedCache, RefCache, RefRecordCache } from "@mulmoclaude/core/collection";
@@ -86,6 +87,9 @@ export async function fetchLinkedCaches(
 }
 
 export function useLinkedCollectionCaches(collection: Ref<CollectionDetail | null>): LinkedCollectionCaches {
+  // Resolved during setup — `loadLinkedCollections` runs later, outside it —
+  // but the binding stays lazy, as it was before the card scope existed.
+  const uiFor = useCollectionUiGetter();
   const refCache = ref<RefCache>({});
   const refRecordCache = ref<RefRecordCache>({});
   const embedCache = ref<EmbedCache>({});
@@ -99,7 +103,7 @@ export function useLinkedCollectionCaches(collection: Ref<CollectionDetail | nul
   async function loadLinkedCollections(schema: CollectionSchema, expectedSlug: string): Promise<void> {
     const targets = linkedTargets(schema);
     if (targets.allTargets.length === 0) return;
-    const binding = collectionUi();
+    const binding = uiFor();
     const snapshot = await fetchLinkedCaches(
       targets,
       (slug) => binding.fetchCollectionDetail(slug),

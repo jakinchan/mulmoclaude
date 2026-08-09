@@ -212,10 +212,14 @@
 // through the exposed `resetForSlugChange`, keeping its original timing.
 import { computed, toRef } from "vue";
 import { useCollectionI18n } from "../lang";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 import { useRelatedMenu } from "../composables/useRelatedMenu";
-import { activatePathLink } from "../refLink";
+import { useRefLinkActivators } from "../refLink";
 import { agentActionRunKey, type CollectionAction, type CollectionDetail } from "@mulmoclaude/core/collection";
+
+// Link activation resolves the binding at click time, so a scoped card's plain
+// clicks navigate in the card's project — like the `href` beside them.
+const { activatePathLink } = useRefLinkActivators();
 
 const props = defineProps<{
   collection: CollectionDetail | null;
@@ -247,7 +251,7 @@ defineEmits<{
 }>();
 
 const { t } = useCollectionI18n();
-const cui = collectionUi();
+const cui = useCollectionUi();
 const { pinToggle } = cui;
 
 const {

@@ -151,9 +151,9 @@
 </template>
 
 <script setup lang="ts">
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 import { useCollectionI18n } from "../lang";
-import { activateRefLink, activatePathLink } from "../refLink";
+import { useRefLinkActivators } from "../refLink";
 import type { CollectionRendering } from "../useCollectionRendering";
 import {
   cellKey,
@@ -166,6 +166,10 @@ import {
   type CollectionItem,
   type CollectionFieldSpec as FieldSpec,
 } from "@mulmoclaude/core/collection";
+
+// Link activation resolves the binding at click time, so a scoped card's plain
+// clicks navigate in the card's project — like the `href` beside them.
+const { activateRefLink, activatePathLink } = useRefLinkActivators();
 
 const props = defineProps<{
   field: FieldSpec;
@@ -188,7 +192,7 @@ const emit = defineEmits<{
   commitInlineEdit: [item: CollectionItem, key: string, field: FieldSpec, raw: boolean | string];
 }>();
 
-const cui = collectionUi();
+const cui = useCollectionUi();
 const { t, locale } = useCollectionI18n();
 
 /** A flag FIELD's computed boolean for one row: reads the enriched record so a
