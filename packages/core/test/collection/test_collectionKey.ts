@@ -85,6 +85,15 @@ test("a NAME is the collection-slug charset, wherever it appears", () => {
   assert.equal(sharedCollectionKey("salon-2", "sales_2026").cid, "sales_2026");
 });
 
+test("a decoded id cannot mint a name the constructors refuse", () => {
+  // The decoder reads strings off storage, so it is the obvious back door
+  // around the single-source name rule: `shared\0salon\0sales:2026` would
+  // otherwise become a key whose name no downstream encoding can represent.
+  assert.equal(parseCollectionKeyId("shared\u0000salon\u0000sales:2026"), null);
+  assert.equal(parseCollectionKeyId("local\u0000/work/proj\u0000with space"), null);
+  assert.equal(parseCollectionKeyId("shared\u0000sa/lon\u0000tasks"), null);
+});
+
 test("the guards narrow", () => {
   const local = localCollectionKeyOf("/work/proj", "tasks");
   const shared = sharedCollectionKey("salon", "bookings");

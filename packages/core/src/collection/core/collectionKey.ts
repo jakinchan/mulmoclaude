@@ -126,17 +126,34 @@ export const collectionKeyId = (key: CollectionKey): string =>
   key.kind === "local" ? `local${SEP}${key.root}${SEP}${key.slug}` : `shared${SEP}${key.aid}${SEP}${key.cid}`;
 
 /** Decode a {@link collectionKeyId}, or `null` when the string did not come
- *  from one. Null rather than a throw: these strings are read back from disk
- *  and off the wire, where an unrecognised entry is a thing to skip, not a
- *  crash. */
+ *  from one — or carries values no key may hold.
+ *
+ *  Decoding goes THROUGH the constructors. Building the union here directly
+ *  would let a string off a disk or a wire mint an identity the constructors
+ *  refuse: `shared\0salon\0sales:2026` would become a key whose name the
+ *  completion-bell id and the pubsub channel cannot represent, and the single
+ *  source of truth for a name would have a back door.
+ *
+ *  Null rather than a throw, and a throw from a constructor caught here: these
+ *  strings are read back from storage, where an unrecognised or stale entry is
+ *  a thing to skip, not a crash.
+ *
+ *  ONE thing this cannot check: whether a local `root` is canonical. That needs
+ *  `node:path` and this module is isomorphic. Every id this module writes came
+ *  from a canonical root (the server-side `localCollectionKey` canonicalises),
+ *  so it holds for real data — a hand-written id with a trailing separator
+ *  decodes to a key that will not equal the canonical one. */
 export function parseCollectionKeyId(encoded: string): CollectionKey | null {
   const parts = encoded.split(SEP);
   if (parts.length !== 3) return null;
   const [kind, first, second] = parts;
   if (kind === undefined || first === undefined || second === undefined) return null;
-  if (first.length === 0 || second.length === 0) return null;
-  if (kind === "local") return { kind: "local", root: first, slug: second };
-  if (kind === "shared") return { kind: "shared", aid: first, cid: second };
+  try {
+    if (kind === "local") return localCollectionKeyOf(first, second);
+    if (kind === "shared") return sharedCollectionKey(first, second);
+  } catch {
+    return null;
+  }
   return null;
 }
 
