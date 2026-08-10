@@ -33,7 +33,7 @@ configureCollectionHost({
   workspaceRoot: null,
   log: noopLog,
   paths: {
-    userSkillsDir: path.join(makeTempDir("ns-user-skills-"), "empty"),
+    userSkillsDir: () => null,
     projectSkillsDir: (root) => path.join(root, ".claude", "skills"),
     feedsRoot: (root) => path.join(root, "data", "feeds"),
     // The whole point: this root has no staging tree.

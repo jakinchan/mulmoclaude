@@ -3,7 +3,10 @@
 // Scans both user (`~/.claude/skills/`) and project
 // (`<workspace>/.claude/skills/`) scopes; project wins on slug
 // collision (mirrors the rule in
-// `server/workspace/skills/discovery.ts`).
+// `server/workspace/skills/discovery.ts`). A host may declare a root to
+// have NO user scope (`paths.userSkillsDir` → null), and then there is no
+// shadowing to reason about: that root sees its own collections and feeds,
+// and nothing else.
 //
 // The schema validator itself lives in `../core/schemaZ` (the zod single
 // source of truth every `../core/schema` type derives from); this module
@@ -195,6 +198,15 @@ async function collectFromDir(skillsRoot: string, source: CollectionSource, work
   return results;
 }
 
+/** The user-scope dir this call should scan, or `null` for none. The single
+ *  place the "explicit override beats the host binding, and either may say
+ *  none" rule is spelled — `??` cannot express it, because `undefined` there
+ *  means "ask the host" and would silently re-enable a scope the caller
+ *  passed `null` to switch off. */
+function resolveUserDir(opts: DiscoveryOptions, workspaceRoot: string): string | null {
+  return opts.userSkillsDir !== undefined ? opts.userSkillsDir : userSkillsDir(workspaceRoot);
+}
+
 export interface DiscoveryOptions {
   /** Override the workspace root for project-scope skill discovery.
    *  Default: the live `workspacePath`. Tests point this at a
@@ -205,8 +217,16 @@ export interface DiscoveryOptions {
   /** Override `~/.claude/skills/` for tests. Production callers
    *  leave this unset. Without an override, even a test-scoped
    *  workspaceRoot still scans the real user home — which can leak
-   *  unrelated skills into the result. */
-  userSkillsDir?: string | undefined;
+   *  unrelated skills into the result.
+   *
+   *  Three distinct values, and the difference matters — a caller that
+   *  thinks it opted out and did not is exactly the failure the scope
+   *  isolation removes:
+   *  - `undefined` (or absent): ask the host binding for this root, which
+   *    may itself answer `null`.
+   *  - a path: scan that dir as user scope.
+   *  - `null`: this call has NO user scope. The host is not consulted. */
+  userSkillsDir?: string | null | undefined;
 }
 
 /** Discover every schema-driven collection available to this
@@ -218,14 +238,16 @@ export interface DiscoveryOptions {
  *  regardless of override). */
 export async function discoverCollections(opts: DiscoveryOptions = {}): Promise<LoadedCollection[]> {
   const workspaceRoot = opts.workspaceRoot ?? getWorkspaceRoot();
-  const userDir = opts.userSkillsDir ?? userSkillsDir();
+  const userDir = resolveUserDir(opts, workspaceRoot);
   const projectDir = projectSkillsDir(workspaceRoot);
   // Feeds (the non-skill `<workspace>/feeds/` registry) are scanned as a
   // third root. They merge FIRST so a real skill collection (user or
   // project) always overrides a feed on slug collision — a feed must
   // never shadow a genuine skill-backed collection.
   const feedCollections = await collectFromDir(feedsRoot(workspaceRoot), "feed", workspaceRoot);
-  const userCollections = await collectFromDir(userDir, "user", workspaceRoot);
+  // A root with no user scope skips the pass entirely (not an empty dir scan)
+  // — see the `userSkillsDir` contract in `host.ts`.
+  const userCollections = userDir === null ? [] : await collectFromDir(userDir, "user", workspaceRoot);
   const projectCollections = await collectFromDir(projectDir, "project", workspaceRoot);
   const merged = new Map<string, LoadedCollection>();
   for (const entry of feedCollections) merged.set(entry.slug, entry);
@@ -240,14 +262,16 @@ export async function loadCollection(slug: string, opts: DiscoveryOptions = {}):
   const safeName = safeSlugName(slug);
   if (safeName === null) return null;
   const workspaceRoot = opts.workspaceRoot ?? getWorkspaceRoot();
-  const userDir = opts.userSkillsDir ?? userSkillsDir();
+  const userDir = resolveUserDir(opts, workspaceRoot);
   const projectDir = projectSkillsDir(workspaceRoot);
   // Project first (overrides user), then user, then the feeds registry
   // last — mirroring the merge precedence in `discoverCollections` so a
   // skill collection always wins over a feed of the same slug.
   const projectCollection = await loadOneCollection(projectDir, safeName, "project", workspaceRoot);
   if (projectCollection) return projectCollection;
-  const userCollection = await loadOneCollection(userDir, safeName, "user", workspaceRoot);
+  // No user scope for this root: skip the fallback, so a slug that exists
+  // ONLY in user scope is a MISS rather than a quiet hop into another world.
+  const userCollection = userDir === null ? null : await loadOneCollection(userDir, safeName, "user", workspaceRoot);
   if (userCollection) return userCollection;
   return loadOneCollection(feedsRoot(workspaceRoot), safeName, "feed", workspaceRoot);
 }
