@@ -74,6 +74,17 @@ export function fileChannel(workspaceRelativePath: string): string {
  */
 const CHANNEL_SEPARATORS = /[/:]/;
 
+/** A channel-name component, refused if it could spell a different channel.
+ *
+ *  A slug is `[a-zA-Z0-9_-]` upstream, so `app/salon/tasks` can never BE a slug
+ *  — but a channel name is an identity, and an identity function that takes
+ *  such a claim on trust is how a collection ends up able to name its way into
+ *  another app's channel. Cheap to make true rather than inherited. */
+function channelPart(value: string, field: string): string {
+  if (CHANNEL_SEPARATORS.test(value)) throw new Error(`collectionChannel: ${field} "${value}" contains a channel separator`);
+  return value;
+}
+
 export function collectionChannel(slug: string, aid?: string): string {
   // A collection's identity is `(root, slug)` locally and `(aid, cid)` when it
   // is shared, so the NAME alone cannot key the fan-out: a shared `tasks` in
@@ -86,14 +97,10 @@ export function collectionChannel(slug: string, aid?: string): string {
   // the channel name reaches the browser, and a path must not (a multi-root
   // host scopes its own fan-out; see the INVARIANT on `CollectionHost`).
   //
-  // The separators are rejected rather than assumed absent. A slug is
-  // `[a-zA-Z0-9_-]` upstream, so `app/salon/tasks` can never BE a slug — but a
-  // channel name is an identity, and an identity function that takes such a
-  // claim on trust is how a collection ends up able to name its way into
-  // another app's channel. Cheap to make true instead of inherited.
-  if (CHANNEL_SEPARATORS.test(slug)) throw new Error(`collectionChannel: slug "${slug}" contains a channel separator`);
-  if (aid !== undefined && CHANNEL_SEPARATORS.test(aid)) throw new Error(`collectionChannel: app id "${aid}" contains a channel separator`);
-  return aid === undefined ? `collection:${slug}` : `collection:app/${aid}/${slug}`;
+  // The separators are rejected rather than assumed absent (see `channelPart`).
+  const name = channelPart(slug, "slug");
+  const app = aid === undefined ? undefined : channelPart(aid, "app id");
+  return app === undefined ? `collection:${name}` : `collection:app/${app}/${name}`;
 }
 
 /** Payload published on `collectionChannel(...)`. `ids` lists the changed

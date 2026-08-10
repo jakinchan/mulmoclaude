@@ -86,6 +86,16 @@ export function completionLegacyId(slug: string, itemId: string, root?: string, 
   if (root !== undefined && aid !== undefined) {
     throw new Error(`completionLegacyId: "${slug}" carries both a root (${root}) and an app (${aid})`);
   }
+  // The parse splits at the FIRST colon, which is what lets an itemId carry one
+  // (a timestamp, a natural key). The name therefore must not: a shared cid of
+  // `sales:2026` would decode as slug `sales` with itemId `2026:<id>`, so the
+  // sweep would judge a live bell against the WRONG collection and clear it.
+  // A local slug is `safeSlugName`-validated upstream and cannot contain one;
+  // a shared cid has no such gate yet, so the encoder states the requirement
+  // instead of inheriting it.
+  if (slug.includes(":")) {
+    throw new Error(`completionLegacyId: collection name "${slug}" must not contain a colon`);
+  }
   const scope = aid !== undefined ? `${SHARED_MARK}${aid}${ROOT_SEP}` : root === undefined ? "" : `${ROOT_MARK}${canonicalRoot(root)}${ROOT_SEP}`;
   return `${LEGACY_ID_PREFIX}${scope}${slug}:${itemId}`;
 }

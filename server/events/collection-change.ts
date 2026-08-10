@@ -43,6 +43,19 @@ function resolveSetPublisher(): SetPublisher | null {
   return typeof candidate === "function" ? candidate : null;
 }
 
+/** The wire payload for a change: only the keys the change actually carried.
+ *  It rides the pub/sub channel out to browser subscribers, so it holds no
+ *  record bodies and no root — an absolute path must not reach a subscriber.
+ *  Pure, and exported so it can be tested without a pubsub instance. */
+export function toChannelPayload(payload: CollectionChangePayload): CollectionChannelPayload {
+  return {
+    slug: payload.slug,
+    ...(payload.aid !== undefined ? { aid: payload.aid } : {}),
+    ...(payload.ids !== undefined ? { ids: payload.ids } : {}),
+    ...(payload.op !== undefined ? { op: payload.op } : {}),
+  };
+}
+
 /** Wire the package's change publisher to `instance`. Call once at server
  *  startup, next to `initFileChangePublisher` / `initAccountingEventPublisher`. */
 export function initCollectionChangePublisher(instance: IPubSub): void {
@@ -52,14 +65,7 @@ export function initCollectionChangePublisher(instance: IPubSub): void {
     return;
   }
   setPublisher((payload: CollectionChangePayload) => {
-    // Only the keys the change actually carried — this payload rides the
-    // pub/sub channel out to browser subscribers.
-    const channelPayload: CollectionChannelPayload = {
-      slug: payload.slug,
-      ...(payload.aid !== undefined ? { aid: payload.aid } : {}),
-      ...(payload.ids !== undefined ? { ids: payload.ids } : {}),
-      ...(payload.op !== undefined ? { op: payload.op } : {}),
-    };
+    const channelPayload = toChannelPayload(payload);
     try {
       // Scoped by the app when there is one: two shared collections that share
       // a `cid`, and this workspace's own collection of the same name, must not

@@ -39,6 +39,21 @@ test("an id cannot carry both a root and an app", () => {
   assert.throws(() => completionLegacyId("tasks", "t1", "/work/proj", "salon"), /both a root/);
 });
 
+test("a collection name carrying a colon is refused, not mis-parsed", () => {
+  // The parse splits at the FIRST colon so an itemId may carry one. A shared
+  // cid of `sales:2026` would otherwise decode as slug `sales`, itemId
+  // `2026:row-1` -- the sweep would then judge a live bell against the wrong
+  // collection and clear it, and it would collide with the real
+  // (cid "sales", itemId "2026:row-1").
+  assert.throws(() => completionLegacyId("sales:2026", "row-1", undefined, "salon"), /colon/);
+  assert.throws(() => completionLegacyId("sales:2026", "row-1"), /colon/);
+});
+
+test("an itemId may still carry colons", () => {
+  const parsed = parseCompletionLegacyId(completionLegacyId("sales", "2026:row-1", undefined, "salon"));
+  assert.deepEqual(parsed, { aid: "salon", slug: "sales", itemId: "2026:row-1" });
+});
+
 test("all three forms parse", () => {
   assert.deepEqual(parseCompletionLegacyId("collection-completion:tasks:t1"), { slug: "tasks", itemId: "t1" });
   assert.deepEqual(parseCompletionLegacyId("collection-completion:@/work/proj\u0000tasks:t1"), { root: "/work/proj", slug: "tasks", itemId: "t1" });
