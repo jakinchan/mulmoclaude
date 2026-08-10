@@ -48,6 +48,13 @@ const LEGACY_ID_PREFIX = "collection-completion:";
 const ROOT_MARK = "@";
 const ROOT_SEP = "\0";
 
+/** Marks a key that belongs to a SHARED collection (`apps/{aid}/collections/
+ *  {cid}`) rather than to a directory: `<prefix>#<aid>\0<cid>:<itemId>`. A
+ *  shared collection has no root, and its `cid` may well be the slug some
+ *  project already owns, so it needs a mark of its own — reusing the rootless
+ *  form would make the two dedupe into one bell. */
+const SHARED_MARK = "#";
+
 /** Stable key encoding (root, slug, item), round-tripped through the entry's
  *  `pluginData` so we can find it later without a side state file. Slug +
  *  itemId are upstream-validated via `safeSlugName`, which forbids the
@@ -69,8 +76,10 @@ const ROOT_SEP = "\0";
  *  this id is written to disk: a caller reaching `reconcileItem` directly with
  *  `/proj/` where the watcher used `/proj` would otherwise publish a SECOND
  *  bell for the same record, and neither pass would ever clear the other's. */
-function completionLegacyId(slug: string, itemId: string, root?: string): string {
-  const scope = root === undefined ? "" : `${ROOT_MARK}${canonicalRoot(root)}${ROOT_SEP}`;
+/** Exported for the format pin in `test/collection-watchers/test_completionId.ts`.
+ *  Deliberately NOT on the package barrel: the id is a disk format, not an API. */
+export function completionLegacyId(slug: string, itemId: string, root?: string, aid?: string): string {
+  const scope = aid !== undefined ? `${SHARED_MARK}${aid}${ROOT_SEP}` : root === undefined ? "" : `${ROOT_MARK}${canonicalRoot(root)}${ROOT_SEP}`;
   return `${LEGACY_ID_PREFIX}${scope}${slug}:${itemId}`;
 }
 
@@ -78,19 +87,25 @@ function completionLegacyId(slug: string, itemId: string, root?: string): string
  *  didn't originate from this module. Accepts both the rooted and the
  *  original root-less form — see the compatibility rule above. Used by the
  *  sweep step. */
-function parseCompletionLegacyId(legacyId: string): { root?: string; slug: string; itemId: string } | null {
+/** @see completionLegacyId — exported for the same reason. */
+export function parseCompletionLegacyId(legacyId: string): { root?: string; aid?: string; slug: string; itemId: string } | null {
   if (!legacyId.startsWith(LEGACY_ID_PREFIX)) return null;
   let body = legacyId.slice(LEGACY_ID_PREFIX.length);
   let root: string | undefined;
-  if (body.startsWith(ROOT_MARK)) {
+  let aid: string | undefined;
+  if (body.startsWith(ROOT_MARK) || body.startsWith(SHARED_MARK)) {
+    const shared = body.startsWith(SHARED_MARK);
     const sep = body.indexOf(ROOT_SEP);
     if (sep < 0) return null;
-    root = body.slice(ROOT_MARK.length, sep);
+    const scope = body.slice(1, sep);
+    if (shared) aid = scope;
+    else root = scope;
     body = body.slice(sep + ROOT_SEP.length);
   }
   const colon = body.indexOf(":");
   if (colon < 0) return null;
   const parsed = { slug: body.slice(0, colon), itemId: body.slice(colon + 1) };
+  if (aid !== undefined) return { aid, ...parsed };
   return root === undefined ? parsed : { root, ...parsed };
 }
 
@@ -358,9 +373,15 @@ export async function reconcileAllItems(collection: LoadedCollection, ioOpts: Io
  *    on produces a root-less id, so skipping it would strand a bell no pass can
  *    ever clear, while the reconcile publishes a second rooted one beside it.
  *    Clearing converges — the record republishes rooted if still pending. */
-function sweepVerdict(entryRoot: string | undefined, ownRoot: string | undefined): "mine" | "skip" | "drop-legacy" {
-  if (entryRoot === ownRoot) return "mine";
-  if (entryRoot === undefined) return "drop-legacy";
+function sweepVerdict(entry: { root?: string; aid?: string }, ownRoot: string | undefined): "mine" | "skip" | "drop-legacy" {
+  // A shared collection's bell belongs to no root. A root's sweep must neither
+  // claim it (`isStaleEntry` resolves the slug on DISK and would find nothing,
+  // so every shared bell would be judged stale) nor treat it as a root-less
+  // legacy entry to drop — either way it silently clears another surface's
+  // bells. Only the shared watcher may retire these.
+  if (entry.aid !== undefined) return "skip";
+  if (entry.root === ownRoot) return "mine";
+  if (entry.root === undefined) return "drop-legacy";
   return "skip";
 }
 
@@ -391,7 +412,7 @@ export async function sweepStaleActiveEntries(opts: DiscoveryOptions = {}): Prom
     if (!own) continue;
     const parsed = parseCompletionLegacyId(own.legacyId);
     if (!parsed) continue;
-    const verdict = sweepVerdict(parsed.root, ownRoot);
+    const verdict = sweepVerdict(parsed, ownRoot);
     if (verdict === "skip") continue;
     if (verdict === "drop-legacy") {
       await notifierClear(entry.id);

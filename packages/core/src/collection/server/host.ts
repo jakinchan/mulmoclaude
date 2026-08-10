@@ -10,6 +10,7 @@
 
 import path from "node:path";
 import { canonicalRoot } from "../../files/root.js";
+import { localCollectionKeyOf, sharedCollectionKey, type CollectionKey } from "../core/collectionKey.js";
 import { createForwardingLogger, createHostSlot, type StructuredLogger } from "../../host/hostSlot.js";
 
 /** Public alias of the shared `StructuredLogger` — keeps the domain surface name-stable. */
@@ -26,6 +27,11 @@ export { canonicalRoot };
  *  watcher is already running — and a host catching both in one place should
  *  not have to match on message text to tell them apart. */
 export const COLLECTION_ROOT_REQUIRED = "COLLECTION_ROOT_REQUIRED";
+
+/** Build a local {@link CollectionKey}, canonicalising the root. The identity
+ *  type itself is isomorphic and cannot canonicalise (that needs `node:path`),
+ *  so this is the constructor server code should use. */
+export const localCollectionKey = (root: string, slug: string): CollectionKey => localCollectionKeyOf(canonicalRoot(root), slug);
 
 /** INVARIANT — **a slug is unique within a root and nowhere else.**
  *
@@ -114,7 +120,18 @@ export interface CollectionHost {
  *  "refetch" ping, not a data feed, so it stays cheap and leaks nothing when a
  *  host relays it into an opaque-origin custom-view iframe. */
 export interface CollectionChangePayload {
+  /** The collection's NAME in its scope: the slug, or a shared collection's
+   *  `cid`. Never an identity on its own — see `aid` and `root`. */
   slug: string;
+  /** The shared app this collection belongs to, when it is a SHARED collection
+   *  (`apps/{aid}/collections/{cid}`) rather than one in a directory. Mutually
+   *  exclusive with `root`: a shared collection has no root, because the same
+   *  collection is resolved from every clone of the repository.
+   *
+   *  Absent — every payload that existed before shared collections — means a
+   *  local collection, and the shape is byte-identical to what it was. Use
+   *  {@link collectionChangeKey} rather than reading these fields by hand. */
+  aid?: string;
   /** Absolute workspace/project root the change happened under. Present only
    *  when the engine call carried an explicit `workspaceRoot`; absent means
    *  the host's configured root, so a single-workspace host never sets it.
@@ -137,6 +154,27 @@ export function collectionChangePayload(base: Omit<CollectionChangePayload, "roo
   // direct `writeItem({ workspaceRoot: "/proj/" })` and the watcher's own
   // publish for `/proj` must land on the same channel, not two.
   return root === undefined ? base : { ...base, root: canonicalRoot(root) };
+}
+
+/** Build a change payload for a SHARED collection. `slug` carries the `cid`,
+ *  which is what it is called inside its app; `aid` is what makes it an
+ *  identity. Never stamps a `root` — a shared collection does not have one. */
+export function sharedCollectionChangePayload(base: Omit<CollectionChangePayload, "root" | "aid">, aid: string): CollectionChangePayload {
+  return { ...base, aid };
+}
+
+/** The identity a change is about, as a value — the thing to key a fan-out on.
+ *
+ *  This is the one place that decides what an absent field means, so no host
+ *  has to: `aid` present is a shared collection, otherwise it is local, and a
+ *  local payload with no `root` means the host's configured root (which is why
+ *  a single-workspace host's payloads still say nothing about roots).
+ *
+ *  `fallbackRoot` is what a payload with no root resolves to. An explicit-root
+ *  host has no such default and must not guess — pass the root the call was
+ *  made for. */
+export function collectionChangeKey(payload: CollectionChangePayload, fallbackRoot: string): CollectionKey {
+  return payload.aid === undefined ? localCollectionKey(payload.root ?? fallbackRoot, payload.slug) : sharedCollectionKey(payload.aid, payload.slug);
 }
 
 const hostSlot = createHostSlot<CollectionHost>("@mulmoclaude/core/collection/server: configureCollectionHost()");
