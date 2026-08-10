@@ -22,7 +22,7 @@
 // without a side state file.
 
 import { clear as notifierClear, listAll, publish as notifierPublish, updateForPlugin as notifierUpdate, type NotifierEntry } from "../notifier";
-import { fieldText, itemIsDone, whenMatches, type CollectionItem, type CollectionSchema } from "../collection";
+import { fieldText, isValidCollectionName, itemIsDone, whenMatches, type CollectionItem, type CollectionSchema } from "../collection";
 import {
   canonicalRoot,
   type DiscoveryOptions,
@@ -86,15 +86,22 @@ export function completionLegacyId(slug: string, itemId: string, root?: string, 
   if (root !== undefined && aid !== undefined) {
     throw new Error(`completionLegacyId: "${slug}" carries both a root (${root}) and an app (${aid})`);
   }
-  // The parse splits at the FIRST colon, which is what lets an itemId carry one
-  // (a timestamp, a natural key). The name therefore must not: a shared cid of
-  // `sales:2026` would decode as slug `sales` with itemId `2026:<id>`, so the
-  // sweep would judge a live bell against the WRONG collection and clear it.
-  // A local slug is `safeSlugName`-validated upstream and cannot contain one;
-  // a shared cid has no such gate yet, so the encoder states the requirement
-  // instead of inheriting it.
-  if (slug.includes(":")) {
-    throw new Error(`completionLegacyId: collection name "${slug}" must not contain a colon`);
+  // Both names go through the SAME rule `CollectionKey` applies, because this
+  // function takes raw strings and is reachable by a caller that never built a
+  // key. Two ways this id breaks otherwise, and both are silent:
+  //   - the parse splits at the FIRST colon (which is what lets an itemId carry
+  //     one -- a timestamp, a natural key), so a name of `sales:2026` decodes
+  //     as slug `sales` with itemId `2026:<id>` and the sweep judges a live
+  //     bell against the WRONG collection and clears it;
+  //   - a NUL in the app id splits the scope early, so `salon\0other` writes an
+  //     id that reads back as aid `salon`, slug `other\0tasks`.
+  // A malformed shared bell is also unretirable: every root's sweep skips a
+  // parsed `aid`, so nothing cleans it up.
+  if (!isValidCollectionName(slug)) {
+    throw new Error(`completionLegacyId: collection name "${slug}" is not a valid collection name`);
+  }
+  if (aid !== undefined && !isValidCollectionName(aid)) {
+    throw new Error(`completionLegacyId: app id "${aid}" is not a valid collection name`);
   }
   const scope = aid !== undefined ? `${SHARED_MARK}${aid}${ROOT_SEP}` : root === undefined ? "" : `${ROOT_MARK}${canonicalRoot(root)}${ROOT_SEP}`;
   return `${LEGACY_ID_PREFIX}${scope}${slug}:${itemId}`;

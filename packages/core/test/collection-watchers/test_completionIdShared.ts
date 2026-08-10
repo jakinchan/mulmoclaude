@@ -47,8 +47,17 @@ test("a collection name carrying a colon is refused, not mis-parsed", () => {
   // slug `sales`, itemId `2026:row-1` -- the sweep would judge a live bell
   // against the wrong collection and clear it, and it would collide with the
   // real (cid "sales", itemId "2026:row-1").
-  assert.throws(() => completionLegacyId("sales:2026", "row-1", undefined, "salon"), /colon/);
-  assert.throws(() => completionLegacyId("sales:2026", "row-1"), /colon/);
+  assert.throws(() => completionLegacyId("sales:2026", "row-1", undefined, "salon"), /not a valid collection name/);
+  assert.throws(() => completionLegacyId("sales:2026", "row-1"), /not a valid collection name/);
+});
+
+test("an app id that would split the scope early is refused", () => {
+  // `salon\0other` writes an id that reads back as aid `salon`, slug
+  // `other\0tasks` — the format stops round-tripping. And a malformed SHARED
+  // bell is unretirable: every root's sweep skips a parsed `aid`, so nothing
+  // ever cleans it up.
+  assert.throws(() => completionLegacyId("tasks", "t1", undefined, "salon\u0000other"), /app id/);
+  assert.throws(() => completionLegacyId("tasks", "t1", undefined, "sa:lon"), /app id/);
 });
 
 test("an itemId may still carry colons", () => {

@@ -137,8 +137,17 @@ function isCanonicalRootShape(root: string): boolean {
  *  Firestore document ids under `apps/{aid}/collections/{cid}` AND the name the
  *  same collection has on disk, so the slug charset is what they already are. */
 function namePart(value: string, field: string): string {
-  if (!SAFE_SLUG_PATTERN.test(value)) throw new Error(`CollectionKey: ${field} "${value}" is not a valid collection name`);
+  if (!isValidCollectionName(value)) throw new Error(`CollectionKey: ${field} "${value}" is not a valid collection name`);
   return value;
+}
+
+/** The name rule as a predicate, for the encoders that take RAW strings rather
+ *  than a key (the completion-bell id, a channel name). They are reachable by a
+ *  caller that never built a key, and each has its own delimiter to be broken
+ *  by, so they need to apply the same rule — not a rule of their own, which is
+ *  how the layers came to disagree in the first place. */
+export function isValidCollectionName(value: string): boolean {
+  return SAFE_SLUG_PATTERN.test(value);
 }
 
 /** A stable string form, for the places that need a primitive key: a Map, a
