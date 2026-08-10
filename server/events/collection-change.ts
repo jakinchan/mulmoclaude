@@ -56,11 +56,15 @@ export function initCollectionChangePublisher(instance: IPubSub): void {
     // pub/sub channel out to browser subscribers.
     const channelPayload: CollectionChannelPayload = {
       slug: payload.slug,
+      ...(payload.aid !== undefined ? { aid: payload.aid } : {}),
       ...(payload.ids !== undefined ? { ids: payload.ids } : {}),
       ...(payload.op !== undefined ? { op: payload.op } : {}),
     };
     try {
-      instance.publish(collectionChannel(payload.slug), channelPayload);
+      // Scoped by the app when there is one: two shared collections that share
+      // a `cid`, and this workspace's own collection of the same name, must not
+      // publish on one channel.
+      instance.publish(collectionChannel(payload.slug, payload.aid), channelPayload);
     } catch (err) {
       // Fire-and-forget, same rationale as the file-change / accounting
       // publishers: dropping one event (a missed live refresh) is better than

@@ -72,8 +72,28 @@ export function fileChannel(workspaceRelativePath: string): string {
  * `CollectionCustomView.vue` (relays into the sandboxed iframe), both via the
  * host's `subscribeChanges` capability in `composables/collections/uiHost.ts`.
  */
-export function collectionChannel(slug: string): string {
-  return `collection:${slug}`;
+const CHANNEL_SEPARATORS = /[/:]/;
+
+export function collectionChannel(slug: string, aid?: string): string {
+  // A collection's identity is `(root, slug)` locally and `(aid, cid)` when it
+  // is shared, so the NAME alone cannot key the fan-out: a shared `tasks` in
+  // one app, a shared `tasks` in another, and this workspace's own `tasks`
+  // would all land here and refresh each other's open views.
+  //
+  // The local form is unchanged, byte for byte — MulmoClaude is one workspace,
+  // so a local change never carries a root and this is the same channel it has
+  // always been. A ROOT deliberately has no form here: it is an absolute path,
+  // the channel name reaches the browser, and a path must not (a multi-root
+  // host scopes its own fan-out; see the INVARIANT on `CollectionHost`).
+  //
+  // The separators are rejected rather than assumed absent. A slug is
+  // `[a-zA-Z0-9_-]` upstream, so `app/salon/tasks` can never BE a slug — but a
+  // channel name is an identity, and an identity function that takes such a
+  // claim on trust is how a collection ends up able to name its way into
+  // another app's channel. Cheap to make true instead of inherited.
+  if (CHANNEL_SEPARATORS.test(slug)) throw new Error(`collectionChannel: slug "${slug}" contains a channel separator`);
+  if (aid !== undefined && CHANNEL_SEPARATORS.test(aid)) throw new Error(`collectionChannel: app id "${aid}" contains a channel separator`);
+  return aid === undefined ? `collection:${slug}` : `collection:app/${aid}/${slug}`;
 }
 
 /** Payload published on `collectionChannel(...)`. `ids` lists the changed
@@ -82,6 +102,10 @@ export function collectionChannel(slug: string): string {
  *  opaque-origin custom-view iframe. */
 export interface CollectionChannelPayload {
   slug: string;
+  /** The shared app, when this change is about a shared collection. Absent for
+   *  a collection in the workspace, which is every one MulmoClaude has today.
+   *  Safe to relay: an `aid` is an id committed in a repository, not a path. */
+  aid?: string;
   ids?: string[];
   op?: "upsert" | "delete";
 }
