@@ -8,6 +8,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-08-10
+
+**A Google Calendar collection now actually receives the calendar, and the multi-root
+groundwork lands without changing anything for a single-workspace host.**
+
+### Highlights
+
+#### A calendar collection could sit at a handful of records forever (#2850, #2853)
+
+A `googleCalendar` collection would stall at 0, 1, or a couple of dozen records out of
+years of history, reporting success with **no error**, and further Sync presses added
+nothing. Only events touched after the collection existed kept arriving.
+
+A Google sync token is keyed by `calendarId` and nothing else, so every consumer of that
+calendar shares one cursor. Whoever walked first stored it, and the next collection
+resumed from a window it had never received — its "first sync" was a delta. Two ways in,
+both hit by the reporter: the standalone `google` tool's `calendarSync` stores a token
+(and discards its events), and a second collection created on a calendar a sibling had
+already synced. The on-create first sync (#2427) asked the same wrong question — it read
+"the calendar has a token" as "this has already synced" — so for an affected collection
+it never ran at all.
+
+A collection now records its own backfill beside its records
+(`<dataPath>/.calendar-sync.json`) and the sync walks the whole calendar while any
+collection on it still lacks one. The `google` tool keeps a separate cursor. A walk cut
+short by the page guard used to be byte-identical to a completed one; it now reports
+itself and withholds the backfill marker instead of leaving a half-copied calendar
+looking finished.
+
+#### Remote host stopped mistaking its own downtime for a dead channel (#2845, #2846)
+
+Presence and give-up are counted in beats that actually ran rather than by wall clock, so
+a laptop that slept no longer reads as a phone that went away.
+
+#### Multi-root groundwork (#2844, #2848, #2849, #2852)
+
+Collections, the accounting engine and card scope can each operate against an explicit
+project root, and a root may declare that it has no user scope. **None of it is reachable
+from MulmoClaude**, which is a single workspace and passes no root anywhere — behaviour is
+unchanged here. It is what lets a multi-root host (MulmoTerminal) stop resolving one
+project's records against another's.
+
+Ships `@mulmoclaude/core@3.4.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
 ### Package releases
 
 #### A project root can declare that it has no user scope
