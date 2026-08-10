@@ -85,6 +85,21 @@ test("a NAME is the collection-slug charset, wherever it appears", () => {
   assert.equal(sharedCollectionKey("salon-2", "sales_2026").cid, "sales_2026");
 });
 
+test("a non-canonical root is refused, in the constructor and in the decoder", () => {
+  // `/work/proj/` and `/work/proj` are ONE collection. Two keys that compare
+  // unequal are two cache entries, two channels and two bells for it — the
+  // identity split this type exists to remove. This module cannot canonicalise
+  // (that needs node:path), so it rejects instead.
+  for (const bad of ["/work/proj/", "/work//proj", "/work/./proj", "/work/../proj", "work/proj", "."]) {
+    assert.throws(() => localCollectionKeyOf(bad, "tasks"), /canonical root/, bad);
+    assert.equal(parseCollectionKeyId(`local\u0000${bad}\u0000tasks`), null, bad);
+  }
+  // The forms path.resolve actually produces are accepted, including Windows'.
+  assert.equal(localCollectionKeyOf("/work/proj", "tasks").root, "/work/proj");
+  assert.equal(localCollectionKeyOf("/", "tasks").root, "/");
+  assert.equal(localCollectionKeyOf("C:\\work\\proj", "tasks").root, "C:\\work\\proj");
+});
+
 test("a decoded id cannot mint a name the constructors refuse", () => {
   // The decoder reads strings off storage, so it is the obvious back door
   // around the single-source name rule: `shared\0salon\0sales:2026` would

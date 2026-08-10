@@ -45,7 +45,8 @@ export type CollectionKey = LocalCollectionKey | SharedCollectionKey;
 export const isLocalCollectionKey = (key: CollectionKey): key is LocalCollectionKey => key.kind === "local";
 export const isSharedCollectionKey = (key: CollectionKey): key is SharedCollectionKey => key.kind === "shared";
 
-/** Build a local key from an ALREADY-CANONICAL root. */
+/** Build a local key from an ALREADY-CANONICAL root — and refuse one that is
+ *  not. See {@link scopePart}. */
 export const localCollectionKeyOf = (root: string, slug: string): LocalCollectionKey => ({
   kind: "local",
   root: scopePart(root, "root"),
@@ -89,7 +90,31 @@ const SEP = "\u0000";
 function scopePart(value: string, field: string): string {
   if (value.length === 0) throw new Error(`CollectionKey: ${field} must not be empty`);
   if (value.includes(SEP)) throw new Error(`CollectionKey: ${field} must not contain NUL`);
+  if (!isCanonicalRootShape(value)) throw new Error(`CollectionKey: ${field} "${value}" is not a canonical root`);
   return value;
+}
+
+/** Is this root ALREADY in the shape `canonicalRoot` (path.resolve) produces?
+ *
+ *  This module cannot canonicalise — that needs `node:path` and this file is
+ *  isomorphic — so it does the other half: it REFUSES anything that is not
+ *  already canonical. Which is the part that matters, because the failure is
+ *  silent. `/work/proj/` and `/work/proj` are the same collection, and a key
+ *  built from the first compares unequal to a key built from the second: two
+ *  cache entries, two channels, two bells for one collection — exactly the
+ *  identity split this type exists to remove. A decoder reading ids off a disk
+ *  is where such a spelling arrives.
+ *
+ *  The properties are `path.resolve`'s own: absolute, no `.` or `..` segment,
+ *  no doubled separator, no trailing one. The Windows drive form is allowed so
+ *  a canonical root there is not refused. */
+function isCanonicalRootShape(root: string): boolean {
+  const windows = /^[A-Za-z]:\\/.test(root);
+  const sep = windows ? "\\" : "/";
+  if (!windows && !root.startsWith("/")) return false;
+  if (root.length > 1 && root.endsWith(sep)) return false;
+  if (root.includes(sep + sep)) return false;
+  return !root.split(sep).some((segment) => segment === "." || segment === "..");
 }
 
 /** A NAME — a slug, a shared `cid`, or an `aid`: the collection-slug charset,
@@ -138,11 +163,11 @@ export const collectionKeyId = (key: CollectionKey): string =>
  *  strings are read back from storage, where an unrecognised or stale entry is
  *  a thing to skip, not a crash.
  *
- *  ONE thing this cannot check: whether a local `root` is canonical. That needs
- *  `node:path` and this module is isomorphic. Every id this module writes came
- *  from a canonical root (the server-side `localCollectionKey` canonicalises),
- *  so it holds for real data — a hand-written id with a trailing separator
- *  decodes to a key that will not equal the canonical one. */
+ *  A non-canonical root is refused here too, for the same reason: `/work/proj/`
+ *  and `/work/proj` name one collection, and two keys that compare unequal are
+ *  two cache entries, two channels and two bells for it. This module cannot
+ *  canonicalise (that needs `node:path`), so it rejects instead — see
+ *  {@link scopePart}. */
 export function parseCollectionKeyId(encoded: string): CollectionKey | null {
   const parts = encoded.split(SEP);
   if (parts.length !== 3) return null;
