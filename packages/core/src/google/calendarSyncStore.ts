@@ -36,6 +36,22 @@ interface CalendarSyncState {
 // must never end up as two different keys.
 const calendarKey = canonicalCalendarId;
 
+/** The key for a consumer that reads a calendar without KEEPING what it reads.
+ *
+ *  A sync token is a claim about which events the consumer already holds, but
+ *  the key above names only the calendar — so every consumer of one calendar
+ *  shares one cursor. That is right for the collections bound to it (one fetch
+ *  fans out to all of them in the same pass) and wrong for the standalone
+ *  `google` tool's `calendarSync`, which walks the calendar, reports a summary
+ *  to the LLM and discards the events.
+ *
+ *  Sharing it lost data both ways (#2850): the tool consumed windows the
+ *  collections then never received, and a collection created afterwards resumed
+ *  from the tool's cursor — so its "first sync" was a delta of a window it had
+ *  never held, and the calendar's history never arrived. Same file, separate
+ *  keyspace. Idempotent through `calendarKey`, since the result is non-empty. */
+export const toolCalendarSyncKey = (calendarId: string | undefined): string => `tool:${canonicalCalendarId(calendarId)}`;
+
 /** Read one map out of whatever is on disk. Tolerant on purpose: a file written
  *  before `lastSyncedAt` existed simply lacks the key, and a hand-edited one may
  *  hold anything. A dropped entry costs a full re-walk or a duplicate run, never

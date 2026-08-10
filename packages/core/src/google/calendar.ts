@@ -317,6 +317,17 @@ export interface CalendarSyncResult {
   /** The stored token had expired (410) — the caller must drop it and re-sync
    *  from scratch; no events are returned in that case. */
   fullResyncRequired: boolean;
+  /** The page guard fired with pages still pending, so `events` is a PARTIAL
+   *  window and `nextSyncToken` is absent.
+   *
+   *  Reported rather than left implicit because a truncated walk is otherwise
+   *  byte-identical to a completed one: the caller would apply the partial set,
+   *  report success, and — since only Google's last page carries the token —
+   *  repeat the same truncated walk on every later run, silently (#2850).
+   *  Google states a page "may be less than this value, or none at all, even if
+   *  there are more events matching the query", so this is reachable on a real
+   *  calendar, the more so with `singleEvents` expanding unbounded recurrences. */
+  pagesExhausted: boolean;
 }
 
 // Sentinel for "the syncToken expired" so the page loop can bail without
@@ -342,31 +353,43 @@ async function fetchSyncPage(accessToken: string, calendarId: string | undefined
  *
  *  `nextSyncToken` is only present on the LAST page, so every page must be
  *  walked before the token is worth storing. */
+/** The query for one page of the walk. `showDeleted` must stay true or
+ *  deletions would be invisible; `pageToken` is sent ALONGSIDE `syncToken`,
+ *  which is what Google requires to page an incremental sync. */
+export function syncPageParams(input: SyncEventsInput, pageToken: string | undefined): URLSearchParams {
+  const params = new URLSearchParams({
+    singleEvents: "true",
+    showDeleted: "true",
+    maxResults: String(input.maxResults ?? EVENT_SYNC_PAGE_SIZE),
+  });
+  if (input.syncToken) params.set("syncToken", input.syncToken);
+  if (pageToken) params.set("pageToken", pageToken);
+  return params;
+}
+
 export async function syncCalendarEvents(accessToken: string, input: SyncEventsInput = {}): Promise<CalendarSyncResult> {
   const events: CalendarEventSummary[] = [];
   let pageToken: string | undefined;
   let nextSyncToken: string | undefined;
 
   for (let page = 0; page < MAX_EVENT_SYNC_PAGES; page += 1) {
-    const params = new URLSearchParams({
-      singleEvents: "true",
-      showDeleted: "true",
-      maxResults: String(input.maxResults ?? EVENT_SYNC_PAGE_SIZE),
-    });
-    if (input.syncToken) params.set("syncToken", input.syncToken);
-    if (pageToken) params.set("pageToken", pageToken);
-
-    const payload = await fetchSyncPage(accessToken, input.calendarId, params);
-    if (payload === GONE) return { events: [], fullResyncRequired: true };
+    const payload = await fetchSyncPage(accessToken, input.calendarId, syncPageParams(input, pageToken));
+    if (payload === GONE) return { events: [], fullResyncRequired: true, pagesExhausted: false };
 
     const record = asRecord(payload);
     events.push(...itemsOf(payload).map(toEventSummary));
     nextSyncToken = stringField(record, "nextSyncToken") || undefined;
     pageToken = stringField(record, "nextPageToken") || undefined;
     if (!pageToken) break;
+    // Google sends the sync token only on the LAST page, so anything read
+    // before one is not a resume point for the walk this call is doing.
+    // Dropped rather than trusted: kept, it would let a caller resume past the
+    // pages this walk never read (Codex review #2853).
+    nextSyncToken = undefined;
   }
 
-  return { events, nextSyncToken, fullResyncRequired: false };
+  // A token still in hand means the loop ran out of pages, not out of calendar.
+  return { events, nextSyncToken, fullResyncRequired: false, pagesExhausted: pageToken !== undefined };
 }
 
 export interface CalendarListPage {

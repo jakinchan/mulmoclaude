@@ -74,7 +74,13 @@ async function copyBundle(skillDir: string, outDir: string): Promise<number> {
 async function exportSeed(dataDir: string, outDir: string): Promise<{ count: number; skipped: number; warnings: string[] }> {
   let names: string[];
   try {
-    names = (await readdir(dataDir)).filter((name) => name.endsWith(".json"));
+    // Dot-prefixed files are NOT records — the same rule every other reader of
+    // a data dir applies (`io.ts#listItems`, `ontology.ts`, the store watcher,
+    // `validate.ts`), and the bundle-dir count above. Sync state lives here too
+    // (`.calendar-sync.json`), and shipping it would put the user's calendar id
+    // in a published bundle and count it toward `dataConsent` (Codex review
+    // #2853).
+    names = (await readdir(dataDir)).filter((name) => name.endsWith(".json") && !name.startsWith("."));
   } catch {
     return { count: 0, skipped: 0, warnings: [] };
   }

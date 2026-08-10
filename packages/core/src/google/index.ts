@@ -63,6 +63,7 @@ export {
   type ListEventsInput,
   type SyncEventsInput,
   type UpdateCalendarEventInput,
+  syncPageParams,
 } from "./calendar.js";
 export {
   calendarSyncStatePath,
@@ -72,8 +73,10 @@ export {
   loadCalendarLastSyncedAt,
   loadCalendarSyncToken,
   saveCalendarSyncToken,
+  toolCalendarSyncKey,
 } from "./calendarSyncStore.js";
 export { calendarSyncDueWindowMs, isCalendarSyncDue } from "./calendarSyncDue.js";
+export { calendarBackfillPath, markCalendarBackfilled, needsCalendarBackfill } from "./calendarBackfillState.js";
 export { stateLockPath, withCalendarStateLock, liveLockClock, type LockClock } from "./calendarStateLock.js";
 export {
   calendarPushStatePath,
@@ -145,7 +148,13 @@ export {
   syncDueCalendarCollections,
   syncNewCalendarCollections,
   shadowUpdates,
-  unsyncedGroups,
+  collectionsNeedingBackfill,
+  resumableToken,
+  windowAdvance,
+  type WindowAdvance,
+  groupsNeedingBackfill,
+  withPartialWindowError,
+  PARTIAL_CALENDAR_WINDOW,
   GOOGLE_CALENDAR_SYNC_TASK_ID,
   type CalendarCollectionSyncResult,
   type CalendarDeclaring,

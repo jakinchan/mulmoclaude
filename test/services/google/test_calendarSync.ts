@@ -6,7 +6,7 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { syncCalendarEvents } from "@mulmoclaude/core/google";
+import { syncCalendarEvents, syncPageParams } from "@mulmoclaude/core/google";
 
 const realFetch = globalThis.fetch;
 let requestedUrls: string[] = [];
@@ -82,6 +82,57 @@ describe("syncCalendarEvents (#2095)", () => {
     assert.ok(secondPageUrl.includes("pageToken=p2"), "second page must carry the page token");
   });
 
+  // #2850: the page guard firing used to be byte-identical to a completed walk,
+  // so the caller applied a PARTIAL calendar, reported success and — since only
+  // Google's last page carries the token — repeated the same truncated walk
+  // forever, silently. Google states a page may hold "less than this value, or
+  // none at all, even if there are more events matching the query", so a real
+  // calendar can reach the guard.
+  it("reports pagesExhausted when the page guard fires with pages still pending", async () => {
+    // Every page answers with a nextPageToken and never a nextSyncToken, which
+    // is what "more pages than the guard walks" looks like from here.
+    stubFetch([{ body: { items: [event("a")], nextPageToken: "next" } }]);
+    const result = await syncCalendarEvents("access-token", {});
+    assert.equal(result.pagesExhausted, true, "a walk cut short by the guard must say so");
+    assert.equal(result.nextSyncToken, undefined, "a partial walk has no token to store");
+    assert.ok(result.events.length > 0, "the events that did land are still returned");
+  });
+
+  // Google sends the token only on the LAST page, but the loop reads the field
+  // on every page. A token seen mid-walk is not a resume point for a walk that
+  // then ran out of pages — kept, it would let the caller skip the rest of the
+  // calendar for good (Codex review #2853).
+  it("discards a sync token seen mid-walk when the guard then fires", async () => {
+    stubFetch([{ body: { items: [event("a")], nextSyncToken: "tok-midwalk", nextPageToken: "next" } }]);
+    const result = await syncCalendarEvents("access-token", {});
+    assert.equal(result.pagesExhausted, true);
+    assert.equal(result.nextSyncToken, undefined, "a partial walk must offer no resume point");
+  });
+
+  // The same field on the final page IS the resume point, so the discard above
+  // must not swallow it.
+  it("keeps the sync token from the final page", async () => {
+    stubFetch([
+      { body: { items: [event("a")], nextSyncToken: "tok-mid", nextPageToken: "p2" } },
+      { body: { items: [event("b")], nextSyncToken: "tok-final" } },
+    ]);
+    const result = await syncCalendarEvents("access-token", {});
+    assert.equal(result.nextSyncToken, "tok-final");
+    assert.equal(result.pagesExhausted, false);
+  });
+
+  it("leaves pagesExhausted false when the walk reaches Google's last page", async () => {
+    stubFetch([{ body: { items: [event("a")], nextPageToken: "p2" } }, { body: { items: [event("b")], nextSyncToken: "tok-final" } }]);
+    const result = await syncCalendarEvents("access-token", {});
+    assert.equal(result.pagesExhausted, false);
+  });
+
+  it("leaves pagesExhausted false on an expired token, which returns no window at all", async () => {
+    stubFetch([{ status: 410, body: { error: "Sync token is no longer valid" } }]);
+    const result = await syncCalendarEvents("access-token", { syncToken: "stale" });
+    assert.equal(result.pagesExhausted, false);
+  });
+
   it("surfaces deletions as cancelled events rather than dropping them", async () => {
     stubFetch([{ body: { items: [event("gone", "cancelled"), event("kept")], nextSyncToken: "tok" } }]);
     const result = await syncCalendarEvents("access-token", { syncToken: "old" });
@@ -111,5 +162,40 @@ describe("syncCalendarEvents (#2095)", () => {
     const [url] = requestedUrls;
     assert.ok(url);
     assert.ok(url.includes(encodeURIComponent("team cal@group.calendar.google.com")), `got: ${url}`);
+  });
+});
+
+// Extracted from the page loop so the query shape is pinned without a stub
+// (CodeRabbit review #2853). Google forbids `timeMin` / `orderBy` alongside a
+// syncToken, and drops deletions unless `showDeleted` is on, so every one of
+// these is load-bearing rather than cosmetic.
+describe("syncPageParams", () => {
+  it("always asks for expanded instances and deletions", () => {
+    const params = syncPageParams({}, undefined);
+    assert.equal(params.get("singleEvents"), "true");
+    assert.equal(params.get("showDeleted"), "true");
+  });
+
+  it("sends neither timeMin nor orderBy, which a syncToken forbids", () => {
+    const params = syncPageParams({ syncToken: "tok" }, undefined);
+    assert.equal(params.get("timeMin"), null);
+    assert.equal(params.get("orderBy"), null);
+  });
+
+  it("omits pageToken on the first page and carries it afterwards", () => {
+    assert.equal(syncPageParams({}, undefined).get("pageToken"), null);
+    assert.equal(syncPageParams({}, "p2").get("pageToken"), "p2");
+  });
+
+  // Paging an INCREMENTAL sync needs both, which is the one combination Google
+  // does require rather than reject.
+  it("sends syncToken and pageToken together", () => {
+    const params = syncPageParams({ syncToken: "tok" }, "p2");
+    assert.equal(params.get("syncToken"), "tok");
+    assert.equal(params.get("pageToken"), "p2");
+  });
+
+  it("honours an explicit page size over the default", () => {
+    assert.equal(syncPageParams({ maxResults: 10 }, undefined).get("maxResults"), "10");
   });
 });

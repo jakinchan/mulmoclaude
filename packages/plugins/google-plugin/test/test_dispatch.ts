@@ -30,7 +30,7 @@ const CANCELLED_EVENT: CalendarEventSummary = { ...EVENT, id: "evt-cancelled", s
 const TASK = { id: "task-1", title: "Buy milk", status: "needsAction", due: "", notes: "" };
 const TASK_LIST = { id: "list-1", title: "My list" };
 const DRIVE_FILE = { id: "file-1", name: "notes.txt", mimeType: "text/plain", webViewLink: "https://drive.google.com/file/d/file-1", modifiedTime: "" };
-const SYNC_RESULT: CalendarSyncResult = { events: [EVENT], nextSyncToken: NEXT_SYNC_TOKEN, fullResyncRequired: false };
+const SYNC_RESULT: CalendarSyncResult = { events: [EVENT], nextSyncToken: NEXT_SYNC_TOKEN, fullResyncRequired: false, pagesExhausted: false };
 
 /** A recorded call: the engine function's name followed by its arguments. */
 type Call = unknown[];
@@ -132,12 +132,16 @@ const ROUTES: Route[] = [
     ],
   },
   {
+    // The cursor is namespaced (`tool:cal-1`) while the EVENTS still come from
+    // the real calendar: this tool discards what it reads, so sharing the
+    // collections' cursor made each side consume windows the other needed
+    // (#2850).
     args: { kind: "calendarSync", calendarId: "cal-1" },
     calls: [
       ["getGoogleAccessToken"],
-      ["loadCalendarSyncToken", "cal-1"],
+      ["loadCalendarSyncToken", "tool:cal-1"],
       ["syncCalendarEvents", ACCESS_TOKEN, { calendarId: "cal-1", syncToken: undefined }],
-      ["saveCalendarSyncToken", "cal-1", NEXT_SYNC_TOKEN],
+      ["saveCalendarSyncToken", "tool:cal-1", NEXT_SYNC_TOKEN],
     ],
   },
   {
@@ -285,7 +289,12 @@ describe("google dispatch results", () => {
 describe("calendarSync", () => {
   it("counts changed and cancelled events separately", async () => {
     const { result } = await dispatch({ kind: "calendarSync" }, ({ spy }) => ({
-      syncCalendarEvents: spy("syncCalendarEvents", { events: [EVENT, CANCELLED_EVENT], nextSyncToken: NEXT_SYNC_TOKEN, fullResyncRequired: false }),
+      syncCalendarEvents: spy("syncCalendarEvents", {
+        events: [EVENT, CANCELLED_EVENT],
+        nextSyncToken: NEXT_SYNC_TOKEN,
+        fullResyncRequired: false,
+        pagesExhausted: false,
+      }),
     }));
     assert.deepEqual(result, { ok: true, incremental: false, changed: 1, cancelled: 1, events: [EVENT], truncated: false, expiredToken: false });
   });
@@ -293,7 +302,7 @@ describe("calendarSync", () => {
   it("caps the returned sample and says it did", async () => {
     const events = Array.from({ length: SYNC_SAMPLE_LIMIT + 5 }, (__unused, index) => ({ ...EVENT, id: `evt-${index}` }));
     const { result } = await dispatch({ kind: "calendarSync" }, ({ spy }) => ({
-      syncCalendarEvents: spy("syncCalendarEvents", { events, nextSyncToken: NEXT_SYNC_TOKEN, fullResyncRequired: false }),
+      syncCalendarEvents: spy("syncCalendarEvents", { events, nextSyncToken: NEXT_SYNC_TOKEN, fullResyncRequired: false, pagesExhausted: false }),
     }));
     assert.deepEqual(result, {
       ok: true,
@@ -315,6 +324,60 @@ describe("calendarSync", () => {
       ["syncCalendarEvents", ACCESS_TOKEN, { calendarId: undefined, syncToken: "stored-token" }],
     );
     assert.deepEqual(result, { ok: true, incremental: true, changed: 1, cancelled: 0, events: [EVENT], truncated: false, expiredToken: false });
+  });
+
+  // #2850: a page-capped walk is a PARTIAL calendar. The tool answers with a
+  // summary, so without this flag the reply is indistinguishable from a
+  // complete one and the agent would tell the user the sync had finished.
+  it("passes pagesExhausted through so a partial walk is not reported as complete", async () => {
+    const { result } = await dispatch({ kind: "calendarSync" }, ({ spy }) => ({
+      syncCalendarEvents: spy("syncCalendarEvents", { events: [EVENT], nextSyncToken: NEXT_SYNC_TOKEN, fullResyncRequired: false, pagesExhausted: true }),
+    }));
+    assert.deepEqual(result, {
+      ok: true,
+      incremental: false,
+      changed: 1,
+      cancelled: 0,
+      events: [EVENT],
+      truncated: false,
+      expiredToken: false,
+      pagesExhausted: true,
+    });
+  });
+
+  // The engine drops a mid-walk token, but `api` is injected here, so this seam
+  // needs its own guard: resuming from a partial walk skips the pages it never
+  // read, permanently (Codex review #2853).
+  it("does not store a cursor when the walk ran out of pages", async () => {
+    const { calls } = await dispatch({ kind: "calendarSync" }, ({ spy }) => ({
+      syncCalendarEvents: spy("syncCalendarEvents", { events: [EVENT], nextSyncToken: NEXT_SYNC_TOKEN, fullResyncRequired: false, pagesExhausted: true }),
+    }));
+    assert.equal(
+      calls.some((call) => call[0] === "saveCalendarSyncToken"),
+      false,
+      "a partial walk must leave the cursor where it was",
+    );
+  });
+
+  // `truncated` is about the capped EVENT SAMPLE, `pagesExhausted` about the
+  // walk — a complete walk must not carry the latter at all.
+  it("omits pagesExhausted entirely on a complete walk", async () => {
+    const { result } = await dispatch({ kind: "calendarSync" });
+    assert.equal(Object.hasOwn(result as object, "pagesExhausted"), false);
+  });
+
+  // #2850: a collection's cursor must survive this tool entirely — reading the
+  // collections' key here would hand the next collection a delta of a window it
+  // never received, and clearing it would cost every collection a full re-walk.
+  it("never touches the collections' cursor for the same calendar", async () => {
+    const { calls } = await dispatch({ kind: "calendarSync", calendarId: "cal-1" });
+    const keys = calls.filter((call) => String(call[0]).endsWith("CalendarSyncToken")).map((call) => call[1]);
+    assert.ok(keys.length > 0, "the sync must read and write a cursor somewhere");
+    assert.deepEqual(
+      keys.filter((key) => key === "cal-1"),
+      [],
+      "the collections' key must never be addressed by this tool",
+    );
   });
 
   it("drops the stored token before rebuilding on fullResync", async () => {
@@ -341,7 +404,7 @@ describe("calendarSync", () => {
   it("restarts from scratch when the stored token expired", async () => {
     const { result, calls } = await dispatch({ kind: "calendarSync" }, ({ spy, spyQueue }) => ({
       loadCalendarSyncToken: spy("loadCalendarSyncToken", "expired-token"),
-      syncCalendarEvents: spyQueue("syncCalendarEvents", [{ events: [], fullResyncRequired: true }, SYNC_RESULT]),
+      syncCalendarEvents: spyQueue("syncCalendarEvents", [{ events: [], fullResyncRequired: true, pagesExhausted: false }, SYNC_RESULT]),
     }));
     assert.deepEqual(
       calls.map((call) => call[0]),
@@ -360,7 +423,7 @@ describe("calendarSync", () => {
 
   it("keeps the old token when the sync returns none", async () => {
     const { calls } = await dispatch({ kind: "calendarSync" }, ({ spy }) => ({
-      syncCalendarEvents: spy("syncCalendarEvents", { events: [EVENT], fullResyncRequired: false }),
+      syncCalendarEvents: spy("syncCalendarEvents", { events: [EVENT], fullResyncRequired: false, pagesExhausted: false }),
     }));
     assert.equal(
       calls.some((call) => call[0] === "saveCalendarSyncToken"),

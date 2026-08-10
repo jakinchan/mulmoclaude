@@ -31,6 +31,7 @@ import {
   saveCalendarSyncToken,
 } from "./calendarSyncStore.js";
 import { calendarSyncDueWindowMs, isCalendarSyncDue } from "./calendarSyncDue.js";
+import { markCalendarBackfilled, needsCalendarBackfill } from "./calendarBackfillState.js";
 import { clearCalendarShadow, loadCalendarShadow, saveCalendarShadow, toShadowEvent, type ShadowEvent } from "./calendarPushState.js";
 import { baselineRecord, locallyChangedFields, pushableMap } from "./pushPlan.js";
 import { loadGoogleTokens } from "./tokenStore.js";
@@ -425,6 +426,118 @@ async function releaseCalendarSyncClaim(calendarId: string | undefined, workspac
 export const heldBack = (unpushed: UnpushedBySlug, results: readonly CalendarCollectionSyncResult[]): ReadonlySet<string> =>
   new Set([...allUnpushed(unpushed), ...results.flatMap((result) => result.withheld)]);
 
+/** The collections in this group that have never received the whole calendar,
+ *  by slug. Asked of each collection's OWN records (`calendarBackfillState.ts`),
+ *  because the sync token cannot answer it — it is keyed by calendar and shared
+ *  by every consumer of that calendar (#2850). */
+export async function collectionsNeedingBackfill(collections: readonly LoadedCollection[]): Promise<string[]> {
+  const checked = await Promise.all(
+    collections.map(async (collection) => {
+      const pending = await needsCalendarBackfill(collection.dataDir, collection.schema.googleCalendar?.calendarId);
+      return pending ? collection.slug : null;
+    }),
+  );
+  return checked.filter((slug): slug is string => slug !== null);
+}
+
+/** The token this run may resume from — none while any collection in the group
+ *  still needs the whole calendar.
+ *
+ *  A stored token says how far THE CALENDAR has been read, by whoever read it:
+ *  the standalone `google` tool's `calendarSync`, or a sibling collection that
+ *  synced before this one existed. Resuming from it hands a brand-new collection
+ *  a delta of a window it never received — a handful of records, reported as a
+ *  success with no error, and never the history the docs promise (#2850).
+ *
+ *  The full walk fans out to the whole group, which is free: writes are upserts,
+ *  so the collections that were already current simply rewrite what they hold. */
+export async function resumableToken(
+  calendarId: string | undefined,
+  collections: readonly LoadedCollection[],
+  workspaceRoot: string,
+): Promise<string | undefined> {
+  const pending = await collectionsNeedingBackfill(collections);
+  if (pending.length === 0) return (await loadCalendarSyncToken(calendarId, workspaceRoot)) ?? undefined;
+  log.info("google", "walking the whole calendar — these collections have never received it", { calendarId, collections: pending });
+  return undefined;
+}
+
+/** Record the backfill for every collection the window landed in. Called only
+ *  after a FULL walk that fully landed: marking one after an incremental window
+ *  would claim a history the records do not hold. */
+async function markGroupBackfilled(calendarId: string | undefined, collections: readonly LoadedCollection[]): Promise<void> {
+  const walkedAt = new Date().toISOString();
+  await Promise.all(collections.map((collection) => markCalendarBackfilled(collection.dataDir, collection.schema.googleCalendar?.calendarId, walkedAt)));
+}
+
+/** What a partial window reports. Names the cause the user can actually act on:
+ *  a page guard is reached when Google has to expand an enormous number of
+ *  recurring instances, and one series with no end date is enough. */
+export const PARTIAL_CALENDAR_WINDOW =
+  "Google returned more pages of events than one sync pass walks, so only part of the calendar was copied. " +
+  "Give any recurring event with no end date a finite end date, then sync again.";
+
+/** A truncated walk must not read as a completed one (#2850).
+ *
+ *  Added AFTER the token/baseline gate, not through it. A short fetch is not a
+ *  failed write: the events that did arrive are Google's own and landed
+ *  correctly, so their baseline is true and holding it back would freeze them —
+ *  a record with no baseline reads as an unsent local edit, which the next pull
+ *  then refuses to touch (#2683). What must not happen is the walk claiming
+ *  completeness, and that is covered without the gate: `nextSyncToken` only
+ *  appears on Google's last page, so a truncated walk has no token to advance,
+ *  and the backfill marker is withheld separately. */
+export const withPartialWindowError = (results: readonly CalendarCollectionSyncResult[], pagesExhausted: boolean): CalendarCollectionSyncResult[] =>
+  pagesExhausted ? results.map((result) => ({ ...result, errors: [...result.errors, PARTIAL_CALENDAR_WINDOW] })) : [...results];
+
+/** What a finished window is allowed to advance.
+ *
+ *  One pure rule rather than three conditions spread through the write-back,
+ *  because the three answers genuinely differ and each wrong one is a SILENT
+ *  data bug rather than a visible failure: a baseline held back freezes the
+ *  records it describes (#2683), a baseline advanced past a failed write hides
+ *  a conflict (#2620), a backfill marker set on a partial walk re-creates the
+ *  #2850 gap, and a token advanced past either loses the window for good. */
+export interface WindowAdvance {
+  /** Record what Google now says, so the next push can tell a local edit from a pull. */
+  baseline: boolean;
+  /** Claim these records now hold the WHOLE calendar. */
+  backfill: boolean;
+  /** Move the shared cursor past this window. */
+  token: boolean;
+}
+
+/** `landed` is the write-side verdict (`windowFullyLanded`); the rest describe
+ *  the window Google returned.
+ *
+ *  A page-capped walk (`pagesExhausted`) keeps its baseline — the events that
+ *  arrived are Google's own and were written correctly — but must NOT claim the
+ *  backfill, or the collection would stop asking for the rest of its calendar.
+ *  Its token is refused too, though Google makes that moot by sending
+ *  `nextSyncToken` only on the last page. */
+export function windowAdvance(window: { landed: boolean; walkedInFull: boolean; pagesExhausted: boolean; nextSyncToken?: string | undefined }): WindowAdvance {
+  if (!window.landed) return { baseline: false, backfill: false, token: false };
+  const complete = !window.pagesExhausted;
+  return { baseline: true, backfill: window.walkedInFull && complete, token: complete && window.nextSyncToken !== undefined };
+}
+
+/** The window this run should read, and whether it was a full walk. A 410
+ *  restart is a full walk too, so it backfills just as well as a forced one. */
+async function readWindow(
+  calendarId: string | undefined,
+  collections: readonly LoadedCollection[],
+  workspaceRoot: string,
+): Promise<{ result: Awaited<ReturnType<typeof syncCalendarEvents>>; walkedInFull: boolean }> {
+  const accessToken = await getGoogleAccessToken();
+  const resumeFrom = await resumableToken(calendarId, collections, workspaceRoot);
+  const first = await syncCalendarEvents(accessToken, { calendarId, syncToken: resumeFrom });
+  const result = first.fullResyncRequired ? await restartFullSync(accessToken, calendarId, workspaceRoot) : first;
+  if (result.pagesExhausted) {
+    log.warn("google", "the calendar walk ran out of pages — only part of it was copied", { calendarId, events: result.events.length });
+  }
+  return { result, walkedInFull: resumeFrom === undefined || first.fullResyncRequired };
+}
+
 async function syncCalendarGroupNow(
   calendarId: string | undefined,
   collections: readonly LoadedCollection[],
@@ -443,20 +556,19 @@ async function syncCalendarGroupNow(
   // apply still tell an edit from an untouched record (#2684).
   const baseline = await loadCalendarShadow(calendarId, workspaceRoot);
 
-  const accessToken = await getGoogleAccessToken();
-  const storedToken = await loadCalendarSyncToken(calendarId, workspaceRoot);
-  const first = await syncCalendarEvents(accessToken, { calendarId, syncToken: storedToken ?? undefined });
-  const result = first.fullResyncRequired ? await restartFullSync(accessToken, calendarId, workspaceRoot) : first;
+  const { result, walkedInFull } = await readWindow(calendarId, collections, workspaceRoot);
+  const applied = await applyWindowToGroup(collections, result.events, workspaceRoot, unpushed, baseline);
+  const advance = windowAdvance({
+    landed: windowFullyLanded(calendarId, applied),
+    walkedInFull,
+    pagesExhausted: result.pagesExhausted,
+    nextSyncToken: result.nextSyncToken,
+  });
 
-  const results = await applyWindowToGroup(collections, result.events, workspaceRoot, unpushed, baseline);
-  if (windowFullyLanded(calendarId, results)) {
-    // Gated with the token, for the same reason: a baseline recorded for a window
-    // the records never received would make the next push read a local edit where
-    // there was only a failed write.
-    await saveCalendarShadow(calendarId, shadowUpdates(result.events, heldBack(unpushed, results), baseline), workspaceRoot);
-    if (result.nextSyncToken) await advanceToken(calendarId, result.nextSyncToken, collections, workspaceRoot);
-  }
-  return results;
+  if (advance.baseline) await saveCalendarShadow(calendarId, shadowUpdates(result.events, heldBack(unpushed, applied), baseline), workspaceRoot);
+  if (advance.backfill) await markGroupBackfilled(calendarId, collections);
+  if (advance.token && result.nextSyncToken) await advanceToken(calendarId, result.nextSyncToken, collections, workspaceRoot);
+  return withPartialWindowError(applied, result.pagesExhausted);
 }
 
 /** Apply one window to every collection on the calendar, honouring what each
@@ -748,26 +860,31 @@ export async function syncDueCalendarCollections(
   return await runCalendarGroups(groups, workspaceRoot, (lastSyncedAt) => isCalendarSyncDue(lastSyncedAt, windowMs));
 }
 
-/** The groups whose calendar has never synced. A missing token IS the "created
- *  since the last sync" signal — nothing else distinguishes a new collection
- *  from an edited one on the write path this feeds (#2427).
+/** The groups holding a collection that still needs the whole calendar.
  *
- *  Self-silencing by construction: the first sync stores a token, so a calendar
- *  matches at most once. `loadToken` is injected so the rule is testable without
- *  a workspace on disk. */
-export async function unsyncedGroups<T>(groups: Map<string, T>, loadToken: (calendarId: string) => Promise<string | null>): Promise<Map<string, T>> {
-  const checked = await Promise.all([...groups].map(async (entry) => ((await loadToken(entry[0])) === null ? entry : null)));
+ *  This used to ask whether the CALENDAR had a stored token, which is not the
+ *  same question and is why the trigger silently did nothing for the #2850
+ *  reporter: their calendar already had a token — from the standalone `google`
+ *  tool, and on later attempts from the collection they had just deleted by
+ *  hand — so the brand-new collection matched nothing and its first sync never
+ *  ran at all. `pending` is injected so the rule is testable without a
+ *  workspace on disk.
+ *
+ *  Still self-silencing: a landed full walk marks its collections, so a group
+ *  stops matching once every collection in it holds the history. */
+export async function groupsNeedingBackfill<T>(groups: Map<string, T>, pending: (value: T) => Promise<boolean>): Promise<Map<string, T>> {
+  const checked = await Promise.all([...groups].map(async (entry) => ((await pending(entry[1])) ? entry : null)));
   return new Map(checked.filter((entry): entry is [string, T] => entry !== null));
 }
 
-/** Sync only the calendars that have never synced — the first sync for a
- *  just-created collection, which otherwise stays empty until the hourly
- *  scheduler run (#2427). Cheap and safe to call on every config write. */
+/** Sync only the calendars a collection has never received in full — the first
+ *  sync for a just-created collection, which otherwise stays empty until the
+ *  hourly scheduler run (#2427). Cheap and safe to call on every config write. */
 export async function syncNewCalendarCollections(workspaceRoot: string): Promise<CalendarCollectionSyncResult[]> {
   const groups = await declaringGroups(workspaceRoot);
-  const pending = await unsyncedGroups(groups, (calendarId) => loadCalendarSyncToken(calendarId, workspaceRoot));
+  const pending = await groupsNeedingBackfill(groups, async (collections) => (await collectionsNeedingBackfill(collections)).length > 0);
   if (!(await backgroundSyncAllowed(pending))) return [];
-  log.info("google", "running the first sync for newly declared calendars", { calendars: [...pending.keys()] });
+  log.info("google", "running the first sync for calendars a collection has never received in full", { calendars: [...pending.keys()] });
   return await runCalendarGroups(pending, workspaceRoot);
 }
 
