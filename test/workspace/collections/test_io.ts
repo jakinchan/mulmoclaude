@@ -37,7 +37,7 @@ import type { CollectionSchema } from "../../../server/workspace/collections/typ
 // `configureCollectionHost` is a no-op if called again with the same object,
 // which keeps re-runs idempotent.
 const TEST_HOST_PATHS = {
-  userSkillsDir: "/dev/null/.claude/skills",
+  userSkillsDir: () => "/dev/null/.claude/skills",
   projectSkillsDir: (root: string) => path.join(root, ".claude", "skills"),
   feedsRoot: (root: string) => path.join(root, "feeds"),
   skillsStagingDir: (root: string) => path.join(root, "data", "skills"),

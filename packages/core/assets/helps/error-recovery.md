@@ -591,7 +591,7 @@ was a DELTA of a window it had never received. Two ways in: the user
 (or you) ran `google` `kind: "calendarSync"` first, or another
 collection on the same calendar had already synced.
 
-Fixed in `@mulmoclaude/core` 3.3.0: a collection now records its own
+Fixed in `@mulmoclaude/core` 3.4.0: a collection now records its own
 backfill beside its records (`<dataPath>/.calendar-sync.json`) and the
 sync walks the whole calendar while any collection still lacks one. The
 `google` tool keeps a separate cursor.

@@ -16,7 +16,7 @@ configureCollectionHost({
   workspaceRoot: null,
   log: { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} },
   paths: {
-    userSkillsDir: path.join(tmpdir(), "iw-user-skills-empty"),
+    userSkillsDir: () => path.join(tmpdir(), "iw-user-skills-empty"),
     projectSkillsDir: (root) => path.join(root, ".claude", "skills"),
     feedsRoot: (root) => path.join(root, "data", "feeds"),
     skillsStagingDir: (root) => path.join(root, "data", "skills"),

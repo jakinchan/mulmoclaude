@@ -124,15 +124,14 @@ const schemaFor = (slug: string, calendarId: string): Record<string, unknown> =>
 // The engine reads the workspace layout off its host binding, so a spec that
 // calls `pushCalendarForCollection` must wire one. Bound once at module scope
 // with a placeholder root — every call passes its own root explicitly, and only
-// the path factories below are actually exercised. `userSkillsDir` points at
-// nothing on purpose: user-scope discovery must not pick up the developer's own
-// collections mid-test.
-const NO_USER_SKILLS_DIR = path.join(tmpdir(), "e2e-live-no-user-skills");
+// the path factories below are actually exercised. `userSkillsDir` declares no
+// user scope on purpose: user-scope discovery must not pick up the developer's
+// own collections mid-test.
 configureCollectionHost({
   workspaceRoot: path.join(tmpdir(), "e2e-live-google-placeholder"),
   log: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
   paths: {
-    userSkillsDir: NO_USER_SKILLS_DIR,
+    userSkillsDir: () => null,
     projectSkillsDir: (root: string) => path.join(root, ".claude", "skills"),
     feedsRoot: (root: string) => path.join(root, "feeds"),
     skillsStagingDir: (root: string) => path.join(root, "data", "skills"),

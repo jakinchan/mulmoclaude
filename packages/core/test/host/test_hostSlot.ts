@@ -105,7 +105,7 @@ test("collection host slot: getWorkspaceRoot throws unset, log no-ops unset, bot
     workspaceRoot: "/ws",
     log: logger,
     paths: {
-      userSkillsDir: "/ws/.user-skills",
+      userSkillsDir: () => "/ws/.user-skills",
       projectSkillsDir: (root) => `${root}/.claude/skills`,
       feedsRoot: (root) => `${root}/data/feeds`,
       skillsStagingDir: (root) => `${root}/data/skills`,

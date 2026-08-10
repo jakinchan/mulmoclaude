@@ -10,6 +10,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Package releases
 
+#### A project root can declare that it has no user scope
+
+`@mulmoclaude/core@3.3.0`. `~` and a project are separate worlds: standing in a project
+directory, a collection under `~/.claude/skills` must not be reachable at all — not listed, and
+not resolvable by slug. A host with one workspace could not say that before, because the user
+skills dir was a single string applied to every root. MulmoClaude is one workspace and is
+unaffected: it returns the same path for its one root, user scope still merges in, and a project
+slug still shadows a user one.
+
+- `CollectionHost.paths.userSkillsDir` accepts `(workspaceRoot) => string | null` — the shape
+  `skillsStagingDir` already has. The bare `string` form still works, read as "this path, for
+  every root", which is what keeps this a minor: a caret range floats across minors, so a host
+  pinned at `^3.2.0` installs this version without touching its code, and a required callable
+  would turn that into a TypeError on its first discovery — a crash, not an opt-out. Prefer the
+  function form; the string is deprecated.
+- `null` skips the user pass in `discoverCollections` AND the user fallback in `loadCollection`.
+  The second half is the one that matters: `loadCollection` is what `getSchema`, `getItems`,
+  `putItems`, the detail route, the view-token mint and the watcher all go through, so a listing
+  filter alone would leave a slug typed by the agent — or arriving in a URL — resolving into
+  another world and writing to its data dir. A user-only slug is now a MISS for such a root, and
+  `putSchema` / `putItems` answer "unknown collection" instead of writing into `~/.claude/skills`.
+- `DiscoveryOptions.userSkillsDir` accepts `null` for "this call has no user scope"; `undefined`
+  still means "ask the host binding". The two are distinguished explicitly rather than with `??`,
+  which could not express the difference.
+
 #### The two pieces a multi-root host was still missing
 
 `@mulmoclaude/core@3.2.0`, `@mulmoclaude/collection-plugin@3.1.0`. Both are additive, and
@@ -108,9 +133,9 @@ Roots are canonicalised (`path.resolve`) wherever one becomes an identity — a 
 change payload, a bell id — so `/work/proj` and `/work/proj/` are one project rather than two.
 Symlinks are deliberately not resolved; see `canonicalRoot`.
 
-Ships `@mulmoclaude/core@3.3.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/core@3.4.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
-#### `@mulmoclaude/core` 3.2.0 → 3.3.0 — a calendar collection now receives the calendar (#2850)
+#### `@mulmoclaude/core` 3.3.0 → 3.4.0 — a calendar collection now receives the calendar (#2850)
 
 A `googleCalendar` collection could sit at a handful of records forever — 0, 1, a couple of
 dozen out of years of history — reporting success with **no error**, with further Sync presses

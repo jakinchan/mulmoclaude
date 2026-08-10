@@ -16,7 +16,10 @@ configureCollectionHost({
   workspaceRoot: workspacePath,
   log,
   paths: {
-    userSkillsDir: USER_SKILLS_DIR,
+    // One workspace, so every root has the same user scope — the merge
+    // (user under project) is unchanged. A multi-root host answers `null`
+    // for a project directory instead; see the contract in core's `host.ts`.
+    userSkillsDir: () => USER_SKILLS_DIR,
     projectSkillsDir,
     feedsRoot,
     skillsStagingDir: (root) => path.join(root, WORKSPACE_DIRS.skillsStaging),
