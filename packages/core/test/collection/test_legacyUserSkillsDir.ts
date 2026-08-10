@@ -36,8 +36,13 @@ function writeCollectionSkill(skillsRoot: string, slug: string, title: string): 
 const userSkillsRoot = makeTempDir("lu-user-skills-");
 writeCollectionSkill(userSkillsRoot, "user-only", "User only");
 
+// Two roots, because "this path, for EVERY root" is the whole reading of the
+// legacy form — one root could pass while a second silently lost user scope.
 const workspaceRoot = makeTempDir("lu-workspace-");
 writeCollectionSkill(path.join(workspaceRoot, ".claude", "skills"), "notes", "Project notes");
+
+const secondRoot = makeTempDir("lu-second-");
+writeCollectionSkill(path.join(secondRoot, ".claude", "skills"), "other", "Other project");
 
 configureCollectionHost({
   workspaceRoot,
@@ -55,10 +60,12 @@ configureCollectionHost({
 });
 
 test("a string userSkillsDir still merges user scope into every root — no crash, no silent opt-out", async () => {
-  const found = await discoverCollections({ workspaceRoot });
-  assert.deepEqual(
-    found.map((entry) => entry.slug),
-    ["notes", "user-only"],
-  );
-  assert.equal((await loadCollection("user-only", { workspaceRoot }))?.source, "user");
+  for (const [root, own] of [
+    [workspaceRoot, "notes"],
+    [secondRoot, "other"],
+  ] as const) {
+    const found = await discoverCollections({ workspaceRoot: root });
+    assert.deepEqual(found.map((entry) => entry.slug).sort(), [own, "user-only"].sort());
+    assert.equal((await loadCollection("user-only", { workspaceRoot: root }))?.source, "user");
+  }
 });
