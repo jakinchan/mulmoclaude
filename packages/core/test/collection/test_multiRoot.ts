@@ -36,7 +36,9 @@ configureCollectionHost({
   workspaceRoot: null,
   log: noopLog,
   paths: {
-    userSkillsDir: path.join(makeTempDir("mr-user-skills-"), "empty"),
+    // No user scope: these roots are projects, and the test asserts on what
+    // each root owns, not on what the developer's home happens to hold.
+    userSkillsDir: () => null,
     projectSkillsDir: (root) => path.join(root, ".claude", "skills"),
     feedsRoot: (root) => path.join(root, "data", "feeds"),
     skillsStagingDir: (root) => path.join(root, "data", "skills"),

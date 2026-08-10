@@ -55,8 +55,22 @@ export interface CollectionHost {
   /** Host workspace layout — supplied as the host's own path helpers so the
    *  package owns no layout literals and works against a test/alt root. */
   paths: {
-    /** Absolute user-scope skills dir (host-specific, e.g. `~/.claude/skills`). */
-    userSkillsDir: string;
+    /** Absolute user-scope skills dir for a root (host-specific, e.g.
+     *  `~/.claude/skills`), or `null` when this root has NO user scope.
+     *
+     *  A single-workspace host (MulmoClaude) returns the same path for its one
+     *  root and behaves exactly as before — user scope merges into the
+     *  workspace and a project slug still shadows a user one.
+     *
+     *  A multi-root host returns `null` for a plain project directory: `~` and
+     *  a project are separate worlds, and a project that could resolve a
+     *  machine-global collection would depend on something no clone of it can
+     *  have. Under `null` the user pass is skipped in BOTH discovery and
+     *  `loadCollection` — a user-only slug is then a miss, not a quiet hop
+     *  into another world. Resolution is where the guarantee has to hold:
+     *  filtering only the listing would still let a slug typed by the agent,
+     *  or arriving in a URL, write into `~/.claude/skills` from a project. */
+    userSkillsDir: (workspaceRoot: string) => string | null;
     /** Absolute project-scope skills dir for a workspace (`<root>/.claude/skills`). */
     projectSkillsDir: (workspaceRoot: string) => string;
     /** Absolute feeds-registry root for a workspace (`<root>/data/feeds`). */
@@ -182,8 +196,8 @@ export function peekWorkspaceRoot(): string | null {
 // Workspace-layout accessors — thin wrappers over the host binding, named to
 // match the host helpers they replace so the moved engine modules keep their
 // call sites. Each throws (via requireHost) if the host never configured.
-export function userSkillsDir(): string {
-  return requireHost().paths.userSkillsDir;
+export function userSkillsDir(workspaceRoot: string): string | null {
+  return requireHost().paths.userSkillsDir(workspaceRoot);
 }
 export function projectSkillsDir(workspaceRoot: string): string {
   return requireHost().paths.projectSkillsDir(workspaceRoot);

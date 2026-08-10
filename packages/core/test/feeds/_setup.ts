@@ -49,7 +49,7 @@ configureCollectionHost({
   workspaceRoot: PLACEHOLDER_ROOT,
   log: noopLog,
   paths: {
-    userSkillsDir: path.join(PLACEHOLDER_ROOT, ".user-skills"),
+    userSkillsDir: () => path.join(PLACEHOLDER_ROOT, ".user-skills"),
     projectSkillsDir: (root) => path.join(root, ".claude", "skills"),
     feedsRoot: (root) => path.join(root, "feeds"),
     skillsStagingDir: (root) => path.join(root, "data", "skills"),

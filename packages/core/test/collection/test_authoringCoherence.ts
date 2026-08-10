@@ -25,7 +25,7 @@ configureCollectionHost({
   workspaceRoot: null,
   log: noopLog,
   paths: {
-    userSkillsDir: path.join(makeTempDir("ac-user-skills-"), "empty"),
+    userSkillsDir: () => null,
     projectSkillsDir: (root) => path.join(root, ".claude", "skills"),
     feedsRoot: (root) => path.join(root, "data", "feeds"),
     skillsStagingDir: (root) => (stagingEnabled ? path.join(root, "data", "skills") : null),
