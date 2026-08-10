@@ -87,6 +87,7 @@ import { initFileChangePublisher } from "./events/file-change.js";
 // effect at module load — plans/done/feat-mulmoscript-plugin.md phase 3).
 import { initMulmoScriptGenerationPublisher } from "./plugins/mulmoscript-server.js";
 import { initCollectionChangePublisher } from "./events/collection-change.js";
+import { initFirestoreCollectionBinding } from "./workspace/collections/firestoreBinding.js";
 import { initPhotoLocationsChangePublisher } from "./events/photo-locations-change.js";
 import { getRole, loadAllRoles } from "./workspace/roles.js";
 import { discoverSkills } from "./workspace/skills/index.js";
@@ -1160,6 +1161,10 @@ function initEventPublishers(pubsub: IPubSub): void {
   // near the route mount; only the pub/sub instance is wired here.
   initAccountingEventPublisher(pubsub);
   initCollectionChangePublisher(pubsub);
+  // Shared collections → the remote-host session's Firestore. No pubsub
+  // involvement; wired here because the session, like the publisher, isn't
+  // available at host-binding time.
+  initFirestoreCollectionBinding();
   initPhotoLocationsChangePublisher(pubsub);
   // MulmoScript generation events → plugin pubsub channel (the extracted
   // presentMulmoScript View's spinner/reload signal).

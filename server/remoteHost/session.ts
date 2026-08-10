@@ -79,6 +79,21 @@ export const currentUid = (): string | null => handles?.auth.currentUser?.uid ??
 export const currentFirestore = (): Firestore => requireHandles().firestore;
 export const currentStorage = (): FirebaseStorage => requireHandles().storage;
 
+// Non-throwing twin of `currentFirestore`, for consumers that must treat "no
+// session" as an ordinary state rather than an exception — shared collections
+// ask on every operation, including from screens that merely LIST collections,
+// so a throw would break unrelated UI.
+//
+// It reports the signed-in EMAIL, not the uid, because that is the principal
+// the deployed Firestore rules authorize on (`apps/{aid}.members` is keyed by
+// email). A session whose user has no email is not usable for a shared
+// collection, so it is reported as no session at all rather than as a session
+// that will be refused document by document.
+export const currentFirestoreSession = (): { firestore: Firestore; email: string } | null => {
+  const email = handles?.auth.currentUser?.email;
+  return handles && email ? { firestore: handles.firestore, email } : null;
+};
+
 // The signed-in user's Firebase ID token, or null when the RemoteHost session
 // isn't open / not authenticated. web-push uses this to authenticate `sendPush`;
 // a null result (RemoteHost disconnected) makes the push a silent no-op. The

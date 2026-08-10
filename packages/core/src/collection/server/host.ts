@@ -12,6 +12,10 @@ import path from "node:path";
 import { canonicalRoot } from "../../files/root.js";
 import { localCollectionKeyOf, sharedCollectionKey, type CollectionKey } from "../core/collectionKey.js";
 import { createForwardingLogger, createHostSlot, type StructuredLogger } from "../../host/hostSlot.js";
+// Type-only: this module must not pull the firebase SDK in at runtime (it is an
+// OPTIONAL peer of this package). The adapter ships from
+// `@mulmoclaude/core/collection/firestore` instead.
+import type { FirestoreDocs } from "./firestoreDocs";
 
 /** Public alias of the shared `StructuredLogger` — keeps the domain surface name-stable. */
 export type CollectionLogger = StructuredLogger;
@@ -111,6 +115,32 @@ export interface CollectionHost {
   };
   /** True for a preset-skill slug (host-owned naming convention). */
   isPresetSlug: (slug: string) => boolean;
+}
+
+/** The authenticated Firestore access a shared collection is served through.
+ *
+ *  It carries NO uid, and that is a decision rather than an omission. Nothing
+ *  about a shared collection is keyed by uid any more: the documents live at
+ *  `apps/{aid}/collections/{cid}/items`, and the deployed rules authorize on
+ *  `request.auth.token.email` against the app's member roster. A uid kept
+ *  "just for identity" would be a value nothing checks, sitting next to a path
+ *  it no longer determines — which is how a later reader ends up deriving a
+ *  path from it again.
+ *
+ *  `email` is what the rules actually evaluate, so it is what makes a refusal
+ *  explainable: `permission-denied` is the most common failure a shared
+ *  collection has and the least informative, and naming the principal turns it
+ *  into "signed in as a@b — this app's roster may not list you". A session with
+ *  no verified email is NOT a session here (the accessor answers null): public
+ *  anonymous submission is a visitor's path through the published web app, not
+ *  the host's.
+ *
+ *  `docs` is the narrow document interface rather than a raw `Firestore` so the
+ *  backend stays testable: core ships `createFirestoreDocs` over the real SDK
+ *  (`firestoreDocs.ts`) and tests inject an in-memory fake. */
+export interface FirestoreHandle {
+  docs: FirestoreDocs;
+  email: string;
 }
 
 /** A collection's records changed on disk. Carries the `slug` so the host can
@@ -227,6 +257,7 @@ export function collectionChangeKey(payload: CollectionChangePayload, fallbackRo
 
 const hostSlot = createHostSlot<CollectionHost>("@mulmoclaude/core/collection/server: configureCollectionHost()");
 let changePublisher: CollectionChangePublisher | null = null;
+let firestoreAccessor: (() => FirestoreHandle | null) | null = null;
 
 /** Wire the engine to a host. Call once at server startup, before any
  *  collection storage operation. Re-binding to a *different* host throws —
@@ -252,6 +283,27 @@ export function setCollectionChangePublisher(publish: CollectionChangePublisher 
  *  so this stays a thin pass-through and never throws into the write. */
 export function publishCollectionChange(payload: CollectionChangePayload): void {
   changePublisher?.(payload);
+}
+
+/** Wire the accessor for the host's authenticated Firestore session.
+ *
+ *  Separate from `configureCollectionHost` for the same reason
+ *  `setCollectionChangePublisher` is: the host binding is set at the top of
+ *  server startup, but this session doesn't exist until the user connects
+ *  remote-host (and closes again on disconnect), so it cannot be part of a
+ *  one-shot binding. Optional — left unwired, only shared collections are
+ *  affected, and they report "not connected". Pass `null` to detach. */
+export function setFirestoreAccessor(accessor: (() => FirestoreHandle | null) | null): void {
+  firestoreAccessor = accessor;
+}
+
+/** The host's live Firestore access, or null when there is no session (or the
+ *  host never wired one — every non-shared backend leaves it unset).
+ *  Callers MUST surface null as an actionable "connect remote-host first",
+ *  never as an empty result: silence would be indistinguishable from a
+ *  collection that genuinely has no records. */
+export function firestoreHandle(): FirestoreHandle | null {
+  return firestoreAccessor?.() ?? null;
 }
 
 function requireHost(): CollectionHost {

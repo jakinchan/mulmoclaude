@@ -1002,3 +1002,55 @@ Ask the user for the server log around the session start — the broker prints
 `[mcp-server] publishing N tools: …` and, when a promised tool is missing,
 `[mcp-server] advertised but NOT published (check plugin load above): …`. That
 second line, with the plugin-load errors above it, is what a bug report needs.
+
+## A shared collection (`storage: firestore`) is empty, refused, or missing
+
+### Symptoms
+
+- Reading or writing a collection fails with `shared collection unavailable:
+  connect remote-host first`.
+- A collection whose `schema.json` declares `"storage": { "type": "firestore" }`
+  never appears in the list at all.
+- Reads and writes fail with `permission-denied` from Firestore even though the
+  session is connected.
+
+### Cause + fix
+
+These are three different states, and the fix differs. Do NOT treat any of them
+as "the collection has no records" — a shared collection's records live in its
+app's Firestore, so an empty screen would be indistinguishable from data loss.
+The backend deliberately fails loudly instead of returning nothing.
+
+1. **`connect remote-host first`** — there is no authenticated session, or the
+   signed-in user has no email address. The records are not on this machine and
+   nothing can be read or written until the user connects remote-host. Tell them
+   that; do not retry in a loop and do not fall back to a local file.
+
+2. **The collection never appears** — discovery REFUSED the schema, and the
+   reason is in the server log under `collections` (`schema.json rejected after
+   validation, skipping`). For a shared collection the usual reason is the app
+   declaration: `apps/{aid}/collections/{cid}/items` needs an `aid`, which comes
+   from `app.json` at the repository root, not from the schema.
+
+   ```json
+   // <repository root>/app.json
+   { "aid": "app_salon_7f3a" }
+   ```
+
+   `aid` must be alphanumeric with `-` / `_` inside it (the same charset as a
+   collection slug); `sales:2026` or a path is refused, because that name is
+   re-encoded downstream as a document id and a channel name. Never put `aid`,
+   `cid` or `path` in the schema's `storage` block — it takes none of them, and
+   writing one is a validation error rather than a silently-dropped key.
+
+3. **`permission-denied` while connected** — the app's member roster is what
+   authorizes a shared collection, and it is keyed by EMAIL. The signed-in
+   address must be listed in `apps/{aid}.members` with a role for that
+   collection (or `*`). This is not something the host can fix locally: the
+   app's owner has to add the address. Report which address is signed in — that
+   is the fact the owner needs.
+
+Deleting a shared collection is refused outright: the delete can neither archive
+nor remove documents that other members also read, and removing its records
+first does not unlock it. Retiring the whole app is a Firestore project
+administrator's recursive delete, not something this app does.

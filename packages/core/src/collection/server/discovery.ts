@@ -17,6 +17,7 @@ import path from "node:path";
 import { log, getWorkspaceRoot, userSkillsDir, projectSkillsDir, feedsRoot } from "./host";
 import { CollectionSchemaZ } from "../core/schemaZ";
 import { SCHEMA_FILE, resolveDataDir, safeSlugName } from "./paths";
+import { appManifestReason, loadAppManifest } from "./appManifest";
 import type { LoadedCollection } from "./discoveredCollection";
 import type { CollectionDetail, CollectionSchema, CollectionSource, CollectionSummary } from "../core/schema";
 import { isErrorWithCode, isRecord } from "@mulmoclaude/common";
@@ -45,7 +46,7 @@ function applyFeedSchemaDefaults(parsed: unknown, slug: string): unknown {
 /** Result of the post-Zod acceptance gates: the resolved record dir (and,
  *  for a `dataSource` schema, the resolved data file) on success, or a
  *  one-line reason discovery would skip the schema. */
-export type SchemaAcceptance = { ok: true; dataDir: string; dataSourceFile?: string; storageFile?: string } | { ok: false; reason: string };
+export type SchemaAcceptance = { ok: true; dataDir: string; dataSourceFile?: string; storageFile?: string; appId?: string } | { ok: false; reason: string };
 
 /** The conventional per-slug records dir a `dataSource` / `storage` collection
  *  gets as its `dataDir` (records never live there, but archive/delete paths
@@ -101,18 +102,40 @@ export function acceptParsedSchema(schema: CollectionSchema, opts: { source: Col
     if (dataDir === null) return { ok: false, reason: `slug '${opts.slug}' yields no workspace-contained data dir` };
     return { ok: true, dataDir, dataSourceFile };
   }
-  if (schema.storage !== undefined) {
-    // An alternative-backend data file (e.g. the SQLite db): same
-    // containment as dataSource, same conventional phantom dataDir.
-    const storageFile = resolveDataDir(schema.storage.path, opts.workspaceRoot);
-    if (storageFile === null) return { ok: false, reason: `storage.path '${schema.storage.path}' escapes the workspace` };
-    const dataDir = resolveDataDir(conventionalDataPath(opts.slug), opts.workspaceRoot);
-    if (dataDir === null) return { ok: false, reason: `slug '${opts.slug}' yields no workspace-contained data dir` };
-    return { ok: true, dataDir, storageFile };
-  }
+  if (schema.storage !== undefined) return acceptStorageSchema(schema.storage, opts);
   const dataDir = resolveDataDir(schema.dataPath ?? "", opts.workspaceRoot);
   if (dataDir === null) return { ok: false, reason: `dataPath '${schema.dataPath}' escapes the workspace` };
   return { ok: true, dataDir };
+}
+
+/** The `storage` arm of the acceptance gate. Every storage backend gets the
+ *  conventional phantom dataDir; what differs is what else has to resolve
+ *  before the collection can exist at all.
+ *
+ *  A FILE-backed backend (sqlite) resolves and containment-checks a
+ *  `storageFile`. A SHARED one (firestore) has no path on this machine — it
+ *  resolves an IDENTITY instead: the `aid` from the repository's `app.json`,
+ *  which together with the slug as `cid` names `apps/{aid}/collections/{cid}`.
+ *
+ *  Resolving it HERE, once, is the point. The store then receives a settled
+ *  `(aid, cid)` and never reads `app.json` itself — otherwise the questions of
+ *  caching, staleness and what to do when the file is missing would be decided
+ *  inside a read path, where the only cheap answer is to return nothing, and
+ *  "this collection is misconfigured" would reach the user as "this collection
+ *  is empty". A missing or malformed `app.json` is a CONFIGURATION error, so it
+ *  is reported the same way an escaping `storage.path` is: the schema is
+ *  refused, with a reason naming the file to create. */
+function acceptStorageSchema(storage: NonNullable<CollectionSchema["storage"]>, opts: { workspaceRoot: string; slug: string }): SchemaAcceptance {
+  const dataDir = resolveDataDir(conventionalDataPath(opts.slug), opts.workspaceRoot);
+  if (dataDir === null) return { ok: false, reason: `slug '${opts.slug}' yields no workspace-contained data dir` };
+  if (storage.type === "sqlite") {
+    const storageFile = resolveDataDir(storage.path, opts.workspaceRoot);
+    if (storageFile === null) return { ok: false, reason: `storage.path '${storage.path}' escapes the workspace` };
+    return { ok: true, dataDir, storageFile };
+  }
+  const manifest = loadAppManifest(opts.workspaceRoot);
+  if (!manifest.ok) return { ok: false, reason: appManifestReason(manifest, opts.workspaceRoot) };
+  return { ok: true, dataDir, appId: manifest.manifest.aid };
 }
 
 async function loadOneCollection(skillsRoot: string, slug: string, source: CollectionSource, workspaceRoot: string): Promise<LoadedCollection | null> {
@@ -165,6 +188,7 @@ async function loadOneCollection(skillsRoot: string, slug: string, source: Colle
     dataDir: acceptance.dataDir,
     ...(acceptance.dataSourceFile !== undefined ? { dataSourceFile: acceptance.dataSourceFile } : {}),
     ...(acceptance.storageFile !== undefined ? { storageFile: acceptance.storageFile } : {}),
+    ...(acceptance.appId !== undefined ? { appId: acceptance.appId } : {}),
     skillDir: path.join(skillsRoot, safeName),
   };
 }

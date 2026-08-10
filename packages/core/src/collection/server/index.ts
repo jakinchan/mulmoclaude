@@ -51,9 +51,21 @@ export {
   type CollectionHost,
   type CollectionLogger,
   type CollectionChangePayload,
+  firestoreHandle,
+  setFirestoreAccessor,
+  type FirestoreHandle,
   type LocalCollectionChange,
   type SharedCollectionChange,
 } from "./host";
+// NOTE: `createFirestoreDocs` is deliberately NOT re-exported here. It lives in
+// a module that top-level imports `firebase/firestore`, and a re-export links
+// eagerly — so exporting it would make the OPTIONAL `firebase` peer effectively
+// required for every consumer of this entry, including hosts with no Firestore
+// at all. It ships from the dedicated `@mulmoclaude/core/collection/firestore`
+// subpath instead. The TYPES are safe here: they erase at build time.
+export type { FirestoreDoc, FirestoreDocs } from "./firestoreDocs";
+export { sharedItemsPath } from "./firestoreStore";
+export { loadAppManifest, parseAppManifest, appManifestReason, APP_MANIFEST_FILE, type AppManifest, type AppManifestResult } from "./appManifest";
 export type { LoadedCollection } from "./discoveredCollection";
 export * from "./paths";
 export * from "./templatePath";

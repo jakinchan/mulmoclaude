@@ -25,6 +25,16 @@ export interface LoadedCollection {
    *  `storage.path`, e.g. a SQLite database — same containment as dataDir).
    *  Present iff the schema declares `storage`. */
   storageFile?: string;
+  /** The app id this collection's records belong to, from the repository's
+   *  `app.json`. Present iff the schema declares `storage.type: "firestore"` —
+   *  a shared collection's identity is `(appId, slug)`, and the store builds
+   *  `apps/{appId}/collections/{slug}/items` from it.
+   *
+   *  Resolved by discovery, exactly like `storageFile`, so the identity is
+   *  settled ONCE and the store never reads `app.json` on a read path. Absent
+   *  is not a fallback: a firestore schema whose root declares no `aid` is
+   *  REFUSED at discovery, so this is present whenever the backend needs it. */
+  appId?: string;
   /** Absolute path to the skill directory this collection was loaded from
    *  (`<skillsRoot>/<slug>/`). Action templates are read from here, path-safely. */
   skillDir: string;

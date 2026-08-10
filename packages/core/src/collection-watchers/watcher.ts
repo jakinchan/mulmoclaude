@@ -37,6 +37,12 @@
 // a `dataSource` (or any per-backend) early-exit here, check it against all
 // four — the surviving ones below are view-refresh publishes, not skips.
 //
+// Path 2 exists only for stores that implement `watch`. A store WITHOUT it
+// (today: a shared collection's, until onSnapshot lands) never reports a
+// change at all, so for those the clock tick has to stand in for path 2 as
+// well — a full re-derivation plus a sweep, not just the date-trigger pass
+// (`tickUnwatchedCollections`).
+//
 // ONE GENERATION PER ROOT — the multi-root boundary.
 //
 // Every piece of watcher state (`watchers`, `itemSlots`, `collectionSlots`, the
@@ -69,6 +75,7 @@ import {
   canonicalRoot,
   collectionChangePayload,
   discoverCollections,
+  firestoreHandle,
   itemFilePath,
   loadCollection,
   peekWorkspaceRoot,
@@ -430,9 +437,74 @@ async function tickTimeTriggers(gen: WatcherGeneration, now: Date = evalNow()): 
     // the CLOCK — the one state change that arrives without the file moving.
     // Skipping it here left CSV rows that were pending-but-not-yet-due unable
     // to ever bell unless the file happened to be rewritten.
+    //
+    // A store that reports no changes is handled wholesale below instead — it
+    // needs MORE than this pass, not less, so doing it here too would only
+    // duplicate the work.
+    if (cannotReportChanges(gen, entry.collection)) continue;
     if (!schema.triggerField && !schema.spawn) continue;
     await reconcileAllItems(entry.collection, gen.discoveryOpts, now);
   }
+  await tickUnwatchedCollections(gen, now);
+}
+
+/** True when the collection's store implements no `watch` — nothing will ever
+ *  tell this module its records moved, so the clock tick is its only change
+ *  detection. A capability question, deliberately not a backend one: the day a
+ *  shared collection's store grows an `onSnapshot` watch, it stops being
+ *  special here with no edit to this file. */
+function cannotReportChanges(gen: WatcherGeneration, collection: LoadedCollection): boolean {
+  return storeFor(collection, gen.discoveryOpts).watch === undefined;
+}
+
+/** True when a schema declares behaviour that only a reconcile pass can
+ *  produce: bells (`completionField`), date-triggered bells (`triggerField`),
+ *  or recurrence successors (`spawn`). */
+function needsReconcilePass(schema: LoadedCollection["schema"]): boolean {
+  return Boolean(schema.completionField ?? schema.triggerField ?? schema.spawn);
+}
+
+/** One unwatched collection's reconcile pass. Extracted so the single-flight
+ *  callback doesn't close over loop state.
+ *
+ *  `reconcileAllItems` already swallows a failing store read (it logs and
+ *  returns), so a closed session or a denied rule surfaces there, not as a
+ *  rejection here. This catch is only for the unexpected — it must not let one
+ *  collection's fault abort the rest of the tick. */
+async function reconcileUnwatched(gen: WatcherGeneration, collection: LoadedCollection, now: Date): Promise<void> {
+  try {
+    await runSingleFlight(gen.collectionSlots, collection.slug, () => reconcileAllItems(collection, gen.discoveryOpts, now));
+  } catch (err) {
+    log().warn("unwatched collection reconcile failed", { slug: collection.slug, error: errMsg(err) });
+  }
+}
+
+/** Stand in for the store-change path (2) on backends that don't have one.
+ *
+ *  Gated on `needsReconcilePass` so a collection declaring none of it costs
+ *  nothing: unlike the local backends, every pass here is a network round trip.
+ *
+ *  A collection that DROPS OUT of eligibility (its `completionField` edited
+ *  away, or the collection removed) is not this pass's problem — `syncWatchers`
+ *  already sweeps on a changed schema and on a vanished slug, and the sweep is
+ *  what clears bells the declaration no longer justifies. */
+async function tickUnwatchedCollections(gen: WatcherGeneration, now: Date): Promise<void> {
+  // No session: this tick can learn NOTHING, so it must change nothing.
+  // Skipping the reads avoids a warning per collection per minute for a state
+  // that can last hours (`reconcileAllItems` logs every failed read).
+  // (A shared collection's is the only watch-less store today, and the
+  // remote-host session is what its availability means; a second one would want
+  // this expressed as a store capability instead of asked here.)
+  if (firestoreHandle() === null) return;
+  const pending = [...gen.watchers.values()]
+    .map((entry) => entry.collection)
+    .filter((collection) => cannotReportChanges(gen, collection) && needsReconcilePass(collection.schema));
+  if (pending.length === 0) return;
+  for (const collection of pending) await reconcileUnwatched(gen, collection, now);
+  // A record deleted remotely leaves a stale bell that `reconcileAllItems`
+  // (which only walks records that still exist) can't clear — the same pairing
+  // `scheduleCollectionReconcile` uses for a watched store.
+  await sweepStaleActiveEntries(gen.discoveryOpts);
 }
 
 /** Reconcile the watcher set against the currently-discovered
@@ -481,7 +553,19 @@ function stopVanishedWatchers(gen: WatcherGeneration, liveSlugs: Set<string>): b
  *  modes. The mounted fs.watch is bound to the OLD location, so it must
  *  be remounted, not just re-reconciled. */
 function storagePathChanged(previous: LoadedCollection["schema"], next: LoadedCollection["schema"]): boolean {
-  return previous.dataSource?.path !== next.dataSource?.path || previous.dataPath !== next.dataPath || previous.storage?.path !== next.storage?.path;
+  return (
+    previous.dataSource?.path !== next.dataSource?.path ||
+    previous.dataPath !== next.dataPath ||
+    previous.storage?.type !== next.storage?.type ||
+    storageFilePath(previous.storage) !== storageFilePath(next.storage)
+  );
+}
+
+/** The on-disk path of a storage backend, or undefined when it has none (a
+ *  shared collection keeps its records off this filesystem, so there is no
+ *  mount to move — only a `type` change matters for it). */
+function storageFilePath(storage: LoadedCollection["schema"]["storage"]): string | undefined {
+  return storage?.type === "sqlite" ? storage.path : undefined;
 }
 
 /** Re-reconcile already-watched collections whose schema changed since
