@@ -64,6 +64,14 @@ test("a payload cannot carry both a root and an app", () => {
   assert.throws(() => collectionChangeKey(built, HOST_ROOT), /both an app/);
 });
 
+test("a shared payload refuses a name no channel could encode", () => {
+  // Loud here rather than swallowed later: the host's publisher catches so that
+  // a failed publish cannot crash the write, which would turn this into "live
+  // updates quietly stopped".
+  assert.throws(() => sharedCollectionChangePayload({ slug: "sales:2026" }, "salon"), /not a valid collection name/);
+  assert.throws(() => sharedCollectionChangePayload({ slug: "tasks" }, "sa/lon"), /not a valid collection name/);
+});
+
 test("a single-workspace host's payload shape is unchanged", () => {
   // deepEqual is deepSTRICTEqual: an own `aid: undefined` key would fail this,
   // which is the point — the field must not appear at all.

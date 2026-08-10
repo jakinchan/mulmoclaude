@@ -40,11 +40,13 @@ test("an id cannot carry both a root and an app", () => {
 });
 
 test("a collection name carrying a colon is refused, not mis-parsed", () => {
-  // The parse splits at the FIRST colon so an itemId may carry one. A shared
-  // cid of `sales:2026` would otherwise decode as slug `sales`, itemId
-  // `2026:row-1` -- the sweep would then judge a live bell against the wrong
-  // collection and clear it, and it would collide with the real
-  // (cid "sales", itemId "2026:row-1").
+  // Belt-and-braces: `CollectionKey` is the single source of truth for a name
+  // and already refuses this, but these two take raw strings and are reachable
+  // by a caller that never built a key. The parse splits at the FIRST colon so
+  // an itemId may carry one; a name of `sales:2026` would otherwise decode as
+  // slug `sales`, itemId `2026:row-1` -- the sweep would judge a live bell
+  // against the wrong collection and clear it, and it would collide with the
+  // real (cid "sales", itemId "2026:row-1").
   assert.throws(() => completionLegacyId("sales:2026", "row-1", undefined, "salon"), /colon/);
   assert.throws(() => completionLegacyId("sales:2026", "row-1"), /colon/);
 });

@@ -62,21 +62,27 @@ test("a string that did not come from collectionKeyId parses to null, not a thro
   }
 });
 
-test("a part carrying the separator is refused, not encoded wrongly", () => {
+test("a root carrying the separator is refused, not encoded wrongly", () => {
   // Without this, ("a\0b", "c") and ("a", "b\0c") encode to the SAME string:
   // two different collections compare equal and the id parses back to nothing.
   assert.throws(() => localCollectionKeyOf("a\u0000b", "c"), /NUL/);
-  assert.throws(() => localCollectionKeyOf("a", "b\u0000c"), /NUL/);
-  assert.throws(() => sharedCollectionKey("a\u0000b", "c"), /NUL/);
-  assert.throws(() => sharedCollectionKey("a", "b\u0000c"), /NUL/);
+  assert.throws(() => localCollectionKeyOf("", "tasks"), /empty/);
 });
 
-test("an empty part is refused", () => {
-  // It makes the id ambiguous about which part was missing.
-  assert.throws(() => localCollectionKeyOf("", "tasks"), /empty/);
-  assert.throws(() => localCollectionKeyOf("/work/proj", ""), /empty/);
-  assert.throws(() => sharedCollectionKey("", "tasks"), /empty/);
-  assert.throws(() => sharedCollectionKey("salon", ""), /empty/);
+test("a NAME is the collection-slug charset, wherever it appears", () => {
+  // This type is the single source of truth for it. A name is re-encoded by
+  // every downstream identity (the bell id splits at the first colon, a channel
+  // name is slash/colon-delimited), and each has a different character it
+  // cannot survive -- so with the rule stated only downstream, a cid like
+  // "sales:2026" builds fine, then decodes as a DIFFERENT collection and makes
+  // the channel throw inside a publisher whose catch swallows it.
+  for (const bad of ["sales:2026", "a/b", "a\u0000b", "", "-lead", "trail-", "with space", "dot.ted"]) {
+    assert.throws(() => sharedCollectionKey("salon", bad), /not a valid collection name/, bad);
+    assert.throws(() => sharedCollectionKey(bad, "tasks"), /not a valid collection name/, bad);
+    assert.throws(() => localCollectionKeyOf("/work/proj", bad), /not a valid collection name/, bad);
+  }
+  // ...and the charset a slug actually has still works.
+  assert.equal(sharedCollectionKey("salon-2", "sales_2026").cid, "sales_2026");
 });
 
 test("the guards narrow", () => {

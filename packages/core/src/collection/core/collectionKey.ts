@@ -18,6 +18,8 @@
 // Isomorphic on purpose: a card and a channel name are decided on both sides of
 // the wire, so this module imports nothing from node.
 
+import { SAFE_SLUG_PATTERN } from "./ids";
+
 /** A collection in a directory. `root` must already be canonical
  *  (`canonicalRoot`) — it is an identity here, not a path to read, and `/proj`
  *  vs `/proj/` would be two collections. Server callers should build these
@@ -44,10 +46,18 @@ export const isLocalCollectionKey = (key: CollectionKey): key is LocalCollection
 export const isSharedCollectionKey = (key: CollectionKey): key is SharedCollectionKey => key.kind === "shared";
 
 /** Build a local key from an ALREADY-CANONICAL root. */
-export const localCollectionKeyOf = (root: string, slug: string): LocalCollectionKey => ({ kind: "local", root: part(root, "root"), slug: part(slug, "slug") });
+export const localCollectionKeyOf = (root: string, slug: string): LocalCollectionKey => ({
+  kind: "local",
+  root: scopePart(root, "root"),
+  slug: namePart(slug, "slug"),
+});
 
 /** Build a shared key. */
-export const sharedCollectionKey = (aid: string, cid: string): SharedCollectionKey => ({ kind: "shared", aid: part(aid, "aid"), cid: part(cid, "cid") });
+export const sharedCollectionKey = (aid: string, cid: string): SharedCollectionKey => ({
+  kind: "shared",
+  aid: namePart(aid, "aid"),
+  cid: namePart(cid, "cid"),
+});
 
 /** The collection's NAME within its scope: the slug, or the shared `cid`.
  *
@@ -61,23 +71,48 @@ export const collectionKeyName = (key: CollectionKey): string => (key.kind === "
 // collection id, so the encoding is unambiguous and needs no escaping.
 const SEP = "\u0000";
 
-/** Reject a part that cannot be encoded, rather than encoding it wrongly.
+/** A ROOT: any non-empty string that can be encoded. A path's charset is the
+ *  filesystem's, so the only thing to require is that it survives the encoding.
  *
- *  "NUL cannot occur in a path or a slug" is true of every real value and is
- *  the reason the encoding needs no escaping — but a type whose whole job is to
- *  be an identity must not take the claim on trust. Without this,
- *  `("a\0b", "c")` and `("a", "b\0c")` encode to the SAME string, so
- *  `sameCollectionKey` calls two different collections equal and the id parses
- *  back to nothing. An empty part is refused for the same reason: it makes the
- *  id ambiguous about which part was missing.
+ *  "NUL cannot occur in a path" is true of every real value and is the reason
+ *  the encoding needs no escaping — but a type whose whole job is to be an
+ *  identity must not take the claim on trust. Without this, `("a\0b", "c")`
+ *  and `("a", "b\0c")` encode to the SAME string, so `sameCollectionKey` calls
+ *  two different collections equal and the id parses back to nothing. Empty is
+ *  refused for the same reason: it makes the id ambiguous about which part was
+ *  missing.
  *
  *  A throw, where `parseCollectionKeyId` returns null: building a key is code
  *  making an identity, and a bad one there is a programming error. Parsing is
  *  reading something off a disk or a wire, where an unrecognised entry is a
  *  thing to skip. */
-function part(value: string, field: string): string {
+function scopePart(value: string, field: string): string {
   if (value.length === 0) throw new Error(`CollectionKey: ${field} must not be empty`);
   if (value.includes(SEP)) throw new Error(`CollectionKey: ${field} must not contain NUL`);
+  return value;
+}
+
+/** A NAME — a slug, a shared `cid`, or an `aid`: the collection-slug charset,
+ *  `[a-zA-Z0-9]([a-zA-Z0-9_-]*[a-zA-Z0-9])?`.
+ *
+ *  THIS TYPE IS THE SINGLE SOURCE OF TRUTH for what a name may be, and that is
+ *  the point rather than a nicety. A name is re-encoded by every downstream
+ *  identity — the completion-bell id (`<scope>\0<name>:<itemId>`, split at the
+ *  first colon), a pubsub channel (`collection:app/<aid>/<name>`), a cache key
+ *  — and each of those has a different character it cannot survive. With the
+ *  rule stated only downstream, the layers disagree: a cid of `sales:2026`
+ *  builds fine, then the bell id decodes as a DIFFERENT collection and the
+ *  channel name throws inside a publisher whose catch swallows it, so the live
+ *  update simply stops arriving. One rule here makes every encoding safe by
+ *  construction; the checks downstream stay as belt-and-braces for callers that
+ *  never went through a key.
+ *
+ *  A local slug is already `safeSlugName`-validated upstream, so this changes
+ *  nothing for it. A shared `aid` / `cid` had no gate at all — they are
+ *  Firestore document ids under `apps/{aid}/collections/{cid}` AND the name the
+ *  same collection has on disk, so the slug charset is what they already are. */
+function namePart(value: string, field: string): string {
+  if (!SAFE_SLUG_PATTERN.test(value)) throw new Error(`CollectionKey: ${field} "${value}" is not a valid collection name`);
   return value;
 }
 

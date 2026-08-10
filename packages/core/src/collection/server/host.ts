@@ -183,6 +183,12 @@ export function collectionChangePayload(base: CollectionChangeBase, root: string
  *  which is what it is called inside its app; `aid` is what makes it an
  *  identity. Never stamps a `root` — a shared collection does not have one. */
 export function sharedCollectionChangePayload(base: CollectionChangeBase, aid: string): SharedCollectionChange {
+  // Validated HERE, at construction, not at publish. A host's publisher wraps
+  // its publish in a try/catch on purpose -- dropping one live-refresh event
+  // beats crashing the write that triggered it -- so a name that no channel can
+  // encode would be swallowed there and the update would simply stop arriving,
+  // with nothing said. Building the key is the cheap way to say it loudly.
+  sharedCollectionKey(aid, base.slug);
   return { ...base, aid };
 }
 

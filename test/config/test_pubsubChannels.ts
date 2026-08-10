@@ -135,6 +135,8 @@ describe("collectionChannel", () => {
     // `collection:app/salon/tasks` would otherwise be reachable as a plain
     // slug. A slug is [a-zA-Z0-9_-] upstream so this cannot occur — the point
     // is that the channel refuses it rather than inheriting the guarantee.
+    // Belt-and-braces, same as the completion-bell id: `CollectionKey` refuses
+    // these names at construction, and this function takes raw strings.
     assert.throws(() => collectionChannel("app/salon/tasks"), /separator/);
     assert.throws(() => collectionChannel("tasks", "sa/lon"), /separator/);
     assert.throws(() => collectionChannel("ta:sks"), /separator/);
