@@ -45,9 +45,14 @@ export {
   setCollectionChangePublisher,
   publishCollectionChange,
   collectionChangePayload,
+  sharedCollectionChangePayload,
+  collectionChangeKey,
+  localCollectionKey,
   type CollectionHost,
   type CollectionLogger,
   type CollectionChangePayload,
+  type LocalCollectionChange,
+  type SharedCollectionChange,
 } from "./host";
 export type { LoadedCollection } from "./discoveredCollection";
 export * from "./paths";

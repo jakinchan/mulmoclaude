@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { PUBSUB_CHANNELS, fileChannel, readSessionDeletedIds, sessionChannel } from "../../src/config/pubsubChannels.js";
+import { PUBSUB_CHANNELS, collectionChannel, fileChannel, readSessionDeletedIds, sessionChannel } from "../../src/config/pubsubChannels.js";
 
 describe("sessionChannel", () => {
   it("prefixes the session id with `session.`", () => {
@@ -111,5 +111,34 @@ describe("PUBSUB_CHANNELS", () => {
     for (const value of Object.values(PUBSUB_CHANNELS)) {
       assert.equal(value.startsWith("session."), false, `static channel "${value}" must not reuse the session. prefix`);
     }
+  });
+});
+
+describe("collectionChannel", () => {
+  it("a workspace collection keeps the channel it has always had", () => {
+    // MulmoClaude is one workspace, so a local change carries no scope and
+    // every existing subscriber must keep matching.
+    assert.equal(collectionChannel("tasks"), "collection:tasks");
+  });
+
+  it("two shared apps owning the same cid get two channels", () => {
+    // The failure this exists to prevent: keyed by the name alone, one app's
+    // write refreshes the other app's open views.
+    assert.notEqual(collectionChannel("tasks", "salon"), collectionChannel("tasks", "clinic"));
+  });
+
+  it("a shared collection never lands on the workspace's channel", () => {
+    assert.notEqual(collectionChannel("tasks", "salon"), collectionChannel("tasks"));
+  });
+
+  it("a slug cannot spell its way into another app's channel", () => {
+    // `collection:app/salon/tasks` would otherwise be reachable as a plain
+    // slug. A slug is [a-zA-Z0-9_-] upstream so this cannot occur — the point
+    // is that the channel refuses it rather than inheriting the guarantee.
+    // Belt-and-braces, same as the completion-bell id: `CollectionKey` refuses
+    // these names at construction, and this function takes raw strings.
+    assert.throws(() => collectionChannel("app/salon/tasks"), /separator/);
+    assert.throws(() => collectionChannel("tasks", "sa/lon"), /separator/);
+    assert.throws(() => collectionChannel("ta:sks"), /separator/);
   });
 });
