@@ -87,7 +87,11 @@ async function runCalendarSync(api: GoogleApi, calendarId: string | undefined, f
   const storedToken = fullResync ? null : await api.loadCalendarSyncToken(syncKey);
   const first = await api.syncCalendarEvents(accessToken, { calendarId, syncToken: storedToken ?? undefined });
   const result = first.fullResyncRequired ? await restartFullSync(api, accessToken, calendarId) : first;
-  if (result.nextSyncToken) await api.saveCalendarSyncToken(syncKey, result.nextSyncToken);
+  // A partial walk has no resume point: storing one would let the next call
+  // start after pages this one never read, silently skipping them for good.
+  // Guarded here as well as in the engine because `api` is injected, so this
+  // seam cannot rely on the engine's own invariant (Codex review #2853).
+  if (result.nextSyncToken && !result.pagesExhausted) await api.saveCalendarSyncToken(syncKey, result.nextSyncToken);
   const incremental = Boolean(storedToken) && !first.fullResyncRequired;
   return { ...summarizeSync(result, incremental), expiredToken: first.fullResyncRequired, ...(result.pagesExhausted ? { pagesExhausted: true } : {}) };
 }

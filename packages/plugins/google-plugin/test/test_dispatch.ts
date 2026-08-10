@@ -345,6 +345,20 @@ describe("calendarSync", () => {
     });
   });
 
+  // The engine drops a mid-walk token, but `api` is injected here, so this seam
+  // needs its own guard: resuming from a partial walk skips the pages it never
+  // read, permanently (Codex review #2853).
+  it("does not store a cursor when the walk ran out of pages", async () => {
+    const { calls } = await dispatch({ kind: "calendarSync" }, ({ spy }) => ({
+      syncCalendarEvents: spy("syncCalendarEvents", { events: [EVENT], nextSyncToken: NEXT_SYNC_TOKEN, fullResyncRequired: false, pagesExhausted: true }),
+    }));
+    assert.equal(
+      calls.some((call) => call[0] === "saveCalendarSyncToken"),
+      false,
+      "a partial walk must leave the cursor where it was",
+    );
+  });
+
   // `truncated` is about the capped EVENT SAMPLE, `pagesExhausted` about the
   // walk — a complete walk must not carry the latter at all.
   it("omits pagesExhausted entirely on a complete walk", async () => {

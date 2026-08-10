@@ -558,7 +558,12 @@ async function syncCalendarGroupNow(
 
   const { result, walkedInFull } = await readWindow(calendarId, collections, workspaceRoot);
   const applied = await applyWindowToGroup(collections, result.events, workspaceRoot, unpushed, baseline);
-  const advance = windowAdvance({ landed: windowFullyLanded(calendarId, applied), walkedInFull, ...result });
+  const advance = windowAdvance({
+    landed: windowFullyLanded(calendarId, applied),
+    walkedInFull,
+    pagesExhausted: result.pagesExhausted,
+    nextSyncToken: result.nextSyncToken,
+  });
 
   if (advance.baseline) await saveCalendarShadow(calendarId, shadowUpdates(result.events, heldBack(unpushed, applied), baseline), workspaceRoot);
   if (advance.backfill) await markGroupBackfilled(calendarId, collections);

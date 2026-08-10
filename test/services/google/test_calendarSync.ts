@@ -98,6 +98,29 @@ describe("syncCalendarEvents (#2095)", () => {
     assert.ok(result.events.length > 0, "the events that did land are still returned");
   });
 
+  // Google sends the token only on the LAST page, but the loop reads the field
+  // on every page. A token seen mid-walk is not a resume point for a walk that
+  // then ran out of pages — kept, it would let the caller skip the rest of the
+  // calendar for good (Codex review #2853).
+  it("discards a sync token seen mid-walk when the guard then fires", async () => {
+    stubFetch([{ body: { items: [event("a")], nextSyncToken: "tok-midwalk", nextPageToken: "next" } }]);
+    const result = await syncCalendarEvents("access-token", {});
+    assert.equal(result.pagesExhausted, true);
+    assert.equal(result.nextSyncToken, undefined, "a partial walk must offer no resume point");
+  });
+
+  // The same field on the final page IS the resume point, so the discard above
+  // must not swallow it.
+  it("keeps the sync token from the final page", async () => {
+    stubFetch([
+      { body: { items: [event("a")], nextSyncToken: "tok-mid", nextPageToken: "p2" } },
+      { body: { items: [event("b")], nextSyncToken: "tok-final" } },
+    ]);
+    const result = await syncCalendarEvents("access-token", {});
+    assert.equal(result.nextSyncToken, "tok-final");
+    assert.equal(result.pagesExhausted, false);
+  });
+
   it("leaves pagesExhausted false when the walk reaches Google's last page", async () => {
     stubFetch([{ body: { items: [event("a")], nextPageToken: "p2" } }, { body: { items: [event("b")], nextSyncToken: "tok-final" } }]);
     const result = await syncCalendarEvents("access-token", {});

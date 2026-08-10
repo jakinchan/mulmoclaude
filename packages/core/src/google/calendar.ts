@@ -381,6 +381,11 @@ export async function syncCalendarEvents(accessToken: string, input: SyncEventsI
     nextSyncToken = stringField(record, "nextSyncToken") || undefined;
     pageToken = stringField(record, "nextPageToken") || undefined;
     if (!pageToken) break;
+    // Google sends the sync token only on the LAST page, so anything read
+    // before one is not a resume point for the walk this call is doing.
+    // Dropped rather than trusted: kept, it would let a caller resume past the
+    // pages this walk never read (Codex review #2853).
+    nextSyncToken = undefined;
   }
 
   // A token still in hand means the loop ran out of pages, not out of calendar.
