@@ -79,6 +79,13 @@ const SHARED_MARK = "#";
 /** Exported for the format pin in `test/collection-watchers/test_completionId.ts`.
  *  Deliberately NOT on the package barrel: the id is a disk format, not an API. */
 export function completionLegacyId(slug: string, itemId: string, root?: string, aid?: string): string {
+  // The two scopes are mutually exclusive, and silently preferring one is the
+  // ambiguity `collectionChangeKey` refuses for the same reason: a local bell
+  // written into the shared namespace is SKIPPED by every root's sweep, so it
+  // can never be cleared -- and nothing anywhere would say why.
+  if (root !== undefined && aid !== undefined) {
+    throw new Error(`completionLegacyId: "${slug}" carries both a root (${root}) and an app (${aid})`);
+  }
   const scope = aid !== undefined ? `${SHARED_MARK}${aid}${ROOT_SEP}` : root === undefined ? "" : `${ROOT_MARK}${canonicalRoot(root)}${ROOT_SEP}`;
   return `${LEGACY_ID_PREFIX}${scope}${slug}:${itemId}`;
 }

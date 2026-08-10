@@ -33,6 +33,12 @@ test("two apps owning the same cid hold two bells", () => {
   assert.notEqual(completionLegacyId("bookings", "b1", undefined, "salon"), completionLegacyId("bookings", "b1", undefined, "clinic"));
 });
 
+test("an id cannot carry both a root and an app", () => {
+  // Preferring one silently would put a LOCAL bell in the shared namespace,
+  // where every root's sweep skips it and nobody can ever clear it.
+  assert.throws(() => completionLegacyId("tasks", "t1", "/work/proj", "salon"), /both a root/);
+});
+
 test("all three forms parse", () => {
   assert.deepEqual(parseCompletionLegacyId("collection-completion:tasks:t1"), { slug: "tasks", itemId: "t1" });
   assert.deepEqual(parseCompletionLegacyId("collection-completion:@/work/proj\u0000tasks:t1"), { root: "/work/proj", slug: "tasks", itemId: "t1" });
