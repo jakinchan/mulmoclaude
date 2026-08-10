@@ -7,7 +7,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { collectionChangeKey, collectionChangePayload, sharedCollectionChangePayload } from "../../src/collection/server/host.ts";
+import {
+  collectionChangeKey,
+  collectionChangePayload,
+  sharedCollectionChangePayload,
+  type LocalCollectionChange,
+  type SharedCollectionChange,
+} from "../../src/collection/server/host.ts";
 import { collectionKeyId } from "../../src/collection/core/collectionKey.ts";
 
 const HOST_ROOT = "/work/host";
@@ -38,6 +44,24 @@ test("the fan-out cannot cross a project or an app", () => {
   const shared = collectionChangeKey(sharedCollectionChangePayload({ slug: "tasks" }, "salon"), HOST_ROOT);
   const ids = new Set([projA, projB, shared].map(collectionKeyId));
   assert.equal(ids.size, 3);
+});
+
+test("a payload cannot carry both a root and an app", () => {
+  // Compile-time, because that is where it has to be stopped: a payload with
+  // both would be read as SHARED by collectionChangeKey, which drops the root
+  // and fans the update out on the wrong channel. @ts-expect-error fails the
+  // typecheck if the two arms ever stop being mutually exclusive.
+  // @ts-expect-error - aid is never on a local change
+  const bothLocal: LocalCollectionChange = { slug: "tasks", root: "/work/a", aid: "salon" };
+  // @ts-expect-error - root is never on a shared change
+  const bothShared: SharedCollectionChange = { slug: "tasks", aid: "salon", root: "/work/a" };
+  assert.equal(bothLocal.slug, bothShared.slug);
+  // And if one reaches the decision point anyway -- a JS caller, a cast,
+  // something off a wire -- it throws rather than being guessed into one
+  // channel or the other, because a misrouted fan-out is invisible.
+  // @ts-expect-error - the base of a local payload has no aid
+  const built = collectionChangePayload({ slug: "tasks", aid: "salon" }, "/work/a");
+  assert.throws(() => collectionChangeKey(built, HOST_ROOT), /both an app/);
 });
 
 test("a single-workspace host's payload shape is unchanged", () => {

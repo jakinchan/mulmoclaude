@@ -98,8 +98,14 @@ export function parseCompletionLegacyId(legacyId: string): { root?: string; aid?
     const sep = body.indexOf(ROOT_SEP);
     if (sep < 0) return null;
     const scope = body.slice(1, sep);
+    // Canonicalised on the way OUT as well as on the way in. Every id this
+    // module writes is already canonical, so for its own output this is a
+    // no-op -- but the file is read back from disk, and an entry written by
+    // hand or by an older build with a trailing separator would otherwise
+    // never equal the sweep's canonical root: the verdict would be "another
+    // root's, skip" and the stale bell could never be cleared by anyone.
     if (shared) aid = scope;
-    else root = scope;
+    else root = canonicalRoot(scope);
     body = body.slice(sep + ROOT_SEP.length);
   }
   const colon = body.indexOf(":");

@@ -119,29 +119,52 @@ export interface CollectionHost {
  *  and `op` is advisory. Deliberately carries NO record bodies — this is a
  *  "refetch" ping, not a data feed, so it stays cheap and leaks nothing when a
  *  host relays it into an opaque-origin custom-view iframe. */
-export interface CollectionChangePayload {
+/** Fields every change carries, whatever kind of collection it is about. */
+interface CollectionChangeBase {
   /** The collection's NAME in its scope: the slug, or a shared collection's
-   *  `cid`. Never an identity on its own — see `aid` and `root`. */
+   *  `cid`. Never an identity on its own — see the two arms below. */
   slug: string;
-  /** The shared app this collection belongs to, when it is a SHARED collection
-   *  (`apps/{aid}/collections/{cid}`) rather than one in a directory. Mutually
-   *  exclusive with `root`: a shared collection has no root, because the same
-   *  collection is resolved from every clone of the repository.
-   *
-   *  Absent — every payload that existed before shared collections — means a
-   *  local collection, and the shape is byte-identical to what it was. Use
-   *  {@link collectionChangeKey} rather than reading these fields by hand. */
-  aid?: string;
-  /** Absolute workspace/project root the change happened under. Present only
-   *  when the engine call carried an explicit `workspaceRoot`; absent means
-   *  the host's configured root, so a single-workspace host never sets it.
-   *  A multi-root host MUST key its live-update fan-out on `(root, slug)` —
-   *  two projects each owning a `tasks` collection would otherwise refresh
-   *  each other's open views. */
-  root?: string;
   ids?: string[];
   op?: "upsert" | "delete";
 }
+
+/** A change to a collection in a directory. */
+export interface LocalCollectionChange extends CollectionChangeBase {
+  /** Absolute workspace/project root the change happened under. Present only
+   *  when the engine call carried an explicit `workspaceRoot`; absent means the
+   *  host's configured root, so a single-workspace host never sets it.
+   *  A multi-root host MUST key its live-update fan-out on `(root, slug)` —
+   *  two projects each owning a `tasks` collection would otherwise refresh each
+   *  other's open views. */
+  root?: string;
+  /** Never on a local change. The two arms are mutually exclusive at the TYPE
+   *  level, not by convention: a payload carrying both would be read as shared
+   *  by `collectionChangeKey`, which drops the root and fans the update out on
+   *  the wrong channel. */
+  aid?: never;
+}
+
+/** A change to a collection published to a shared app. */
+export interface SharedCollectionChange extends CollectionChangeBase {
+  /** The shared app (`apps/{aid}/collections/{cid}`). Required on this arm:
+   *  it is what makes the payload an identity. */
+  aid: string;
+  /** Never on a shared change — a shared collection has no root, because the
+   *  same collection is resolved from every clone of the repository. */
+  root?: never;
+}
+
+/** A collection's records changed. Carries the `slug` so the host can publish
+ *  on a per-collection channel; `ids` lists the affected record ids when known
+ *  (a consumer may ignore them and refetch the whole collection), and `op` is
+ *  advisory. Deliberately carries NO record bodies — this is a "refetch" ping,
+ *  not a data feed, so it stays cheap and leaks nothing when a host relays it
+ *  into an opaque-origin custom-view iframe.
+ *
+ *  Reading a payload is unchanged: `slug`, `root`, `ids` and `op` are all
+ *  reachable on the union. Use {@link collectionChangeKey} rather than deciding
+ *  what an absent field means by hand. */
+export type CollectionChangePayload = LocalCollectionChange | SharedCollectionChange;
 
 type CollectionChangePublisher = (payload: CollectionChangePayload) => void;
 
@@ -149,7 +172,7 @@ type CollectionChangePublisher = (payload: CollectionChangePayload) => void;
  *  an explicit one. Centralised so every publish site states the root the same
  *  way, and so a single-workspace host's payload shape stays byte-identical to
  *  what it saw before multi-root support. */
-export function collectionChangePayload(base: Omit<CollectionChangePayload, "root">, root: string | undefined): CollectionChangePayload {
+export function collectionChangePayload(base: CollectionChangeBase, root: string | undefined): LocalCollectionChange {
   // Canonical, because a host keys its live-update fan-out on this value: a
   // direct `writeItem({ workspaceRoot: "/proj/" })` and the watcher's own
   // publish for `/proj` must land on the same channel, not two.
@@ -159,7 +182,7 @@ export function collectionChangePayload(base: Omit<CollectionChangePayload, "roo
 /** Build a change payload for a SHARED collection. `slug` carries the `cid`,
  *  which is what it is called inside its app; `aid` is what makes it an
  *  identity. Never stamps a `root` — a shared collection does not have one. */
-export function sharedCollectionChangePayload(base: Omit<CollectionChangePayload, "root" | "aid">, aid: string): CollectionChangePayload {
+export function sharedCollectionChangePayload(base: CollectionChangeBase, aid: string): SharedCollectionChange {
   return { ...base, aid };
 }
 
@@ -173,7 +196,26 @@ export function sharedCollectionChangePayload(base: Omit<CollectionChangePayload
  *  `fallbackRoot` is what a payload with no root resolves to. An explicit-root
  *  host has no such default and must not guess — pass the root the call was
  *  made for. */
+/** Refuse a payload that names both an app and a root.
+ *
+ *  The two arms are mutually exclusive in the TYPE, so this cannot come from
+ *  the constructors -- it is corrupt input (a JS caller, a cast, something off
+ *  a wire). Throwing rather than picking one: whichever way it were guessed,
+ *  the update would be fanned out on a channel it does not belong to, and that
+ *  is invisible where a throw is not.
+ *
+ *  Takes the WIDENED shape deliberately. Written inline, TypeScript narrows the
+ *  union to `never` inside the branch and the fields cannot be read at all --
+ *  which is the type-level guarantee doing its job, and exactly why the runtime
+ *  check has to be stated somewhere it can still see them. */
+function requireOneScope(payload: CollectionChangeBase & { aid?: string; root?: string }): void {
+  if (payload.aid !== undefined && payload.root !== undefined) {
+    throw new Error(`collectionChangeKey: payload for "${payload.slug}" carries both an app (${payload.aid}) and a root (${payload.root})`);
+  }
+}
+
 export function collectionChangeKey(payload: CollectionChangePayload, fallbackRoot: string): CollectionKey {
+  requireOneScope(payload);
   return payload.aid === undefined ? localCollectionKey(payload.root ?? fallbackRoot, payload.slug) : sharedCollectionKey(payload.aid, payload.slug);
 }
 

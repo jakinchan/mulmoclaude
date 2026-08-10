@@ -44,10 +44,10 @@ export const isLocalCollectionKey = (key: CollectionKey): key is LocalCollection
 export const isSharedCollectionKey = (key: CollectionKey): key is SharedCollectionKey => key.kind === "shared";
 
 /** Build a local key from an ALREADY-CANONICAL root. */
-export const localCollectionKeyOf = (root: string, slug: string): LocalCollectionKey => ({ kind: "local", root, slug });
+export const localCollectionKeyOf = (root: string, slug: string): LocalCollectionKey => ({ kind: "local", root: part(root, "root"), slug: part(slug, "slug") });
 
 /** Build a shared key. */
-export const sharedCollectionKey = (aid: string, cid: string): SharedCollectionKey => ({ kind: "shared", aid, cid });
+export const sharedCollectionKey = (aid: string, cid: string): SharedCollectionKey => ({ kind: "shared", aid: part(aid, "aid"), cid: part(cid, "cid") });
 
 /** The collection's NAME within its scope: the slug, or the shared `cid`.
  *
@@ -60,6 +60,26 @@ export const collectionKeyName = (key: CollectionKey): string => (key.kind === "
 // NUL separates the parts: it cannot occur in a path, a slug, an app id or a
 // collection id, so the encoding is unambiguous and needs no escaping.
 const SEP = "\u0000";
+
+/** Reject a part that cannot be encoded, rather than encoding it wrongly.
+ *
+ *  "NUL cannot occur in a path or a slug" is true of every real value and is
+ *  the reason the encoding needs no escaping — but a type whose whole job is to
+ *  be an identity must not take the claim on trust. Without this,
+ *  `("a\0b", "c")` and `("a", "b\0c")` encode to the SAME string, so
+ *  `sameCollectionKey` calls two different collections equal and the id parses
+ *  back to nothing. An empty part is refused for the same reason: it makes the
+ *  id ambiguous about which part was missing.
+ *
+ *  A throw, where `parseCollectionKeyId` returns null: building a key is code
+ *  making an identity, and a bad one there is a programming error. Parsing is
+ *  reading something off a disk or a wire, where an unrecognised entry is a
+ *  thing to skip. */
+function part(value: string, field: string): string {
+  if (value.length === 0) throw new Error(`CollectionKey: ${field} must not be empty`);
+  if (value.includes(SEP)) throw new Error(`CollectionKey: ${field} must not contain NUL`);
+  return value;
+}
 
 /** A stable string form, for the places that need a primitive key: a Map, a
  *  pubsub channel name, a notification id, a card's reconciliation key.

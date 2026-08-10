@@ -62,6 +62,23 @@ test("a string that did not come from collectionKeyId parses to null, not a thro
   }
 });
 
+test("a part carrying the separator is refused, not encoded wrongly", () => {
+  // Without this, ("a\0b", "c") and ("a", "b\0c") encode to the SAME string:
+  // two different collections compare equal and the id parses back to nothing.
+  assert.throws(() => localCollectionKeyOf("a\u0000b", "c"), /NUL/);
+  assert.throws(() => localCollectionKeyOf("a", "b\u0000c"), /NUL/);
+  assert.throws(() => sharedCollectionKey("a\u0000b", "c"), /NUL/);
+  assert.throws(() => sharedCollectionKey("a", "b\u0000c"), /NUL/);
+});
+
+test("an empty part is refused", () => {
+  // It makes the id ambiguous about which part was missing.
+  assert.throws(() => localCollectionKeyOf("", "tasks"), /empty/);
+  assert.throws(() => localCollectionKeyOf("/work/proj", ""), /empty/);
+  assert.throws(() => sharedCollectionKey("", "tasks"), /empty/);
+  assert.throws(() => sharedCollectionKey("salon", ""), /empty/);
+});
+
 test("the guards narrow", () => {
   const local = localCollectionKeyOf("/work/proj", "tasks");
   const shared = sharedCollectionKey("salon", "bookings");

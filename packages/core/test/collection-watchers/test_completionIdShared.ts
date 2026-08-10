@@ -44,6 +44,14 @@ test("an itemId containing a colon survives the round trip", () => {
   assert.deepEqual(parsed, { aid: "salon", slug: "tasks", itemId: "2026-08-10T10:00" });
 });
 
+test("a rooted id read back from disk is canonicalised on the way out too", () => {
+  // The sweep compares the parsed root against a canonical one. An entry
+  // written by hand or by an older build with a trailing separator would
+  // otherwise never match: the verdict would be "another root's, skip" and
+  // nobody could ever clear that bell.
+  assert.deepEqual(parseCompletionLegacyId("collection-completion:@/work/proj/\u0000tasks:t1"), { root: "/work/proj", slug: "tasks", itemId: "t1" });
+});
+
 test("a string from somewhere else parses to null", () => {
   for (const bad of ["", "tasks:t1", "collection-completion:notrailing", "collection-completion:@no-sep-tasks:t1"]) {
     assert.equal(parseCompletionLegacyId(bad), null, bad);
