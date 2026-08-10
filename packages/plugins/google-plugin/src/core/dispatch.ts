@@ -3,7 +3,7 @@
 // engine function with which arguments" can be checked with a stub — while the
 // calls were fixed imports, only module mocking could reach that mapping and
 // nothing did (#2583). Same shape as `html-plugin/src/core/dispatch.ts`.
-import { DEFAULT_LIST_MAX_RESULTS } from "@mulmoclaude/core/google";
+import { DEFAULT_LIST_MAX_RESULTS, toolCalendarSyncKey } from "@mulmoclaude/core/google";
 import type * as GoogleEngine from "@mulmoclaude/core/google";
 import type { PluginRuntime } from "gui-chat-protocol";
 import type { GoogleArgs } from "../args";
@@ -69,22 +69,27 @@ const summarizeSync = (result: GoogleEngine.CalendarSyncResult, incremental: boo
 // 410 means the stored token aged out; drop it and start clean rather than
 // surfacing an error the user can do nothing about.
 async function restartFullSync(api: GoogleApi, accessToken: string, calendarId: string | undefined): Promise<GoogleEngine.CalendarSyncResult> {
-  await api.clearCalendarSyncToken(calendarId);
+  await api.clearCalendarSyncToken(toolCalendarSyncKey(calendarId));
   return await api.syncCalendarEvents(accessToken, { calendarId });
 }
 
+// This tool's cursor is its own (`toolCalendarSyncKey`): it discards the events
+// it reads, so sharing the collections' cursor made each side eat windows the
+// other needed (#2850). The events themselves still come from the real
+// `calendarId` — only the bookmark is namespaced.
 async function runCalendarSync(api: GoogleApi, calendarId: string | undefined, fullResync: boolean): Promise<unknown> {
   const accessToken = await api.getGoogleAccessToken();
+  const syncKey = toolCalendarSyncKey(calendarId);
   // Drop the token BEFORE rebuilding, not after: if the full sync then fails
   // mid-way, the next run must still start clean rather than silently resuming
   // from the stale state the user asked to discard.
-  if (fullResync) await api.clearCalendarSyncToken(calendarId);
-  const storedToken = fullResync ? null : await api.loadCalendarSyncToken(calendarId);
+  if (fullResync) await api.clearCalendarSyncToken(syncKey);
+  const storedToken = fullResync ? null : await api.loadCalendarSyncToken(syncKey);
   const first = await api.syncCalendarEvents(accessToken, { calendarId, syncToken: storedToken ?? undefined });
   const result = first.fullResyncRequired ? await restartFullSync(api, accessToken, calendarId) : first;
-  if (result.nextSyncToken) await api.saveCalendarSyncToken(calendarId, result.nextSyncToken);
+  if (result.nextSyncToken) await api.saveCalendarSyncToken(syncKey, result.nextSyncToken);
   const incremental = Boolean(storedToken) && !first.fullResyncRequired;
-  return { ...summarizeSync(result, incremental), expiredToken: first.fullResyncRequired };
+  return { ...summarizeSync(result, incremental), expiredToken: first.fullResyncRequired, ...(result.pagesExhausted ? { pagesExhausted: true } : {}) };
 }
 
 // One handler per kind, named after the kind, so the router below reads as the

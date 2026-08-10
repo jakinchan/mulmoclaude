@@ -82,6 +82,34 @@ describe("syncCalendarEvents (#2095)", () => {
     assert.ok(secondPageUrl.includes("pageToken=p2"), "second page must carry the page token");
   });
 
+  // #2850: the page guard firing used to be byte-identical to a completed walk,
+  // so the caller applied a PARTIAL calendar, reported success and — since only
+  // Google's last page carries the token — repeated the same truncated walk
+  // forever, silently. Google states a page may hold "less than this value, or
+  // none at all, even if there are more events matching the query", so a real
+  // calendar can reach the guard.
+  it("reports pagesExhausted when the page guard fires with pages still pending", async () => {
+    // Every page answers with a nextPageToken and never a nextSyncToken, which
+    // is what "more pages than the guard walks" looks like from here.
+    stubFetch([{ body: { items: [event("a")], nextPageToken: "next" } }]);
+    const result = await syncCalendarEvents("access-token", {});
+    assert.equal(result.pagesExhausted, true, "a walk cut short by the guard must say so");
+    assert.equal(result.nextSyncToken, undefined, "a partial walk has no token to store");
+    assert.ok(result.events.length > 0, "the events that did land are still returned");
+  });
+
+  it("leaves pagesExhausted false when the walk reaches Google's last page", async () => {
+    stubFetch([{ body: { items: [event("a")], nextPageToken: "p2" } }, { body: { items: [event("b")], nextSyncToken: "tok-final" } }]);
+    const result = await syncCalendarEvents("access-token", {});
+    assert.equal(result.pagesExhausted, false);
+  });
+
+  it("leaves pagesExhausted false on an expired token, which returns no window at all", async () => {
+    stubFetch([{ status: 410, body: { error: "Sync token is no longer valid" } }]);
+    const result = await syncCalendarEvents("access-token", { syncToken: "stale" });
+    assert.equal(result.pagesExhausted, false);
+  });
+
   it("surfaces deletions as cancelled events rather than dropping them", async () => {
     stubFetch([{ body: { items: [event("gone", "cancelled"), event("kept")], nextSyncToken: "tok" } }]);
     const result = await syncCalendarEvents("access-token", { syncToken: "old" });

@@ -317,6 +317,17 @@ export interface CalendarSyncResult {
   /** The stored token had expired (410) — the caller must drop it and re-sync
    *  from scratch; no events are returned in that case. */
   fullResyncRequired: boolean;
+  /** The page guard fired with pages still pending, so `events` is a PARTIAL
+   *  window and `nextSyncToken` is absent.
+   *
+   *  Reported rather than left implicit because a truncated walk is otherwise
+   *  byte-identical to a completed one: the caller would apply the partial set,
+   *  report success, and — since only Google's last page carries the token —
+   *  repeat the same truncated walk on every later run, silently (#2850).
+   *  Google states a page "may be less than this value, or none at all, even if
+   *  there are more events matching the query", so this is reachable on a real
+   *  calendar, the more so with `singleEvents` expanding unbounded recurrences. */
+  pagesExhausted: boolean;
 }
 
 // Sentinel for "the syncToken expired" so the page loop can bail without
@@ -357,7 +368,7 @@ export async function syncCalendarEvents(accessToken: string, input: SyncEventsI
     if (pageToken) params.set("pageToken", pageToken);
 
     const payload = await fetchSyncPage(accessToken, input.calendarId, params);
-    if (payload === GONE) return { events: [], fullResyncRequired: true };
+    if (payload === GONE) return { events: [], fullResyncRequired: true, pagesExhausted: false };
 
     const record = asRecord(payload);
     events.push(...itemsOf(payload).map(toEventSummary));
@@ -366,7 +377,8 @@ export async function syncCalendarEvents(accessToken: string, input: SyncEventsI
     if (!pageToken) break;
   }
 
-  return { events, nextSyncToken, fullResyncRequired: false };
+  // A token still in hand means the loop ran out of pages, not out of calendar.
+  return { events, nextSyncToken, fullResyncRequired: false, pagesExhausted: pageToken !== undefined };
 }
 
 export interface CalendarListPage {

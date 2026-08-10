@@ -572,6 +572,68 @@ workspace is already on a real filesystem and a conflict still will not
 clear, that is a new bug — report it with the calendar id and the
 record.
 
+## A calendar collection only ever holds a handful of records
+
+### Symptoms
+
+A `googleCalendar` collection sits at a small number of records (0, 1,
+a couple of dozen) instead of the calendar's history. Sync reports
+success with **no error**, and pressing it again adds nothing. Only
+events created or edited AFTER the collection existed keep arriving.
+
+### Cause
+
+A Google sync token is keyed by `calendarId` alone, so it is shared by
+every consumer of that calendar — the `google` tool's `calendarSync`,
+and every collection bound to it. Before `#2850` a fresh collection
+resumed from whatever cursor was already stored, so its "first sync"
+was a DELTA of a window it had never received. Two ways in: the user
+(or you) ran `google` `kind: "calendarSync"` first, or another
+collection on the same calendar had already synced.
+
+Fixed in `@mulmoclaude/core` 3.3.0: a collection now records its own
+backfill beside its records (`<dataPath>/.calendar-sync.json`) and the
+sync walks the whole calendar while any collection still lacks one. The
+`google` tool keeps a separate cursor.
+
+### Fix
+
+On a host with the fix, delete `<dataPath>/.calendar-sync.json` (or the
+records themselves) and press Sync — the walk starts over. On an older
+host, delete `<workspace>/data/calendar/.sync-state.json` to force a
+full re-walk for every collection on that calendar.
+
+Do NOT tell the user to recreate the collection: deleting the skill
+files by hand does not clear the shared cursor, which is why the
+original reporter hit this six times in a row.
+
+## Sync says only part of the calendar was copied
+
+### Symptoms
+
+Sync reports `Google returned more pages of events than one sync pass
+walks`. The collection holds real records, but not all of them, and the
+message returns on every attempt.
+
+### Cause
+
+The walk is bounded by a page guard. A calendar reaches it when Google
+has to expand a huge number of recurring instances: with
+`singleEvents=true` and no date window, a recurring event with **no end
+date** is expanded decades into the future, and one such series can fill
+the entire walk before any other event is reached.
+
+Before `#2850` this was silent — the partial copy read as a completed
+sync.
+
+### Fix
+
+Give every recurring event with no end date a finite end date in Google
+Calendar, then Sync again. Ask the user to check for "repeats forever"
+series; a single one is enough to cause this. Nothing already synced is
+lost while it persists — the sync refuses to advance rather than
+claiming the calendar is fully copied.
+
 ## `proceeding without the calendar state lock` in the logs
 
 ### Symptoms

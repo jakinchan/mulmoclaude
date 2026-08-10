@@ -29,7 +29,7 @@ import {
   toCollectionRecord,
   syncCalendarForCollection,
   unpushedFor,
-  unsyncedGroups,
+  groupsNeedingBackfill,
   withKeyedLock,
 } from "@mulmoclaude/core/google";
 import type {
@@ -493,48 +493,58 @@ describe("anySyncedCollectionSurvives (#2428 mid-sync delete)", () => {
   });
 });
 
-// The trigger behind "the collection shows up already populated" (#2427): a
-// calendar with no stored token has never synced, which is exactly the state a
-// just-created collection is in. The rule fires on every config write, so what
-// keeps it from re-walking calendars forever is that the first sync stores a
-// token and the calendar stops matching.
-describe("unsyncedGroups (#2427 first sync)", () => {
-  const tokens =
-    (stored: Record<string, string>) =>
-    (calendarId: string): Promise<string | null> =>
-      Promise.resolve(stored[calendarId] ?? null);
+// The trigger behind "the collection shows up already populated" (#2427),
+// re-aimed by #2850. It used to ask whether the CALENDAR held a sync token,
+// which is a different question: the token is shared by every consumer of that
+// calendar, so a token left by the standalone `google` tool — or by a sibling
+// collection — made a brand-new collection match nothing and never run its
+// first sync at all. It now asks whether a COLLECTION still needs the history.
+describe("groupsNeedingBackfill (#2427 first sync, re-aimed by #2850)", () => {
+  const backfilled =
+    (done: Record<string, boolean>) =>
+    (collections: string[]): Promise<boolean> =>
+      Promise.resolve(collections.some((slug) => !done[slug]));
 
   const groups = (...calendarIds: string[]) => new Map(calendarIds.map((calendarId) => [calendarId, [`${calendarId}-collection`]]));
 
-  it("keeps a calendar that has never synced", async () => {
-    const pending = await unsyncedGroups(groups("work"), tokens({}));
+  it("keeps a calendar whose collection has never received it", async () => {
+    const pending = await groupsNeedingBackfill(groups("work"), backfilled({}));
     assert.deepEqual([...pending.keys()], ["work"]);
   });
 
-  it("drops a calendar that already holds a sync token", async () => {
-    const pending = await unsyncedGroups(groups("work"), tokens({ work: "tok-1" }));
+  it("drops a calendar every collection of which already holds the history", async () => {
+    const pending = await groupsNeedingBackfill(groups("work"), backfilled({ "work-collection": true }));
     assert.equal(pending.size, 0);
   });
 
-  it("keeps only the never-synced calendars in a mixed set", async () => {
-    const pending = await unsyncedGroups(groups("work", "home", "family"), tokens({ home: "tok-1" }));
+  it("keeps only the calendars still owed a backfill in a mixed set", async () => {
+    const pending = await groupsNeedingBackfill(groups("work", "home", "family"), backfilled({ "home-collection": true }));
     assert.deepEqual([...pending.keys()].sort(), ["family", "work"]);
   });
 
   it("carries each kept calendar's collections through untouched", async () => {
-    const pending = await unsyncedGroups(groups("work"), tokens({}));
+    const pending = await groupsNeedingBackfill(groups("work"), backfilled({}));
     assert.deepEqual(pending.get("work"), ["work-collection"]);
   });
 
   it("returns an empty map when nothing declares a calendar", async () => {
-    assert.equal((await unsyncedGroups(new Map(), tokens({}))).size, 0);
+    assert.equal((await groupsNeedingBackfill(new Map(), backfilled({}))).size, 0);
   });
 
-  // An empty string is a stored token, not a missing one — treating it as
-  // missing would re-walk the whole calendar on every config write.
-  it("treats an empty-string token as synced", async () => {
-    const pending = await unsyncedGroups(groups("work"), tokens({ work: "" }));
-    assert.equal(pending.size, 0);
+  // A stored token no longer answers this: the #2850 reporter's calendar had
+  // one from the `google` tool, and every collection they created after it was
+  // handed a delta of a window it had never received.
+  it("keeps a calendar whose token exists but whose collection is unfilled", async () => {
+    const pending = await groupsNeedingBackfill(groups("work"), backfilled({ "other-collection": true }));
+    assert.deepEqual([...pending.keys()], ["work"]);
+  });
+
+  // One unfilled collection is enough: the walk fans out to the whole group, so
+  // a sibling that is already current simply rewrites what it holds.
+  it("keeps a calendar where only ONE of several collections is unfilled", async () => {
+    const mixed = new Map([["work", ["filled", "unfilled"]]]);
+    const pending = await groupsNeedingBackfill(mixed, backfilled({ filled: true }));
+    assert.deepEqual([...pending.keys()], ["work"]);
   });
 });
 

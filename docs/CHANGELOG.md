@@ -108,8 +108,32 @@ Roots are canonicalised (`path.resolve`) wherever one becomes an identity — a 
 change payload, a bell id — so `/work/proj` and `/work/proj/` are one project rather than two.
 Symlinks are deliberately not resolved; see `canonicalRoot`.
 
-Ships `@mulmoclaude/core@3.2.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/core@3.3.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
+#### `@mulmoclaude/core` 3.2.0 → 3.3.0 — a calendar collection now receives the calendar (#2850)
+
+A `googleCalendar` collection could sit at a handful of records forever — 0, 1, a couple of
+dozen out of years of history — reporting success with **no error**, with further Sync presses
+adding nothing. Only events touched after the collection existed kept arriving.
+
+A Google sync token is keyed by `calendarId` and nothing else, so it is shared by every consumer
+of that calendar. Whoever walked first stored a cursor, and the next collection resumed from a
+window it had never received: its "first sync" was a delta. Two ways in, both in the reporter's
+timeline — the standalone `google` tool's `calendarSync` stores a token (and throws its events
+away), and a second collection created on a calendar a sibling had already synced. The on-create
+first sync (#2427) made it worse by asking the same wrong question: it treated "the calendar has
+a token" as "this has already synced", so for an affected collection it never ran at all.
+
+- A collection records its own backfill beside its records, `<dataPath>/.calendar-sync.json`, and
+  the sync walks the whole calendar while ANY collection on it still lacks one. Kept next to the
+  records rather than in the shared calendar state so the two reset together — deleting a
+  collection's data, however it is deleted, correctly asks for a new walk.
+- The `google` tool keeps its own cursor (`tool:<calendarId>`), so the two consumers stop eating
+  each other's windows. Its next `calendarSync` walks once more, then resumes as before.
+- A walk cut short by the page guard used to be byte-identical to a completed one, so a partial
+  calendar read as success and repeated silently forever. `CalendarSyncResult.pagesExhausted`
+  now says so; the sync reports it, holds the token and the baseline back, and names the usual
+  cause (a recurring event with no end date, expanded decades into the future).
 #### `@mulmoclaude/core` 3.0.0 → 3.0.1 — remote host stops mistaking its own downtime for a dead channel (#2845, #2846)
 
 The remote host judged "can my phone still reach this Mac?" by wall clock, so any stretch where the

@@ -93,6 +93,10 @@ the calendar day view then draws each record as a proportional time block.
 - **On creation** — the first sync starts as soon as the schema lands, so the
   collection is not empty while the user waits for the schedule. The same
   applies when you add a `googleCalendar` block to an existing collection.
+  Each collection gets its OWN full walk: a calendar that another collection
+  (or the `google` tool's `calendarSync`) has already read is still walked in
+  full for the new one, because a sync cursor says how far the *calendar* has
+  been read, not what *these records* hold (#2850).
 - **Hourly** after that, in the background.
 - **On demand** — the collection view has a Sync button. Tell the user about it
   if they want the calendar refreshed right now.
@@ -110,6 +114,10 @@ the calendar day view then draws each record as a proportional time block.
   this covers **all** dates — Google does not allow a date window together with
   incremental sync — so a calendar with years of history produces a lot of
   records on that first pass.
+- Because it covers all dates, a recurring event with **no end date** is
+  expanded decades into the future, and one such series can produce hundreds of
+  records. If a first sync reports that only part of the calendar was copied,
+  that is the cause — ask the user to give those series a finite end date.
 
 Records are ordinary collection records: the user can open, filter, and view
 them like any other.
