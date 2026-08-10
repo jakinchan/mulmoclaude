@@ -19,9 +19,12 @@ skills dir was a single string applied to every root. MulmoClaude is one workspa
 unaffected: it returns the same path for its one root, user scope still merges in, and a project
 slug still shadows a user one.
 
-- `CollectionHost.paths.userSkillsDir` becomes `(workspaceRoot) => string | null` — the shape
-  `skillsStagingDir` already has. A host that supplied a bare string must wrap it (`() => DIR`);
-  that is the whole migration.
+- `CollectionHost.paths.userSkillsDir` accepts `(workspaceRoot) => string | null` — the shape
+  `skillsStagingDir` already has. The bare `string` form still works, read as "this path, for
+  every root", which is what keeps this a minor: a caret range floats across minors, so a host
+  pinned at `^3.2.0` installs this version without touching its code, and a required callable
+  would turn that into a TypeError on its first discovery — a crash, not an opt-out. Prefer the
+  function form; the string is deprecated.
 - `null` skips the user pass in `discoverCollections` AND the user fallback in `loadCollection`.
   The second half is the one that matters: `loadCollection` is what `getSchema`, `getItems`,
   `putItems`, the detail route, the view-token mint and the watcher all go through, so a listing
