@@ -31,7 +31,8 @@ const BACKFILL_FILE = ".calendar-sync.json";
 interface BackfillState {
   /** The canonical calendar these records were walked in full against. */
   calendarId: string;
-  /** When that walk landed (ISO) — diagnostics only; nothing branches on it. */
+  /** When that walk landed (ISO). Diagnostics — but its PRESENCE is checked,
+   *  see `needsCalendarBackfill`. */
   walkedAt: string;
 }
 
@@ -45,12 +46,15 @@ export const calendarBackfillPath = (dataDir: string): string => path.join(dataD
  *  resuming that calendar's cursor would leave the same silent gap this exists
  *  to close.
  *
- *  Unreadable or absent both answer "yes". A redundant full walk costs API
+ *  Unreadable, absent or INCOMPLETE all answer "yes" — every field must be
+ *  there, not just the one being compared. A redundant full walk costs API
  *  calls and rewrites records that already match; skipping a needed one loses
- *  the history silently, which is the failure being fixed. */
+ *  the history silently, which is the failure being fixed, so the bias only
+ *  ever goes one way (CodeRabbit review #2853). */
 export async function needsCalendarBackfill(dataDir: string, calendarId: string | undefined): Promise<boolean> {
   const stored = await readJsonOrNull<Partial<BackfillState>>(calendarBackfillPath(dataDir));
-  return stored?.calendarId !== canonicalCalendarId(calendarId);
+  if (typeof stored?.walkedAt !== "string" || stored.walkedAt === "") return true;
+  return stored.calendarId !== canonicalCalendarId(calendarId);
 }
 
 /** Record that these records now cover the whole calendar. Never throws: the

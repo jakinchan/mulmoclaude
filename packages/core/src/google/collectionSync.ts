@@ -490,6 +490,54 @@ export const PARTIAL_CALENDAR_WINDOW =
 export const withPartialWindowError = (results: readonly CalendarCollectionSyncResult[], pagesExhausted: boolean): CalendarCollectionSyncResult[] =>
   pagesExhausted ? results.map((result) => ({ ...result, errors: [...result.errors, PARTIAL_CALENDAR_WINDOW] })) : [...results];
 
+/** What a finished window is allowed to advance.
+ *
+ *  One pure rule rather than three conditions spread through the write-back,
+ *  because the three answers genuinely differ and each wrong one is a SILENT
+ *  data bug rather than a visible failure: a baseline held back freezes the
+ *  records it describes (#2683), a baseline advanced past a failed write hides
+ *  a conflict (#2620), a backfill marker set on a partial walk re-creates the
+ *  #2850 gap, and a token advanced past either loses the window for good. */
+export interface WindowAdvance {
+  /** Record what Google now says, so the next push can tell a local edit from a pull. */
+  baseline: boolean;
+  /** Claim these records now hold the WHOLE calendar. */
+  backfill: boolean;
+  /** Move the shared cursor past this window. */
+  token: boolean;
+}
+
+/** `landed` is the write-side verdict (`windowFullyLanded`); the rest describe
+ *  the window Google returned.
+ *
+ *  A page-capped walk (`pagesExhausted`) keeps its baseline — the events that
+ *  arrived are Google's own and were written correctly — but must NOT claim the
+ *  backfill, or the collection would stop asking for the rest of its calendar.
+ *  Its token is refused too, though Google makes that moot by sending
+ *  `nextSyncToken` only on the last page. */
+export function windowAdvance(window: { landed: boolean; walkedInFull: boolean; pagesExhausted: boolean; nextSyncToken?: string | undefined }): WindowAdvance {
+  if (!window.landed) return { baseline: false, backfill: false, token: false };
+  const complete = !window.pagesExhausted;
+  return { baseline: true, backfill: window.walkedInFull && complete, token: complete && window.nextSyncToken !== undefined };
+}
+
+/** The window this run should read, and whether it was a full walk. A 410
+ *  restart is a full walk too, so it backfills just as well as a forced one. */
+async function readWindow(
+  calendarId: string | undefined,
+  collections: readonly LoadedCollection[],
+  workspaceRoot: string,
+): Promise<{ result: Awaited<ReturnType<typeof syncCalendarEvents>>; walkedInFull: boolean }> {
+  const accessToken = await getGoogleAccessToken();
+  const resumeFrom = await resumableToken(calendarId, collections, workspaceRoot);
+  const first = await syncCalendarEvents(accessToken, { calendarId, syncToken: resumeFrom });
+  const result = first.fullResyncRequired ? await restartFullSync(accessToken, calendarId, workspaceRoot) : first;
+  if (result.pagesExhausted) {
+    log.warn("google", "the calendar walk ran out of pages — only part of it was copied", { calendarId, events: result.events.length });
+  }
+  return { result, walkedInFull: resumeFrom === undefined || first.fullResyncRequired };
+}
+
 async function syncCalendarGroupNow(
   calendarId: string | undefined,
   collections: readonly LoadedCollection[],
@@ -508,27 +556,13 @@ async function syncCalendarGroupNow(
   // apply still tell an edit from an untouched record (#2684).
   const baseline = await loadCalendarShadow(calendarId, workspaceRoot);
 
-  const accessToken = await getGoogleAccessToken();
-  const resumeFrom = await resumableToken(calendarId, collections, workspaceRoot);
-  const first = await syncCalendarEvents(accessToken, { calendarId, syncToken: resumeFrom });
-  const result = first.fullResyncRequired ? await restartFullSync(accessToken, calendarId, workspaceRoot) : first;
-  // A 410 restart is a full walk too, so it backfills just as well as a forced one.
-  const walkedInFull = resumeFrom === undefined || first.fullResyncRequired;
-
-  if (result.pagesExhausted)
-    log.warn("google", "the calendar walk ran out of pages — only part of it was copied", { calendarId, events: result.events.length });
-
+  const { result, walkedInFull } = await readWindow(calendarId, collections, workspaceRoot);
   const applied = await applyWindowToGroup(collections, result.events, workspaceRoot, unpushed, baseline);
-  if (windowFullyLanded(calendarId, applied)) {
-    // Gated with the token, for the same reason: a baseline recorded for a window
-    // the records never received would make the next push read a local edit where
-    // there was only a failed write.
-    await saveCalendarShadow(calendarId, shadowUpdates(result.events, heldBack(unpushed, applied), baseline), workspaceRoot);
-    // A partial walk is real as far as it goes, but it is NOT the calendar — so
-    // its records must keep asking for a backfill until one completes.
-    if (walkedInFull && !result.pagesExhausted) await markGroupBackfilled(calendarId, collections);
-    if (result.nextSyncToken) await advanceToken(calendarId, result.nextSyncToken, collections, workspaceRoot);
-  }
+  const advance = windowAdvance({ landed: windowFullyLanded(calendarId, applied), walkedInFull, ...result });
+
+  if (advance.baseline) await saveCalendarShadow(calendarId, shadowUpdates(result.events, heldBack(unpushed, applied), baseline), workspaceRoot);
+  if (advance.backfill) await markGroupBackfilled(calendarId, collections);
+  if (advance.token && result.nextSyncToken) await advanceToken(calendarId, result.nextSyncToken, collections, workspaceRoot);
   return withPartialWindowError(applied, result.pagesExhausted);
 }
 

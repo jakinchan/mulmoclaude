@@ -63,6 +63,7 @@ export {
   type ListEventsInput,
   type SyncEventsInput,
   type UpdateCalendarEventInput,
+  syncPageParams,
 } from "./calendar.js";
 export {
   calendarSyncStatePath,
@@ -149,6 +150,8 @@ export {
   shadowUpdates,
   collectionsNeedingBackfill,
   resumableToken,
+  windowAdvance,
+  type WindowAdvance,
   groupsNeedingBackfill,
   withPartialWindowError,
   PARTIAL_CALENDAR_WINDOW,

@@ -28,6 +28,7 @@ import {
   resumableToken,
   saveCalendarSyncToken,
   toolCalendarSyncKey,
+  windowAdvance,
   withPartialWindowError,
   PARTIAL_CALENDAR_WINDOW,
   type CalendarCollectionSyncResult,
@@ -222,5 +223,46 @@ describe("withPartialWindowError (#2850)", () => {
   it("keeps the written counts of the partial window", () => {
     const marked = withPartialWindowError([result("a")], true);
     assert.equal(marked[0]?.written, 3);
+  });
+});
+
+describe("windowAdvance — what a finished window may advance (#2850)", () => {
+  const window = (overrides: Partial<Parameters<typeof windowAdvance>[0]> = {}) =>
+    windowAdvance({ landed: true, walkedInFull: true, pagesExhausted: false, nextSyncToken: "tok", ...overrides });
+
+  it("advances everything after a complete full walk that landed", () => {
+    assert.deepEqual(window(), { baseline: true, backfill: true, token: true });
+  });
+
+  // A failed write means the record does not hold what the baseline would
+  // claim, so nothing may move — Google never resends a window (#2184).
+  it("advances nothing when the window did not fully land", () => {
+    assert.deepEqual(window({ landed: false }), { baseline: false, backfill: false, token: false });
+  });
+
+  // The #2850 gap in miniature: a partial copy that claimed the backfill would
+  // stop the collection ever asking for the rest of its calendar.
+  it("refuses the backfill and the token on a page-capped walk", () => {
+    assert.deepEqual(window({ pagesExhausted: true }), { baseline: true, backfill: false, token: false });
+  });
+
+  // But it KEEPS the baseline: the events that arrived are Google's own and
+  // landed correctly, and a record with no baseline reads as an unsent local
+  // edit that the next pull then refuses to touch (#2683).
+  it("keeps the baseline on a page-capped walk", () => {
+    assert.equal(window({ pagesExhausted: true }).baseline, true);
+  });
+
+  // An incremental window is not evidence the records hold the history.
+  it("never claims a backfill from an incremental window", () => {
+    assert.equal(window({ walkedInFull: false }).backfill, false);
+  });
+
+  it("still advances the baseline and the token on an incremental window", () => {
+    assert.deepEqual(window({ walkedInFull: false }), { baseline: true, backfill: false, token: true });
+  });
+
+  it("cannot advance a token Google did not send", () => {
+    assert.equal(window({ nextSyncToken: undefined }).token, false);
   });
 });

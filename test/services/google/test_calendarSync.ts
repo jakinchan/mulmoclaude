@@ -6,7 +6,7 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { syncCalendarEvents } from "@mulmoclaude/core/google";
+import { syncCalendarEvents, syncPageParams } from "@mulmoclaude/core/google";
 
 const realFetch = globalThis.fetch;
 let requestedUrls: string[] = [];
@@ -139,5 +139,40 @@ describe("syncCalendarEvents (#2095)", () => {
     const [url] = requestedUrls;
     assert.ok(url);
     assert.ok(url.includes(encodeURIComponent("team cal@group.calendar.google.com")), `got: ${url}`);
+  });
+});
+
+// Extracted from the page loop so the query shape is pinned without a stub
+// (CodeRabbit review #2853). Google forbids `timeMin` / `orderBy` alongside a
+// syncToken, and drops deletions unless `showDeleted` is on, so every one of
+// these is load-bearing rather than cosmetic.
+describe("syncPageParams", () => {
+  it("always asks for expanded instances and deletions", () => {
+    const params = syncPageParams({}, undefined);
+    assert.equal(params.get("singleEvents"), "true");
+    assert.equal(params.get("showDeleted"), "true");
+  });
+
+  it("sends neither timeMin nor orderBy, which a syncToken forbids", () => {
+    const params = syncPageParams({ syncToken: "tok" }, undefined);
+    assert.equal(params.get("timeMin"), null);
+    assert.equal(params.get("orderBy"), null);
+  });
+
+  it("omits pageToken on the first page and carries it afterwards", () => {
+    assert.equal(syncPageParams({}, undefined).get("pageToken"), null);
+    assert.equal(syncPageParams({}, "p2").get("pageToken"), "p2");
+  });
+
+  // Paging an INCREMENTAL sync needs both, which is the one combination Google
+  // does require rather than reject.
+  it("sends syncToken and pageToken together", () => {
+    const params = syncPageParams({ syncToken: "tok" }, "p2");
+    assert.equal(params.get("syncToken"), "tok");
+    assert.equal(params.get("pageToken"), "p2");
+  });
+
+  it("honours an explicit page size over the default", () => {
+    assert.equal(syncPageParams({ maxResults: 10 }, undefined).get("maxResults"), "10");
   });
 });

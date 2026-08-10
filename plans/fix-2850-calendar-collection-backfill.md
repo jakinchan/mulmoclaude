@@ -51,7 +51,7 @@ Both then hit the same two doors:
 Reproduced end-to-end against the real pipeline with a stubbed Google
 (`written`/records shown per Sync click, 2000-event calendar):
 
-```
+```text
 ### Case A — the standalone `google` tool synced first
   tool stored a token for: primary
   on-create first sync ran for: (NOTHING — skipped)
@@ -89,7 +89,7 @@ more events matching the query", and `singleEvents=true` with no time window
 expands unbounded recurrences across decades — so the guard is reachable on a
 real calendar, not just in theory. Reproduced:
 
-```
+```text
 === 5000 events, google serves 8/page ===
 run 1: written=1600 recordsOnDisk=1600/5000 pageRequests=200 errorsShownToUser=0 token={}
 run 2: written=1600 recordsOnDisk=1600/5000 pageRequests=200 errorsShownToUser=0 token={}

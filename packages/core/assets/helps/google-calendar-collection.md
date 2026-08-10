@@ -117,7 +117,9 @@ the calendar day view then draws each record as a proportional time block.
 - Because it covers all dates, a recurring event with **no end date** is
   expanded decades into the future, and one such series can produce hundreds of
   records. If a first sync reports that only part of the calendar was copied,
-  that is the cause — ask the user to give those series a finite end date.
+  that is the common cause — ask the user to give those series a finite end
+  date. The report itself means the walk ran out of pages, which a big enough
+  calendar can do on its own.
 
 Records are ordinary collection records: the user can open, filter, and view
 them like any other.

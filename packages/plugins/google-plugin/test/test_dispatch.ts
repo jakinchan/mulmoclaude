@@ -326,6 +326,32 @@ describe("calendarSync", () => {
     assert.deepEqual(result, { ok: true, incremental: true, changed: 1, cancelled: 0, events: [EVENT], truncated: false, expiredToken: false });
   });
 
+  // #2850: a page-capped walk is a PARTIAL calendar. The tool answers with a
+  // summary, so without this flag the reply is indistinguishable from a
+  // complete one and the agent would tell the user the sync had finished.
+  it("passes pagesExhausted through so a partial walk is not reported as complete", async () => {
+    const { result } = await dispatch({ kind: "calendarSync" }, ({ spy }) => ({
+      syncCalendarEvents: spy("syncCalendarEvents", { events: [EVENT], nextSyncToken: NEXT_SYNC_TOKEN, fullResyncRequired: false, pagesExhausted: true }),
+    }));
+    assert.deepEqual(result, {
+      ok: true,
+      incremental: false,
+      changed: 1,
+      cancelled: 0,
+      events: [EVENT],
+      truncated: false,
+      expiredToken: false,
+      pagesExhausted: true,
+    });
+  });
+
+  // `truncated` is about the capped EVENT SAMPLE, `pagesExhausted` about the
+  // walk — a complete walk must not carry the latter at all.
+  it("omits pagesExhausted entirely on a complete walk", async () => {
+    const { result } = await dispatch({ kind: "calendarSync" });
+    assert.equal(Object.hasOwn(result as object, "pagesExhausted"), false);
+  });
+
   // #2850: a collection's cursor must survive this tool entirely — reading the
   // collections' key here would hand the next collection a delta of a window it
   // never received, and clearing it would cost every collection a full re-walk.

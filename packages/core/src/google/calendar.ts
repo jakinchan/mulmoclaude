@@ -353,21 +353,27 @@ async function fetchSyncPage(accessToken: string, calendarId: string | undefined
  *
  *  `nextSyncToken` is only present on the LAST page, so every page must be
  *  walked before the token is worth storing. */
+/** The query for one page of the walk. `showDeleted` must stay true or
+ *  deletions would be invisible; `pageToken` is sent ALONGSIDE `syncToken`,
+ *  which is what Google requires to page an incremental sync. */
+export function syncPageParams(input: SyncEventsInput, pageToken: string | undefined): URLSearchParams {
+  const params = new URLSearchParams({
+    singleEvents: "true",
+    showDeleted: "true",
+    maxResults: String(input.maxResults ?? EVENT_SYNC_PAGE_SIZE),
+  });
+  if (input.syncToken) params.set("syncToken", input.syncToken);
+  if (pageToken) params.set("pageToken", pageToken);
+  return params;
+}
+
 export async function syncCalendarEvents(accessToken: string, input: SyncEventsInput = {}): Promise<CalendarSyncResult> {
   const events: CalendarEventSummary[] = [];
   let pageToken: string | undefined;
   let nextSyncToken: string | undefined;
 
   for (let page = 0; page < MAX_EVENT_SYNC_PAGES; page += 1) {
-    const params = new URLSearchParams({
-      singleEvents: "true",
-      showDeleted: "true",
-      maxResults: String(input.maxResults ?? EVENT_SYNC_PAGE_SIZE),
-    });
-    if (input.syncToken) params.set("syncToken", input.syncToken);
-    if (pageToken) params.set("pageToken", pageToken);
-
-    const payload = await fetchSyncPage(accessToken, input.calendarId, params);
+    const payload = await fetchSyncPage(accessToken, input.calendarId, syncPageParams(input, pageToken));
     if (payload === GONE) return { events: [], fullResyncRequired: true, pagesExhausted: false };
 
     const record = asRecord(payload);

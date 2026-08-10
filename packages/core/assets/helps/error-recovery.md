@@ -617,11 +617,16 @@ message returns on every attempt.
 
 ### Cause
 
-The walk is bounded by a page guard. A calendar reaches it when Google
-has to expand a huge number of recurring instances: with
-`singleEvents=true` and no date window, a recurring event with **no end
-date** is expanded decades into the future, and one such series can fill
-the entire walk before any other event is reached.
+One sync pass walks a bounded number of pages, and Google returned more
+than that. Any calendar big enough in Google's own paging terms reaches
+it — Google states a page may hold fewer events than asked for, "or none
+at all", so page count does not track event count.
+
+The common cause by far is recurring expansion: with `singleEvents=true`
+and no date window, a recurring event with **no end date** is expanded
+decades into the future, and one such series can fill the entire walk
+before any other event is reached. Check that first, but do not assume
+it is the only way in.
 
 Before `#2850` this was silent — the partial copy read as a completed
 sync.
@@ -630,9 +635,13 @@ sync.
 
 Give every recurring event with no end date a finite end date in Google
 Calendar, then Sync again. Ask the user to check for "repeats forever"
-series; a single one is enough to cause this. Nothing already synced is
-lost while it persists — the sync refuses to advance rather than
-claiming the calendar is fully copied.
+series; a single one is enough to cause this. If there are none and the
+message persists, the calendar is simply larger than one pass — report
+it, since raising the guard is a code change.
+
+Nothing already synced is lost while it persists: the records that did
+arrive are written and keep their baseline, and the sync withholds the
+backfill marker rather than claiming the calendar is fully copied.
 
 ## `proceeding without the calendar state lock` in the logs
 
