@@ -16,7 +16,7 @@
 // `deleteCollection` or by hand, which is what the #2850 reporter did six
 // times) leaves no marker behind claiming a backfill that is gone. The
 // alternative, a slug-keyed entry in `.sync-state.json`, needs a cleanup that
-// stays in step with every delete path, which is the shape of bug #2428 was.
+// stays in step with every delete path — the shape #2428 already was.
 //
 // Dot-prefixed so `listItems` skips it: record files are `<id>.json`, and the
 // reader already ignores names starting with `.`.
