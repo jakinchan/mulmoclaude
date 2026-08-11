@@ -204,7 +204,7 @@ function makeFakeFirestoreDocs(): FirestoreDocs & { paths: () => string[] } {
  *  store every time and silently lose every write. */
 function connectFakeFirestore(): FirestoreDocs & { paths: () => string[] } {
   const docs = makeFakeFirestoreDocs();
-  setFirestoreAccessor(() => ({ docs, email: "owner@example.com" }));
+  setFirestoreAccessor(() => ({ docs, email: "owner@example.com", uid: "uid_owner" }));
   return docs;
 }
 
@@ -465,6 +465,7 @@ describe("shared (firestore) collections", () => {
     setFirestoreAccessor(() => ({
       docs: { list: rejectAll, get: rejectAll, set: rejectAll, create: rejectAll, delete: rejectAll } as unknown as FirestoreDocs,
       email: "stranger@example.com",
+      uid: "uid_stranger",
     }));
     const [collection] = await discoverCollections(discoveryOpts());
     assert.ok(collection);

@@ -26,6 +26,6 @@ function docsFor(firestore: Firestore): FirestoreDocs {
 export function initFirestoreCollectionBinding(): void {
   setFirestoreAccessor(() => {
     const session = currentFirestoreSession();
-    return session === null ? null : { docs: docsFor(session.firestore), email: session.email };
+    return session === null ? null : { docs: docsFor(session.firestore), email: session.email, uid: session.uid };
   });
 }

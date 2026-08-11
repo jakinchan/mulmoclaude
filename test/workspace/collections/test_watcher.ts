@@ -612,7 +612,7 @@ function makeFakeDocs(seed: Record<string, unknown>[]): FirestoreDocs {
 }
 
 function connectFake(docs: FirestoreDocs): void {
-  setFirestoreAccessor(() => ({ docs, email: "owner@example.com" }));
+  setFirestoreAccessor(() => ({ docs, email: "owner@example.com", uid: "uid_owner" }));
 }
 
 function writeSharedSchema(slug: string, extra: Record<string, unknown> = {}): void {
