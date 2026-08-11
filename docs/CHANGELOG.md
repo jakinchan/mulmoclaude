@@ -103,11 +103,23 @@ is people.
   `projectPublish` / `promoteSchema` / `appStagingPath`、
   `@mulmoclaude/core/collection/server`）。既存の `projectApp` と `publishApp` は不変で、
   これは**追加のみ**。
-  - `projectDeploy` が返すアプリ文書には **`public` ブロックが入らない**。ルールが匿名
-    アクセスを判定するのは `apps/{aid}.public` であって世界に読める `config/public` では
-    ないので、deploy で書くと「テストのために deploy した」がそのまま公開になる。
-    ホストは**置換ではなく merge** で書くこと — 置換すると前回の publish が置いた
-    `public` が消えて黙って非公開になる
+  - **どちらも完全なアプリ文書を返す。ホストは `set` で置換する（merge しない）。**
+    merge は**削除できない**ので、`members.<email>` を消しても権限が残る — しかも
+    ルールが `memberEmails` と `members` の一致を要求するため、merge した削除は
+    そもそも拒否される。`public` を `app.json` から外して非公開に戻すこともできない。
+    相手の操作が持つフィールドは `existing` から**そのまま持ち越す**ので、置換しても
+    公開を落としたり招待を巻き戻したりしない
+  - `projectDeploy` が返す文書には **`public` が入らない**。ルールが匿名アクセスを
+    判定するのは `apps/{aid}.public` であって世界に読める `config/public` ではないので、
+    deploy で書くと「テストのために deploy した」がそのまま公開になる
+  - **`collections` と `participantRead` も staging に載る。** これらはルールが
+    **公開の書き込みを判定するときに読む**設定なので、deploy で着地させると、
+    スキーマは staging に留めたまま公開の挙動だけが変わってしまう。代償として
+    `/staging/{aid}` は「新しいスキーマ × 現在公開中のルール設定」で試すことになるが、
+    間違える方向としてはこちらが安全
+  - **provenance を 2 つに分けた。** deploy は `deployed*`、publish は `published*` と
+    `previousPublished`。同じキーを両方が書くと、草稿を deploy しただけで「いま公開されて
+    いる版」と rollback 先の記録が動いてしまう
   - スキーマは `apps/{aid}/staging/{cid}`（`appStagingPath`）へ。名簿しか読めないので、
     公開中のアプリに deploy しても訪問者の見ているビューは差し替わらない。
     **フィールドではなく別ドキュメント**なのは、ルールがフィールド単位で隠せないから

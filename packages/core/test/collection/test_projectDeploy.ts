@@ -13,7 +13,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { projectApp, projectDeploy, projectPublish, promoteSchema, appSchemasPath, appStagingPath } from "../../src/collection/server/publishProject";
+import { projectDeploy, projectPublish, promoteSchema, appSchemasPath, appStagingPath } from "../../src/collection/server/publishProject";
 import { parseAuthoredApp } from "../../src/collection/server/publishManifest";
 import { CollectionSchemaZ } from "../../src/collection/core/schemaZ";
 
@@ -53,8 +53,8 @@ test("deploy carries no `public` — the block the rules authorize anonymous acc
 });
 
 test("publish carries the `public` block and the world-readable config, and nothing else", () => {
-  const face = projectPublish(app, publishStamp);
-  assert.deepEqual(face.public, { enabled: true, read: ["bookings"], submit: { bookings: { auth: "verifiedEmail", createFields: ["customerName"] } } });
+  const face = projectPublish(app, publishStamp, null);
+  assert.deepEqual(face.app.public, { enabled: true, read: ["bookings"], submit: { bookings: { auth: "verifiedEmail", createFields: ["customerName"] } } });
   assert.equal(face.config.enabled, true);
   // The roster is NOT in the public config — a participant reading it would see
   // everyone else's address.
@@ -65,35 +65,75 @@ test("publish carries the `public` block and the world-readable config, and noth
 test("an author with no `public` block publishes nothing public", () => {
   const priv = parseAuthoredApp(JSON.stringify({ aid: app.aid, name: "Sakura Hair", members: app.members }));
   assert.equal(priv.ok, true);
-  const face = projectPublish(priv.ok ? priv.app : app, publishStamp);
-  assert.equal(face.public, undefined); // the rules read a missing block as "not public"
+  const face = projectPublish(priv.ok ? priv.app : app, publishStamp, null);
+  assert.equal("public" in face.app, false); // the rules read a missing block as "not public"
   assert.equal(face.config.enabled, false);
 });
 
 test("promotion re-stamps — the stamp says which version is PUBLIC, not when it was staged", () => {
   const { staging } = projectDeploy(app, [{ cid: "bookings", schema }], deployStamp, null);
-  const promoted = promoteSchema(staging[0].doc, publishStamp);
-  assert.deepEqual(promoted.publishedSchema, staging[0].doc.publishedSchema); // what was tested is what ships
+  const staged = staging[0] ?? assert.fail("deploy staged nothing");
+  const promoted = promoteSchema(staged.doc, publishStamp);
+  assert.deepEqual(promoted.publishedSchema, staged.doc.publishedSchema); // what was tested is what ships
   assert.equal(promoted.publishedAt, 2000);
   assert.equal(promoted.publishedBy, "other@example.com");
   assert.equal(promoted.publishedCommit, "def456");
-});
-
-test("the split writes the same app keys the one-shot projection does, minus `public`", () => {
-  // Guards the drift this API exists to prevent: a key added to projectApp and
-  // forgotten in the split would leave a deployed app missing it.
-  const whole = projectApp(app, [{ cid: "bookings", schema }], deployStamp, null);
-  const { app: deployed } = projectDeploy(app, [{ cid: "bookings", schema }], deployStamp, null);
-  assert.deepEqual(
-    Object.keys(deployed).sort(),
-    Object.keys(whole.app)
-      .filter((key) => key !== "public")
-      .sort(),
-  );
 });
 
 test("staged and published schemas live at separate paths", () => {
   // A field beside `publishedSchema` could not work: rules cannot hide a field,
   // so a draft inside a document the public page reads is a published draft.
   assert.notEqual(appStagingPath(app.aid), appSchemasPath(app.aid));
+});
+
+test("deploy carries the live public face through, because the write REPLACES", () => {
+  // A merge cannot delete, and every deletion here is a permission change
+  // (dropping members.<email> revokes access). So the host replaces — which
+  // means deploy has to hand back what publish owns, unchanged.
+  const live = { public: { enabled: true, read: ["bookings"] }, publishedAt: 5, publishedBy: "p@example.com", collections: { bookings: { immutable: true } } };
+  const { app: doc } = projectDeploy(app, [{ cid: "bookings", schema }], deployStamp, live);
+  assert.deepEqual(doc.public, live.public);
+  assert.deepEqual(doc.collections, live.collections);
+  assert.equal(doc.publishedAt, 5);
+  assert.equal(doc.publishedBy, "p@example.com");
+});
+
+test("rule-facing collection config is STAGED, not landed by deploy", () => {
+  // apps/{aid}.collections[cid] is read when the rules authorize a PUBLIC
+  // write, so landing it on deploy would change what anonymous visitors may do
+  // before anyone published.
+  const authoredWithConfig = parseAuthoredApp(
+    JSON.stringify({
+      aid: app.aid,
+      name: "Sakura Hair",
+      members: app.members,
+      collections: { bookings: { immutable: true } },
+      participantRead: ["bookings"],
+    }),
+  );
+  assert.equal(authoredWithConfig.ok, true);
+  const source = authoredWithConfig.ok ? authoredWithConfig.app : app;
+  const { app: doc, staging } = projectDeploy(source, [{ cid: "bookings", schema }], deployStamp, null);
+  assert.equal("collections" in doc, false);
+  assert.equal("participantRead" in doc, false);
+  const staged = staging[0] ?? assert.fail("deploy staged nothing");
+  assert.deepEqual(staged.doc.config, { immutable: true });
+  assert.equal(staged.doc.participantRead, true);
+  // …and publish is where it lands.
+  const face = projectPublish(source, publishStamp, doc);
+  assert.deepEqual(face.app.collections, { bookings: { immutable: true } });
+  assert.deepEqual(face.app.participantRead, ["bookings"]);
+});
+
+test("publishing a declaration without `public` makes the app private", () => {
+  // The regression this API exists to prevent: with a merge, taking `public`
+  // out of app.json could not remove the field, so the app stayed open.
+  const livePublic = { aid: app.aid, members: app.members, public: { enabled: true, read: ["bookings"] }, publishedAt: 5 };
+  const priv = parseAuthoredApp(JSON.stringify({ aid: app.aid, name: "Sakura Hair", members: app.members }));
+  assert.equal(priv.ok, true);
+  const face = projectPublish(priv.ok ? priv.app : app, publishStamp, livePublic);
+  assert.equal("public" in face.app, false);
+  assert.equal(face.config.enabled, false);
+  // …while the roster deploy owns survives the replacing write.
+  assert.deepEqual(face.app.members, app.members);
 });

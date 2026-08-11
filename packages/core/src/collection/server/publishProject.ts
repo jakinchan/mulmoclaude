@@ -36,9 +36,8 @@
 // the emulator round-trip test (`../mulmoserver test/rules/rules_publish.ts`)
 // pins that the rules accept it.
 
-import { isRecord } from "@mulmoclaude/common";
 import type { CollectionSchema } from "../core/schema";
-import type { AuthoredApp, AuthoredSubmit } from "./publishManifest";
+import type { AuthoredApp, AuthoredCollectionConfig, AuthoredSubmit } from "./publishManifest";
 
 /** Who and when. Threaded in rather than read from a clock inside the
  *  projection so the projection stays pure and the tests can assert on an
@@ -71,6 +70,35 @@ export interface PublishedSchemaDoc extends Record<string, unknown> {
   publishedAt: number;
   publishedBy: string;
   publishedCommit?: string;
+}
+
+/** A STAGED schema document (`apps/{aid}/staging/{cid}`) — what deploy writes
+ *  and what `/staging/{aid}` renders from.
+ *
+ *  Its provenance keys are `deployed*`, not `published*`. The two are different
+ *  questions with different answers at almost every moment: `published*` says
+ *  which revision the PUBLIC is looking at, and a deploy must not move it —
+ *  otherwise staging a draft rewrites the recorded public revision (and, with
+ *  `previousPublished`, the thing a rollback would restore) before anyone has
+ *  published anything. */
+export interface StagedSchemaDoc extends Record<string, unknown> {
+  publishedSchema: CollectionSchema;
+  /** This collection's RULE-FACING configuration (`transitions`, `immutable`,
+   *  `submitOnly`, `peerVisibility`, …) — staged with the schema, not written
+   *  straight onto the app document.
+   *
+   *  It has to be staged for the same reason the `public` block is: the rules
+   *  read `apps/{aid}.collections[cid]` when they authorize a PUBLIC write, so
+   *  a deploy that landed it would change what anonymous visitors may do
+   *  before anyone published. The cost is that `/staging/{aid}` exercises the
+   *  new schema against the CURRENTLY PUBLISHED rule configuration; that is
+   *  the safe direction to be wrong in. */
+  config?: AuthoredCollectionConfig;
+  /** Whether this cid is in `participantRead` — same reason, same treatment. */
+  participantRead?: boolean;
+  deployedAt: number;
+  deployedBy: string;
+  deployedCommit?: string;
 }
 
 /** The public settings document (`apps/{aid}/config/public`).
@@ -230,11 +258,36 @@ export function projectApp(
  *  a replace would drop a `public` block a previous publish put there and
  *  silently unpublish the app. */
 export interface DeployedApp {
-  /** The app document WITHOUT `public` — merge, do not replace. */
+  /** The COMPLETE app document. **Write it with `set`, replacing — never with
+   *  `{ merge: true }`.**
+   *
+   *  A merge cannot DELETE, and every deletion here is a permission change:
+   *  removing `members.<email>` revokes access, and a merge would leave the
+   *  entry live. Worse, the rules require `memberEmails` to equal the keys of
+   *  `members` (`membersConsistent()`), so a merged member-removal is rejected
+   *  outright — a deploy that silently does nothing would be the good case.
+   *
+   *  Everything publish owns is carried through from `existing` verbatim, so
+   *  replacing does not unpublish a live app. */
   app: Record<string, unknown>;
   /** The staged schema documents, for `apps/{aid}/staging/{cid}`. */
-  staging: { cid: string; doc: PublishedSchemaDoc }[];
+  staging: { cid: string; doc: StagedSchemaDoc }[];
 }
+
+/** Keys on the app document that publish owns: what is PUBLIC right now, and
+ *  the rule-facing configuration anonymous access is judged against. Deploy
+ *  carries them through from the existing document and never authors them. */
+const PUBLISH_OWNED_KEYS: readonly string[] = [
+  "public",
+  "collections",
+  "participantRead",
+  "publishedAt",
+  "publishedBy",
+  "publishedCommit",
+  "previousPublished",
+];
+
+const isPublishOwned = (key: string): boolean => PUBLISH_OWNED_KEYS.includes(key);
 
 export function projectDeploy(
   authored: AuthoredApp,
@@ -242,10 +295,32 @@ export function projectDeploy(
   stamp: PublishStamp,
   existing: Record<string, unknown> | null,
 ): DeployedApp {
-  const { app, schemas: staged } = projectApp(authored, schemas, stamp, existing);
-  const withoutPublic = { ...app };
-  delete withoutPublic.public;
-  return { app: withoutPublic, staging: staged };
+  const { app } = projectApp(authored, schemas, stamp, existing);
+  // Drop everything publish owns, then carry the LIVE value through — the
+  // write replaces, so anything not handed back would be deleted.
+  const deployed = Object.fromEntries(Object.entries(app).filter(([key]) => !isPublishOwned(key)));
+  for (const key of PUBLISH_OWNED_KEYS) {
+    const live = existing?.[key];
+    if (live !== undefined) deployed[key] = live;
+  }
+  deployed.deployedAt = stamp.publishedAt;
+  deployed.deployedBy = stamp.email;
+  if (stamp.commit !== undefined) deployed.deployedCommit = stamp.commit;
+  return {
+    app: deployed,
+    staging: schemas.map(({ cid, schema }) => ({ cid, doc: stagedDoc(schema, stamp, authored, cid) })),
+  };
+}
+
+/** One staged schema document, carrying this cid's rule-facing configuration
+ *  alongside the schema so publish can promote them together. */
+function stagedDoc(schema: CollectionSchema, stamp: PublishStamp, authored: AuthoredApp, cid: string): StagedSchemaDoc {
+  const doc: StagedSchemaDoc = { publishedSchema: schema, deployedAt: stamp.publishedAt, deployedBy: stamp.email };
+  const config = authored.collections?.[cid];
+  if (config !== undefined) doc.config = config;
+  if (authored.participantRead?.includes(cid) === true) doc.participantRead = true;
+  if (stamp.commit !== undefined) doc.deployedCommit = stamp.commit;
+  return doc;
 }
 
 /** Everything `publish` writes that is NOT a promotion — the public face.
@@ -261,17 +336,26 @@ export function projectDeploy(
  *  so a partial failure with it last leaves the app private (fail closed).
  *  See the design note's publish ordering. */
 export interface PublishedFace {
-  /** Merge into `apps/{aid}` — `undefined` when the author declared no
-   *  `public` block, which the rules read as "not public". */
-  public: Record<string, unknown> | undefined;
+  /** The COMPLETE app document. **Write it with `set`, replacing** — for the
+   *  same reason deploy does, and for one more: taking `public` out of
+   *  `app.json` must make the app private, and a merge cannot remove a field.
+   *  The roster and everything else deploy owns is carried through from
+   *  `existing`, so publishing does not revert an invitation. */
+  app: Record<string, unknown>;
   /** `apps/{aid}/config/public` — the world-readable projection. */
   config: PublishedConfigDoc;
 }
 
-export function projectPublish(authored: AuthoredApp, stamp: PublishStamp): PublishedFace {
-  const { app, config } = projectApp(authored, [], stamp, null);
-  const publicBlock = app.public;
-  return { public: isRecord(publicBlock) ? publicBlock : undefined, config };
+export function projectPublish(authored: AuthoredApp, stamp: PublishStamp, existing: Record<string, unknown> | null): PublishedFace {
+  const { app, config } = projectApp(authored, [], stamp, existing);
+  // Start from what deploy left, drop everything publish owns — an
+  // authored-away key must DISAPPEAR, that is how an app stops being public —
+  // then write this publish's values.
+  const published = Object.fromEntries(Object.entries(existing ?? {}).filter(([key]) => !isPublishOwned(key)));
+  for (const key of PUBLISH_OWNED_KEYS) {
+    if (app[key] !== undefined) published[key] = app[key];
+  }
+  return { app: published, config };
 }
 
 /** Re-stamp a staged schema document as it is promoted to `collections/{cid}`.
@@ -279,7 +363,7 @@ export function projectPublish(authored: AuthoredApp, stamp: PublishStamp): Publ
  *  The stamp answers "which version is PUBLIC right now, and who made it so",
  *  so it is written by the operation that changes the answer — publish — not
  *  carried over from the deploy that staged it. */
-export function promoteSchema(staged: PublishedSchemaDoc, stamp: PublishStamp): PublishedSchemaDoc {
+export function promoteSchema(staged: StagedSchemaDoc, stamp: PublishStamp): PublishedSchemaDoc {
   const doc: PublishedSchemaDoc = { publishedSchema: staged.publishedSchema, publishedAt: stamp.publishedAt, publishedBy: stamp.email };
   if (stamp.commit !== undefined) doc.publishedCommit = stamp.commit;
   return doc;

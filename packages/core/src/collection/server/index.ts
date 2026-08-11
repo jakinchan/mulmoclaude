@@ -99,6 +99,7 @@ export {
   type PublishedApp,
   type PublishedConfigDoc,
   type PublishedSchemaDoc,
+  type StagedSchemaDoc,
 } from "./publishProject";
 export { publishProblems, bindsSubmitterIdentity, type PublishableCollection } from "./publishChecks";
 export type { LoadedCollection } from "./discoveredCollection";
