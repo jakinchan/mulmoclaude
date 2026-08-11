@@ -68,6 +68,14 @@ package is public API, so the name stays as a **deprecated alias of
 rather than keeping a copy of the 8-hex one: that width is the bug, and leaving
 it reachable under an old name would keep shipping it.
 
+So an import that worked keeps working, but the value it returns is 32 hex
+rather than 8. The symbol's own doc promised "the same id *shape* as the
+server's `generateItemId()`", and both moved together, so that promise still
+holds — but a consumer who read the first four words instead sees a change.
+**The `@mulmoclaude/core` release carrying this should therefore be a major**
+(4.0.0), and the release notes should name the width change. Nothing in this
+repo or MulmoTerminal imports the symbol.
+
 ## Tests
 
 `test/utils/collections/test_ids.ts` gains a `newItemId` block: the hyphen-free
