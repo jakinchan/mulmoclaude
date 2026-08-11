@@ -82,6 +82,23 @@ is people.
 
 ### Changed
 
+- **共有コレクションは、ホストが「自分は共有コレクションを扱う」と宣言したときだけ
+  成立する**（`setSharedCollectionsSupport`、`@mulmoclaude/core/collection/server`）。
+  宣言の無いホストでは、firestore ストレージのスキーマを**受け入れの時点で拒否**する
+  （skip しない — skip すると「このコレクションは空」に見え、設定ミスが症状として
+  現れない）。engine がホストの名前を知る形（MulmoClaude のワークスペースかどうかを
+  判定する）にはしていない。表現したいルール — 共有コレクションはプロジェクト
+  リポジトリに置く — は**ホストが自分について知っている性質**だからで、共有コードに
+  特定ホストの名前を持ち込むと、片方のホストだけの変更が毎回このパッケージの変更に
+  なる。`configureCollectionHost` のフィールドではなく独立した setter なのは、
+  accessor と同じ理由（一度きりのバインドに混ぜると、engine を叩くテストが自分で
+  能力を立てられない）。**既定は false**。共有コレクションを扱っていなかったホストは
+  何もしなくてよいが、**`setFirestoreAccessor` を呼んで共有コレクションを使っていた
+  ホストは、宣言しないと受け入れの時点で拒否される** — 破壊的変更であり、opt-in が要る。
+- **MulmoClaude は Firestore のバインドを行わなくなった。** ここは単一の管理
+  ワークスペースで、無関係なコレクションが並んでいる。`app.json` を 1 つ置くと
+  全部が同じ名簿になり、「顧客リストの共有相手が血液検査の結果も見える」形になる。
+  共有コレクションのホストは MulmoTerminal（root がプロジェクトリポジトリ）。
 - **`FirestoreHandle` now carries `uid`** alongside `email`
   (`@mulmoclaude/core/collection/server`). The roster is keyed by email and
   every record operation resolves a role from it, but the app document's
@@ -94,7 +111,7 @@ is people.
 
 ### Package releases
 
-Ships `@mulmoclaude/core@3.8.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/core@3.9.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ## [1.13.1] - 2026-08-10
 

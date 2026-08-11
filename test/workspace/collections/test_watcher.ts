@@ -36,9 +36,24 @@ import {
   startCollectionWatchers,
   stopCollectionWatchers,
 } from "../../../server/workspace/collections/watcher.js";
-import { collectionChangeKey, loadCollection, setCollectionChangePublisher, setFirestoreAccessor, storeFor } from "@mulmoclaude/core/collection/server";
+import {
+  collectionChangeKey,
+  loadCollection,
+  setCollectionChangePublisher,
+  setFirestoreAccessor,
+  setSharedCollectionsSupport,
+  storeFor,
+} from "@mulmoclaude/core/collection/server";
 import type { CollectionSchema } from "../../../server/workspace/collections/types.js";
 import type { CollectionChangePayload, FirestoreDoc, FirestoreDocs, LoadedCollection } from "@mulmoclaude/core/collection/server";
+
+// This suite exercises the ENGINE's shared (firestore) store, which lives in
+// `@mulmoclaude/core` and is hosted by MulmoTerminal — not by this server,
+// which deliberately does not serve shared collections (its workspace holds
+// unrelated collections side by side, so one app.json would put them all under
+// one roster). The capability is therefore declared HERE, by the test, and
+// never by `server/`.
+setSharedCollectionsSupport(true);
 
 let workdir: string;
 let userDir: string;

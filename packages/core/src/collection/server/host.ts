@@ -269,6 +269,7 @@ export function collectionChangeKey(payload: CollectionChangePayload, fallbackRo
 const hostSlot = createHostSlot<CollectionHost>("@mulmoclaude/core/collection/server: configureCollectionHost()");
 let changePublisher: CollectionChangePublisher | null = null;
 let firestoreAccessor: (() => FirestoreHandle | null) | null = null;
+let sharedCollectionsSupported = false;
 
 /** Wire the engine to a host. Call once at server startup, before any
  *  collection storage operation. Re-binding to a *different* host throws —
@@ -294,6 +295,41 @@ export function setCollectionChangePublisher(publish: CollectionChangePublisher 
  *  so this stays a thin pass-through and never throws into the write. */
 export function publishCollectionChange(payload: CollectionChangePayload): void {
   changePublisher?.(payload);
+}
+
+/** Does this host serve SHARED (firestore-backed) collections at all?
+ *
+ *  Opt-in, and `false` until a host says otherwise, because the default has to
+ *  be the safe one: a host that cannot reach Firestore must not accept a
+ *  shared schema and then report the collection as empty.
+ *
+ *  WHY A CAPABILITY AND NOT A HOST CHECK. The engine must not know which host
+ *  it is running in. The rule being expressed — shared collections live in a
+ *  PROJECT REPOSITORY, not in a single managed workspace where one roster
+ *  would govern every unrelated collection beside it — is a property the host
+ *  knows about ITSELF. Asking the engine to test for a particular host's
+ *  workspace would put a host's name in shared code and make every change to
+ *  a one-host feature a change to this package.
+ *
+ *  WHY NOT A FIELD ON `CollectionHost`. Same reason the accessor below is not
+ *  one: `configureCollectionHost` is a ONE-SHOT binding a host sets at startup
+ *  and cannot re-bind, so a suite exercising this engine could not turn the
+ *  capability on for itself without owning the whole host. This is the same
+ *  concern as the accessor and belongs beside it.
+ *
+ *  NOT DERIVED FROM THE ACCESSOR. "Has a session right now" and "serves shared
+ *  collections at all" are different questions: the accessor answers null
+ *  between connections, and a collection must not stop being ACCEPTABLE
+ *  because nobody is signed in — that would turn "connect first" into "this
+ *  schema is invalid". */
+export function setSharedCollectionsSupport(supported: boolean): void {
+  sharedCollectionsSupported = supported;
+}
+
+/** Whether the host declared support. Consulted from the schema ACCEPTANCE
+ *  gate, whose contract is to return a reason rather than raise. */
+export function hostSupportsSharedCollections(): boolean {
+  return sharedCollectionsSupported;
 }
 
 /** Wire the accessor for the host's authenticated Firestore session.

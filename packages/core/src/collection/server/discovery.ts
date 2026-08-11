@@ -14,7 +14,7 @@
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { log, getWorkspaceRoot, userSkillsDir, projectSkillsDir, feedsRoot } from "./host";
+import { log, getWorkspaceRoot, userSkillsDir, projectSkillsDir, feedsRoot, hostSupportsSharedCollections } from "./host";
 import { CollectionSchemaZ } from "../core/schemaZ";
 import { SCHEMA_FILE, resolveDataDir, safeSlugName } from "./paths";
 import { appManifestReason, loadAppManifest } from "./appManifest";
@@ -132,6 +132,14 @@ function acceptStorageSchema(storage: NonNullable<CollectionSchema["storage"]>, 
     const storageFile = resolveDataDir(storage.path, opts.workspaceRoot);
     if (storageFile === null) return { ok: false, reason: `storage.path '${storage.path}' escapes the workspace` };
     return { ok: true, dataDir, storageFile };
+  }
+  // A shared collection needs a host that can reach Firestore AND a host whose
+  // roots are project repositories (D5). Both are the same question from the
+  // engine's side, and the host answers it: see `CollectionHost.sharedCollections`.
+  // Refused rather than skipped, so the author is told why instead of watching
+  // the collection vanish from discovery.
+  if (!hostSupportsSharedCollections()) {
+    return { ok: false, reason: "this host does not support shared collections — they live in a project repository, not a managed workspace" };
   }
   const manifest = loadAppManifest(opts.workspaceRoot);
   if (!manifest.ok) return { ok: false, reason: appManifestReason(manifest, opts.workspaceRoot) };
