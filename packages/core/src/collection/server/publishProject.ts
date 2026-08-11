@@ -376,6 +376,32 @@ export interface PublishedFace {
   public: Record<string, unknown> | undefined;
 }
 
+/** The rule-facing configuration to promote, read from the STAGED documents
+ *  rather than from the manifest as it reads right now.
+ *
+ *  Otherwise: deploy revision A, edit `app.json` to revision B, publish — and
+ *  the promoted schema is A's while the authorization behaviour is B's, a
+ *  combination nobody exercised through `/staging/{aid}`.
+ *
+ *  (`public` is deliberately NOT part of this: it is not staged, because it is
+ *  the decision being made AT publish rather than something under test.) */
+export function stagedRuleConfig(staged: { cid: string; doc: StagedSchemaDoc }[]): {
+  collections: Record<string, AuthoredCollectionConfig> | undefined;
+  participantRead: string[] | undefined;
+} {
+  const entries: [string, AuthoredCollectionConfig][] = [];
+  const participantRead: string[] = [];
+  for (const entry of staged) {
+    const { config } = entry.doc;
+    if (config !== undefined) entries.push([entry.cid, config]);
+    if (entry.doc.participantRead === true) participantRead.push(entry.cid);
+  }
+  return {
+    collections: entries.length > 0 ? Object.fromEntries(entries) : undefined,
+    participantRead: participantRead.length > 0 ? participantRead : undefined,
+  };
+}
+
 export function projectPublish(
   authored: AuthoredApp,
   staged: { cid: string; doc: StagedSchemaDoc }[],
@@ -383,21 +409,20 @@ export function projectPublish(
   existing: Record<string, unknown> | null,
 ): PublishedFace {
   const { app, config } = projectApp(authored, [], stamp, existing);
-  // The rule-facing configuration comes from the STAGED documents, not from
-  // the manifest as it reads right now. Otherwise: deploy revision A, edit
-  // `app.json` to revision B, publish — and the promoted schema is A's while
-  // the authorization behaviour is B's, which nobody exercised in staging.
-  // `public` is not staged and deliberately still comes from the manifest: it
-  // is the decision being made AT publish, not something under test.
-  const collections = Object.fromEntries(staged.filter((entry) => entry.doc.config !== undefined).map((entry) => [entry.cid, entry.doc.config]));
-  const participantRead = staged.filter((entry) => entry.doc.participantRead === true).map((entry) => entry.cid);
-  app.collections = Object.keys(collections).length > 0 ? collections : undefined;
-  app.participantRead = participantRead.length > 0 ? participantRead : undefined;
+  const staging = stagedRuleConfig(staged);
+  app.collections = staging.collections;
+  app.participantRead = staging.participantRead;
   // Start from what deploy left, drop everything publish owns — an
   // authored-away key must DISAPPEAR, that is how an app stops being public —
   // then write this publish's values, with `public` held back for its own
   // final update.
-  const published = Object.fromEntries(Object.entries(existing ?? {}).filter(([key]) => !isPublishOwned(key)));
+  //
+  // With no existing document there is nothing deploy left, so the projection
+  // itself is the base: publishing into an app that does not exist yet must
+  // still carry `aid` / `owner` / `members` / `memberEmails`, or the rules
+  // refuse the create and the roster invariant cannot hold.
+  const base = existing ?? app;
+  const published = Object.fromEntries(Object.entries(base).filter(([key]) => !isPublishOwned(key)));
   for (const key of PUBLISH_OWNED_KEYS) {
     if (key !== "public" && app[key] !== undefined) published[key] = app[key];
   }

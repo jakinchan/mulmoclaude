@@ -59,6 +59,13 @@ test("publish carries the `public` block and the world-readable config, and noth
   // leave the app private.
   assert.equal("public" in face.app, false);
   assert.deepEqual(face.public, { enabled: true, read: ["bookings"], submit: { bookings: { auth: "verifiedEmail", createFields: ["customerName"] } } });
+  // A first publish (no existing document) still has to carry what CREATE
+  // requires: the rules check `owner == request.auth.uid` and that
+  // `memberEmails` matches the roster.
+  assert.equal(face.app.aid, app.aid);
+  assert.equal(face.app.owner, "uid_owner");
+  assert.deepEqual(face.app.members, app.members);
+  assert.deepEqual(face.app.memberEmails, ["owner@example.com"]);
   assert.equal(face.config.enabled, true);
   // The roster is NOT in the public config — a participant reading it would see
   // everyone else's address.

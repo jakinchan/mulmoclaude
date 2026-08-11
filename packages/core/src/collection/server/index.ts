@@ -84,6 +84,7 @@ export {
   projectApp,
   projectDeploy,
   projectPublish,
+  stagedRuleConfig,
   promoteSchema,
   appStagingPath,
   APP_SLUGS_COLLECTION,
