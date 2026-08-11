@@ -36,6 +36,7 @@
 // the emulator round-trip test (`../mulmoserver test/rules/rules_publish.ts`)
 // pins that the rules accept it.
 
+import { isRecord } from "@mulmoclaude/common";
 import type { CollectionSchema } from "../core/schema";
 import type { AuthoredApp, AuthoredSubmit } from "./publishManifest";
 
@@ -212,6 +213,78 @@ export function projectApp(
   return { app, schemas: schemas.map(({ cid, schema }) => ({ cid, doc: schemaDoc(schema, stamp) })), config };
 }
 
+/** Everything `deploy` writes — the host's staging half of the split (the
+ *  design's D10).
+ *
+ *  Two things are deliberately ABSENT from the app document here:
+ *
+ *  - **`public`**. That block is what the rules read to authorize anonymous
+ *    access (`publicOn` / `subOpen` read `apps/{aid}.public`, never the
+ *    world-readable `config/public`), so writing it on deploy would open the
+ *    app the moment someone deployed to test. It belongs to `publish`.
+ *  - **the published schemas**. They go to `staging/{cid}`, which only the
+ *    roster can read, so a deploy against a LIVE app does not swap the view
+ *    its visitors are looking at.
+ *
+ *  A host writing this must MERGE the app document rather than replace it:
+ *  a replace would drop a `public` block a previous publish put there and
+ *  silently unpublish the app. */
+export interface DeployedApp {
+  /** The app document WITHOUT `public` — merge, do not replace. */
+  app: Record<string, unknown>;
+  /** The staged schema documents, for `apps/{aid}/staging/{cid}`. */
+  staging: { cid: string; doc: PublishedSchemaDoc }[];
+}
+
+export function projectDeploy(
+  authored: AuthoredApp,
+  schemas: { cid: string; schema: CollectionSchema }[],
+  stamp: PublishStamp,
+  existing: Record<string, unknown> | null,
+): DeployedApp {
+  const { app, schemas: staged } = projectApp(authored, schemas, stamp, existing);
+  const withoutPublic = { ...app };
+  delete withoutPublic.public;
+  return { app: withoutPublic, staging: staged };
+}
+
+/** Everything `publish` writes that is NOT a promotion — the public face.
+ *
+ *  The schemas are absent on purpose: publish PROMOTES the documents deploy
+ *  staged (copy `staging/{cid}` → `collections/{cid}`, re-stamped with
+ *  {@link promoteSchema}) rather than re-projecting them from git. What the
+ *  roster tested is then exactly what ships; re-projecting would publish
+ *  whatever the working tree says at publish time, which nobody has looked at
+ *  through `/staging/{aid}`.
+ *
+ *  WRITE `public` LAST. It is the only one of the three that grants anything,
+ *  so a partial failure with it last leaves the app private (fail closed).
+ *  See the design note's publish ordering. */
+export interface PublishedFace {
+  /** Merge into `apps/{aid}` — `undefined` when the author declared no
+   *  `public` block, which the rules read as "not public". */
+  public: Record<string, unknown> | undefined;
+  /** `apps/{aid}/config/public` — the world-readable projection. */
+  config: PublishedConfigDoc;
+}
+
+export function projectPublish(authored: AuthoredApp, stamp: PublishStamp): PublishedFace {
+  const { app, config } = projectApp(authored, [], stamp, null);
+  const publicBlock = app.public;
+  return { public: isRecord(publicBlock) ? publicBlock : undefined, config };
+}
+
+/** Re-stamp a staged schema document as it is promoted to `collections/{cid}`.
+ *
+ *  The stamp answers "which version is PUBLIC right now, and who made it so",
+ *  so it is written by the operation that changes the answer — publish — not
+ *  carried over from the deploy that staged it. */
+export function promoteSchema(staged: PublishedSchemaDoc, stamp: PublishStamp): PublishedSchemaDoc {
+  const doc: PublishedSchemaDoc = { publishedSchema: staged.publishedSchema, publishedAt: stamp.publishedAt, publishedBy: stamp.email };
+  if (stamp.commit !== undefined) doc.publishedCommit = stamp.commit;
+  return doc;
+}
+
 /** One published schema document. Written key by key rather than through
  *  `compact`, so the declared type is the type — an optional commit is the
  *  only variable part. */
@@ -224,7 +297,37 @@ function schemaDoc(schema: CollectionSchema, stamp: PublishStamp): PublishedSche
 /** The app documents' parent path — the `FirestoreDocs` seam takes a
  *  collection path plus a document id, and the app document's id is the aid. */
 export const APPS_COLLECTION = "apps";
-/** The collection (schema) documents' parent path. */
+/** The collection (schema) documents' parent path — what the PUBLIC page
+ *  reads, written only by publish (promotion). */
 export const appSchemasPath = (aid: string): string => `apps/${aid}/collections`;
+/** The URL-slug reservations — `appSlugs/{slug}` → `{ aid, published }`.
+ *
+ *  A TOP-LEVEL collection, not a field on the app: the public page resolves a
+ *  slug to an aid BEFORE it can read anything under `apps/{aid}`, and a slug
+ *  has to be claimable atomically (create-if-absent) so two apps cannot hold
+ *  the same URL.
+ *
+ *  `published` is what makes the reservation invisible until publish. The slug
+ *  is human-readable, so a readable reservation would let anyone guess the URL
+ *  and get the aid — and the aid is the `/staging/{aid}` entrance. The rule is
+ *  `allow read: if resource.data.published == true`, which needs no `get()` and
+ *  so costs nothing against the rules' expression budget. */
+export const APP_SLUGS_COLLECTION = "appSlugs";
+
+/** The reservation document. Written by deploy as `{ aid, published: false }`
+ *  and flipped by publish — never re-pointed at another aid, which the rules
+ *  enforce on update. */
+export interface AppSlugDoc extends Record<string, unknown> {
+  aid: string;
+  published: boolean;
+}
+
+export const appSlugDoc = (aid: string, published: boolean): AppSlugDoc => ({ aid, published });
+
+/** The staged schema documents' parent path — what `/staging/{aid}` reads,
+ *  written by deploy. A separate DOCUMENT rather than a field beside
+ *  `publishedSchema`, because the rules cannot hide a field: anything inside a
+ *  document the public page may read is public. */
+export const appStagingPath = (aid: string): string => `apps/${aid}/staging`;
 /** The public-config documents' parent path. */
 export const appConfigPath = (aid: string): string => `apps/${aid}/config`;
