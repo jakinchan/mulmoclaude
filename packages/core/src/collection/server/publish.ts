@@ -231,40 +231,62 @@ function declarationProblems(app: AuthoredApp, collections: LoadedCollection[], 
  *
  *  Returns null when everything was written; a failure result otherwise.
  *
- *  A raw rejection here would reach the agent as a tool crash rather than as
- *  the actionable text this tool promises — and it would do so having possibly
- *  written the app document already, which is the one fact the caller most
- *  needs. So the step is named in the message: a publish that stopped after
- *  the app document is a live roster with last publish's schemas, and the fix
- *  is to publish again rather than to guess. */
+ *  A raw rejection here would reach the agent as a tool crash rather than the
+ *  actionable text this tool promises. But "actionable" is a strong claim for
+ *  a half-finished publish, so the message ENUMERATES what landed rather than
+ *  summarising it: the order is app → every schema → config, and a summary
+ *  written for one failure point is wrong at the others. Saying "the roster
+ *  and configuration are live" after a SCHEMA write failed names a config
+ *  document this publish never wrote — which still holds whatever the last
+ *  publish left, and is exactly the state the caller is trying to repair. */
 async function writeDocuments(handle: NonNullable<ReturnType<typeof firestoreHandle>>, aid: string, published: PublishedApp): Promise<PublishResult | null> {
   const steps: { what: string; run: () => Promise<void> }[] = [
     { what: `the app document (apps/${aid})`, run: () => handle.docs.set(APPS_COLLECTION, aid, published.app) },
     ...published.schemas.map(({ cid, doc }) => ({ what: `the published schema for '${cid}'`, run: () => handle.docs.set(appSchemasPath(aid), cid, doc) })),
-    { what: "the public config document", run: () => handle.docs.set(appConfigPath(aid), PUBLIC_CONFIG_DOC, published.config) },
+    {
+      what: `the public config document (apps/${aid}/config/${PUBLIC_CONFIG_DOC})`,
+      run: () => handle.docs.set(appConfigPath(aid), PUBLIC_CONFIG_DOC, published.config),
+    },
   ];
+  const landed: string[] = [];
   for (const [index, step] of steps.entries()) {
     try {
       await step.run();
+      landed.push(step.what);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      const already =
-        index === 0
-          ? "Nothing was written."
-          : `Everything before it WAS written — the app's roster and configuration are already live while ${index === steps.length - 1 ? "the public config is" : "the remaining documents are"} one publish behind.`;
       return {
         ok: false,
         // The whole reason the flag exists: this is the one failure where
         // documents ARE live.
         partial: index > 0,
+        // The failed step belongs to "not written" — it is the first thing
+        // that did not land, and leaving it out of the list left the sentence
+        // empty when the LAST step failed.
         problems: [
           `publish failed while writing ${step.what}: ${reason}`,
-          `${already} Publishing again is the repair: the write is idempotent, and it re-does the steps that did not land.`,
+          ...partialState(landed, [step.what, ...steps.slice(index + 1).map((rest) => rest.what)]),
         ],
       };
     }
   }
   return null;
+}
+
+/** What is live and what is not, listed rather than summarised.
+ *
+ *  Two facts, and both matter for the repair: a document this publish wrote is
+ *  live NOW, and a document it did not write still holds what the LAST publish
+ *  left — which is not the same as being absent, and not the same as matching
+ *  the declaration that was just half-applied. */
+function partialState(landed: readonly string[], notWritten: readonly string[]): string[] {
+  const repair = "Publishing again is the repair: the write is idempotent, and it re-does every step, including the ones that did land.";
+  if (landed.length === 0) return [`Nothing was written. ${repair}`];
+  return [
+    `Written by this publish, and live now: ${landed.join("; ")}.`,
+    `NOT written: ${notWritten.join("; ")} — ${notWritten.length === 1 ? "it still holds" : "they still hold"} whatever the previous publish left.`,
+    repair,
+  ];
 }
 
 /** Publish this repository's declaration to its app.

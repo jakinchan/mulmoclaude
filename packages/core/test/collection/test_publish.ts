@@ -328,12 +328,43 @@ test("a failed write becomes a result naming the step, not a thrown call", async
   const result = await publishApp(opts());
   assert.equal(result.ok, false);
   assert.ok(!result.ok && result.problems[0]?.includes("the published schema for 'bookings'"));
-  assert.ok(!result.ok && result.problems.some((problem) => problem.includes("Everything before it WAS written")));
   // The flag the caller words its headline from. Inferring it from the prose
   // is what produced "nothing was written" over a live roster.
   assert.equal(!result.ok && result.partial, true);
-  // …and it says so truthfully: the app document really is live.
+
+  const said = !result.ok ? result.problems.join("\n") : "";
+  // What landed is ENUMERATED, not summarised. The order is app → schemas →
+  // config, so a summary written for one failure point is wrong at the others:
+  // saying "the roster and configuration are live" here would name a config
+  // document this publish never wrote.
+  assert.match(said, /Written by this publish, and live now: the app document/);
+  assert.match(said, /NOT written:.*public config document/s);
+  assert.doesNotMatch(said, /configuration are already live/);
+  // …and the enumeration is true on both sides.
   assert.notEqual(await docs.get("apps", AID), null);
+  assert.equal(await docs.get(`apps/${AID}/config`, "public"), null);
+});
+
+test("a config-write failure names the schemas that DID land", async () => {
+  // The other end of the same order. Here the app document and every schema
+  // are live and only the public config is missing — the opposite of the case
+  // above, and a message that summarised would be wrong at one of the two.
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+  const failOnConfig: FirestoreDocs = {
+    ...docs,
+    set: (collectionPath, docId, data) =>
+      collectionPath === `apps/${AID}/config` ? Promise.reject(new Error("quota exceeded")) : docs.set(collectionPath, docId, data),
+  };
+  setFirestoreAccessor(() => ({ docs: failOnConfig, email: OWNER_EMAIL, uid: OWNER_UID }));
+
+  const result = await publishApp(opts());
+  assert.equal(result.ok, false);
+  assert.equal(!result.ok && result.partial, true);
+  const said = !result.ok ? result.problems.join("\n") : "";
+  assert.match(said, /Written by this publish, and live now:.*the published schema for 'bookings'/s);
+  assert.match(said, /NOT written: the public config document/);
+  assert.notEqual(await docs.get(`apps/${AID}/collections`, "bookings"), null);
 });
 
 test("a rejecting preflight read becomes a result too, and says nothing was written", async () => {
