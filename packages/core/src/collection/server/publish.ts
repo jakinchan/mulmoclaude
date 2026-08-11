@@ -115,9 +115,28 @@ async function gitStamp(root: string): Promise<{ commit?: string | undefined; di
   }
 }
 
-/** The shared collections of this repository, by cid. */
-async function sharedCollections(opts: DiscoveryOptions): Promise<LoadedCollection[]> {
-  const all = await discoverCollections(opts);
+/** The shared collections of THIS REPOSITORY, by cid.
+ *
+ *  `userSkillsDir: null` — not a test convenience, a boundary. Discovery
+ *  resolves every schema it finds against the WORKSPACE root, user-scope
+ *  included, so a globally installed skill under `~/.claude/skills` carrying
+ *  `storage.type: "firestore"` picks up whichever repository's `aid` it
+ *  happens to be discovered from. Left in, publish would write that schema
+ *  into this app — and into every other app the same user publishes, since the
+ *  skill is installed once per machine and the repositories are not.
+ *
+ *  An app is a REPOSITORY (design D1): its collections are the ones committed
+ *  beside its `app.json`, which is what makes a clone resolve the same
+ *  collections and an invitation a matter of authorization rather than
+ *  discovery. A schema that is not in the repository has no claim on a cid
+ *  there. And because a view is HTML, publishing one is not a tidiness
+ *  question: it is the machine's own skills reaching every member's browser.
+ *
+ *  The consequence is deliberate: a cid named in `app.json` that exists only
+ *  in user scope is now an unknown cid, and publish says so by name instead of
+ *  quietly publishing a schema from outside the repository. */
+async function sharedCollections(opts: DiscoveryOptions, root: string): Promise<LoadedCollection[]> {
+  const all = await discoverCollections({ ...opts, workspaceRoot: root, userSkillsDir: null });
   return all.filter((collection) => collection.appId !== undefined);
 }
 
@@ -270,7 +289,7 @@ export async function publishApp(opts: PublishOptions = {}): Promise<PublishResu
   const authored = await readAuthored(root);
   if (!authored.ok) return { ...authored, partial: false };
 
-  const collections = await sharedCollections({ ...opts, workspaceRoot: root });
+  const collections = await sharedCollections(opts, root);
   const problems = declarationProblems(authored.app, collections, handle);
   if (problems.length > 0) return { ok: false, partial: false, problems };
 

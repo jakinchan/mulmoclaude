@@ -373,6 +373,44 @@ test("a first-step failure says nothing was written, because nothing was", async
   assert.equal(!result.ok && result.partial, false, "a first-step failure wrote nothing, and must not claim otherwise");
 });
 
+test("a user-scope skill is NOT published into this repository's app", async () => {
+  // `~/.claude/skills` is installed once per machine; a repository is not. And
+  // discovery resolves every schema it finds — user scope included — against
+  // the WORKSPACE root, so a globally installed firestore skill would pick up
+  // whichever repository's aid it was discovered from and be written into that
+  // app, and into every other app the same user publishes.
+  //
+  // A view is HTML, so this is not a tidiness question: it is the machine's
+  // own skills reaching every member's browser.
+  const userSkillDir = path.join(emptyUserDir, "globalnotes");
+  mkdirSync(userSkillDir, { recursive: true });
+  writeFileSync(path.join(userSkillDir, "SKILL.md"), "---\nname: globalnotes\ndescription: installed once per machine\n---\nbody\n");
+  writeFileSync(path.join(userSkillDir, "schema.json"), JSON.stringify({ ...BOOKINGS_SCHEMA, title: "Global Notes" }));
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+
+  const result = await publishApp(opts());
+  assert.equal(result.ok, true, result.ok ? "" : result.problems.join("\n"));
+  assert.deepEqual(result.ok && result.cids, ["bookings"], "only the repository's own collections may be published");
+  assert.equal(await docs.get(`apps/${AID}/collections`, "globalnotes"), null);
+});
+
+test("naming a user-scope-only collection in app.json is refused, not silently published", async () => {
+  // The paired case, and the reason the boundary is safe to draw: a cid that
+  // exists only outside the repository becomes an unknown cid — said by name —
+  // rather than a schema from off the repository going live.
+  const userSkillDir = path.join(emptyUserDir, "globalnotes");
+  mkdirSync(userSkillDir, { recursive: true });
+  writeFileSync(path.join(userSkillDir, "SKILL.md"), "---\nname: globalnotes\ndescription: installed once per machine\n---\nbody\n");
+  writeFileSync(path.join(userSkillDir, "schema.json"), JSON.stringify({ ...BOOKINGS_SCHEMA, title: "Global Notes" }));
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp({ participantRead: ["globalnotes"] });
+
+  const result = await publishApp(opts());
+  assert.equal(result.ok, false);
+  assert.ok(!result.ok && result.problems.some((problem) => problem.includes("participantRead names 'globalnotes'")));
+});
+
 test("publish without a session refuses instead of failing document by document", async () => {
   writeSkill("bookings", BOOKINGS_SCHEMA);
   writeApp();
