@@ -366,7 +366,7 @@ import {
   rowIdOf,
   toggleChecked,
   nextUniqueItemId,
-  shortHexId,
+  newItemId,
   COMPUTED_TYPES,
   buildUpdatedRecord,
   coerceInlineValue,
@@ -1059,12 +1059,12 @@ const calendarTimeField = computed<string | undefined>(() => {
   return calendarAnchorField.value === schema.calendarField ? schema.calendarTimeField : undefined;
 });
 
-/** A short, slug-safe id not already used by a loaded record. Collisions
- *  are astronomically unlikely (32 bits), but we still re-roll a few
- *  times against the in-memory set before giving up and using the last
- *  candidate (the server's overwrite guard is the final backstop). */
+/** A slug-safe id not already used by a loaded record. A UUID never
+ *  collides in practice, and the loaded set is only the rows this view
+ *  holds anyway — the re-roll is kept because the server's overwrite
+ *  guard is the real backstop and this costs nothing. */
 function generateUniqueItemId(primaryKey: string): string {
-  return nextUniqueItemId(items.value, primaryKey, shortHexId);
+  return nextUniqueItemId(items.value, primaryKey, newItemId);
 }
 
 function openCreate(): void {
@@ -1092,8 +1092,8 @@ function openCreate(): void {
   // value (e.g. "me") so the first Add can't pick an arbitrary id.
   // Otherwise pre-fill a unique, editable id so the user doesn't have to
   // invent one — the primary-key input stays enabled in create mode, so
-  // they can still override it before saving. Matches the id shape the
-  // server would generate for a blank-id POST (`generateItemId`).
+  // they can still override it before saving. Same generator the server
+  // uses for a blank-id POST (`generateItemId` delegates to `newItemId`).
   const { singleton, primaryKey } = collection.value.schema;
   if (singleton) {
     text[primaryKey] = singleton;

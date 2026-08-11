@@ -1,15 +1,24 @@
 // Unit tests for the pure id helpers (packages/core/src/collection/core/ids.ts).
 // Focus: `generateUniqueId`'s collision re-roll and `nextUniqueItemId` (the
 // existing-set build + re-roll lifted out of the view's `generateUniqueItemId`);
-// the slug/record-id validators are exercised via schema tests already.
+// the slug/record-id validators are exercised via schema tests already. Plus
+// `newItemId`, whose output has to satisfy two contracts at once: the record-id
+// sanitiser (it is the `<id>.json` filename stem) and Google's caller-chosen
+// event id (a googleCalendar collection pushes the record id straight to it).
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { generateUniqueId, nextUniqueItemId, type CollectionItem } from "@mulmoclaude/core/collection";
+import { generateUniqueId, isSafeRecordId, newItemId, nextUniqueItemId, type CollectionItem } from "@mulmoclaude/core/collection";
+import { generateItemId } from "@mulmoclaude/core/collection/server";
+import { isClientSettableEventId } from "@mulmoclaude/core/google";
+
+// A v4 UUID with its hyphens stripped: 32 hex chars, the version nibble at
+// index 12 and the variant at index 16 still in place.
+const GENERATED_ID_PATTERN = /^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$/;
 
 /** A deterministic generator returning the given ids in order, then repeating
- *  the last one forever — models `shortHexId` for a fixed roll sequence. */
+ *  the last one forever — models `newItemId` for a fixed roll sequence. */
 function sequence(...ids: string[]): () => string {
   let index = 0;
   return () => {
@@ -19,6 +28,34 @@ function sequence(...ids: string[]): () => string {
     return picked;
   };
 }
+
+describe("newItemId", () => {
+  it("returns a hyphen-free v4 UUID", () => {
+    assert.match(newItemId(), GENERATED_ID_PATTERN);
+  });
+
+  it("passes the record-id sanitiser, so it is a legal <id>.json stem", () => {
+    // A generated id that failed here would 400 every blank-id create.
+    for (let i = 0; i < 100; i++) assert.ok(isSafeRecordId(newItemId()));
+  });
+
+  // The reason the hyphens are stripped. A googleCalendar collection sends the
+  // record id as the caller-chosen event id, and Google takes base32hex only —
+  // a hyphenated id is refused, so every UI-created record would push as
+  // "the record id cannot be used as a Google event id".
+  it("is usable as a Google event id", () => {
+    for (let i = 0; i < 100; i++) assert.ok(isClientSettableEventId(newItemId()));
+  });
+
+  it("is what the server mints for a blank-id create (`generateItemId` delegates)", () => {
+    assert.match(generateItemId(), GENERATED_ID_PATTERN);
+  });
+
+  it("does not repeat itself", () => {
+    const ids = new Set(Array.from({ length: 1000 }, () => newItemId()));
+    assert.equal(ids.size, 1000);
+  });
+});
 
 describe("generateUniqueId", () => {
   it("returns the first candidate when nothing collides", () => {

@@ -4,10 +4,10 @@
 // the file is missing.
 
 import { lstat, mkdir, open, readdir, readFile, unlink } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { collectionChangePayload, getWorkspaceRoot, log, publishCollectionChange } from "./host";
 import { writeFileAtomic } from "../../files/atomic.js";
+import { newItemId } from "../core/itemId";
 import { isContainedInRoot, itemFilePath, safeRecordId } from "./paths";
 import type { CollectionItem, CollectionSchema } from "../core/schema";
 import { isErrorWithCode, isRecord } from "@mulmoclaude/common";
@@ -227,11 +227,13 @@ export async function deleteItem(dataDir: string, itemId: string, opts: IoOption
   }
 }
 
-/** Generate a short random hex id. Used by POST when the form doesn't
- *  carry a primary-key value (UI shortcut — Claude normally derives a
- *  semantic id from the record's name). */
+/** Generate a record id. Used by POST when the form doesn't carry a
+ *  primary-key value (UI shortcut — Claude normally derives a semantic
+ *  id from the record's name). Delegates to the isomorphic generator, so
+ *  the id the UI pre-fills and the id a blank-id POST mints stay the
+ *  same thing rather than two implementations that have to agree. */
 export function generateItemId(): string {
-  return randomBytes(4).toString("hex");
+  return newItemId();
 }
 
 /** The item id a CREATE should use for `schema`, or null when the
