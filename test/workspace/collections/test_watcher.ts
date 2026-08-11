@@ -647,8 +647,8 @@ function connectFake(docs: FakeDocs): void {
   setFirestoreAccessor(() => ({ docs, email: "owner@example.com" }));
 }
 
-function writeSharedSchema(slug: string, extra: Record<string, unknown> = {}): void {
-  writeFileSync(path.join(workdir, "app.json"), JSON.stringify({ aid: SHARED_APP_ID }));
+function writeSharedSchema(slug: string, extra: Record<string, unknown> = {}, appId: string = SHARED_APP_ID): void {
+  writeFileSync(path.join(workdir, "app.json"), JSON.stringify({ aid: appId }));
   const skillDir = path.join(workdir, ".claude/skills", slug);
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(path.join(skillDir, "SKILL.md"), `---\nname: ${slug}\ndescription: test\n---\nbody\n`);
@@ -812,6 +812,41 @@ describe("shared collection — the live refresh reaches the app's own channel",
       // replaced answers "gone" for every shared record, because there is no
       // item file — so every live change used to publish as a DELETE.
       assert.equal(payload.op, "upsert");
+    } finally {
+      setCollectionChangePublisher(null);
+    }
+  });
+});
+
+describe("shared collection — the app is part of what is mounted", () => {
+  const FSA_SLUG = "test-watcher-fs-app";
+  const OTHER_APP_ID = "app_test_other";
+
+  // `aid` is resolved from the repository's `app.json`, not from the schema, so
+  // a repointed app.json changes where the records live while every schema file
+  // stays byte-identical. A mount keyed on the schema alone would keep
+  // listening to the OLD app forever: the collection would serve the NEW app's
+  // records and be woken by the old one's changes.
+  it("remounts when app.json is repointed at another app", async () => {
+    writeSharedSchema(FSA_SLUG);
+    const docs = makeFakeDocs([{ id: "a", read: false }]);
+    connectFake(docs);
+    const published: CollectionChangePayload[] = [];
+    setCollectionChangePublisher((payload) => published.push(payload));
+    try {
+      await startForTest();
+      assert.equal(docs.listenerCount(), 1);
+
+      writeSharedSchema(FSA_SLUG, {}, OTHER_APP_ID); // same schema, different app
+      assert.equal(await _syncWatchersForTesting(workdir), true, "a moved backend is a real mutation");
+      assert.equal(docs.listenerCount(), 1, "the old listener must be detached, not left running beside the new one");
+
+      published.length = 0;
+      docs.emit(["a"]);
+      await waitUntil(async () => Promise.resolve(published.length > 0), "the remounted listener's change");
+      const payload = published.at(-1);
+      assert.ok(payload);
+      assert.deepEqual(collectionChangeKey(payload, workdir), { kind: "shared", aid: OTHER_APP_ID, cid: FSA_SLUG });
     } finally {
       setCollectionChangePublisher(null);
     }

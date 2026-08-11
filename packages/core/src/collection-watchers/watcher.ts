@@ -549,10 +549,23 @@ function stopVanishedWatchers(gen: WatcherGeneration, liveSlugs: Set<string>): b
   return mutated;
 }
 
+/** True when the collection's records moved — a different `dataSource.path`, a
+ *  different `dataPath`, a flip between the two modes, or a different APP. The
+ *  mount (an fs.watch, or a Firestore listener) is bound to the OLD location,
+ *  so it must be remounted, not just re-reconciled.
+ *
+ *  `appId` belongs here even though it is not in the schema: it is resolved
+ *  separately, from the repository's `app.json`. Point that file at another app
+ *  and every read and write follows immediately, while a listener armed on the
+ *  old one keeps running — so the collection would serve the NEW app's records
+ *  and be woken by the OLD app's changes, forever. */
+function backendMoved(previous: LoadedCollection, next: LoadedCollection): boolean {
+  return previous.appId !== next.appId || storagePathChanged(previous.schema, next.schema);
+}
+
 /** True when a schema edit moved the collection's storage — a different
  *  `dataSource.path`, a different `dataPath`, or a flip between the two
- *  modes. The mounted fs.watch is bound to the OLD location, so it must
- *  be remounted, not just re-reconciled. */
+ *  modes. */
 function storagePathChanged(previous: LoadedCollection["schema"], next: LoadedCollection["schema"]): boolean {
   return (
     previous.dataSource?.path !== next.dataSource?.path ||
@@ -571,26 +584,32 @@ function storageFilePath(storage: LoadedCollection["schema"]["storage"]): string
 
 /** Re-reconcile already-watched collections whose schema changed since
  *  the last tick. New collections fall through to `startNewWatchers`. */
+/** Unmount a collection whose records moved. `startNewWatchers` (right after
+ *  this pass in syncWatchers) remounts it on the new location. A dataSource
+ *  collection also gets a change ping so open views refetch immediately. */
+function dropStaleMount(gen: WatcherGeneration, existing: CollectionWatcher, collection: LoadedCollection): void {
+  log().info("watcher backend moved, remounting", { slug: collection.slug });
+  try {
+    existing.unsubscribe();
+  } catch {
+    /* best-effort */
+  }
+  gen.watchers.delete(collection.slug);
+  if (collection.schema.dataSource !== undefined) safePublish(gen, collection, { slug: collection.slug, op: "upsert" });
+}
+
 async function reconcileChangedSchemas(gen: WatcherGeneration, collections: readonly LoadedCollection[]): Promise<boolean> {
   let mutated = false;
   for (const collection of collections) {
     const existing = gen.watchers.get(collection.slug);
     if (!existing) continue;
     const nextJson = JSON.stringify(collection.schema);
-    if (existing.schemaJson === nextJson) continue;
-    if (storagePathChanged(existing.collection.schema, collection.schema)) {
-      // Drop the stale mount; `startNewWatchers` (which runs right after
-      // this pass in syncWatchers) remounts on the new location. A
-      // dataSource collection also gets a change ping so open views
-      // refetch against the new file immediately.
-      log().info("watcher storage path changed, remounting", { slug: collection.slug });
-      try {
-        existing.unsubscribe();
-      } catch {
-        /* best-effort */
-      }
-      gen.watchers.delete(collection.slug);
-      if (collection.schema.dataSource !== undefined) safePublish(gen, collection, { slug: collection.slug, op: "upsert" });
+    // The APP is checked even when the schema is byte-identical: an `app.json`
+    // edit changes where the records live without touching a schema file.
+    const moved = backendMoved(existing.collection, collection);
+    if (existing.schemaJson === nextJson && !moved) continue;
+    if (moved) {
+      dropStaleMount(gen, existing, collection);
       mutated = true;
       continue;
     }
