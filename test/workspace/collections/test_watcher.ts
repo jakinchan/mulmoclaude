@@ -36,9 +36,9 @@ import {
   startCollectionWatchers,
   stopCollectionWatchers,
 } from "../../../server/workspace/collections/watcher.js";
-import { loadCollection, storeFor } from "@mulmoclaude/core/collection/server";
+import { loadCollection, setFirestoreAccessor, storeFor } from "@mulmoclaude/core/collection/server";
 import type { CollectionSchema } from "../../../server/workspace/collections/types.js";
-import type { LoadedCollection } from "@mulmoclaude/core/collection/server";
+import type { FirestoreDoc, FirestoreDocs, LoadedCollection } from "@mulmoclaude/core/collection/server";
 
 let workdir: string;
 let userDir: string;
@@ -113,6 +113,9 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopCollectionWatchers();
+  // Module-level state: a fixture's fake left wired would let a shared
+  // collection resolve in a later test that never set one up.
+  setFirestoreAccessor(null);
   rmSync(workdir, { recursive: true, force: true });
   rmSync(userDir, { recursive: true, force: true });
   rmSync(notifierDir, { recursive: true, force: true });
@@ -565,5 +568,184 @@ describe("a watch that cannot arm is retried, not marked mounted", () => {
 
     const legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
     assert.deepEqual(legacyIds, [legacyIdFor(SLUG, "a")], "and its boot reconcile must bell the pending item");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shared (firestore-backed) collections. Their store implements no `watch`, so
+// nothing ever reports that their records moved — the clock tick has to stand
+// in for the store-change path. These pin that it does, and that a closed
+// session stays an ordinary state rather than an error or a data loss.
+// ---------------------------------------------------------------------------
+
+const SHARED_APP_ID = "app_test_7f3a";
+
+// A shared collection's bell is keyed by its APP, not by the root this
+// repository happens to be checked out into — the same obligation seen from two
+// worktrees is one bell. Spelled out here rather than imported, like
+// `legacyIdFor` above: it is a cross-app on-disk format.
+const sharedLegacyIdFor = (slug: string, itemId: string): string => `collection-completion:#${SHARED_APP_ID}\u0000${slug}:${itemId}`;
+
+/** In-memory `FirestoreDocs`, keyed only by document id: these tests never
+ *  exercise two collection paths at once, and the path itself is pinned in
+ *  test_storeContract.ts. */
+function makeFakeDocs(seed: Record<string, unknown>[]): FirestoreDocs {
+  const rows = new Map<string, unknown>(seed.map((record) => [record.id as string, record]));
+  return {
+    list: () => {
+      const entries: FirestoreDoc[] = [...rows.entries()].map(([docId, data]) => ({ id: docId, data }));
+      entries.sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+      return Promise.resolve(entries);
+    },
+    get: (_path, docId) => Promise.resolve(rows.get(docId) ?? null),
+    set: (_path, docId, data) => {
+      rows.set(docId, data);
+      return Promise.resolve();
+    },
+    create: (_path, docId, data) => {
+      if (rows.has(docId)) return Promise.resolve(false);
+      rows.set(docId, data);
+      return Promise.resolve(true);
+    },
+    delete: (_path, docId) => Promise.resolve(rows.delete(docId)),
+  };
+}
+
+function connectFake(docs: FirestoreDocs): void {
+  setFirestoreAccessor(() => ({ docs, email: "owner@example.com" }));
+}
+
+function writeSharedSchema(slug: string, extra: Record<string, unknown> = {}): void {
+  writeFileSync(path.join(workdir, "app.json"), JSON.stringify({ aid: SHARED_APP_ID }));
+  const skillDir = path.join(workdir, ".claude/skills", slug);
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(path.join(skillDir, "SKILL.md"), `---\nname: ${slug}\ndescription: test\n---\nbody\n`);
+  writeFileSync(
+    path.join(skillDir, "schema.json"),
+    JSON.stringify({
+      title: "Cloud",
+      icon: "cloud",
+      storage: { type: "firestore" },
+      primaryKey: "id",
+      fields: {
+        id: { type: "string", label: "ID", primary: true, required: true },
+        read: { type: "boolean", label: "Read", required: true },
+      },
+      ...extra,
+    }),
+  );
+}
+
+const BELLS = { completionField: "read", completionDoneValues: ["true"] };
+
+const startForTest = () =>
+  startCollectionWatchers({
+    discoveryOpts: { workspaceRoot: workdir, userSkillsDir: userDir },
+    rediscoveryIntervalMs: null,
+    triggerTickIntervalMs: null,
+  });
+
+describe("shared collection — the watcher set stays quiet", () => {
+  const FS_SLUG = "test-watcher-firestore";
+
+  // A collection with no file to watch is still MOUNTED (a store without
+  // `watch` registers, just without live updates). Were it not, every
+  // rediscovery poll would try to mount it again, report a mutation, and sweep
+  // — a permanent 30 s sweep loop.
+  it("does not report a mutation on repeat ticks (no permanent sweep loop)", async () => {
+    writeSharedSchema(FS_SLUG);
+    connectFake(makeFakeDocs([]));
+    await startForTest();
+    assert.equal(await _syncWatchersForTesting(workdir), false, "first quiet tick must not sweep");
+    assert.equal(await _syncWatchersForTesting(workdir), false, "second quiet tick must not sweep");
+  });
+
+  it("still reports a mutation when a watchable collection really appears", async () => {
+    writeSharedSchema(FS_SLUG);
+    connectFake(makeFakeDocs([]));
+    await startForTest();
+    assert.equal(await _syncWatchersForTesting(workdir), false);
+    writeSchema(buildSchema());
+    assert.equal(await _syncWatchersForTesting(workdir), true, "a newly mounted watcher must still sweep");
+  });
+});
+
+describe("shared collection — declared bells actually run", () => {
+  const FSB_SLUG = "test-watcher-fs-bell";
+
+  // Without `tickUnwatchedCollections`, a shared collection declaring
+  // `completionField` would validate and then silently do nothing: no change
+  // event ever arrives, so nothing re-derives its bells.
+  it("bells a pending record via the clock tick, and clears it when done", async () => {
+    writeSharedSchema(FSB_SLUG, BELLS);
+    const docs = makeFakeDocs([{ id: "a", read: false }]);
+    connectFake(docs);
+    await startForTest();
+
+    await _tickTimeTriggersForTesting(undefined, workdir);
+    let legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
+    assert.ok(legacyIds.includes(sharedLegacyIdFor(FSB_SLUG, "a")), "pending record must bell");
+
+    // The record turns done remotely. Nothing can report that (no `watch`), so
+    // only the tick can clear the bell.
+    await docs.set("ignored", "a", { id: "a", read: true });
+    await _tickTimeTriggersForTesting(undefined, workdir);
+    legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
+    assert.ok(!legacyIds.includes(sharedLegacyIdFor(FSB_SLUG, "a")), "bell must clear once done");
+  });
+
+  it("survives a closed session — no throw, and it recovers once connected", async () => {
+    writeSharedSchema(FSB_SLUG, BELLS);
+    setFirestoreAccessor(null); // no remote-host session
+    await startForTest();
+    // A disconnected session is an ordinary state: the tick must not reject.
+    await assert.doesNotReject(() => _tickTimeTriggersForTesting(undefined, workdir));
+    assert.equal((await activeCompletionEntries()).length, 0);
+
+    connectFake(makeFakeDocs([{ id: "a", read: false }]));
+    await _tickTimeTriggersForTesting(undefined, workdir);
+    const legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
+    assert.ok(legacyIds.includes(sharedLegacyIdFor(FSB_SLUG, "a")), "must recover after reconnect");
+  });
+
+  // A failed pass learns nothing, so it must change nothing — least of all
+  // clear bells a successful pass derived.
+  it("a failed pass after a successful one does not wipe what the successful one derived", async () => {
+    writeSharedSchema(FSB_SLUG, BELLS);
+    connectFake(makeFakeDocs([{ id: "a", read: false }]));
+    await startForTest();
+    await _tickTimeTriggersForTesting(undefined, workdir);
+    assert.ok((await activeCompletionEntries()).map((entry) => entry.legacyId).includes(sharedLegacyIdFor(FSB_SLUG, "a")), "precondition: the bell exists");
+
+    setFirestoreAccessor(null); // the session closes again
+    await _tickTimeTriggersForTesting(undefined, workdir);
+    assert.ok(
+      (await activeCompletionEntries()).map((entry) => entry.legacyId).includes(sharedLegacyIdFor(FSB_SLUG, "a")),
+      "a disconnected tick must leave the previous pass's bells alone",
+    );
+  });
+});
+
+describe("shared collection — bells don't outlive their schema", () => {
+  const FSD_SLUG = "test-watcher-fs-drop";
+
+  // Removing `completionField` drops the collection out of the reconcile set
+  // at once, so the bell has to be cleared by something. For a shared
+  // collection that something is the rediscovery pass — `reconcileChangedSchemas`
+  // sees the schema move and pairs it with a sweep, exactly as it does for
+  // every other backend. The clock tick deliberately does NOT duplicate it.
+  it("clears bells when completionField is removed from the schema", async () => {
+    writeSharedSchema(FSD_SLUG, BELLS);
+    connectFake(makeFakeDocs([{ id: "a", read: false }]));
+    await startForTest();
+
+    await _tickTimeTriggersForTesting(undefined, workdir);
+    let legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
+    assert.ok(legacyIds.includes(sharedLegacyIdFor(FSD_SLUG, "a")), "precondition: the bell exists");
+
+    writeSharedSchema(FSD_SLUG); // schema edited — no more completion tracking
+    assert.equal(await _syncWatchersForTesting(workdir), true, "a changed schema is a real mutation");
+    legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
+    assert.ok(!legacyIds.includes(sharedLegacyIdFor(FSD_SLUG, "a")), "bell must not outlive the field that declared it");
   });
 });

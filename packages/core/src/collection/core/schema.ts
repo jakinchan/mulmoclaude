@@ -235,7 +235,7 @@ export type CollectionStorage = z.infer<typeof StorageZ>;
  *  default (`dataPath`); `csv` is implied by `dataSource`; other kinds are
  *  named explicitly via `storage.type`. The server's store factory registry
  *  (`server/store.ts`) is keyed by this. */
-export type CollectionStorageKind = "file" | "csv" | "sqlite";
+export type CollectionStorageKind = "file" | "csv" | "sqlite" | "firestore";
 
 /** Which storage backend serves this schema's records. Derived, not stored:
  *  existing schemas carry no `storage` key and must keep resolving exactly
@@ -272,6 +272,13 @@ export interface CollectionSummary {
    *  know which collection change-channel(s) to watch for a live icon
    *  update (see `useDynamicShortcutIcons`). */
   iconSources?: string[];
+  /** The app a SHARED collection belongs to — present iff the schema declares
+   *  `storage.type: "firestore"`. A client needs it to subscribe to the right
+   *  live-change channel: a shared collection publishes on
+   *  `collection:app/<aid>/<cid>`, and a subscriber that keys on the name alone
+   *  listens to the LOCAL channel, so the refetch never arrives. Not a secret —
+   *  it is committed in the repository every clone reads. */
+  appId?: string;
 }
 
 export interface CollectionDetail extends CollectionSummary {

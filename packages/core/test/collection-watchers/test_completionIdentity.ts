@@ -179,6 +179,78 @@ test("a rooted sweep clears LEGACY rootless entries instead of stranding them", 
   for (const entry of await listAll()) await notifierClear(entry.id);
 });
 
+// --- shared collections -----------------------------------------------------
+//
+// A SHARED collection is one obligation however many checkouts can see it: its
+// records live in its app, not in any tree, so a bell keyed by the root the
+// repository happens to be cloned into would put a duplicate in front of the
+// user per worktree — and each root's sweep would manage only its own copy.
+//
+// `appId` is set on the fixture while the records stay on disk, deliberately:
+// what is under test is the bell's IDENTITY, not the Firestore backend.
+
+const APP_ID = "app_test_7f3a";
+const sharedId = `collection-completion:#${APP_ID}\u0000tasks:t1`;
+const asSharedCollection = (dataDir: string): LoadedCollection => ({ ...asCollection(dataDir), appId: APP_ID }) as LoadedCollection;
+
+test("two roots, one shared collection — ONE bell, keyed by the app", async () => {
+  const rootOne = makeTempDir("ci-shared-a-");
+  const rootTwo = makeTempDir("ci-shared-b-");
+  const dirOne = fixture(rootOne);
+  const dirTwo = mkdtempSync(path.join(rootTwo, "coll-"));
+  writeFileSync(path.join(dirTwo, "t1.json"), JSON.stringify({ id: "t1", name: "Pending", done: "no" }));
+
+  await reconcileItem(asSharedCollection(dirOne), "t1", { workspaceRoot: rootOne });
+  await reconcileItem(asSharedCollection(dirTwo), "t1", { workspaceRoot: rootTwo });
+
+  // The second pass finds the first pass's bell rather than publishing beside
+  // it — which is only true if the root never reached the id.
+  assert.deepEqual(await legacyIds(), [sharedId]);
+  // And the deep link carries no root: there is no project to point at.
+  assert.deepEqual(navigateRoots, [undefined]);
+  for (const entry of await listAll()) await notifierClear(entry.id);
+});
+
+test("a local collection of the same name keeps its own bell", async () => {
+  // The shared mark exists for this: a shared `tasks` and a project's own
+  // `tasks` are two collections, and a rootless local id must not collide with
+  // a shared one.
+  const projectRoot = makeTempDir("ci-shared-c-");
+  const dataDir = fixture(root);
+  const projectDir = mkdtempSync(path.join(projectRoot, "coll-"));
+  writeFileSync(path.join(projectDir, "t1.json"), JSON.stringify({ id: "t1", name: "Pending", done: "no" }));
+
+  await reconcileItem(asCollection(dataDir), "t1"); // local, rootless
+  await reconcileItem(asSharedCollection(projectDir), "t1", { workspaceRoot: projectRoot });
+  assert.deepEqual(new Set(await legacyIds()), new Set(["collection-completion:tasks:t1", sharedId]));
+
+  // Clearing the local one leaves the shared one — the clear path and the
+  // dedupe check agree on the same scope.
+  await clearItemNotification("tasks", "t1");
+  assert.deepEqual(await legacyIds(), [sharedId]);
+  for (const entry of await listAll()) await notifierClear(entry.id);
+});
+
+test("a sweep that cannot resolve the app leaves its bell alone", async () => {
+  // Who may retire a shared bell: a host that can resolve THAT app's collection,
+  // because judging one means reading its records. A host without the app would
+  // read "gone" for every check and clear bells for an app it has never seen.
+  const otherHost = makeTempDir("ci-shared-d-");
+  const dataDir = fixture(root);
+
+  await reconcileItem(asSharedCollection(dataDir), "t1", { workspaceRoot: root });
+  assert.deepEqual(await legacyIds(), [sharedId]);
+
+  await sweepStaleActiveEntries({ workspaceRoot: otherHost });
+  assert.deepEqual(await legacyIds(), [sharedId], "another host's sweep must not retire it");
+
+  // Nor may a sweep that resolves a DIFFERENT collection of the same name: the
+  // slug is not the identity.
+  await sweepStaleActiveEntries({});
+  assert.deepEqual(await legacyIds(), [sharedId], "a same-named local collection must not retire it either");
+  for (const entry of await listAll()) await notifierClear(entry.id);
+});
+
 test("a rootless sweep leaves a ROOTED entry alone", async () => {
   // The mirror of the case above, and the one that protects a single-workspace
   // host: it sweeps with no root and must not clear a bell belonging to a

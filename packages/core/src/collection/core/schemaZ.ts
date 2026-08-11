@@ -682,15 +682,42 @@ export const DataSourceZ = z.object({
 /** Alternative WRITABLE storage backend for a collection's records —
  *  unlike `dataSource` (external read-only file), a `storage` collection
  *  behaves like a normal writable collection; only where the rows live
- *  changes. v1: `sqlite` — records in a single SQLite database file
- *  (`node:sqlite`, one JSON record per row keyed by the primaryKey).
- *  `path` is workspace-relative and containment-checked exactly like
- *  `dataPath`. The store factory registry (`server/store.ts`) picks the
- *  implementation by `type` (plans/done/refactor-storage-virtualization.md). */
-export const StorageZ = z.object({
-  type: z.literal("sqlite"),
-  path: z.string().min(1),
-});
+ *  changes. The store factory registry (`server/store.ts`) picks the
+ *  implementation by `type` (plans/done/refactor-storage-virtualization.md).
+ *
+ *  A discriminated union rather than one shape with optional keys, because
+ *  only the sqlite variant is a workspace FILE: its `path` is
+ *  workspace-relative and containment-checked exactly like `dataPath`, while
+ *  the firestore variant has no path to check — its records are not on this
+ *  machine at all. Optional keys would let each arm accept the other's, and
+ *  the compiler would stop being the thing that tells you which. */
+export const StorageZ = z.discriminatedUnion("type", [
+  /** Records in a single SQLite database file (`node:sqlite`, one JSON
+   *  record per row keyed by the primaryKey). */
+  z.object({
+    type: z.literal("sqlite"),
+    path: z.string().min(1),
+  }),
+  /** Records as Firestore documents of a SHARED collection, at
+   *  `apps/{aid}/collections/{cid}/items/{id}`.
+   *
+   *  This variant declares NO location, and that is the whole shape of it:
+   *  `aid` comes from the repository's `app.json` (it is one per app, not one
+   *  per collection — four collections share one member roster), and `cid` is
+   *  always this collection's slug. There is nothing left for a schema to say.
+   *
+   *  `.strict()` (the same reason the `spawn` arms use it): stripping an
+   *  unknown key silently would confirm a wrong mental model — an author who
+   *  writes `path` believes their records land there, and an author who writes
+   *  `cid` believes the collection can be named something other than its slug.
+   *  Only this new arm is strict; the sqlite arm stays permissive so an
+   *  existing schema carrying a stray key doesn't start failing. */
+  z
+    .object({
+      type: z.literal("firestore"),
+    })
+    .strict(),
+]);
 
 // ---------------------------------------------------------------------------
 // The whole schema
@@ -796,8 +823,12 @@ const BareCollectionSchemaZ = CollectionObjectZ
   // NOTE: `storage` collections support the full write machinery
   // (`spawn` / `completionField` / `triggerField` / `singleton` / `ingest`
   // / mutate actions) — spawn and the watcher reconcilers go through the
-  // CollectionStore seam, and a db-file watcher drives their
-  // reconciliation (collection-watchers/watcher.ts).
+  // CollectionStore seam. What DRIVES that reconciliation differs by
+  // backend: `sqlite` has a db-file watcher, while `firestore` has no file
+  // to watch and is reconciled on the clock tick instead
+  // (`tickUnwatchedCollections`) until the snapshot listener lands. Either
+  // way the declared behaviour runs — that equivalence is what lets this
+  // refine stay backend-agnostic.
   // A `dataSource` collection is read-only by definition, so schema-level
   // write machinery can never fire: `singleton` pins CREATES, `ingest`
   // REFILLS records, `spawn` WRITES successor records. Rejecting them at

@@ -166,7 +166,7 @@ skipped, never crashes the host):
 | `icon`                 | A **Material Symbols** name (`receipt_long`, `people`, `schedule`, `menu_book`). Required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `dataPath`             | Records folder, relative to the collection's own root (the workspace or project folder it lives in) — e.g. `data/recipes/items`. Must stay under that root. **Required**, unless `dataSource` or `storage` is set instead: declare exactly ONE of the three. (There is no default — `data/<slug>/items` is a naming CONVENTION, not a fallback.)                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `dataSource`           | Optional. `{ "type": "csv", "path": "data/students.csv" }` — the records ARE the rows of an external data file (relative to the collection's own root, containment-checked like `dataPath`). Makes the collection **read-only** in every UI/tool write path; see "External data (CSV) collections" below. Mutually exclusive with `dataPath`, `singleton`, `ingest`, `spawn`, and `mutate` actions.                                                                                                                                                                                                     |
-| `storage`              | Optional. `{ "type": "sqlite", "path": "data/<name>.db" }` — records live in a single SQLite database file instead of per-record JSON files; the collection stays **writable** and behaves identically everywhere else. Declare exactly ONE of `dataPath` / `dataSource` / `storage`. Cannot combine with `spawn`, `completionField`, or `triggerField` (v1). See "Alternative storage (sqlite)" below.                                                                                                                                                            |
+| `storage`              | Optional. `{ "type": "sqlite", "path": "data/<name>.db" }` — records live in a single SQLite database file instead of per-record JSON files — or `{ "type": "firestore" }`, a SHARED collection whose records live in the app's Firestore (only when the user asks for sharing). Either way the collection stays **writable** and behaves identically everywhere else. Declare exactly ONE of `dataPath` / `dataSource` / `storage`. See "Alternative storage (sqlite)" and "Shared storage (firestore)" below.                                                                                                                                                            |
 | `primaryKey`           | The field name whose value is the filename. That field MUST set `primary: true`. The value must be a valid record id (see the **Records** section's id-charset rule). Required.                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `singleton`            | Optional. When set, at most one record exists, pinned to this exact id (e.g. `me`). Host pre-fills + locks the create form and hides Add once it exists.                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `fields`               | Ordered map of field-name → field spec. **Insertion order = column order** in the table. Required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -1170,6 +1170,54 @@ Minimal example:
     "id": { "type": "string", "label": "ID", "primary": true },
     "item": { "type": "string", "label": "Item" },
     "total": { "type": "number", "label": "Total" }
+  }
+}
+```
+
+## Shared storage (firestore) — `storage`
+
+`{ "type": "firestore" }` keeps a collection's records in a SHARED app rather
+than on this machine: they live at `apps/{aid}/collections/{cid}/items`, where
+`aid` is the app id and `cid` is this collection's slug.
+
+**Only declare this when the user asks for a shared collection.** It is not a
+faster `dataPath` — the records are remote, every read is a round trip, and the
+collection is unusable while remote-host is disconnected.
+
+Notes:
+
+- The `storage` block takes NOTHING else. No `path`, no `cid`, no `aid` —
+  writing any of them is a validation error, not a dropped key. `aid` is one per
+  APP and comes from `app.json` at the repository root; `cid` is always the slug.
+- The repository must declare its app, or the collection is refused at discovery:
+
+  `<repository root>/app.json`:
+
+  ```json
+  { "aid": "app_salon_7f3a" }
+  ```
+
+- Requires a connected remote-host session. Disconnected, every operation fails
+  with an actionable message — it never reports an empty collection.
+- Authorization is the app's member roster (keyed by email), not the path. A
+  signed-in user who is not on the roster gets `permission-denied`.
+- Live updates from OTHER members are not delivered yet; this host re-reads on
+  its own clock. Bells (`completionField` / `triggerField`) and `spawn` work.
+- Deleting the collection is REFUSED: its records are also other members', and
+  the delete can neither archive nor remove them.
+
+Minimal example:
+
+```json
+{
+  "title": "Bookings",
+  "icon": "event",
+  "storage": { "type": "firestore" },
+  "primaryKey": "id",
+  "fields": {
+    "id": { "type": "string", "label": "ID", "primary": true },
+    "customerName": { "type": "string", "label": "Customer" },
+    "startAt": { "type": "date", "label": "Start" }
   }
 }
 ```

@@ -156,18 +156,48 @@ export function resolveDisplayLabel(schema: CollectionSchema, item: CollectionIt
 // `collection-watchers` barrel keeps its public surface (MulmoTerminal).
 export { itemIsDone };
 
+/** WHICH obligation a bell is about — the scope half of its identity.
+ *
+ *  A collection in a directory is scoped by its ROOT: two projects owning a
+ *  `tasks` each hold their own bells. A SHARED collection is scoped by its APP:
+ *  the same `(aid, cid, itemId)` is ONE obligation however many checkouts of
+ *  the repository can see it, so keying it by root would put a duplicate bell
+ *  in front of the user per worktree, and each root's sweep would manage only
+ *  its own copy.
+ *
+ *  Mutually exclusive by construction — `bellScopeOf` produces one or the
+ *  other, and `completionLegacyId` throws on both. */
+interface BellScope {
+  root?: string | undefined;
+  aid?: string | undefined;
+}
+
+/** The scope a collection's bells belong to.
+ *
+ *  A shared collection's `appId` wins over the call's `workspaceRoot`: the
+ *  root is where this host happens to have the repository checked out, which
+ *  is exactly the fact that must NOT reach the identity. A local collection is
+ *  unchanged — its root is present only when the call carried an explicit one,
+ *  so a single-workspace host's ids stay byte-identical to what it has already
+ *  written to `active.json`. */
+function bellScopeOf(collection: Pick<LoadedCollection, "appId">, ioOpts: IoOptions): BellScope {
+  return collection.appId === undefined ? { root: ioOpts.workspaceRoot } : { aid: collection.appId };
+}
+
+const scopedLegacyId = (slug: string, itemId: string, scope: BellScope): string => completionLegacyId(slug, itemId, scope.root, scope.aid);
+
 /** Every active bell entry whose key matches this (slug, itemId).
  *  Returns multiple when defensive cleanup is needed. Scans `listAll()`
  *  — cheap because the active set is bounded. */
-async function findActiveEntries(slug: string, itemId: string, root: string | undefined): Promise<NotifierEntry[]> {
+async function findActiveEntries(slug: string, itemId: string, scope: BellScope): Promise<NotifierEntry[]> {
   const adapter = requireAdapter();
-  const legacyId = completionLegacyId(slug, itemId, root);
+  const legacyId = scopedLegacyId(slug, itemId, scope);
   const entries = await listAll();
   return entries.filter((entry) => adapter.readEntry(entry.pluginData)?.legacyId === legacyId);
 }
 
-async function findActiveEntryIds(slug: string, itemId: string, root: string | undefined): Promise<string[]> {
-  return (await findActiveEntries(slug, itemId, root)).map((entry) => entry.id);
+async function findActiveEntryIds(slug: string, itemId: string, scope: BellScope): Promise<string[]> {
+  return (await findActiveEntries(slug, itemId, scope)).map((entry) => entry.id);
 }
 
 /** Per-key in-flight lock. Serializes concurrent `ensureItemNotification`
@@ -199,9 +229,9 @@ async function ensureItemNotification(
   itemId: string,
   displayLabel: string,
   priority: CompletionPriority,
-  root: string | undefined,
+  scope: BellScope,
 ): Promise<void> {
-  const legacyId = completionLegacyId(slug, itemId, root);
+  const legacyId = scopedLegacyId(slug, itemId, scope);
   // Drain any in-flight publish for this key BEFORE our check + set. The
   // drain + claim runs synchronously between `ensureLocks.get` and
   // `ensureLocks.set`, so two callers can't both observe an empty slot.
@@ -211,7 +241,7 @@ async function ensureItemNotification(
     if (!inflight) break;
     await inflight.promise;
   }
-  const lock: EnsureLock = { promise: doEnsureItemNotification({ slug, schema, itemId, legacyId, displayLabel, priority, root }) };
+  const lock: EnsureLock = { promise: doEnsureItemNotification({ slug, schema, itemId, legacyId, displayLabel, priority, scope }) };
   ensureLocks.set(legacyId, lock);
   try {
     await lock.promise;
@@ -228,14 +258,14 @@ async function ensureItemNotification(
  *  place (preserving id / position / createdAt) so a record whose flagged
  *  value changed while it stayed pending re-colours the bell without a
  *  clear+republish flicker. No-op when the stored priority already matches. */
-async function reconcileEntrySeverity(
-  slug: string,
-  itemId: string,
-  entries: NotifierEntry[],
-  priority: CompletionPriority,
-  root: string | undefined,
-): Promise<void> {
+async function reconcileEntrySeverity(slug: string, itemId: string, entries: NotifierEntry[], priority: CompletionPriority, scope: BellScope): Promise<void> {
   const adapter = requireAdapter();
+  // The adapter's shape carries a ROOT and nothing else, and its signature is
+  // public API (MulmoTerminal implements it). A shared bell therefore hands it
+  // no root — which is true: the obligation belongs to an app, not to a
+  // checkout, and navigation resolves by slug either way. Only the IDENTITY
+  // (`legacyId`) had to learn about apps, which is what the sweep keys on.
+  const { root } = scope;
   for (const entry of entries) {
     const parsed = adapter.readEntry(entry.pluginData);
     if (!parsed || parsed.priority === priority) continue;
@@ -260,15 +290,17 @@ interface EnsureInput {
   legacyId: string;
   displayLabel: string;
   priority: CompletionPriority;
-  root: string | undefined;
+  scope: BellScope;
 }
 
-async function doEnsureItemNotification({ slug, schema, itemId, legacyId, displayLabel, priority, root }: EnsureInput): Promise<void> {
+async function doEnsureItemNotification({ slug, schema, itemId, legacyId, displayLabel, priority, scope }: EnsureInput): Promise<void> {
   const adapter = requireAdapter();
+  // See `reconcileEntrySeverity` for why the adapter gets the root only.
+  const { root } = scope;
   try {
-    const existing = await findActiveEntries(slug, itemId, root);
+    const existing = await findActiveEntries(slug, itemId, scope);
     if (existing.length > 0) {
-      await reconcileEntrySeverity(slug, itemId, existing, priority, root);
+      await reconcileEntrySeverity(slug, itemId, existing, priority, scope);
       return;
     }
     const navigateTarget = adapter.buildNavigateTarget(slug, itemId, root);
@@ -292,9 +324,16 @@ async function doEnsureItemNotification({ slug, schema, itemId, legacyId, displa
 /** Idempotently clear EVERY bell entry that matches this (slug, itemId).
  *  Silent no-op when nothing matches. The "every" is defensive: if a
  *  duplicate ever slips through, this drains the lot. */
-export async function clearItemNotification(slug: string, itemId: string, root?: string): Promise<void> {
+export async function clearItemNotification(slug: string, itemId: string, root?: string, aid?: string): Promise<void> {
+  await clearScoped(slug, itemId, { root, aid });
+}
+
+/** The scoped form every internal caller uses. `clearItemNotification` keeps
+ *  its positional `(slug, itemId, root?)` shape because it is public API
+ *  (MulmoTerminal calls it); `aid` is additive. */
+async function clearScoped(slug: string, itemId: string, scope: BellScope): Promise<void> {
   try {
-    const ids = await findActiveEntryIds(slug, itemId, root);
+    const ids = await findActiveEntryIds(slug, itemId, scope);
     for (const entryId of ids) {
       await notifierClear(entryId);
     }
@@ -316,15 +355,15 @@ export async function reconcileItem(collection: LoadedCollection, itemId: string
   // The bell's root follows the same rule as the change payload's: present
   // only when THIS call carried an explicit `workspaceRoot`, so a
   // single-workspace host's ids stay byte-identical to what it already wrote.
-  const root = ioOpts.workspaceRoot;
+  const scope = bellScopeOf(collection, ioOpts);
   if (!schema.completionField) {
     // Schema doesn't track completion — drop any stale entry.
-    await clearItemNotification(slug, itemId, root);
+    await clearScoped(slug, itemId, scope);
     return;
   }
   const item = await storeFor(collection, ioOpts).read(itemId);
   if (item === null) {
-    await clearItemNotification(slug, itemId, root);
+    await clearScoped(slug, itemId, scope);
     return;
   }
   // Recurrence: predicate-gated + create-if-absent, idempotent and
@@ -332,7 +371,7 @@ export async function reconcileItem(collection: LoadedCollection, itemId: string
   // below so marking an item done still spawns its successor.
   await maybeSpawnSuccessor(collection, item, itemId, ioOpts);
   if (itemIsDone(schema, item)) {
-    await clearItemNotification(slug, itemId, root);
+    await clearScoped(slug, itemId, scope);
     return;
   }
   // Time gate: when the schema declares `triggerField`, suppress the bell
@@ -348,7 +387,7 @@ export async function reconcileItem(collection: LoadedCollection, itemId: string
       log().warn("trigger date unparseable, suppressing bell", { slug, itemId, triggerField: schema.triggerField });
     }
     if (due !== true) {
-      await clearItemNotification(slug, itemId, root);
+      await clearScoped(slug, itemId, scope);
       return;
     }
   }
@@ -356,10 +395,10 @@ export async function reconcileItem(collection: LoadedCollection, itemId: string
   // records matching the predicate. Convergent — a record that stops
   // matching has its bell cleared.
   if (!whenMatches(schema.notifyWhen, item)) {
-    await clearItemNotification(slug, itemId, root);
+    await clearScoped(slug, itemId, scope);
     return;
   }
-  await ensureItemNotification(slug, schema, itemId, resolveDisplayLabel(schema, item, itemId), notifyPriorityForItem(schema, item), root);
+  await ensureItemNotification(slug, schema, itemId, resolveDisplayLabel(schema, item, itemId), notifyPriorityForItem(schema, item), scope);
 }
 
 /** Boot-time reconcile: walk every record of the collection once (through
@@ -403,13 +442,19 @@ export async function reconcileAllItems(collection: LoadedCollection, ioOpts: Io
  *    on produces a root-less id, so skipping it would strand a bell no pass can
  *    ever clear, while the reconcile publishes a second rooted one beside it.
  *    Clearing converges — the record republishes rooted if still pending. */
-function sweepVerdict(entry: { root?: string; aid?: string }, ownRoot: string | undefined): "mine" | "skip" | "drop-legacy" {
-  // A shared collection's bell belongs to no root. A root's sweep must neither
-  // claim it (`isStaleEntry` resolves the slug on DISK and would find nothing,
-  // so every shared bell would be judged stale) nor treat it as a root-less
-  // legacy entry to drop — either way it silently clears another surface's
-  // bells. Only the shared watcher may retire these.
-  if (entry.aid !== undefined) return "skip";
+function sweepVerdict(entry: { root?: string; aid?: string }, ownRoot: string | undefined): "mine" | "skip" | "shared" | "drop-legacy" {
+  // A shared collection's bell belongs to an APP, not to a root, so no root's
+  // sweep can claim it on the strength of its own root. It must not be dropped
+  // as a root-less legacy entry either — that would silently clear a live bell.
+  //
+  // WHO MAY RETIRE ONE, then: a sweep that can resolve THAT app's collection on
+  // this host. That check is deferred to `isStaleEntry` (it needs a disk read),
+  // which compares the resolved collection's `appId` against the entry's and
+  // leaves anything else alone. The rule follows from what the judgement needs
+  // rather than from who happens to be running: judging a shared bell means
+  // reading its records, and a host without the app cannot — every check would
+  // read "gone" and clear bells belonging to an app it has never seen.
+  if (entry.aid !== undefined) return "shared";
   if (entry.root === ownRoot) return "mine";
   if (entry.root === undefined) return "drop-legacy";
   return "skip";
@@ -420,11 +465,47 @@ function sweepVerdict(entry: { root?: string; aid?: string }, ownRoot: string | 
  *  `notifyWhen`. The reverse of the reconcile invariant, applied to an entry
  *  whose record the forward pass can never walk to (a delete leaves a bell that
  *  a walk over the SURVIVING records cannot clear). */
-async function isStaleEntry(slug: string, itemId: string, opts: DiscoveryOptions): Promise<boolean> {
+async function isStaleEntry(slug: string, itemId: string, opts: DiscoveryOptions, aid?: string): Promise<boolean> {
   const collection = await loadCollection(slug, opts);
+  // A SHARED entry is only this sweep's to judge when this host actually has
+  // that app's collection. Two ways it isn't, and both must leave the bell
+  // alone rather than clear it: the slug resolves to nothing here (another
+  // machine's app), or it resolves to a DIFFERENT collection that merely shares
+  // the name — a local `tasks` must never retire the shared app's `tasks`.
+  if (aid !== undefined && collection?.appId !== aid) return false;
   if (!collection || !collection.schema.completionField) return true;
+  return recordNoLongerBells(collection, itemId, opts);
+}
+
+/** The record half of the staleness question: gone, done, or outside
+ *  `notifyWhen`. Split out so the caller stays one decision — WHOSE entry this
+ *  is — and this one stays the other. */
+async function recordNoLongerBells(collection: LoadedCollection, itemId: string, opts: DiscoveryOptions): Promise<boolean> {
   const item = await storeFor(collection, opts).read(itemId);
   return item === null || itemIsDone(collection.schema, item) || !whenMatches(collection.schema.notifyWhen, item);
+}
+
+/** One entry's fate: whose it is (`sweepVerdict`), then — when it is this
+ *  sweep's to judge — whether its record still justifies the bell. Extracted so
+ *  the loop above stays a walk and this stays the decision. */
+async function sweepOneEntry(
+  entryId: string,
+  parsed: { root?: string; aid?: string; slug: string; itemId: string },
+  ownRoot: string | undefined,
+  opts: DiscoveryOptions,
+): Promise<void> {
+  const verdict = sweepVerdict(parsed, ownRoot);
+  if (verdict === "skip") return;
+  if (verdict === "drop-legacy") {
+    await notifierClear(entryId);
+    return;
+  }
+  const { slug, itemId } = parsed;
+  try {
+    if (await isStaleEntry(slug, itemId, opts, verdict === "shared" ? parsed.aid : undefined)) await notifierClear(entryId);
+  } catch (err) {
+    log().warn("sweep entry failed", { slug, itemId, error: errMsg(err) });
+  }
 }
 
 export async function sweepStaleActiveEntries(opts: DiscoveryOptions = {}): Promise<void> {
@@ -442,18 +523,7 @@ export async function sweepStaleActiveEntries(opts: DiscoveryOptions = {}): Prom
     if (!own) continue;
     const parsed = parseCompletionLegacyId(own.legacyId);
     if (!parsed) continue;
-    const verdict = sweepVerdict(parsed, ownRoot);
-    if (verdict === "skip") continue;
-    if (verdict === "drop-legacy") {
-      await notifierClear(entry.id);
-      continue;
-    }
-    const { slug, itemId } = parsed;
-    try {
-      if (await isStaleEntry(slug, itemId, opts)) await notifierClear(entry.id);
-    } catch (err) {
-      log().warn("sweep entry failed", { slug, itemId, error: errMsg(err) });
-    }
+    await sweepOneEntry(entry.id, parsed, ownRoot, opts);
   }
 }
 

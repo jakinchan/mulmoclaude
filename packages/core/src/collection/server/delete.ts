@@ -31,7 +31,14 @@ export type DeleteCollectionResult =
   | { kind: "user-scope"; slug: string }
   | { kind: "preset"; slug: string }
   | { kind: "unsafe-data-path"; slug: string }
-  | { kind: "path-escape"; slug: string };
+  | { kind: "path-escape"; slug: string }
+  /** A `storage: firestore` collection: its records are documents of a SHARED
+   *  app, which this delete can neither archive nor remove. Deleting the skill
+   *  would leave them in `apps/{aid}/collections/{cid}/items` with no
+   *  collection left to reach them through — and they are not only this
+   *  machine's: other members' live views are served from the same documents.
+   *  Refused outright rather than done partially. */
+  | { kind: "unsupported-backend"; slug: string };
 
 type DeleteRefusal = Exclude<DeleteCollectionResult, { kind: "ok" }>;
 
@@ -46,6 +53,7 @@ export function deleteCollectionRefusalMessage(result: DeleteRefusal): string {
     preset: `collection '${slug}' is a preset (mc-*) and re-seeds on restart; unstar it from the catalog instead`,
     "unsafe-data-path": `collection '${slug}' declares a dataPath outside its own data/${slug}/ subtree; refusing to delete`,
     "path-escape": `a directory for collection '${slug}' escapes the workspace`,
+    "unsupported-backend": `collection '${slug}' is a shared collection — its records are documents of its app, which this delete can neither archive nor remove, and other members read the same documents. Removing its records first does NOT unlock it. To retire the whole app, a Firestore project administrator deletes it recursively (\`firebase firestore:delete "apps/<aid>" --recursive\`, children first); the app owner's client credentials cannot do it.`,
   };
   return messages[result.kind];
 }
@@ -118,6 +126,14 @@ function isDataDirSafe(dataDir: string, slug: string, workspaceRoot: string): bo
  *  `dataSource` collection has no record files to copy (its rows live in
  *  the external data file, which the delete never touches). */
 function restoreRecordsStep(schema: LoadedCollection["schema"]): string {
+  if (schema.storage?.type === "firestore") {
+    // Unreachable while `deleteCollection` refuses shared collections (see
+    // below); kept honest in case that gate ever moves.
+    return `2. Records: NOT archived. This is a shared collection: its records are
+   documents at \`apps/<aid>/collections/<cid>/items\`, which this delete did
+   not touch or export. They are still there, and other members still read
+   them.`;
+  }
   if (schema.storage !== undefined) {
     return `2. Records: copy the archived database file
    \`${path.basename(schema.storage.path)}\` (next to this document) back to
@@ -184,8 +200,16 @@ ${restoreRecordsStep(schema)}
 
 - slug: \`${slug}\`
 - title: ${schema.title}
-- dataPath: \`${schema.dataPath ?? (schema.storage !== undefined ? `(storage) ${schema.storage.path}` : `(dataSource) ${schema.dataSource?.path}`)}\`
+- dataPath: \`${schema.dataPath ?? recordLocationLabel(schema)}\`
 `;
+}
+
+/** Where a non-`dataPath` collection's records live, for the restore doc's
+ *  header line. */
+function recordLocationLabel(schema: LoadedCollection["schema"]): string {
+  if (schema.storage?.type === "firestore") return "(storage) shared app";
+  if (schema.storage !== undefined) return `(storage) ${schema.storage.path}`;
+  return `(dataSource) ${schema.dataSource?.path}`;
 }
 
 /** Copy one skill copy + the records + RESTORE.md into `archiveDir`. */
@@ -254,6 +278,10 @@ export async function deleteCollection(collection: LoadedCollection, opts: Delet
   const workspaceRoot = opts.workspaceRoot ?? getWorkspaceRoot();
   if (collection.source === "user") return { kind: "user-scope", slug };
   if (isPresetSlug(slug)) return { kind: "preset", slug };
+  if (collection.schema.storage?.type === "firestore") {
+    log.warn("collections", "deleteCollection refused: a shared collection's records can be neither archived nor removed here", { slug });
+    return { kind: "unsupported-backend", slug };
+  }
   if (!isDataDirSafe(collection.dataDir, slug, workspaceRoot)) {
     log.warn("collections", "deleteCollection refused: dataDir is not under the per-collection root", { slug, dataDir: collection.dataDir });
     return { kind: "unsafe-data-path", slug };
