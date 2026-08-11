@@ -56,6 +56,14 @@ export interface PublishStamp {
    *  resolve one. Absent is a normal state (a dirty tree, a repository
    *  without git), and absent is more honest than a fabricated value. */
   commit?: string | undefined;
+  /** Was the working tree modified when the commit was read?
+   *
+   *  Recorded as `publishedDirty` on the app document, because a commit that
+   *  does not describe what was published is worse than no commit: it looks
+   *  auditable. Publish-owned like the rest of the `published*` family — a
+   *  deploy must not drop the marker, and a later CLEAN publish must clear it
+   *  rather than inherit it forever. */
+  dirty?: boolean | undefined;
 }
 
 /** One collection's published schema document (`apps/{aid}/collections/{cid}`).
@@ -228,6 +236,7 @@ export function projectApp(
     publishedAt: stamp.publishedAt,
     publishedBy: stamp.email,
     publishedCommit: stamp.commit,
+    publishedDirty: stamp.dirty === true ? true : undefined,
     previousPublished: previousOf(existing),
   });
 
@@ -285,6 +294,7 @@ const PUBLISH_OWNED_KEYS: readonly string[] = [
   "publishedAt",
   "publishedBy",
   "publishedCommit",
+  "publishedDirty",
   "previousPublished",
 ];
 

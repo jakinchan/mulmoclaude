@@ -117,6 +117,11 @@ is people.
     スキーマは staging に留めたまま公開の挙動だけが変わってしまう。代償として
     `/staging/{aid}` は「新しいスキーマ × 現在公開中のルール設定」で試すことになるが、
     間違える方向としてはこちらが安全
+  - **`PublishStamp.dirty`** を追加し、`publishedDirty` を publish 所有のキーにした。
+    旧 `publishApp` は投影の外でこれを立てていたので、分割でそのまま落ちていた —
+    deploy が既存の印を消し、きれいな再 publish が古い印を引き継いで永久に残す、という
+    両方向の誤りになる。汚れた作業ツリーから publish したときだけ立ち、きれいな
+    publish が消す
   - **`projectPublish` は昇格する `staging/{cid}` を受け取る。** ルール設定
     （`collections` / `participantRead`）は**staged の文書から**組み立てる — いまの
     `app.json` から作り直すと、revision A を deploy → `app.json` を B に編集 → publish で、

@@ -181,3 +181,19 @@ test("publish promotes the STAGED rule configuration, not the manifest as it rea
   assert.deepEqual(face.app.collections, { bookings: { immutable: true } }, "A's staged rule config must be what ships");
   assert.deepEqual(face.app.participantRead, ["bookings"]);
 });
+
+test("a dirty working tree is recorded by publish, and a clean republish clears it", () => {
+  // The marker is the audit trail's honesty: a commit read from a modified tree
+  // does not describe what was published. It has to be publish-owned in both
+  // directions — a deploy must not drop it, and a clean publish must not
+  // inherit it from the document it is replacing.
+  const dirty = projectPublish(app, [], { ...publishStamp, dirty: true }, null);
+  assert.equal(dirty.app.publishedDirty, true);
+
+  const clean = projectPublish(app, [], { ...publishStamp, dirty: false }, dirty.app);
+  assert.equal("publishedDirty" in clean.app, false);
+
+  // …and a deploy over a dirty app leaves the marker where it was.
+  const { app: deployed } = projectDeploy(app, [{ cid: "bookings", schema }], deployStamp, dirty.app);
+  assert.equal(deployed.publishedDirty, true);
+});
