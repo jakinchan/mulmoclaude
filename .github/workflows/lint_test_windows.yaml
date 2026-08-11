@@ -58,9 +58,12 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
-          # Skip setup-node's built-in yarn cache on Windows — tar
-          # extraction on NTFS is slower than a fresh install. We use
-          # actions/cache for node_modules instead (below).
+          # A fresh install here is NOT cheap: `[3/5] Fetching packages` alone
+          # was 148-321s of it across 6 measured jobs (73-86% of install), which
+          # is exactly what caching yarn's download folder removes. The
+          # node_modules cache below cannot: yarn 1 still runs its fetch phase
+          # with node_modules already on disk.
+          cache: yarn
       # Disable Defender realtime monitoring to prevent EPERM on
       # atomic rename during yarn install / build.
       - name: Disable Windows Defender realtime monitoring

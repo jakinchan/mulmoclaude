@@ -63,6 +63,10 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22.x
+          # The cache key is node-cache-<os>-<arch>-yarn-<lockfile hash> — no
+          # node version in it — so this shares the entry lint_test already
+          # populates on ubuntu rather than adding a second 2.2 GB one.
+          cache: yarn
 
       # knip resolves imports through the real dependency graph, so the
       # workspaces have to be installed. `--frozen-lockfile` keeps CI honest
