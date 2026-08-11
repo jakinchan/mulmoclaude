@@ -366,8 +366,23 @@ export interface PublishedFace {
   public: Record<string, unknown> | undefined;
 }
 
-export function projectPublish(authored: AuthoredApp, stamp: PublishStamp, existing: Record<string, unknown> | null): PublishedFace {
+export function projectPublish(
+  authored: AuthoredApp,
+  staged: { cid: string; doc: StagedSchemaDoc }[],
+  stamp: PublishStamp,
+  existing: Record<string, unknown> | null,
+): PublishedFace {
   const { app, config } = projectApp(authored, [], stamp, existing);
+  // The rule-facing configuration comes from the STAGED documents, not from
+  // the manifest as it reads right now. Otherwise: deploy revision A, edit
+  // `app.json` to revision B, publish — and the promoted schema is A's while
+  // the authorization behaviour is B's, which nobody exercised in staging.
+  // `public` is not staged and deliberately still comes from the manifest: it
+  // is the decision being made AT publish, not something under test.
+  const collections = Object.fromEntries(staged.filter((entry) => entry.doc.config !== undefined).map((entry) => [entry.cid, entry.doc.config]));
+  const participantRead = staged.filter((entry) => entry.doc.participantRead === true).map((entry) => entry.cid);
+  app.collections = Object.keys(collections).length > 0 ? collections : undefined;
+  app.participantRead = participantRead.length > 0 ? participantRead : undefined;
   // Start from what deploy left, drop everything publish owns — an
   // authored-away key must DISAPPEAR, that is how an app stops being public —
   // then write this publish's values, with `public` held back for its own

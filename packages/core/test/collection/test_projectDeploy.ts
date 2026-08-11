@@ -53,7 +53,7 @@ test("deploy carries no `public` — the block the rules authorize anonymous acc
 });
 
 test("publish carries the `public` block and the world-readable config, and nothing else", () => {
-  const face = projectPublish(app, publishStamp, null);
+  const face = projectPublish(app, [], publishStamp, null);
   // `public` is handed back SEPARATELY, to be written last: it is the only one
   // of publish's writes that grants anything, so a failure before it must
   // leave the app private.
@@ -69,7 +69,7 @@ test("publish carries the `public` block and the world-readable config, and noth
 test("an author with no `public` block publishes nothing public", () => {
   const priv = parseAuthoredApp(JSON.stringify({ aid: app.aid, name: "Sakura Hair", members: app.members }));
   assert.equal(priv.ok, true);
-  const face = projectPublish(priv.ok ? priv.app : app, publishStamp, null);
+  const face = projectPublish(priv.ok ? priv.app : app, [], publishStamp, null);
   assert.equal(face.public, undefined); // undefined = DELETE the field; the rules read its absence as "not public"
   assert.equal(face.config.enabled, false);
 });
@@ -124,7 +124,7 @@ test("rule-facing collection config is STAGED, not landed by deploy", () => {
   assert.deepEqual(staged.doc.config, { immutable: true });
   assert.equal(staged.doc.participantRead, true);
   // …and publish is where it lands.
-  const face = projectPublish(source, publishStamp, doc);
+  const face = projectPublish(source, staging, publishStamp, doc);
   assert.deepEqual(face.app.collections, { bookings: { immutable: true } });
   assert.deepEqual(face.app.participantRead, ["bookings"]);
 });
@@ -135,7 +135,7 @@ test("publishing a declaration without `public` makes the app private", () => {
   const livePublic = { aid: app.aid, members: app.members, public: { enabled: true, read: ["bookings"] }, publishedAt: 5 };
   const priv = parseAuthoredApp(JSON.stringify({ aid: app.aid, name: "Sakura Hair", members: app.members }));
   assert.equal(priv.ok, true);
-  const face = projectPublish(priv.ok ? priv.app : app, publishStamp, livePublic);
+  const face = projectPublish(priv.ok ? priv.app : app, [], publishStamp, livePublic);
   assert.equal("public" in face.app, false);
   assert.equal(face.public, undefined); // the host deletes the live field
   assert.equal(face.config.enabled, false);
@@ -148,7 +148,7 @@ test("a publish that fails before the last write leaves the app private", () => 
   // order and cut them short: at every prefix, the app document must still
   // carry no `public` block, so the rules deny anonymous access.
   const live = { aid: app.aid, members: app.members, deployedAt: 1 };
-  const face = projectPublish(app, publishStamp, live);
+  const face = projectPublish(app, [], publishStamp, live);
   const writes: (() => void)[] = [];
   let stored: Record<string, unknown> = { ...live };
   writes.push(() => (stored = { ...face.app })); // replace the app document
@@ -161,4 +161,23 @@ test("a publish that fails before the last write leaves the app private", () => 
   }
   // Only the final, separate update opens it.
   assert.notEqual(face.public, undefined);
+});
+
+test("publish promotes the STAGED rule configuration, not the manifest as it reads now", () => {
+  // deploy revision A, edit app.json to revision B, publish. What ships must be
+  // A — the revision the roster exercised through /staging/{aid}. Taking the
+  // rule config from the current manifest would publish B's authorization
+  // behaviour under A's schema, which nobody tested.
+  const revisionA = parseAuthoredApp(
+    JSON.stringify({ aid: app.aid, members: app.members, collections: { bookings: { immutable: true } }, participantRead: ["bookings"] }),
+  );
+  assert.equal(revisionA.ok, true);
+  const { staging } = projectDeploy(revisionA.ok ? revisionA.app : app, [{ cid: "bookings", schema }], deployStamp, null);
+
+  const revisionB = parseAuthoredApp(JSON.stringify({ aid: app.aid, members: app.members, collections: { bookings: { immutable: false } } }));
+  assert.equal(revisionB.ok, true);
+  const face = projectPublish(revisionB.ok ? revisionB.app : app, staging, publishStamp, null);
+
+  assert.deepEqual(face.app.collections, { bookings: { immutable: true } }, "A's staged rule config must be what ships");
+  assert.deepEqual(face.app.participantRead, ["bookings"]);
 });

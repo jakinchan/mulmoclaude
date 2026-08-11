@@ -117,6 +117,12 @@ is people.
     スキーマは staging に留めたまま公開の挙動だけが変わってしまう。代償として
     `/staging/{aid}` は「新しいスキーマ × 現在公開中のルール設定」で試すことになるが、
     間違える方向としてはこちらが安全
+  - **`projectPublish` は昇格する `staging/{cid}` を受け取る。** ルール設定
+    （`collections` / `participantRead`）は**staged の文書から**組み立てる — いまの
+    `app.json` から作り直すと、revision A を deploy → `app.json` を B に編集 → publish で、
+    「A のスキーマ × B の認可挙動」という誰も試していない組み合わせが公開される。
+    `public` だけは staged ではなく manifest から取る（publish の時点で下す判断であって、
+    試す対象ではない）
   - **`public` は投影から分けて返す**（`PublishedFace.public`）。**最後に、単独の更新
     として書く**（`undefined` なら削除 = 非公開に戻す）。publish の 3 つの書き込みのうち
     権限を与えるのはこれだけなので、置換文書に混ぜると、昇格したスキーマと
