@@ -39,7 +39,7 @@ import { firestoreHandle, getWorkspaceRoot } from "./host";
 import { parseAuthoredApp, type AuthoredApp } from "./publishManifest";
 import { publishProblems } from "./publishChecks";
 import { APPS_COLLECTION, PUBLIC_CONFIG_DOC, appConfigPath, appSchemasPath, projectApp, type PublishStamp, type PublishedApp } from "./publishProject";
-import { MAX_RECORD_ISSUES, validateCollectionRecords } from "./validate";
+import { MAX_RECORD_ISSUES, STORE_UNREADABLE, validateCollectionRecords } from "./validate";
 
 const execFileAsync = promisify(execFile);
 
@@ -108,6 +108,15 @@ async function sharedCollections(opts: DiscoveryOptions): Promise<LoadedCollecti
   return all.filter((collection) => collection.appId !== undefined);
 }
 
+interface RecordScan {
+  lines: string[];
+  records: number;
+  capped: boolean;
+  /** Collections whose records could not be READ at all. Kept apart from
+   *  `lines` because `confirm` may not override them. */
+  unreadable: string[];
+}
+
 /** Existing records that would not satisfy the schema about to be published.
  *
  *  Read from FIRESTORE, not from disk: a shared collection's records live in
@@ -116,13 +125,23 @@ async function sharedCollections(opts: DiscoveryOptions): Promise<LoadedCollecti
  *  a refusal the publisher can override, because a breaking change is
  *  sometimes exactly what is intended and the point is that it is a decision
  *  rather than a discovery. */
-async function recordProblems(collections: LoadedCollection[], opts: DiscoveryOptions): Promise<{ lines: string[]; records: number; capped: boolean }> {
+async function recordProblems(collections: LoadedCollection[], opts: DiscoveryOptions): Promise<RecordScan> {
   const lines: string[] = [];
+  const unreadable: string[] = [];
   let records = 0;
   let cappedAnywhere = false;
   for (const collection of collections) {
     const issues = await validateCollectionRecords(collection, opts);
     if (issues.length === 0) continue;
+    // "the backend could not be read" is not a broken record, and must not be
+    // overridable the way a broken record is: `confirm` means "I know these
+    // rows will not fit the new schema", and here nobody knows anything —
+    // the migration gate did not run. Overriding it would publish blind.
+    const unread = issues.filter((issue) => issue.file === STORE_UNREADABLE);
+    if (unread.length > 0) {
+      unreadable.push(`${collection.slug}: ${unread.map((issue) => issue.problem).join("; ")}`);
+      continue;
+    }
     records += issues.length;
     // `validateCollectionRecords` stops at its own cap (25 per collection), so
     // a full batch means "at least this many" and saying otherwise would read
@@ -136,7 +155,7 @@ async function recordProblems(collections: LoadedCollection[], opts: DiscoveryOp
     for (const issue of issues.slice(0, MAX_LISTED_ISSUES)) lines.push(`  - ${issue.file}: ${issue.problem}`);
     if (issues.length > MAX_LISTED_ISSUES) lines.push(`  - … and ${issues.length - MAX_LISTED_ISSUES} more`);
   }
-  return { lines, records, capped: cappedAnywhere };
+  return { lines, records, capped: cappedAnywhere, unreadable };
 }
 
 function schemasOf(collections: LoadedCollection[]): { cid: string; schema: CollectionSchema }[] {
@@ -160,7 +179,7 @@ async function readAuthored(root: string): Promise<{ ok: true; app: AuthoredApp 
 function declarationProblems(app: AuthoredApp, collections: LoadedCollection[], handle: { uid: string; email: string }): string[] {
   const problems = publishProblems(
     app,
-    collections.map((collection) => collection.slug),
+    collections.map((collection) => ({ cid: collection.slug, primaryKey: collection.schema.primaryKey })),
     handle.email,
   );
   if (app.owner !== undefined && app.owner !== handle.uid) {
@@ -173,6 +192,44 @@ function declarationProblems(app: AuthoredApp, collections: LoadedCollection[], 
     );
   }
   return problems;
+}
+
+/** Put the three kinds of document, in the order the rules require, and turn a
+ *  rejected write into the result type instead of letting it escape.
+ *
+ *  Returns null when everything was written; a failure result otherwise.
+ *
+ *  A raw rejection here would reach the agent as a tool crash rather than as
+ *  the actionable text this tool promises — and it would do so having possibly
+ *  written the app document already, which is the one fact the caller most
+ *  needs. So the step is named in the message: a publish that stopped after
+ *  the app document is a live roster with last publish's schemas, and the fix
+ *  is to publish again rather than to guess. */
+async function writeDocuments(handle: NonNullable<ReturnType<typeof firestoreHandle>>, aid: string, published: PublishedApp): Promise<PublishResult | null> {
+  const steps: { what: string; run: () => Promise<void> }[] = [
+    { what: `the app document (apps/${aid})`, run: () => handle.docs.set(APPS_COLLECTION, aid, published.app) },
+    ...published.schemas.map(({ cid, doc }) => ({ what: `the published schema for '${cid}'`, run: () => handle.docs.set(appSchemasPath(aid), cid, doc) })),
+    { what: "the public config document", run: () => handle.docs.set(appConfigPath(aid), PUBLIC_CONFIG_DOC, published.config) },
+  ];
+  for (const [index, step] of steps.entries()) {
+    try {
+      await step.run();
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      const already =
+        index === 0
+          ? "Nothing was written."
+          : `Everything before it WAS written — the app's roster and configuration are already live while ${index === steps.length - 1 ? "the public config is" : "the remaining documents are"} one publish behind.`;
+      return {
+        ok: false,
+        problems: [
+          `publish failed while writing ${step.what}: ${reason}`,
+          `${already} Publishing again is the repair: the write is idempotent, and it re-does the steps that did not land.`,
+        ],
+      };
+    }
+  }
+  return null;
 }
 
 /** Publish this repository's declaration to its app.
@@ -201,6 +258,16 @@ export async function publishApp(opts: PublishOptions = {}): Promise<PublishResu
   if (problems.length > 0) return { ok: false, problems };
 
   const issues = await recordProblems(collections, { ...opts, workspaceRoot: root });
+  if (issues.unreadable.length > 0) {
+    return {
+      ok: false,
+      problems: [
+        ...issues.unreadable,
+        "publish stopped: the live records could not be read, so nothing checked whether the schemas about to be published still fit them. " +
+          "This is not something `confirm` overrides — confirming means accepting a known breakage, and here there is no reading at all. Fix the access (or the connection) and publish again.",
+      ],
+    };
+  }
   if (issues.records > 0 && opts.confirm !== true) {
     return {
       ok: false,
@@ -234,18 +301,23 @@ async function writePublished(
     publishedAt: (opts.now ?? Date.now)(),
     commit: stampSource.commit,
   };
-  const published = projectApp(authored, schemasOf(collections), stamp, isRecord(existing) ? existing : null);
+  // ONE normalization of "was there an app document?", used by the projection
+  // and by the report. Two spellings of the same question (`isRecord` here,
+  // `=== null` there) disagree the moment `get` resolves to anything that is
+  // neither a record nor null: the projection stamps a fresh `owner` while the
+  // reply says "Updated".
+  const existingApp = isRecord(existing) ? existing : null;
+  const published = projectApp(authored, schemasOf(collections), stamp, existingApp);
   if (stampSource.dirty === true) published.app.publishedDirty = true;
 
-  await handle.docs.set(APPS_COLLECTION, aid, published.app);
-  for (const { cid, doc } of published.schemas) await handle.docs.set(appSchemasPath(aid), cid, doc);
-  await handle.docs.set(appConfigPath(aid), PUBLIC_CONFIG_DOC, published.config);
+  const written = await writeDocuments(handle, aid, published);
+  if (written !== null) return written;
 
   return {
     ok: true,
     aid,
     cids: published.schemas.map((entry) => entry.cid),
-    created: existing === null,
+    created: existingApp === null,
     commit: stamp.commit,
     dirty: stampSource.dirty === true,
     recordIssues: issues.records,

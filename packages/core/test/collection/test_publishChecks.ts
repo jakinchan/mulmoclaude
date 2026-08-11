@@ -13,7 +13,16 @@ import { AuthoredAppZ } from "../../src/collection/server/publishManifest";
 import { publishProblems } from "../../src/collection/server/publishChecks";
 
 const OWNER = "owner@salon.jp";
-const CIDS = ["bookings", "responses", "services", "answers"];
+/** The repository's shared collections, as publish sees them: a cid and the
+ *  schema key its records are identified by. `id` throughout, which is why
+ *  every submit fixture below carries `id` in its createFields — a submission
+ *  that cannot produce the primary key writes rows no reader accepts. */
+const CIDS = [
+  { cid: "bookings", primaryKey: "id" },
+  { cid: "responses", primaryKey: "id" },
+  { cid: "services", primaryKey: "id" },
+  { cid: "answers", primaryKey: "id" },
+];
 
 /** Build + parse a declaration through the real zod schema, so no fixture can
  *  assert about a shape publish would have rejected before it got this far. */
@@ -21,7 +30,8 @@ function app(overrides: Record<string, unknown>) {
   return AuthoredAppZ.parse({ aid: "app_test", members: { [OWNER]: { "*": "owner" } }, ...overrides });
 }
 
-const problemsFor = (overrides: Record<string, unknown>, cids: readonly string[] = CIDS) => publishProblems(app(overrides), cids, OWNER);
+const problemsFor = (overrides: Record<string, unknown>, cids: readonly { cid: string; primaryKey: string }[] = CIDS) =>
+  publishProblems(app(overrides), cids, OWNER);
 
 /** Assert exactly which check fired, by a distinctive fragment of its line —
  *  not merely that SOMETHING was refused, which would pass on an unrelated
@@ -41,10 +51,10 @@ function refuses(problems: string[], fragment: string): void {
 // --- invariant 1: submitOnly ------------------------------------------------
 
 const IDENTITY_BOUND: Record<string, unknown>[] = [
-  { auth: "verifiedEmail", createFields: ["a"], idFrom: "auth.uid" },
-  { auth: "verifiedEmail", createFields: ["a", "who"], idFrom: "auth.uid+field", idField: "who" },
-  { auth: "verifiedEmail", createFields: ["a", "email"], emailField: "email" },
-  { auth: "verifiedEmail", createFields: ["a"], audience: "participant" },
+  { auth: "verifiedEmail", createFields: ["id", "a"], idFrom: "auth.uid" },
+  { auth: "verifiedEmail", createFields: ["id", "a", "who"], idFrom: "auth.uid+field", idField: "who" },
+  { auth: "verifiedEmail", createFields: ["id", "a", "email"], emailField: "email" },
+  { auth: "verifiedEmail", createFields: ["id", "a"], audience: "participant" },
 ];
 
 test("a submission bound to its submitter must declare submitOnly", () => {
@@ -69,7 +79,7 @@ test("a submission NOT bound to its submitter must not be forced to submitOnly",
   // ledger-style booking form, where staff enter records on a customer's
   // behalf. Requiring submitOnly there would break the feature.
   const problems = problemsFor({
-    public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["customerName"], idFrom: "auto" } } },
+    public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["id", "customerName"], idFrom: "auto" } } },
     collections: { bookings: {} },
   });
   assert.deepEqual(problems, []);
@@ -79,7 +89,7 @@ test("immutable is not the condition — a mutable survey is padded the same way
   // `immutable` was the tempting condition and it is wrong: S2's responses are
   // not immutable and can be inflated exactly as a vote can.
   const problems = problemsFor({
-    public: { submit: { responses: { auth: "verifiedEmail", createFields: ["q1"], idFrom: "auth.uid" } } },
+    public: { submit: { responses: { auth: "verifiedEmail", createFields: ["id", "q1"], idFrom: "auth.uid" } } },
     collections: { responses: { immutable: false } },
   });
   refuses(problems, "submitOnly must be true");
@@ -90,7 +100,7 @@ test("immutable is not the condition — a mutable survey is padded the same way
 test("an aggregation key no rule checks is refused, and a checked one is not", () => {
   const loose = problemsFor({
     collections: { responses: { submitOnly: true, aggregate: { by: ["q1"] } } },
-    public: { submit: { responses: { auth: "verifiedEmail", createFields: ["q1"], idFrom: "auth.uid" } } },
+    public: { submit: { responses: { auth: "verifiedEmail", createFields: ["id", "q1"], idFrom: "auth.uid" } } },
   });
   refuses(loose, "aggregate.by names 'q1'");
 
@@ -98,7 +108,7 @@ test("an aggregation key no rule checks is refused, and a checked one is not", (
     collections: { responses: { submitOnly: true, aggregate: { by: ["q1"] } } },
     public: {
       submit: {
-        responses: { auth: "verifiedEmail", createFields: ["q1"], idFrom: "auth.uid", validate: { keyFields: [{ field: "q1", values: ["a", "b"] }] } },
+        responses: { auth: "verifiedEmail", createFields: ["id", "q1"], idFrom: "auth.uid", validate: { keyFields: [{ field: "q1", values: ["a", "b"] }] } },
       },
     },
   });
@@ -114,7 +124,7 @@ test("the status field and gateOn.match also count as checked", () => {
   const byGate = problemsFor({
     collections: { answers: { submitOnly: true, aggregate: { by: ["questionId"] } } },
     public: {
-      submit: { answers: { auth: "verifiedEmail", createFields: ["questionId"], idFrom: "auth.uid", gateOn: { phase: "open", match: "questionId" } } },
+      submit: { answers: { auth: "verifiedEmail", createFields: ["id", "questionId"], idFrom: "auth.uid", gateOn: { phase: "open", match: "questionId" } } },
     },
   });
   assert.deepEqual(byGate, []);
@@ -124,9 +134,9 @@ test("the status field and gateOn.match also count as checked", () => {
 
 test("only verifiedEmail may be published, and the rules keep the other two", () => {
   for (const auth of ["none", "anonymous"]) {
-    refuses(problemsFor({ public: { submit: { bookings: { auth, createFields: ["a"] } } } }), `public.submit.bookings.auth is "${auth}"`);
+    refuses(problemsFor({ public: { submit: { bookings: { auth, createFields: ["id", "a"] } } } }), `public.submit.bookings.auth is "${auth}"`);
   }
-  assert.deepEqual(problemsFor({ public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["a"] } } } }), []);
+  assert.deepEqual(problemsFor({ public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["id", "a"] } } } }), []);
 });
 
 // --- invariant 4: names -----------------------------------------------------
@@ -194,13 +204,17 @@ test("mail needs a statusField, because the rules read the status either side of
 test("a window that closes before it opens is refused; a real interval is not", () => {
   refuses(
     problemsFor({
-      public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["a"], window: { from: "2026-09-30T00:00:00Z", until: "2026-09-01T00:00:00Z" } } } },
+      public: {
+        submit: { bookings: { auth: "verifiedEmail", createFields: ["id", "a"], window: { from: "2026-09-30T00:00:00Z", until: "2026-09-01T00:00:00Z" } } },
+      },
     }),
     "closes at or before it opens",
   );
   assert.deepEqual(
     problemsFor({
-      public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["a"], window: { from: "2026-09-01T00:00:00Z", until: "2026-09-30T00:00:00Z" } } } },
+      public: {
+        submit: { bookings: { auth: "verifiedEmail", createFields: ["id", "a"], window: { from: "2026-09-01T00:00:00Z", until: "2026-09-30T00:00:00Z" } } },
+      },
     }),
     [],
   );
@@ -210,7 +224,7 @@ test("keyFields is capped at two, because the rules unroll the check", () => {
   const keyFields = (count: number) => Array.from({ length: count }, (_unused, index) => ({ field: `f${index}`, values: ["x"] }));
   const submitWith = (count: number) => ({
     auth: "verifiedEmail",
-    createFields: keyFields(count).map((keyField) => keyField.field),
+    createFields: ["id", ...keyFields(count).map((keyField) => keyField.field)],
     validate: { keyFields: keyFields(count) },
   });
   refuses(problemsFor({ public: { submit: { bookings: submitWith(3) } } }), "the rules check at most 2");
@@ -221,7 +235,10 @@ test("keyFields is capped at two, because the rules unroll the check", () => {
 
 test("initialStatus without a statusField would deny every submission", () => {
   refuses(
-    problemsFor({ collections: { bookings: {} }, public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["a"], initialStatus: "pending" } } } }),
+    problemsFor({
+      collections: { bookings: {} },
+      public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["id", "a"], initialStatus: "pending" } } },
+    }),
     "initialStatus needs collections.bookings.statusField",
   );
 });
@@ -233,14 +250,14 @@ test("the status field must be one of the createFields a submission may carry", 
   refuses(
     problemsFor({
       collections: { bookings: { statusField: "status" } },
-      public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["a"], initialStatus: "pending" } } },
+      public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["id", "a"], initialStatus: "pending" } } },
     }),
     'createFields must include "status"',
   );
   assert.deepEqual(
     problemsFor({
       collections: { bookings: { statusField: "status" } },
-      public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["a", "status"], initialStatus: "pending" } } },
+      public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["id", "a", "status"], initialStatus: "pending" } } },
     }),
     [],
   );
@@ -248,11 +265,13 @@ test("the status field must be one of the createFields a submission may carry", 
 
 test("a required or key-checked field outside createFields can never be satisfied", () => {
   refuses(
-    problemsFor({ public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["a"], validate: { required: ["b"] } } } } }),
+    problemsFor({ public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["id", "a"], validate: { required: ["b"] } } } } }),
     'validate.required names "b"',
   );
   refuses(
-    problemsFor({ public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["a"], validate: { keyFields: [{ field: "b", values: ["x"] }] } } } } }),
+    problemsFor({
+      public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["id", "a"], validate: { keyFields: [{ field: "b", values: ["x"] }] } } } },
+    }),
     'validate.keyFields checks "b"',
   );
 });
@@ -261,7 +280,7 @@ test("auth.uid+field without an idField denies every create", () => {
   refuses(
     problemsFor({
       collections: { responses: { submitOnly: true } },
-      public: { submit: { responses: { auth: "verifiedEmail", createFields: ["a"], idFrom: "auth.uid+field" } } },
+      public: { submit: { responses: { auth: "verifiedEmail", createFields: ["id", "a"], idFrom: "auth.uid+field" } } },
     }),
     "no idField is declared",
   );
@@ -273,7 +292,7 @@ test("selfUpdate without a statusField denies every self-edit", () => {
   refuses(
     problemsFor({
       collections: { bookings: {} },
-      public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["a"], selfUpdate: { pending: ["a"] } } } },
+      public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["id", "a"], selfUpdate: { pending: ["a"] } } } },
     }),
     "declares no statusField",
   );
@@ -282,6 +301,55 @@ test("selfUpdate without a statusField denies every self-edit", () => {
 test("revealGated needs the parent it reads the flag off", () => {
   refuses(problemsFor({ collections: { answers: { revealGated: true } } }), "revealGated needs both gatedFrom and revealBy");
   assert.deepEqual(problemsFor({ collections: { answers: { revealGated: true, gatedFrom: "responses", revealBy: "revealed" } } }), []);
+});
+
+test("a submit path that cannot produce the schema's primaryKey is refused", () => {
+  // The rules bind the DOCUMENT ID; the engine identifies a record by its
+  // primaryKey FIELD, and the firestore store stores exactly the fields it was
+  // given — the document id is not copied in. So without the key in
+  // createFields, Firestore accepts every submission and every reader rejects
+  // it. Neither side can see this alone.
+  refuses(
+    problemsFor({ public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["customerName"] } } } }),
+    'createFields must include "id", the schema\'s primaryKey',
+  );
+  assert.deepEqual(problemsFor({ public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["id", "customerName"] } } } }), []);
+});
+
+test("the primaryKey check follows the schema, not the name 'id'", () => {
+  // A collection keyed by `name` (S1's services) must be held to `name`.
+  // Hard-coding "id" would pass this file and fail the first real schema.
+  const keyedByName = [{ cid: "bookings", primaryKey: "name" }];
+  refuses(problemsFor({ public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["id"] } } } }, keyedByName), 'createFields must include "name"');
+  assert.deepEqual(problemsFor({ public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["name"] } } } }, keyedByName), []);
+});
+
+test("emailField and idField must be in createFields — the rules read them off the record", () => {
+  // The same contradiction `required` and `keyFields` have: the rules read
+  // `resource.data[emailField]`, and `hasOnly(createFields)` decides what may
+  // be there at all. Declared in one and not the other, every submission is
+  // refused whether or not it carries the field.
+  refuses(
+    problemsFor({
+      collections: { responses: { submitOnly: true } },
+      public: { submit: { responses: { auth: "verifiedEmail", createFields: ["id", "answer"], emailField: "email" } } },
+    }),
+    'createFields must include "email"',
+  );
+  refuses(
+    problemsFor({
+      collections: { responses: { submitOnly: true } },
+      public: { submit: { responses: { auth: "verifiedEmail", createFields: ["id", "answer"], idFrom: "auth.uid+field", idField: "who" } } },
+    }),
+    'createFields must include "who"',
+  );
+  assert.deepEqual(
+    problemsFor({
+      collections: { responses: { submitOnly: true } },
+      public: { submit: { responses: { auth: "verifiedEmail", createFields: ["id", "answer", "email"], emailField: "email" } } },
+    }),
+    [],
+  );
 });
 
 // --- the publisher ----------------------------------------------------------

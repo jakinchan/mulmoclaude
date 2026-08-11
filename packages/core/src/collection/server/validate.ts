@@ -35,6 +35,15 @@ export interface RecordIssue {
  *  because a caller that REPORTS a count has to know the count is a floor —
  *  `publish` presents a full batch as "at least N" rather than as a total. */
 export const MAX_RECORD_ISSUES = 25;
+
+/** The `file` of the pseudo-issue reported when the backend could not be read
+ *  at all.
+ *
+ *  Exported because it is a DIFFERENT KIND of answer from "this record is
+ *  invalid", and a caller that treats the two alike gets it wrong in the
+ *  direction that matters: `publish` lets the user override invalid records,
+ *  and overriding this one would mean publishing without ever having looked. */
+export const STORE_UNREADABLE = "(store)";
 const MAX_ISSUES = MAX_RECORD_ISSUES;
 
 /** Read every `<id>.json` under the collection's dataDir and report the
@@ -88,7 +97,7 @@ async function validateStoreRecords(collection: LoadedCollection, opts: { worksp
     items = await storeFor(collection, { workspaceRoot: opts.workspaceRoot }).list();
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    return [{ file: "(store)", problem: `records could not be read from the storage backend: ${reason}` }];
+    return [{ file: STORE_UNREADABLE, problem: `records could not be read from the storage backend: ${reason}` }];
   }
   const issues: RecordIssue[] = [];
   for (const item of items) {

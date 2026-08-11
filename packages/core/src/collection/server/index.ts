@@ -89,7 +89,7 @@ export {
   type PublishedConfigDoc,
   type PublishedSchemaDoc,
 } from "./publishProject";
-export { publishProblems, bindsSubmitterIdentity } from "./publishChecks";
+export { publishProblems, bindsSubmitterIdentity, type PublishableCollection } from "./publishChecks";
 export { publishApp, type PublishOptions, type PublishResult } from "./publish";
 export type { LoadedCollection } from "./discoveredCollection";
 export * from "./paths";

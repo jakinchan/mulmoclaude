@@ -28,6 +28,16 @@
 
 import type { AuthoredApp, AuthoredCollectionConfig, AuthoredSubmit } from "./publishManifest";
 
+/** What publish knows about a shared collection in this repository, as far as
+ *  these checks are concerned: its cid and the schema key its records are
+ *  identified by. The whole schema is deliberately not threaded in — these
+ *  checks are about the DECLARATION, and the primary key is the one part of
+ *  the schema the declaration can contradict. */
+export interface PublishableCollection {
+  cid: string;
+  primaryKey: string;
+}
+
 /** Does this submit declaration bind a record to the submitter's identity?
  *
  *  The condition for requiring `submitOnly`, and deliberately NOT "declares an
@@ -213,10 +223,38 @@ function statusCoherenceProblems(cid: string, submit: AuthoredSubmit, collection
   ];
 }
 
+/** Every field a RULE reads off a submitted record, other than the status
+ *  field (which `statusCoherenceProblems` words for itself).
+ *
+ *  `emailField` and `idField` belong here for exactly the reason `required`
+ *  and `keyFields` do, and forgetting them was the same oversight twice: the
+ *  rules read `request.resource.data[s.emailField]` and rebuild the document
+ *  id from `s.idField`, while `hasOnly(createFields)` decides what a
+ *  submission may carry at all. A field in one list and not the other is a
+ *  contradiction the submitter cannot resolve — including it is refused,
+ *  omitting it fails the check. */
+function ruleReadFields(submit: AuthoredSubmit): { field: string; why: string }[] {
+  const fields: { field: string; why: string }[] = [];
+  if (submit.emailField !== undefined) {
+    fields.push({ field: submit.emailField, why: `public.submit.<cid>.emailField — the rules compare it to the submitter's verified address` });
+  }
+  if (submit.idFrom === "auth.uid+field" && submit.idField !== undefined) {
+    fields.push({ field: submit.idField, why: `public.submit.<cid>.idField — the rules rebuild the document id from it` });
+  }
+  return fields;
+}
+
 /** A checked field a submission is not allowed to carry can never be
  *  satisfied: carrying it fails `hasOnly`, omitting it fails the check. */
 function createFieldProblems(cid: string, submit: AuthoredSubmit): string[] {
   const createFields = new Set(submit.createFields);
+  const ruleRead = ruleReadFields(submit)
+    .filter((entry) => !createFields.has(entry.field))
+    .map(
+      (entry) =>
+        `public.submit.${cid}.createFields must include "${entry.field}" (${entry.why.replace("<cid>", cid)}): ` +
+        "a submission may carry only the createFields, so as written every submission is refused whether or not it carries the field.",
+    );
   const required = (submit.validate?.required ?? [])
     .filter((field) => !createFields.has(field))
     .map(
@@ -229,7 +267,7 @@ function createFieldProblems(cid: string, submit: AuthoredSubmit): string[] {
       (keyField) =>
         `public.submit.${cid}.validate.keyFields checks "${keyField.field}", which is not in createFields: a submission carrying it is refused, and one omitting it fails the check.`,
     );
-  return [...required, ...keyFields];
+  return [...ruleRead, ...required, ...keyFields];
 }
 
 function submitCoherenceProblems(app: AuthoredApp, cid: string, submit: AuthoredSubmit): string[] {
@@ -285,8 +323,8 @@ function publisherProblems(app: AuthoredApp, publisherEmail: string): string[] {
  *  a configuration for a collection nobody publishes, and the collection the
  *  author meant is published with no configuration at all — i.e. with the
  *  status machine and the submit path silently absent. */
-function unknownCidProblems(app: AuthoredApp, knownCids: readonly string[]): string[] {
-  const known = new Set(knownCids);
+function unknownCidProblems(app: AuthoredApp, collections: readonly PublishableCollection[]): string[] {
+  const known = new Set(collections.map((collection) => collection.cid));
   const mentions: [string, string[]][] = [
     ["collections", Object.keys(app.collections ?? {})],
     ["public.read", app.public?.read ?? []],
@@ -308,9 +346,9 @@ function unknownCidProblems(app: AuthoredApp, knownCids: readonly string[]): str
  *
  *  All of them, every time. Publish is a manual step with a human waiting on
  *  it; stopping at the first problem turns one review into five. */
-export function publishProblems(app: AuthoredApp, knownCids: readonly string[], publisherEmail: string): string[] {
+export function publishProblems(app: AuthoredApp, collections: readonly PublishableCollection[], publisherEmail: string): string[] {
   return [
-    ...unknownCidProblems(app, knownCids),
+    ...unknownCidProblems(app, collections),
     ...publisherProblems(app, publisherEmail),
     ...submitOnlyProblems(app),
     ...aggregateProblems(app),
@@ -318,5 +356,35 @@ export function publishProblems(app: AuthoredApp, knownCids: readonly string[], 
     ...mailProblems(app),
     ...submitShapeProblems(app),
     ...coherenceProblems(app),
+    ...primaryKeyProblems(app, collections),
   ];
+}
+
+/** A public submission must be able to produce a record the HOST can read.
+ *
+ *  The rules and the engine disagree about what identifies a record, and the
+ *  gap is invisible from either side alone. The rules bind the DOCUMENT ID
+ *  (`idFrom`) and let a submission carry only `createFields`; the engine
+ *  identifies a record by its schema's `primaryKey` FIELD, and the firestore
+ *  store hands back the document's fields verbatim — `toItem` does not
+ *  synthesize the key from the document id. So a submit path whose
+ *  `createFields` omits the primary key writes rows that Firestore accepts and
+ *  every reader rejects: `validateRecordObject` fails them, the collection
+ *  renders empty-ish, and the next publish's own pre-check reports them as
+ *  broken records the publisher never wrote.
+ *
+ *  Not checkable by the rules (they have never heard of a schema) and not
+ *  catchable at write time (nothing is wrong with the write). Publish is the
+ *  only place that holds both halves. */
+function primaryKeyProblems(app: AuthoredApp, collections: readonly PublishableCollection[]): string[] {
+  const primaryKeyOf = new Map(collections.map((collection) => [collection.cid, collection.primaryKey]));
+  return Object.entries(app.public?.submit ?? {}).flatMap(([cid, submit]) => {
+    const primaryKey = primaryKeyOf.get(cid);
+    if (primaryKey === undefined || submit.createFields.includes(primaryKey)) return [];
+    return [
+      `public.submit.${cid}.createFields must include "${primaryKey}", the schema's primaryKey: a submission may carry only the createFields, ` +
+        "and a shared record is stored as exactly the fields it was written with — the document id is not copied into the record. " +
+        "Without it every submission is accepted by the rules and then rejected by every reader.",
+    ];
+  });
 }

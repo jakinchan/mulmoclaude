@@ -135,7 +135,10 @@ function writeApp(overrides: Record<string, unknown> = {}): void {
         submit: {
           bookings: {
             auth: "verifiedEmail",
-            createFields: ["customerEmail", "status"],
+            // `id` is the schema's primaryKey, and a submission may carry only
+            // the createFields — without it, every submitted row would be
+            // stored with no primary key and rejected by every reader.
+            createFields: ["id", "customerEmail", "status"],
             initialStatus: "pending",
             window: { until: "2026-12-31T23:59:59Z" },
           },
@@ -198,7 +201,7 @@ test("a refused declaration writes NOTHING", async () => {
   // rules enforcing one declaration while members read another.
   writeSkill("bookings", BOOKINGS_SCHEMA);
   writeApp({
-    public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["customerEmail"], idFrom: "auth.uid" } } },
+    public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["id", "customerEmail"], idFrom: "auth.uid" } } },
   });
 
   const result = await publishApp(opts());
@@ -286,6 +289,63 @@ test("a dirty working tree is recorded, because the commit no longer describes t
   assert.equal(result.ok, true);
   const app = (await docs.get("apps", AID)) as Record<string, unknown>;
   assert.equal(app.publishedDirty, true);
+});
+
+test("an unreadable backend stops publish, and confirm does NOT override it", async () => {
+  // `confirm` means "I know these rows will not fit the new schema". Here
+  // nobody knows anything — the records were never read, so the migration gate
+  // did not run. Letting confirm through would publish blind, which is the one
+  // thing the gate exists to prevent.
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+  const denied = Object.assign(new Error("Missing or insufficient permissions."), { code: "permission-denied" });
+  const unreadable: FirestoreDocs = { ...docs, list: () => Promise.reject(denied) };
+  setFirestoreAccessor(() => ({ docs: unreadable, email: OWNER_EMAIL, uid: OWNER_UID }));
+
+  for (const confirm of [false, true]) {
+    const result = await publishApp(opts({ confirm }));
+    assert.equal(result.ok, false, `confirm: ${confirm} must not publish`);
+    assert.ok(!result.ok && result.problems.some((problem) => problem.includes("could not be read")));
+    assert.ok(!result.ok && result.problems.some((problem) => problem.includes("not something `confirm` overrides")));
+  }
+  assert.equal(await docs.get("apps", AID), null);
+});
+
+test("a failed write becomes a result naming the step, not a thrown call", async () => {
+  // The tool's whole contract is actionable text. A raw rejection reaches the
+  // agent as a crash — and does so having possibly written the app document,
+  // which is exactly the fact the caller needs to hear.
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+  const failOnSchemas: FirestoreDocs = {
+    ...docs,
+    set: (collectionPath, docId, data) =>
+      collectionPath === `apps/${AID}/collections` ? Promise.reject(new Error("network is unreachable")) : docs.set(collectionPath, docId, data),
+  };
+  setFirestoreAccessor(() => ({ docs: failOnSchemas, email: OWNER_EMAIL, uid: OWNER_UID }));
+
+  const result = await publishApp(opts());
+  assert.equal(result.ok, false);
+  assert.ok(!result.ok && result.problems[0]?.includes("the published schema for 'bookings'"));
+  assert.ok(!result.ok && result.problems.some((problem) => problem.includes("Everything before it WAS written")));
+  // …and it says so truthfully: the app document really is live.
+  assert.notEqual(await docs.get("apps", AID), null);
+});
+
+test("a first-step failure says nothing was written, because nothing was", async () => {
+  // The paired case. "Everything before it was written" on the FIRST step
+  // would send the user looking for a half-published app that does not exist.
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+  const failOnApp: FirestoreDocs = {
+    ...docs,
+    set: (collectionPath, docId, data) => (collectionPath === "apps" ? Promise.reject(new Error("permission denied")) : docs.set(collectionPath, docId, data)),
+  };
+  setFirestoreAccessor(() => ({ docs: failOnApp, email: OWNER_EMAIL, uid: OWNER_UID }));
+
+  const result = await publishApp(opts());
+  assert.equal(result.ok, false);
+  assert.ok(!result.ok && result.problems.some((problem) => problem.includes("Nothing was written.")));
 });
 
 test("publish without a session refuses instead of failing document by document", async () => {
