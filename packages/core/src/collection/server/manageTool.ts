@@ -59,6 +59,7 @@ import { isBackendUnavailable } from "./backendAvailability";
 import { runCollectionQuery } from "./queryRunner";
 import { enrichItems } from "./derive";
 import { validateCollectionRecords, validateRecordObject } from "./validate";
+import { publishApp } from "./publish";
 import { buildWorkspaceOntology } from "./ontology";
 import { resolveDataDir } from "./paths";
 import { getWorkspaceRoot, stagingSkillDir } from "./host";
@@ -455,6 +456,35 @@ async function handleGetOntology(deps: ManageCollectionDeps): Promise<string> {
   return JSON.stringify({ count: collections.length, collections });
 }
 
+/** Publish this repository's `app.json` + shared schemas to its Firestore app.
+ *
+ *  Named as a whole-app action because it IS one: publish takes the repository
+ *  as its unit (one roster, one public config, every shared collection), so it
+ *  carries no `slug` and refusing one is not a limitation to work around.
+ *
+ *  The reply is prose rather than a status code on purpose. This is the one
+ *  operation in the collection surface that changes what every member sees the
+ *  moment it lands, and the two things the caller has to relay — what will
+ *  break, and that `confirm` is how it proceeds anyway — are sentences, not
+ *  fields. */
+async function handlePublishApp(deps: ManageCollectionDeps, confirm: boolean): Promise<string> {
+  const result = await publishApp({ ...deps, confirm });
+  if (!result.ok) {
+    const bullets = result.problems.map((problem) => `- ${problem}`).join("\n");
+    return `publish refused — nothing was written:\n${bullets}`;
+  }
+  const dirtyNote = result.dirty ? " (WORKING TREE DIRTY — the commit does not describe what was published)" : "";
+  const stamp = result.commit ? `commit ${result.commit.slice(0, 12)}${dirtyNote}` : "no commit (not a git repository, or no HEAD)";
+  const forced =
+    result.recordIssues > 0
+      ? ` Published over ${result.recordIssues} record(s) that do not satisfy the new schema — repair them now; members are reading them.`
+      : "";
+  return (
+    `${result.created ? "Created" : "Updated"} app '${result.aid}' and published ${result.cids.length} collection(s): ${result.cids.join(", ")}. ` +
+    `Signed ${stamp}. The previous app document is kept in \`previousPublished\` for rollback.${forced}`
+  );
+}
+
 /** Return the collection-authoring reference (`collection-skills.md`),
  *  rendered by `renderSchemaDocs` — the full doc overflows the agent's
  *  per-result limit, so the default reply is the core guide + a table of
@@ -606,6 +636,7 @@ const MANAGE_COLLECTION_PROMPT =
   "`putItems` validates every row against the schema before writing (required fields, enum values, primaryKey = record id) and returns `{ written, rejected }`; fix each rejected row using its `problem` text and retry just those rows. Never include computed fields in a row you write. " +
   'To update a few fields of an existing record, use `mode: "merge"` with a partial row ({ id, <changed fields> }) — the default upsert replaces the WHOLE record, so a partial upsert would silently erase every optional field it omits. ' +
   "`deleteItems` removes records by id and returns `{ deleted, rejected }`; an id that doesn't exist comes back rejected rather than counted as deleted, so check `rejected` before reporting a deletion as done. " +
+  "`publishApp` publishes the whole repository — its `app.json` (member roster, public read/submit configuration) and every shared collection's schema — to the app's Firestore. It is the ONE operation here that changes what every member sees the moment it runs, and it cannot be undone by reverting a commit: publishing again is the only undo (the previous app document is kept as `previousPublished`). Call it when the user asks to publish, invite, or open an app; never as a follow-up to an edit the user did not ask you to ship. Its refusals are the product, not an obstacle — relay them verbatim, and do not work around one by rewriting `app.json` until the user has said what they actually want. If it reports live records the new schemas would break, show the user that list and ask before re-running with `confirm`. " +
   "Answer aggregation questions (counts, sums, averages, group-bys) with `queryItems` on ANY collection — on a dataSource (CSV) collection it scans the whole file (getItems is row-capped, so aggregates computed from its output can be silently wrong on large files); on a file-backed collection it aggregates the enriched records, so computed fields (derived/rollup/toggle) are queryable columns.";
 
 /** Validate getItems' optional `ids`/`fields` args, then delegate. */
@@ -653,12 +684,13 @@ async function dispatchManageCollection(deps: ManageCollectionDeps, args: Record
   const action = typeof args.action === "string" ? args.action : "";
   if (action === "schemaDocs") return handleSchemaDocs(deps, typeof args.topic === "string" ? args.topic : undefined);
   if (action === "getOntology") return handleGetOntology(deps);
+  if (action === "publishApp") return handlePublishApp(deps, args.confirm === true);
   const slug = typeof args.slug === "string" ? args.slug.trim() : "";
   if (!slug) return "manageCollection: `slug` is required (the collection's slug).";
   if (action === "getSchema") return handleGetSchema(slug, deps);
   if (action === "putSchema") return handlePutSchema(slug, args.schema, deps);
   if (!RECORD_ACTIONS.has(action)) {
-    return 'manageCollection: `action` must be "getItems", "putItems", "deleteItems", "queryItems", "getOntology", "schemaDocs", "getSchema", or "putSchema".';
+    return 'manageCollection: `action` must be "getItems", "putItems", "deleteItems", "queryItems", "getOntology", "schemaDocs", "getSchema", "putSchema", or "publishApp".';
   }
   const collection = await loadCollection(slug, deps);
   if (!collection) return unknownCollection(slug);
@@ -670,13 +702,13 @@ async function dispatchManageCollection(deps: ManageCollectionDeps, args: Record
 const MANAGE_COLLECTION_DEFINITION = {
   name: "manageCollection",
   description:
-    "Read and write a schema-driven collection through the host — both its records and its structure. getItems returns records WITH computed values (derived formulas, toggles, embeds) the stored JSON files don't contain; putItems validates each row against the schema before writing; deleteItems removes records by id. getOntology maps the whole workspace: every collection with its record count and outbound ref/embed relations — call it first for cross-collection questions. schemaDocs returns the collection-authoring reference — the core guide plus a table of contents by default; pass `topic` for a specific section. getSchema/putSchema read and validate-then-write the collection's schema.json. Prefer it over raw file I/O on collections.",
+    "Read and write a schema-driven collection through the host — both its records and its structure. getItems returns records WITH computed values (derived formulas, toggles, embeds) the stored JSON files don't contain; putItems validates each row against the schema before writing; deleteItems removes records by id. getOntology maps the whole workspace: every collection with its record count and outbound ref/embed relations — call it first for cross-collection questions. schemaDocs returns the collection-authoring reference — the core guide plus a table of contents by default; pass `topic` for a specific section. getSchema/putSchema read and validate-then-write the collection's schema.json. publishApp publishes the repository's app.json + shared schemas to Firestore, where every member sees them immediately -- it refuses declarations that would be silently permissive or silently deny everyone, and refuses to publish over records the new schemas would break unless `confirm` is set. Prefer it over raw file I/O on collections.",
   inputSchema: {
     type: "object",
     properties: {
       action: {
         type: "string",
-        enum: ["getItems", "putItems", "deleteItems", "queryItems", "getOntology", "schemaDocs", "getSchema", "putSchema"],
+        enum: ["getItems", "putItems", "deleteItems", "queryItems", "getOntology", "schemaDocs", "getSchema", "putSchema", "publishApp"],
         description: "What to do.",
       },
       slug: {
@@ -709,6 +741,11 @@ const MANAGE_COLLECTION_DEFINITION = {
         type: "object",
         description:
           "putSchema: the full collection schema object (same shape as schema.json — title, icon, dataPath, primaryKey, fields, …). Call getSchema first for the current one, and schemaDocs for the field DSL.",
+      },
+      confirm: {
+        type: "boolean",
+        description:
+          "publishApp: publish even though existing records fail the schemas being published. Omit it first — the refusal lists what would break, and that list is the thing to show the user before asking.",
       },
       topic: {
         type: "string",

@@ -31,8 +31,11 @@ export interface RecordIssue {
   problem: string;
 }
 
-// Don't flood the result; the first batch is enough to act on.
-const MAX_ISSUES = 25;
+/** Don't flood the result; the first batch is enough to act on. Exported
+ *  because a caller that REPORTS a count has to know the count is a floor —
+ *  `publish` presents a full batch as "at least N" rather than as a total. */
+export const MAX_RECORD_ISSUES = 25;
+const MAX_ISSUES = MAX_RECORD_ISSUES;
 
 /** Read every `<id>.json` under the collection's dataDir and report the
  *  ones that won't load or violate the schema. An empty list means every

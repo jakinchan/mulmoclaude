@@ -66,6 +66,31 @@ export {
 export type { FirestoreDoc, FirestoreDocs } from "./firestoreDocs";
 export { sharedItemsPath } from "./firestoreStore";
 export { loadAppManifest, parseAppManifest, appManifestReason, APP_MANIFEST_FILE, type AppManifest, type AppManifestResult } from "./appManifest";
+// publish (git -> Firestore). `publishManifest` reads the parts of `app.json`
+// that `appManifest` deliberately does not; `publishProject` is the whole
+// authored -> published conversion; `publishChecks` is what publish refuses.
+export {
+  AuthoredAppZ,
+  parseAuthoredApp,
+  APP_ROLES,
+  type AuthoredApp,
+  type AuthoredCollectionConfig,
+  type AuthoredMail,
+  type AuthoredSubmit,
+} from "./publishManifest";
+export {
+  projectApp,
+  APPS_COLLECTION,
+  PUBLIC_CONFIG_DOC,
+  appConfigPath,
+  appSchemasPath,
+  type PublishStamp,
+  type PublishedApp,
+  type PublishedConfigDoc,
+  type PublishedSchemaDoc,
+} from "./publishProject";
+export { publishProblems, bindsSubmitterIdentity } from "./publishChecks";
+export { publishApp, type PublishOptions, type PublishResult } from "./publish";
 export type { LoadedCollection } from "./discoveredCollection";
 export * from "./paths";
 export * from "./templatePath";

@@ -1,0 +1,273 @@
+// publish, end to end, against an in-memory Firestore.
+//
+// No API key, no network, no emulator: the `FirestoreDocs` seam takes the same
+// in-memory stand-in the store contract uses, so the whole path — read
+// app.json, refuse, pre-validate the LIVE records, write three kinds of
+// document in the order the rules require — is exercisable here.
+//
+// What this file cannot tell you is whether the rules ACCEPT what publish
+// wrote. Nothing that reads the rules can: implementation order 2 put four
+// rounds of static review through rules that then failed to execute at all.
+// That is `../mulmoserver test/rules/rules_publish.ts`, which feeds these
+// exact documents to the real rules under the emulator.
+
+import { test, beforeEach, afterEach } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+import { configureCollectionHost, setFirestoreAccessor } from "../../src/collection/server/host";
+import type { FirestoreDoc, FirestoreDocs } from "../../src/collection/server/firestoreDocs";
+import { publishApp } from "../../src/collection/server/publish";
+import { sharedItemsPath } from "../../src/collection/server/firestoreStore";
+import { sharedCollectionKey } from "../../src/collection/core/collectionKey";
+
+// Explicit-root mode (`workspaceRoot: null`): every call here passes its own
+// root, and a call that read an ambient one would throw rather than quietly
+// reach into a real workspace. That is the multi-root contract MulmoTerminal
+// depends on — one process, N project roots.
+configureCollectionHost({
+  workspaceRoot: null,
+  log: { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} },
+  paths: {
+    userSkillsDir: () => null,
+    projectSkillsDir: (root) => path.join(root, ".claude", "skills"),
+    feedsRoot: (root) => path.join(root, "data", "feeds"),
+    skillsStagingDir: () => null,
+    archiveDir: "data/archive",
+    collectionsRegistriesConfig: (root) => path.join(root, "config", "collections-registries.json"),
+  },
+  isPresetSlug: () => false,
+});
+
+const AID = "app_salon_7f3a";
+const OWNER_EMAIL = "owner@salon.jp";
+const OWNER_UID = "uid_owner";
+
+let workdir: string;
+let emptyUserDir: string;
+let docs: FirestoreDocs;
+
+/** The same in-memory stand-in the store-contract suite uses: document
+ *  storage and create-atomicity, not consistency, listeners or rules. */
+function makeFakeFirestoreDocs(): FirestoreDocs {
+  const collections = new Map<string, Map<string, unknown>>();
+  const bucket = (collectionPath: string): Map<string, unknown> => {
+    const existing = collections.get(collectionPath);
+    if (existing) return existing;
+    const created = new Map<string, unknown>();
+    collections.set(collectionPath, created);
+    return created;
+  };
+  return {
+    list: (collectionPath) => {
+      const entries: FirestoreDoc[] = [...bucket(collectionPath).entries()].map(([docId, data]) => ({ id: docId, data }));
+      entries.sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+      return Promise.resolve(entries);
+    },
+    get: (collectionPath, docId) => Promise.resolve(bucket(collectionPath).has(docId) ? (bucket(collectionPath).get(docId) as unknown) : null),
+    set: (collectionPath, docId, data) => {
+      bucket(collectionPath).set(docId, data);
+      return Promise.resolve();
+    },
+    create: (collectionPath, docId, data) => {
+      if (bucket(collectionPath).has(docId)) return Promise.resolve(false);
+      bucket(collectionPath).set(docId, data);
+      return Promise.resolve(true);
+    },
+    delete: (collectionPath, docId) => Promise.resolve(bucket(collectionPath).delete(docId)),
+  };
+}
+
+beforeEach(() => {
+  workdir = mkdtempSync(path.join(tmpdir(), "publish-"));
+  emptyUserDir = mkdtempSync(path.join(tmpdir(), "publish-user-"));
+  docs = makeFakeFirestoreDocs();
+  setFirestoreAccessor(() => ({ docs, email: OWNER_EMAIL, uid: OWNER_UID }));
+});
+
+afterEach(() => {
+  // Module-level state: a fixture's fake left wired would resolve in a later
+  // test that never set one up.
+  setFirestoreAccessor(null);
+  rmSync(workdir, { recursive: true, force: true });
+  rmSync(emptyUserDir, { recursive: true, force: true });
+});
+
+const BOOKINGS_SCHEMA = {
+  title: "Bookings",
+  icon: "event",
+  storage: { type: "firestore" },
+  primaryKey: "id",
+  fields: {
+    id: { type: "string", label: "ID", primary: true },
+    customerEmail: { type: "email", label: "Email" },
+    // `enum`, not `status`: the design note's vocabulary table lists a
+    // `status` field type and `schemaZ`'s discriminated union has no such
+    // member. A schema declaring one is not an error anywhere — discovery
+    // simply skips the collection, and publish then reports the cid as
+    // unknown.
+    status: { type: "enum", label: "Status", values: ["pending", "approved", "cancelled"] },
+  },
+};
+
+function writeSkill(slug: string, schema: object): void {
+  const dir = path.join(workdir, ".claude/skills", slug);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "SKILL.md"), `---\nname: ${slug}\ndescription: test fixture\n---\nbody\n`);
+  writeFileSync(path.join(dir, "schema.json"), JSON.stringify(schema));
+}
+
+/** An `app.json` that passes every check, so a test can break exactly one
+ *  thing and know which check answered. */
+function writeApp(overrides: Record<string, unknown> = {}): void {
+  writeFileSync(
+    path.join(workdir, "app.json"),
+    JSON.stringify({
+      aid: AID,
+      name: "Sakura Hair",
+      members: { [OWNER_EMAIL]: { "*": "owner" } },
+      collections: { bookings: { statusField: "status", transitions: { initial: ["pending"], pending: ["approved", "cancelled"] } } },
+      public: {
+        enabled: true,
+        read: ["bookings"],
+        submit: {
+          bookings: {
+            auth: "verifiedEmail",
+            createFields: ["customerEmail", "status"],
+            initialStatus: "pending",
+            window: { until: "2026-12-31T23:59:59Z" },
+          },
+        },
+      },
+      ...overrides,
+    }),
+  );
+}
+
+/** Deterministic stamps, so an assertion can be about the document rather
+ *  than about "something that looks like a timestamp". */
+const opts = (extra: Record<string, unknown> = {}) => ({
+  workspaceRoot: workdir,
+  userSkillsDir: emptyUserDir,
+  now: () => 1_760_000_000_000,
+  resolveCommit: () => Promise.resolve({ commit: "abc123def456", dirty: false }),
+  ...extra,
+});
+
+test("publish writes the app, each collection's schema, and the public config", async () => {
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+
+  const result = await publishApp(opts());
+  assert.equal(result.ok, true, result.ok ? "" : result.problems.join("\n"));
+  assert.equal(result.ok && result.created, true);
+
+  const app = (await docs.get("apps", AID)) as Record<string, unknown>;
+  assert.equal(app.owner, OWNER_UID);
+  assert.deepEqual(app.memberEmails, [OWNER_EMAIL]);
+  assert.equal(app.publishedBy, OWNER_EMAIL);
+  assert.equal(app.publishedCommit, "abc123def456");
+  assert.equal("publishedDirty" in app, false);
+
+  const schema = (await docs.get(`apps/${AID}/collections`, "bookings")) as Record<string, unknown>;
+  assert.equal((schema.publishedSchema as Record<string, unknown>).title, "Bookings");
+
+  const config = (await docs.get(`apps/${AID}/config`, "public")) as Record<string, unknown>;
+  assert.equal(config.enabled, true);
+  assert.equal("members" in config, false);
+});
+
+test("the app document goes out before the documents it authorizes", async () => {
+  // `allow write` on `collections/{cid}` and `config/{docId}` both resolve the
+  // role from the APP document, so a publish that wrote a schema first would
+  // be refused by the real rules on a first publish.
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+  const order: string[] = [];
+  const recording: FirestoreDocs = { ...docs, set: (collectionPath, docId, data) => (order.push(collectionPath), docs.set(collectionPath, docId, data)) };
+  setFirestoreAccessor(() => ({ docs: recording, email: OWNER_EMAIL, uid: OWNER_UID }));
+
+  await publishApp(opts());
+  assert.deepEqual(order, ["apps", `apps/${AID}/collections`, `apps/${AID}/config`]);
+});
+
+test("a refused declaration writes NOTHING", async () => {
+  // The refusal has to be a gate, not a warning: a partial publish leaves the
+  // rules enforcing one declaration while members read another.
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp({
+    public: { submit: { bookings: { auth: "verifiedEmail", createFields: ["customerEmail"], idFrom: "auth.uid" } } },
+  });
+
+  const result = await publishApp(opts());
+  assert.equal(result.ok, false);
+  assert.ok(!result.ok && result.problems.some((problem) => problem.includes("submitOnly must be true")));
+  assert.equal(await docs.get("apps", AID), null);
+});
+
+test("publish stops on live records the new schema would break, and confirm proceeds", async () => {
+  // The pre-check reads the LIVE records — the ones members are looking at —
+  // through the same store the app uses, which is what makes publish the
+  // migration gate rather than a schema upload.
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+  const items = sharedItemsPath(sharedCollectionKey(AID, "bookings"));
+  await docs.set(items, "b1", { id: "b1", status: "nonsense" });
+
+  const stopped = await publishApp(opts());
+  assert.equal(stopped.ok, false);
+  assert.ok(!stopped.ok && stopped.problems.some((problem) => problem.includes("b1")));
+  assert.equal(await docs.get("apps", AID), null, "nothing may be written while the gate is closed");
+
+  const forced = await publishApp(opts({ confirm: true }));
+  assert.equal(forced.ok, true, forced.ok ? "" : forced.problems.join("\n"));
+  assert.equal(forced.ok && forced.recordIssues, 1);
+});
+
+test("republishing keeps the previous document and changes nothing else", async () => {
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+  await publishApp(opts());
+  const first = (await docs.get("apps", AID)) as Record<string, unknown>;
+
+  const second = await publishApp(opts({ now: () => 1_760_000_009_999 }));
+  assert.equal(second.ok, true);
+  assert.equal(second.ok && second.created, false, "the second publish is an update");
+
+  const app = (await docs.get("apps", AID)) as Record<string, unknown>;
+  assert.equal((app.previousPublished as Record<string, unknown>).publishedAt, first.publishedAt);
+  assert.equal(app.owner, OWNER_UID);
+  const { publishedAt: __secondAt, previousPublished: __secondPrev, ...rest } = app;
+  const { publishedAt: __firstAt, previousPublished: __firstPrev, ...firstRest } = first;
+  assert.deepEqual(rest, firstRest);
+});
+
+test("a dirty working tree is recorded, because the commit no longer describes the publish", async () => {
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+  const result = await publishApp(opts({ resolveCommit: () => Promise.resolve({ commit: "abc123def456", dirty: true }) }));
+  assert.equal(result.ok, true);
+  const app = (await docs.get("apps", AID)) as Record<string, unknown>;
+  assert.equal(app.publishedDirty, true);
+});
+
+test("publish without a session refuses instead of failing document by document", async () => {
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+  setFirestoreAccessor(() => null);
+  const result = await publishApp(opts());
+  assert.equal(result.ok, false);
+  assert.ok(!result.ok && result.problems.some((problem) => problem.includes("connect remote-host first")));
+});
+
+test("an app.json declaring someone else's owner uid is refused, not quietly ignored", async () => {
+  // The sample in the design note carries `"owner": "<uid>"`. Publishing over
+  // it silently would leave the author believing the key does something.
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp({ owner: "<uid>" });
+  const result = await publishApp(opts());
+  assert.equal(result.ok, false);
+  assert.ok(!result.ok && result.problems.some((problem) => problem.includes("remove it from app.json")));
+});

@@ -141,6 +141,17 @@ export interface CollectionHost {
 export interface FirestoreHandle {
   docs: FirestoreDocs;
   email: string;
+  /** The signed-in Firebase uid.
+   *
+   *  The EMAIL is the principal the roster is keyed by, and it is what every
+   *  record operation needs. The uid is needed by exactly one caller —
+   *  `publish` — because the app document's `owner` is a uid: the rules
+   *  require `owner == request.auth.uid` when the app is created and require
+   *  it unchanged afterwards. Required rather than optional so a host cannot
+   *  wire a session that can read and write records but silently cannot
+   *  create an app; the failure would surface as a permission denial with
+   *  nothing in it about identity. */
+  uid: string;
 }
 
 /** A collection's records changed on disk. Carries the `slug` so the host can
