@@ -20,6 +20,7 @@ import {
   discoverCollections,
   pageFromFullRead,
   collectionChangeKey,
+  isBackendUnavailable,
   projectItemFields,
   setCollectionChangePublisher,
   setFirestoreAccessor,
@@ -474,8 +475,19 @@ describe("shared (firestore) collections", () => {
     // Every path, not just the one the user happened to be on — and the address
     // is the fact the app's owner needs in order to fix it.
     for (const call of [() => store.list(), () => store.page(), () => store.read("n1"), () => write("n1", { id: "n1" }), () => removeItem("n1")]) {
-      await assert.rejects(call, /stranger@example\.com/);
-      await assert.rejects(call, /roster/i);
+      // ONE rejection, then both assertions against it: two `assert.rejects`
+      // calls would invoke the operation twice and could be satisfied by two
+      // DIFFERENT errors, which is not what this test claims.
+      const error: unknown = await call().then(
+        () => null,
+        (err: unknown) => err,
+      );
+      assert.ok(error, "a denied request must reject");
+      assert.match(String(error), /stranger@example\.com/);
+      assert.match(String(error), /roster/i);
+      // The TYPE matters as much as the words: the layers above catch broadly,
+      // and without this a denial degrades to "no records" (see the store).
+      assert.ok(isBackendUnavailable(error));
     }
   });
 
