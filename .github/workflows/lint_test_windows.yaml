@@ -58,12 +58,15 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
-          # A fresh install here is NOT cheap: `[3/5] Fetching packages` alone
-          # was 148-321s of it across 6 measured jobs (73-86% of install), which
-          # is exactly what caching yarn's download folder removes. The
-          # node_modules cache below cannot: yarn 1 still runs its fetch phase
-          # with node_modules already on disk.
-          cache: yarn
+          # Deliberately no `cache: yarn`. It does work — `[3/5] Fetching
+          # packages` is 73-86% of this install (148-321s) and the cache
+          # collapses install to 51-79s — but restoring the 2.2 GB entry on
+          # NTFS costs 178-247s, which spends the whole saving. Measured warm:
+          # 256s / 319s here and 311s in docker_sandbox_windows, against
+          # baselines of 274s and 232.5s. It also saves in 457s on every
+          # yarn.lock change and evicts ~2.2 GB of other caches (#2859).
+          # Re-test before re-proposing; don't re-derive it from the fetch
+          # share alone.
       # Disable Defender realtime monitoring to prevent EPERM on
       # atomic rename during yarn install / build.
       - name: Disable Windows Defender realtime monitoring

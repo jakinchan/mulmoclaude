@@ -54,11 +54,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22.x
-          # `[3/5] Fetching packages` is 73-86% of this install on Windows
-          # (148-321s measured across 6 jobs); caching yarn's download folder
-          # is what removes it. Restoring the entry costs ~2.2 GB of the repo
-          # cache budget, so re-measure before assuming it still pays.
-          cache: yarn
+          # No `cache: yarn` — measured on this job, it makes it slower. See
+          # lint_test_windows.yaml's setup-node step for the numbers.
 
       # Defender's realtime scan intermittently EPERMs the atomic renames
       # yarn / tsc do on Windows. Same rationale as lint_test_windows.
