@@ -226,6 +226,41 @@ test("publish stops on live records the new schema would break, and confirm proc
   assert.equal(forced.ok && forced.recordIssues, 1);
 });
 
+test("a capped record scan reports a FLOOR, on the confirmed path as well as the refusal", async () => {
+  // `validateCollectionRecords` stops at 25 per collection. Reporting that as
+  // an exact total understates the repair owed — and it understates it on the
+  // path where the records have already been published over, which is the one
+  // place the number is acted on rather than reconsidered.
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+  const items = sharedItemsPath(sharedCollectionKey(AID, "bookings"));
+  for (let index = 0; index < 30; index += 1) {
+    await docs.set(items, `b${index}`, { id: `b${index}`, status: "nonsense" });
+  }
+
+  const stopped = await publishApp(opts());
+  assert.equal(stopped.ok, false);
+  assert.ok(!stopped.ok && stopped.problems.some((problem) => problem.includes("at least 25")));
+
+  const forced = await publishApp(opts({ confirm: true }));
+  assert.equal(forced.ok, true, forced.ok ? "" : forced.problems.join("\n"));
+  assert.equal(forced.ok && forced.recordIssues, 25);
+  assert.equal(forced.ok && forced.recordIssuesCapped, true, "a full batch is a floor, and the caller has to be able to tell");
+});
+
+test("an uncapped record scan is reported as the exact count it is", async () => {
+  // The paired case: without it, `recordIssuesCapped: true` always would pass
+  // the assertion above and turn every count into a hedge.
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+  const items = sharedItemsPath(sharedCollectionKey(AID, "bookings"));
+  await docs.set(items, "b1", { id: "b1", status: "nonsense" });
+
+  const forced = await publishApp(opts({ confirm: true }));
+  assert.equal(forced.ok && forced.recordIssues, 1);
+  assert.equal(forced.ok && forced.recordIssuesCapped, false);
+});
+
 test("republishing keeps the previous document and changes nothing else", async () => {
   writeSkill("bookings", BOOKINGS_SCHEMA);
   writeApp();

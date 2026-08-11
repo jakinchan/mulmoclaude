@@ -475,10 +475,13 @@ async function handlePublishApp(deps: ManageCollectionDeps, confirm: boolean): P
   }
   const dirtyNote = result.dirty ? " (WORKING TREE DIRTY — the commit does not describe what was published)" : "";
   const stamp = result.commit ? `commit ${result.commit.slice(0, 12)}${dirtyNote}` : "no commit (not a git repository, or no HEAD)";
+  // "at least" when the scan hit its per-collection cap. The refusal path
+  // already says so, and the confirmed path is the one where saying otherwise
+  // costs something: the records are published over, and an understated count
+  // is an understated repair.
+  const brokenCount = result.recordIssuesCapped ? `at least ${result.recordIssues}` : `${result.recordIssues}`;
   const forced =
-    result.recordIssues > 0
-      ? ` Published over ${result.recordIssues} record(s) that do not satisfy the new schema — repair them now; members are reading them.`
-      : "";
+    result.recordIssues > 0 ? ` Published over ${brokenCount} record(s) that do not satisfy the new schema — repair them now; members are reading them.` : "";
   return (
     `${result.created ? "Created" : "Updated"} app '${result.aid}' and published ${result.cids.length} collection(s): ${result.cids.join(", ")}. ` +
     `Signed ${stamp}. The previous app document is kept in \`previousPublished\` for rollback.${forced}`

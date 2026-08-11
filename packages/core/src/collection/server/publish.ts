@@ -70,7 +70,16 @@ export type PublishResult =
       created: boolean;
       commit?: string | undefined;
       dirty: boolean;
+      /** How many live records the pre-check found that the published schemas
+       *  reject — and whether that number is a FLOOR.
+       *
+       *  `validateCollectionRecords` stops at its own cap per collection, so a
+       *  full batch means "at least this many". The count and the cap travel
+       *  together because they are read together: a caller that reports the
+       *  number without the flag understates how much repair is owed, on the
+       *  one path (a confirmed publish) where the damage is already done. */
       recordIssues: number;
+      recordIssuesCapped: boolean;
       published: PublishedApp;
     };
 
@@ -107,9 +116,10 @@ async function sharedCollections(opts: DiscoveryOptions): Promise<LoadedCollecti
  *  a refusal the publisher can override, because a breaking change is
  *  sometimes exactly what is intended and the point is that it is a decision
  *  rather than a discovery. */
-async function recordProblems(collections: LoadedCollection[], opts: DiscoveryOptions): Promise<{ lines: string[]; records: number }> {
+async function recordProblems(collections: LoadedCollection[], opts: DiscoveryOptions): Promise<{ lines: string[]; records: number; capped: boolean }> {
   const lines: string[] = [];
   let records = 0;
+  let cappedAnywhere = false;
   for (const collection of collections) {
     const issues = await validateCollectionRecords(collection, opts);
     if (issues.length === 0) continue;
@@ -118,6 +128,7 @@ async function recordProblems(collections: LoadedCollection[], opts: DiscoveryOp
     // a full batch means "at least this many" and saying otherwise would read
     // as a complete count of the damage.
     const capped = issues.length >= MAX_RECORD_ISSUES;
+    cappedAnywhere = cappedAnywhere || capped;
     const count = capped ? `at least ${issues.length}` : String(issues.length);
     const plural = issues.length === 1 ? "" : "s";
     const note = capped ? " (the scan stops there)" : "";
@@ -125,7 +136,7 @@ async function recordProblems(collections: LoadedCollection[], opts: DiscoveryOp
     for (const issue of issues.slice(0, MAX_LISTED_ISSUES)) lines.push(`  - ${issue.file}: ${issue.problem}`);
     if (issues.length > MAX_LISTED_ISSUES) lines.push(`  - … and ${issues.length - MAX_LISTED_ISSUES} more`);
   }
-  return { lines, records };
+  return { lines, records, capped: cappedAnywhere };
 }
 
 function schemasOf(collections: LoadedCollection[]): { cid: string; schema: CollectionSchema }[] {
@@ -200,7 +211,7 @@ export async function publishApp(opts: PublishOptions = {}): Promise<PublishResu
     };
   }
 
-  return writePublished(authored.app, collections, handle, opts, root, issues.records);
+  return writePublished(authored.app, collections, handle, opts, root, issues);
 }
 
 /** The write half: stamp, project, and put the documents in the order the
@@ -212,7 +223,7 @@ async function writePublished(
   handle: NonNullable<ReturnType<typeof firestoreHandle>>,
   opts: PublishOptions,
   root: string,
-  recordIssues: number,
+  issues: { records: number; capped: boolean },
 ): Promise<PublishResult> {
   const { aid } = authored;
   const existing = await handle.docs.get(APPS_COLLECTION, aid);
@@ -237,7 +248,8 @@ async function writePublished(
     created: existing === null,
     commit: stamp.commit,
     dirty: stampSource.dirty === true,
-    recordIssues,
+    recordIssues: issues.records,
+    recordIssuesCapped: issues.capped,
     published,
   };
 }
