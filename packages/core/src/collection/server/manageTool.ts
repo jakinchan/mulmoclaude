@@ -471,7 +471,13 @@ async function handlePublishApp(deps: ManageCollectionDeps, confirm: boolean): P
   const result = await publishApp({ ...deps, confirm });
   if (!result.ok) {
     const bullets = result.problems.map((problem) => `- ${problem}`).join("\n");
-    return `publish refused — nothing was written:\n${bullets}`;
+    // "nothing was written" is true of nearly every failure, and it is most of
+    // what a refusal is worth saying. It is NOT true of a write that failed
+    // part-way, and printing it there would tell the caller the app is
+    // untouched while its roster is already live — the one case where being
+    // wrong sends someone to look at the wrong thing.
+    const headline = result.partial ? "publish FAILED PART-WAY — some documents are already live:" : "publish refused — nothing was written:";
+    return `${headline}\n${bullets}`;
   }
   const dirtyNote = result.dirty ? " (WORKING TREE DIRTY — the commit does not describe what was published)" : "";
   const stamp = result.commit ? `commit ${result.commit.slice(0, 12)}${dirtyNote}` : "no commit (not a git repository, or no HEAD)";

@@ -207,6 +207,7 @@ test("a refused declaration writes NOTHING", async () => {
   const result = await publishApp(opts());
   assert.equal(result.ok, false);
   assert.ok(!result.ok && result.problems.some((problem) => problem.includes("submitOnly must be true")));
+  assert.equal(!result.ok && result.partial, false);
   assert.equal(await docs.get("apps", AID), null);
 });
 
@@ -328,6 +329,9 @@ test("a failed write becomes a result naming the step, not a thrown call", async
   assert.equal(result.ok, false);
   assert.ok(!result.ok && result.problems[0]?.includes("the published schema for 'bookings'"));
   assert.ok(!result.ok && result.problems.some((problem) => problem.includes("Everything before it WAS written")));
+  // The flag the caller words its headline from. Inferring it from the prose
+  // is what produced "nothing was written" over a live roster.
+  assert.equal(!result.ok && result.partial, true);
   // …and it says so truthfully: the app document really is live.
   assert.notEqual(await docs.get("apps", AID), null);
 });
@@ -366,6 +370,7 @@ test("a first-step failure says nothing was written, because nothing was", async
   const result = await publishApp(opts());
   assert.equal(result.ok, false);
   assert.ok(!result.ok && result.problems.some((problem) => problem.includes("Nothing was written.")));
+  assert.equal(!result.ok && result.partial, false, "a first-step failure wrote nothing, and must not claim otherwise");
 });
 
 test("publish without a session refuses instead of failing document by document", async () => {

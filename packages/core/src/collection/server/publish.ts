@@ -62,7 +62,20 @@ export interface PublishOptions extends DiscoveryOptions {
 }
 
 export type PublishResult =
-  | { ok: false; problems: string[] }
+  | {
+      ok: false;
+      problems: string[];
+      /** Did any document reach Firestore before this failed?
+       *
+       *  Almost every refusal happens before the first write, and saying so is
+       *  most of the value of refusing. But a write that fails part-way is a
+       *  DIFFERENT state — the roster and configuration are live while the
+       *  schemas are one publish behind — and it is the state a caller most
+       *  needs to hear about. Carried as a field rather than left for the
+       *  caller to infer from prose, because a caller that guesses will guess
+       *  "nothing was written": that is what every other failure means. */
+      partial: boolean;
+    }
   | {
       ok: true;
       aid: string;
@@ -222,6 +235,9 @@ async function writeDocuments(handle: NonNullable<ReturnType<typeof firestoreHan
           : `Everything before it WAS written — the app's roster and configuration are already live while ${index === steps.length - 1 ? "the public config is" : "the remaining documents are"} one publish behind.`;
       return {
         ok: false,
+        // The whole reason the flag exists: this is the one failure where
+        // documents ARE live.
+        partial: index > 0,
         problems: [
           `publish failed while writing ${step.what}: ${reason}`,
           `${already} Publishing again is the repair: the write is idempotent, and it re-does the steps that did not land.`,
@@ -244,6 +260,7 @@ export async function publishApp(opts: PublishOptions = {}): Promise<PublishResu
   if (!handle) {
     return {
       ok: false,
+      partial: false,
       problems: [
         "publish needs a signed-in Firestore session: connect remote-host first. Publishing writes the app's roster and configuration as the app's owner, which is an authenticated write.",
       ],
@@ -251,16 +268,17 @@ export async function publishApp(opts: PublishOptions = {}): Promise<PublishResu
   }
 
   const authored = await readAuthored(root);
-  if (!authored.ok) return authored;
+  if (!authored.ok) return { ...authored, partial: false };
 
   const collections = await sharedCollections({ ...opts, workspaceRoot: root });
   const problems = declarationProblems(authored.app, collections, handle);
-  if (problems.length > 0) return { ok: false, problems };
+  if (problems.length > 0) return { ok: false, partial: false, problems };
 
   const issues = await recordProblems(collections, { ...opts, workspaceRoot: root });
   if (issues.unreadable.length > 0) {
     return {
       ok: false,
+      partial: false,
       problems: [
         ...issues.unreadable,
         "publish stopped: the live records could not be read, so nothing checked whether the schemas about to be published still fit them. " +
@@ -271,6 +289,7 @@ export async function publishApp(opts: PublishOptions = {}): Promise<PublishResu
   if (issues.records > 0 && opts.confirm !== true) {
     return {
       ok: false,
+      partial: false,
       problems: [
         ...issues.lines,
         "publish stopped: these records are live and members are reading them. Migrate them first, or re-run with confirm to publish the schema anyway and repair the records afterwards.",
@@ -308,6 +327,7 @@ async function writePublished(
     const reason = err instanceof Error ? err.message : String(err);
     return {
       ok: false,
+      partial: false,
       problems: [
         `publish failed while reading the current app document (apps/${aid}): ${reason}`,
         "Nothing was written. Publishing again is safe — this read only decides whether the app is created or updated.",
