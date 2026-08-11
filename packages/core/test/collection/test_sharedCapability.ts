@@ -11,21 +11,20 @@
 // The gate is on ACCEPTANCE, not on discovery's listing: a refused schema is
 // reported with a reason, while a skipped one just vanishes and reads as
 // "this collection is empty".
+//
+// The capability is its own setter rather than a field on the one-shot host
+// binding, so a suite can turn it on for itself — which is what makes both
+// states testable in one file.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 
-import { configureCollectionHost, acceptParsedSchema, CollectionSchemaZ } from "../../src/collection/server/index.ts";
+import { configureCollectionHost, setSharedCollectionsSupport, acceptParsedSchema, CollectionSchemaZ } from "../../src/collection/server/index.ts";
 import { makeTempDir } from "../helpers/tempDir.js";
 
 const noopLog = { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} };
 const root = makeTempDir("shared-cap-");
 
-// ONE binding per file: the host slot refuses a re-bind with a different host
-// by design, so the capability's other state lives in its own file
-// (`test_sharedCapabilityOn.ts`). Not declaring it at all is the case under
-// test here — that is what MulmoClaude does, and `false` reaches the same
-// predicate (`=== true`).
 function bindHost(): void {
   configureCollectionHost({
     workspaceRoot: root,
@@ -77,4 +76,18 @@ test("a local collection is unaffected by the capability", () => {
   // The gate must not become a switch that turns the whole engine off for a
   // host without Firestore: MulmoClaude keeps every non-shared collection.
   assert.equal(accept(localSchema).ok, true);
+});
+
+test("a host that declares support gets past the gate — and is then asked for app.json", () => {
+  setSharedCollectionsSupport(true);
+  const refused = accept(sharedSchema);
+  // No `app.json` in the temp root, so it still fails — but for the NEXT
+  // reason, which is what proves the capability gate let it through.
+  assert.equal(refused.ok, false);
+  assert.match(refused.ok ? "" : refused.reason, /app\.json/);
+  setSharedCollectionsSupport(false);
+});
+
+test("turning support back off refuses again — the capability is not sticky", () => {
+  assert.equal(accept(sharedSchema).ok, false);
 });

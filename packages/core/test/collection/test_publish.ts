@@ -17,7 +17,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { configureCollectionHost, setFirestoreAccessor } from "../../src/collection/server/host";
+import { configureCollectionHost, setFirestoreAccessor, setSharedCollectionsSupport } from "../../src/collection/server/host";
 import type { FirestoreDoc, FirestoreDocs } from "../../src/collection/server/firestoreDocs";
 import { publishApp } from "../../src/collection/server/publish";
 import { sharedItemsPath } from "../../src/collection/server/firestoreStore";
@@ -29,9 +29,6 @@ import { sharedCollectionKey } from "../../src/collection/core/collectionKey";
 // depends on — one process, N project roots.
 configureCollectionHost({
   workspaceRoot: null,
-  // This suite IS the shared-collection host: without the capability the
-  // acceptance gate refuses every firestore schema before publish sees one.
-  sharedCollections: true,
   log: { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} },
   paths: {
     userSkillsDir: () => null,
@@ -43,6 +40,10 @@ configureCollectionHost({
   },
   isPresetSlug: () => false,
 });
+
+// This suite IS a shared-collection host: without the capability the acceptance
+// gate refuses every firestore schema before publish ever sees one.
+setSharedCollectionsSupport(true);
 
 const AID = "app_salon_7f3a";
 const OWNER_EMAIL = "owner@salon.jp";

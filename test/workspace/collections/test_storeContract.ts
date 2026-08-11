@@ -24,6 +24,7 @@ import {
   projectItemFields,
   setCollectionChangePublisher,
   setFirestoreAccessor,
+  setSharedCollectionsSupport,
   sharedItemsPath,
   storeFor,
   type CollectionChangePayload,
@@ -33,6 +34,14 @@ import {
   type FirestoreDocs,
 } from "@mulmoclaude/core/collection/server";
 import { sharedCollectionKey } from "@mulmoclaude/core/collection";
+
+// This suite exercises the ENGINE's shared (firestore) store, which lives in
+// `@mulmoclaude/core` and is hosted by MulmoTerminal — not by this server,
+// which deliberately does not serve shared collections (its workspace holds
+// unrelated collections side by side, so one app.json would put them all under
+// one roster). The capability is therefore declared HERE, by the test, and
+// never by `server/`.
+setSharedCollectionsSupport(true);
 
 let workdir: string;
 let emptyUserDir: string;
