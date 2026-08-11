@@ -34,6 +34,6 @@ export * from "./core/recordKeys";
 export * from "./core/itemLabel";
 export * from "./core/calendarGrid";
 export * from "./core/errorMessage";
-export * from "./core/shortHexId";
+export * from "./core/itemId";
 export * from "./core/promptSafety";
 export * from "./core/ontologyGraph";

@@ -1,15 +1,20 @@
 // Unit tests for the pure id helpers (packages/core/src/collection/core/ids.ts).
 // Focus: `generateUniqueId`'s collision re-roll and `nextUniqueItemId` (the
 // existing-set build + re-roll lifted out of the view's `generateUniqueItemId`);
-// the slug/record-id validators are exercised via schema tests already.
+// the slug/record-id validators are exercised via schema tests already. Plus
+// `newItemId`, whose output has to survive the record-id sanitiser to be a
+// legal `<id>.json` filename stem.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { generateUniqueId, nextUniqueItemId, type CollectionItem } from "@mulmoclaude/core/collection";
+import { generateUniqueId, isSafeRecordId, newItemId, nextUniqueItemId, type CollectionItem } from "@mulmoclaude/core/collection";
+import { generateItemId } from "@mulmoclaude/core/collection/server";
+
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /** A deterministic generator returning the given ids in order, then repeating
- *  the last one forever — models `shortHexId` for a fixed roll sequence. */
+ *  the last one forever — models `newItemId` for a fixed roll sequence. */
 function sequence(...ids: string[]): () => string {
   let index = 0;
   return () => {
@@ -19,6 +24,28 @@ function sequence(...ids: string[]): () => string {
     return picked;
   };
 }
+
+describe("newItemId", () => {
+  it("returns a v4 UUID", () => {
+    assert.match(newItemId(), UUID_V4_PATTERN);
+  });
+
+  it("passes the record-id sanitiser, so it is a legal <id>.json stem", () => {
+    // Hex at both ends and hyphens only in the interior — the shape
+    // SAFE_RECORD_ID_PATTERN admits. A generated id that failed here would
+    // 400 every blank-id create.
+    for (let i = 0; i < 100; i++) assert.ok(isSafeRecordId(newItemId()));
+  });
+
+  it("is what the server mints for a blank-id create (`generateItemId` delegates)", () => {
+    assert.match(generateItemId(), UUID_V4_PATTERN);
+  });
+
+  it("does not repeat itself", () => {
+    const ids = new Set(Array.from({ length: 1000 }, () => newItemId()));
+    assert.equal(ids.size, 1000);
+  });
+});
 
 describe("generateUniqueId", () => {
   it("returns the first candidate when nothing collides", () => {
