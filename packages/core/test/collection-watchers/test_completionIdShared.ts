@@ -4,8 +4,15 @@
 // added — the two that already existed byte-for-byte, and the new one.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
 
 import { completionLegacyId, parseCompletionLegacyId } from "../../src/collection-watchers/reconciler.ts";
+import { testRoot } from "../helpers/testRoot.ts";
+
+// The root inside an id is whatever `canonicalRoot` produced, which is
+// platform-shaped — so the fixtures are too. Everything else about the format
+// is pinned byte-for-byte below.
+const PROJ = testRoot("work", "proj");
 
 test("with no root the id is the pre-multi-root format, byte for byte", () => {
   // A single-workspace host's existing entries must keep matching, or every
@@ -14,10 +21,10 @@ test("with no root the id is the pre-multi-root format, byte for byte", () => {
 });
 
 test("a root is included only when one was supplied", () => {
-  assert.equal(completionLegacyId("tasks", "t1", "/work/proj"), "collection-completion:@/work/proj\u0000tasks:t1");
+  assert.equal(completionLegacyId("tasks", "t1", PROJ), `collection-completion:@${PROJ}\u0000tasks:t1`);
   // Canonicalised here as well as at the watcher's claim: `/proj/` reaching
   // reconcileItem directly would otherwise publish a second, uncleardable bell.
-  assert.equal(completionLegacyId("tasks", "t1", "/work/proj/"), completionLegacyId("tasks", "t1", "/work/proj"));
+  assert.equal(completionLegacyId("tasks", "t1", `${PROJ}${path.sep}`), completionLegacyId("tasks", "t1", PROJ));
 });
 
 test("a shared collection gets a mark of its own, not the rootless form", () => {
@@ -26,7 +33,7 @@ test("a shared collection gets a mark of its own, not the rootless form", () => 
   const shared = completionLegacyId("tasks", "t1", undefined, "salon");
   assert.equal(shared, "collection-completion:#salon\u0000tasks:t1");
   assert.notEqual(shared, completionLegacyId("tasks", "t1"));
-  assert.notEqual(shared, completionLegacyId("tasks", "t1", "/work/proj"));
+  assert.notEqual(shared, completionLegacyId("tasks", "t1", PROJ));
 });
 
 test("two apps owning the same cid hold two bells", () => {
@@ -36,7 +43,7 @@ test("two apps owning the same cid hold two bells", () => {
 test("an id cannot carry both a root and an app", () => {
   // Preferring one silently would put a LOCAL bell in the shared namespace,
   // where every root's sweep skips it and nobody can ever clear it.
-  assert.throws(() => completionLegacyId("tasks", "t1", "/work/proj", "salon"), /both a root/);
+  assert.throws(() => completionLegacyId("tasks", "t1", PROJ, "salon"), /both a root/);
 });
 
 test("a collection name carrying a colon is refused, not mis-parsed", () => {
@@ -67,7 +74,7 @@ test("an itemId may still carry colons", () => {
 
 test("all three forms parse", () => {
   assert.deepEqual(parseCompletionLegacyId("collection-completion:tasks:t1"), { slug: "tasks", itemId: "t1" });
-  assert.deepEqual(parseCompletionLegacyId("collection-completion:@/work/proj\u0000tasks:t1"), { root: "/work/proj", slug: "tasks", itemId: "t1" });
+  assert.deepEqual(parseCompletionLegacyId(`collection-completion:@${PROJ}\u0000tasks:t1`), { root: PROJ, slug: "tasks", itemId: "t1" });
   assert.deepEqual(parseCompletionLegacyId("collection-completion:#salon\u0000tasks:t1"), { aid: "salon", slug: "tasks", itemId: "t1" });
 });
 
@@ -81,7 +88,7 @@ test("a rooted id read back from disk is canonicalised on the way out too", () =
   // written by hand or by an older build with a trailing separator would
   // otherwise never match: the verdict would be "another root's, skip" and
   // nobody could ever clear that bell.
-  assert.deepEqual(parseCompletionLegacyId("collection-completion:@/work/proj/\u0000tasks:t1"), { root: "/work/proj", slug: "tasks", itemId: "t1" });
+  assert.deepEqual(parseCompletionLegacyId(`collection-completion:@${PROJ}${path.sep}\u0000tasks:t1`), { root: PROJ, slug: "tasks", itemId: "t1" });
 });
 
 test("a string from somewhere else parses to null", () => {

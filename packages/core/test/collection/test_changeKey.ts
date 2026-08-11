@@ -6,6 +6,7 @@
 // nothing about roots at all.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
 
 import {
   collectionChangeKey,
@@ -15,8 +16,12 @@ import {
   type SharedCollectionChange,
 } from "../../src/collection/server/host.ts";
 import { collectionKeyId } from "../../src/collection/core/collectionKey.ts";
+import { testRoot } from "../helpers/testRoot.ts";
 
-const HOST_ROOT = "/work/host";
+// Platform-shaped, because `collectionChangeKey` canonicalises through
+// `path.resolve` — a POSIX literal is not a fixed point of that on Windows.
+const HOST_ROOT = testRoot("work", "host");
+const PROJ = testRoot("work", "proj");
 
 test("a payload with no root resolves against the host's root", () => {
   const payload = collectionChangePayload({ slug: "tasks", ids: ["t1"], op: "upsert" }, undefined);
@@ -24,10 +29,10 @@ test("a payload with no root resolves against the host's root", () => {
 });
 
 test("a payload with an explicit root resolves against that one", () => {
-  const payload = collectionChangePayload({ slug: "tasks" }, "/work/proj/");
-  // Canonical on both sides: a direct write against `/work/proj/` and the
-  // watcher's own publish for `/work/proj` must land on ONE channel.
-  assert.deepEqual(collectionChangeKey(payload, HOST_ROOT), { kind: "local", root: "/work/proj", slug: "tasks" });
+  const payload = collectionChangePayload({ slug: "tasks" }, `${PROJ}${path.sep}`);
+  // Canonical on both sides: a direct write against a root with a trailing
+  // separator and the watcher's own publish without one must land on ONE channel.
+  assert.deepEqual(collectionChangeKey(payload, HOST_ROOT), { kind: "local", root: PROJ, slug: "tasks" });
 });
 
 test("a shared payload carries the app, never a root", () => {
@@ -39,8 +44,8 @@ test("a shared payload carries the app, never a root", () => {
 test("the fan-out cannot cross a project or an app", () => {
   // The failure this exists to prevent: two projects each owning `tasks`
   // refreshing each other's open views, and a shared `tasks` refreshing both.
-  const projA = collectionChangeKey(collectionChangePayload({ slug: "tasks" }, "/work/a"), HOST_ROOT);
-  const projB = collectionChangeKey(collectionChangePayload({ slug: "tasks" }, "/work/b"), HOST_ROOT);
+  const projA = collectionChangeKey(collectionChangePayload({ slug: "tasks" }, testRoot("work", "a")), HOST_ROOT);
+  const projB = collectionChangeKey(collectionChangePayload({ slug: "tasks" }, testRoot("work", "b")), HOST_ROOT);
   const shared = collectionChangeKey(sharedCollectionChangePayload({ slug: "tasks" }, "salon"), HOST_ROOT);
   const ids = new Set([projA, projB, shared].map(collectionKeyId));
   assert.equal(ids.size, 3);
@@ -60,7 +65,7 @@ test("a payload cannot carry both a root and an app", () => {
   // something off a wire -- it throws rather than being guessed into one
   // channel or the other, because a misrouted fan-out is invisible.
   // @ts-expect-error - the base of a local payload has no aid
-  const built = collectionChangePayload({ slug: "tasks", aid: "salon" }, "/work/a");
+  const built = collectionChangePayload({ slug: "tasks", aid: "salon" }, testRoot("work", "a"));
   assert.throws(() => collectionChangeKey(built, HOST_ROOT), /both an app/);
 });
 
