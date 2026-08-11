@@ -572,10 +572,12 @@ describe("a watch that cannot arm is retried, not marked mounted", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Shared (firestore-backed) collections. Their store implements no `watch`, so
-// nothing ever reports that their records moved — the clock tick has to stand
-// in for the store-change path. These pin that it does, and that a closed
-// session stays an ordinary state rather than an error or a data loss.
+// Shared (firestore-backed) collections. Their store DOES implement `watch`
+// (an `onSnapshot` listener), so a record that moves in Firestore reports
+// itself, exactly like a file edited on disk — which is what takes this backend
+// out of `tickUnwatchedCollections`. These pin that the live path runs, that a
+// mount still bells what was already pending, and that a closed session stays
+// an ordinary state rather than an error or a data loss.
 // ---------------------------------------------------------------------------
 
 const SHARED_APP_ID = "app_test_7f3a";
@@ -589,9 +591,13 @@ const sharedLegacyIdFor = (slug: string, itemId: string): string => `collection-
 /** In-memory `FirestoreDocs`, keyed only by document id: these tests never
  *  exercise two collection paths at once, and the path itself is pinned in
  *  test_storeContract.ts. */
-function makeFakeDocs(seed: Record<string, unknown>[]): FirestoreDocs {
+function makeFakeDocs(seed: Record<string, unknown>[]): FakeDocs {
   const rows = new Map<string, unknown>(seed.map((record) => [record.id as string, record]));
+  const listeners: ((ids: string[], meta: { initial: boolean }) => void)[] = [];
   return {
+    emit: (ids: string[], initial = false) => {
+      for (const notify of listeners) notify(ids, { initial });
+    },
     list: () => {
       const entries: FirestoreDoc[] = [...rows.entries()].map(([docId, data]) => ({ id: docId, data }));
       entries.sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
@@ -608,10 +614,35 @@ function makeFakeDocs(seed: Record<string, unknown>[]): FirestoreDocs {
       return Promise.resolve(true);
     },
     delete: (_path, docId) => Promise.resolve(rows.delete(docId)),
+    watch: (_path, onChanged) => {
+      listeners.push(onChanged);
+      return () => {
+        const index = listeners.indexOf(onChanged);
+        if (index >= 0) listeners.splice(index, 1);
+      };
+    },
   };
 }
 
-function connectFake(docs: FirestoreDocs): void {
+/** The fake seam plus the control a live-update test needs: drive a snapshot
+ *  the way Firestore would after someone else wrote a record. */
+type FakeDocs = FirestoreDocs & { emit: (ids: string[], initial?: boolean) => void };
+
+/** Wait for the listener's reaction to land. `emit` is synchronous (so is
+ *  Firestore's callback), but what it starts — read the record, decide the
+ *  bell, write the notifier file — is not, and the watcher deliberately does
+ *  not await it (a slow reconcile must not stall the snapshot). Polling rather
+ *  than a fixed sleep: the number of turns is an implementation detail, and a
+ *  sleep long enough to be safe is long enough to be slow. */
+async function waitUntil(done: () => Promise<boolean>, what: string): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (await done()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(`timed out waiting for ${what}`);
+}
+
+function connectFake(docs: FakeDocs): void {
   setFirestoreAccessor(() => ({ docs, email: "owner@example.com" }));
 }
 
@@ -673,39 +704,41 @@ describe("shared collection — the watcher set stays quiet", () => {
 describe("shared collection — declared bells actually run", () => {
   const FSB_SLUG = "test-watcher-fs-bell";
 
-  // Without `tickUnwatchedCollections`, a shared collection declaring
-  // `completionField` would validate and then silently do nothing: no change
-  // event ever arrives, so nothing re-derives its bells.
-  it("bells a pending record via the clock tick, and clears it when done", async () => {
+  // Two paths, and both have to work: what was ALREADY pending when the server
+  // started is belled by the mount's boot reconcile, and what changes AFTER
+  // that arrives through the listener.
+  it("bells what was pending at mount, and clears it when the record turns done remotely", async () => {
     writeSharedSchema(FSB_SLUG, BELLS);
     const docs = makeFakeDocs([{ id: "a", read: false }]);
     connectFake(docs);
     await startForTest();
 
-    await _tickTimeTriggersForTesting(undefined, workdir);
-    let legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(legacyIds.includes(sharedLegacyIdFor(FSB_SLUG, "a")), "pending record must bell");
+    const legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
+    assert.ok(legacyIds.includes(sharedLegacyIdFor(FSB_SLUG, "a")), "the mount's boot reconcile must bell a pending record");
 
-    // The record turns done remotely. Nothing can report that (no `watch`), so
-    // only the tick can clear the bell.
+    // Someone else marks it done, in Firestore. The listener is what tells us
+    // — no clock tick is involved, and none is waited for.
     await docs.set("ignored", "a", { id: "a", read: true });
-    await _tickTimeTriggersForTesting(undefined, workdir);
-    legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(!legacyIds.includes(sharedLegacyIdFor(FSB_SLUG, "a")), "bell must clear once done");
+    docs.emit(["a"]);
+    await waitUntil(
+      async () => !(await activeCompletionEntries()).map((entry) => entry.legacyId).includes(sharedLegacyIdFor(FSB_SLUG, "a")),
+      "the listener to clear the bell",
+    );
   });
 
-  it("survives a closed session — no throw, and it recovers once connected", async () => {
+  it("survives a closed session — no throw, and it mounts once connected", async () => {
     writeSharedSchema(FSB_SLUG, BELLS);
     setFirestoreAccessor(null); // no remote-host session
     await startForTest();
-    // A disconnected session is an ordinary state: the tick must not reject.
+    // A disconnected session is an ordinary state: the store refuses to arm
+    // (`watch` resolves to null), so the collection is simply not mounted yet.
     await assert.doesNotReject(() => _tickTimeTriggersForTesting(undefined, workdir));
     assert.equal((await activeCompletionEntries()).length, 0);
 
     connectFake(makeFakeDocs([{ id: "a", read: false }]));
-    await _tickTimeTriggersForTesting(undefined, workdir);
+    assert.equal(await _syncWatchersForTesting(workdir), true, "the retry must mount what it could not arm");
     const legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(legacyIds.includes(sharedLegacyIdFor(FSB_SLUG, "a")), "must recover after reconnect");
+    assert.ok(legacyIds.includes(sharedLegacyIdFor(FSB_SLUG, "a")), "and its boot reconcile must bell the pending record");
   });
 
   // A failed pass learns nothing, so it must change nothing — least of all
@@ -714,7 +747,6 @@ describe("shared collection — declared bells actually run", () => {
     writeSharedSchema(FSB_SLUG, BELLS);
     connectFake(makeFakeDocs([{ id: "a", read: false }]));
     await startForTest();
-    await _tickTimeTriggersForTesting(undefined, workdir);
     assert.ok((await activeCompletionEntries()).map((entry) => entry.legacyId).includes(sharedLegacyIdFor(FSB_SLUG, "a")), "precondition: the bell exists");
 
     setFirestoreAccessor(null); // the session closes again
@@ -730,16 +762,15 @@ describe("shared collection — bells don't outlive their schema", () => {
   const FSD_SLUG = "test-watcher-fs-drop";
 
   // Removing `completionField` drops the collection out of the reconcile set
-  // at once, so the bell has to be cleared by something. For a shared
-  // collection that something is the rediscovery pass — `reconcileChangedSchemas`
-  // sees the schema move and pairs it with a sweep, exactly as it does for
-  // every other backend. The clock tick deliberately does NOT duplicate it.
+  // at once, so the bell has to be cleared by something. That something is the
+  // rediscovery pass — `reconcileChangedSchemas` sees the schema move and pairs
+  // it with a sweep, exactly as it does for every other backend. No record
+  // changed, so the listener has nothing to say about it.
   it("clears bells when completionField is removed from the schema", async () => {
     writeSharedSchema(FSD_SLUG, BELLS);
     connectFake(makeFakeDocs([{ id: "a", read: false }]));
     await startForTest();
 
-    await _tickTimeTriggersForTesting(undefined, workdir);
     let legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
     assert.ok(legacyIds.includes(sharedLegacyIdFor(FSD_SLUG, "a")), "precondition: the bell exists");
 
