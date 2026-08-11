@@ -53,6 +53,7 @@ export {
   type CollectionChangePayload,
   firestoreHandle,
   setFirestoreAccessor,
+  hostSupportsSharedCollections,
   type FirestoreHandle,
   type LocalCollectionChange,
   type SharedCollectionChange,

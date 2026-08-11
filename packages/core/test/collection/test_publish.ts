@@ -29,6 +29,9 @@ import { sharedCollectionKey } from "../../src/collection/core/collectionKey";
 // depends on — one process, N project roots.
 configureCollectionHost({
   workspaceRoot: null,
+  // This suite IS the shared-collection host: without the capability the
+  // acceptance gate refuses every firestore schema before publish sees one.
+  sharedCollections: true,
   log: { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} },
   paths: {
     userSkillsDir: () => null,

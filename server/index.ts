@@ -87,7 +87,6 @@ import { initFileChangePublisher } from "./events/file-change.js";
 // effect at module load — plans/done/feat-mulmoscript-plugin.md phase 3).
 import { initMulmoScriptGenerationPublisher } from "./plugins/mulmoscript-server.js";
 import { initCollectionChangePublisher } from "./events/collection-change.js";
-import { initFirestoreCollectionBinding } from "./workspace/collections/firestoreBinding.js";
 import { initPhotoLocationsChangePublisher } from "./events/photo-locations-change.js";
 import { getRole, loadAllRoles } from "./workspace/roles.js";
 import { discoverSkills } from "./workspace/skills/index.js";
@@ -1161,10 +1160,19 @@ function initEventPublishers(pubsub: IPubSub): void {
   // near the route mount; only the pub/sub instance is wired here.
   initAccountingEventPublisher(pubsub);
   initCollectionChangePublisher(pubsub);
-  // Shared collections → the remote-host session's Firestore. No pubsub
-  // involvement; wired here because the session, like the publisher, isn't
-  // available at host-binding time.
-  initFirestoreCollectionBinding();
+  // Shared (firestore-backed) collections are NOT bound here, deliberately.
+  //
+  // They live in a project repository, one app.json per repo (the shareable
+  // collection design's D5). This host is a single managed workspace holding
+  // unrelated collections side by side, so one roster would govern all of
+  // them — "the person you shared the client list with can read the blood
+  // test results". MulmoTerminal, whose roots ARE project repositories, is
+  // the host for them; it declares `sharedCollections: true` in its own host
+  // binding and wires its own accessor.
+  //
+  // Nothing else is needed to keep them out: without a declared capability the
+  // engine refuses a firestore-storage schema at the acceptance gate, with a
+  // reason rather than a silent skip.
   initPhotoLocationsChangePublisher(pubsub);
   // MulmoScript generation events → plugin pubsub channel (the extracted
   // presentMulmoScript View's spinner/reload signal).

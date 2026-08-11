@@ -60,6 +60,20 @@ export interface CollectionHost {
    *  silent read/write against the WRONG project. A single-workspace host
    *  (MulmoClaude) passes a string and nothing changes. */
   workspaceRoot: string | null;
+  /** Does this host support SHARED (firestore-backed) collections?
+   *
+   *  Opt-in, and `false` when omitted, because the default has to be the safe
+   *  one: a host that has not wired `setFirestoreAccessor` cannot serve a
+   *  shared collection, and discovering one anyway turns a configuration
+   *  mistake into "this collection is empty".
+   *
+   *  WHY A CAPABILITY AND NOT A HOST CHECK. The engine must not know which
+   *  host it is running in. The rule being expressed — shared collections live
+   *  in a project repository, not in a single managed workspace (D5) — is a
+   *  property the HOST knows about itself; asking the engine to test for
+   *  MulmoClaude's workspace would put a host's name in shared code and make
+   *  every MulmoTerminal-only change a change to this package. */
+  sharedCollections?: boolean;
   /** Host logger; the engine logs under the `"collections"` prefix. */
   log: CollectionLogger;
   /** Host workspace layout — supplied as the host's own path helpers so the
@@ -319,6 +333,16 @@ export function firestoreHandle(): FirestoreHandle | null {
 
 function requireHost(): CollectionHost {
   return hostSlot.get();
+}
+
+/** Whether the bound host serves shared (firestore-backed) collections.
+ *
+ *  `peek`, not `get`: an unconfigured host is "no", not a throw. This is
+ *  consulted from the schema ACCEPTANCE gate, whose contract is to return a
+ *  reason rather than raise — a host that has not bound yet should be told
+ *  "this host does not support shared collections", not handed a stack. */
+export function hostSupportsSharedCollections(): boolean {
+  return hostSlot.peek()?.sharedCollections === true;
 }
 
 /** The configured workspace root. Throws if the host never configured one —
