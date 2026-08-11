@@ -82,6 +82,16 @@ export {
 } from "./publishManifest";
 export {
   projectApp,
+  projectDeploy,
+  projectPublish,
+  stagedRuleConfig,
+  promoteSchema,
+  appStagingPath,
+  APP_SLUGS_COLLECTION,
+  appSlugDoc,
+  type AppSlugDoc,
+  type DeployedApp,
+  type PublishedFace,
   APPS_COLLECTION,
   PUBLIC_CONFIG_DOC,
   appConfigPath,
@@ -90,9 +100,9 @@ export {
   type PublishedApp,
   type PublishedConfigDoc,
   type PublishedSchemaDoc,
+  type StagedSchemaDoc,
 } from "./publishProject";
 export { publishProblems, bindsSubmitterIdentity, type PublishableCollection } from "./publishChecks";
-export { publishApp, type PublishOptions, type PublishResult } from "./publish";
 export type { LoadedCollection } from "./discoveredCollection";
 export * from "./paths";
 export * from "./templatePath";

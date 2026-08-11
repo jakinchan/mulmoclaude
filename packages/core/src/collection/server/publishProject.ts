@@ -36,8 +36,9 @@
 // the emulator round-trip test (`../mulmoserver test/rules/rules_publish.ts`)
 // pins that the rules accept it.
 
+import { isRecord } from "@mulmoclaude/common";
 import type { CollectionSchema } from "../core/schema";
-import type { AuthoredApp, AuthoredSubmit } from "./publishManifest";
+import type { AuthoredApp, AuthoredCollectionConfig, AuthoredSubmit } from "./publishManifest";
 
 /** Who and when. Threaded in rather than read from a clock inside the
  *  projection so the projection stays pure and the tests can assert on an
@@ -55,6 +56,14 @@ export interface PublishStamp {
    *  resolve one. Absent is a normal state (a dirty tree, a repository
    *  without git), and absent is more honest than a fabricated value. */
   commit?: string | undefined;
+  /** Was the working tree modified when the commit was read?
+   *
+   *  Recorded as `publishedDirty` on the app document, because a commit that
+   *  does not describe what was published is worse than no commit: it looks
+   *  auditable. Publish-owned like the rest of the `published*` family — a
+   *  deploy must not drop the marker, and a later CLEAN publish must clear it
+   *  rather than inherit it forever. */
+  dirty?: boolean | undefined;
 }
 
 /** One collection's published schema document (`apps/{aid}/collections/{cid}`).
@@ -70,6 +79,35 @@ export interface PublishedSchemaDoc extends Record<string, unknown> {
   publishedAt: number;
   publishedBy: string;
   publishedCommit?: string;
+}
+
+/** A STAGED schema document (`apps/{aid}/staging/{cid}`) — what deploy writes
+ *  and what `/staging/{aid}` renders from.
+ *
+ *  Its provenance keys are `deployed*`, not `published*`. The two are different
+ *  questions with different answers at almost every moment: `published*` says
+ *  which revision the PUBLIC is looking at, and a deploy must not move it —
+ *  otherwise staging a draft rewrites the recorded public revision (and, with
+ *  `previousPublished`, the thing a rollback would restore) before anyone has
+ *  published anything. */
+export interface StagedSchemaDoc extends Record<string, unknown> {
+  publishedSchema: CollectionSchema;
+  /** This collection's RULE-FACING configuration (`transitions`, `immutable`,
+   *  `submitOnly`, `peerVisibility`, …) — staged with the schema, not written
+   *  straight onto the app document.
+   *
+   *  It has to be staged for the same reason the `public` block is: the rules
+   *  read `apps/{aid}.collections[cid]` when they authorize a PUBLIC write, so
+   *  a deploy that landed it would change what anonymous visitors may do
+   *  before anyone published. The cost is that `/staging/{aid}` exercises the
+   *  new schema against the CURRENTLY PUBLISHED rule configuration; that is
+   *  the safe direction to be wrong in. */
+  config?: AuthoredCollectionConfig;
+  /** Whether this cid is in `participantRead` — same reason, same treatment. */
+  participantRead?: boolean;
+  deployedAt: number;
+  deployedBy: string;
+  deployedCommit?: string;
 }
 
 /** The public settings document (`apps/{aid}/config/public`).
@@ -198,6 +236,7 @@ export function projectApp(
     publishedAt: stamp.publishedAt,
     publishedBy: stamp.email,
     publishedCommit: stamp.commit,
+    publishedDirty: stamp.dirty === true ? true : undefined,
     previousPublished: previousOf(existing),
   });
 
@@ -212,6 +251,196 @@ export function projectApp(
   return { app, schemas: schemas.map(({ cid, schema }) => ({ cid, doc: schemaDoc(schema, stamp) })), config };
 }
 
+/** Everything `deploy` writes — the host's staging half of the split (the
+ *  design's D10).
+ *
+ *  Two things are deliberately ABSENT from the app document here:
+ *
+ *  - **`public`**. That block is what the rules read to authorize anonymous
+ *    access (`publicOn` / `subOpen` read `apps/{aid}.public`, never the
+ *    world-readable `config/public`), so writing it on deploy would open the
+ *    app the moment someone deployed to test. It belongs to `publish`.
+ *  - **the published schemas**. They go to `staging/{cid}`, which only the
+ *    roster can read, so a deploy against a LIVE app does not swap the view
+ *    its visitors are looking at.
+ *
+ *  A host writing this must MERGE the app document rather than replace it:
+ *  a replace would drop a `public` block a previous publish put there and
+ *  silently unpublish the app. */
+export interface DeployedApp {
+  /** The COMPLETE app document. **Write it with `set`, replacing — never with
+   *  `{ merge: true }`.**
+   *
+   *  A merge cannot DELETE, and every deletion here is a permission change:
+   *  removing `members.<email>` revokes access, and a merge would leave the
+   *  entry live. Worse, the rules require `memberEmails` to equal the keys of
+   *  `members` (`membersConsistent()`), so a merged member-removal is rejected
+   *  outright — a deploy that silently does nothing would be the good case.
+   *
+   *  Everything publish owns is carried through from `existing` verbatim, so
+   *  replacing does not unpublish a live app. */
+  app: Record<string, unknown>;
+  /** The staged schema documents, for `apps/{aid}/staging/{cid}`. */
+  staging: { cid: string; doc: StagedSchemaDoc }[];
+}
+
+/** Keys on the app document that publish owns: what is PUBLIC right now, and
+ *  the rule-facing configuration anonymous access is judged against. Deploy
+ *  carries them through from the existing document and never authors them. */
+const PUBLISH_OWNED_KEYS: readonly string[] = [
+  "public",
+  "collections",
+  "participantRead",
+  "publishedAt",
+  "publishedBy",
+  "publishedCommit",
+  "publishedDirty",
+  "previousPublished",
+];
+
+const isPublishOwned = (key: string): boolean => PUBLISH_OWNED_KEYS.includes(key);
+
+export function projectDeploy(
+  authored: AuthoredApp,
+  schemas: { cid: string; schema: CollectionSchema }[],
+  stamp: PublishStamp,
+  existing: Record<string, unknown> | null,
+): DeployedApp {
+  const { app } = projectApp(authored, schemas, stamp, existing);
+  // Drop everything publish owns, then carry the LIVE value through — the
+  // write replaces, so anything not handed back would be deleted.
+  const deployed = Object.fromEntries(Object.entries(app).filter(([key]) => !isPublishOwned(key)));
+  for (const key of PUBLISH_OWNED_KEYS) {
+    const live = existing?.[key];
+    if (live !== undefined) deployed[key] = live;
+  }
+  deployed.deployedAt = stamp.publishedAt;
+  deployed.deployedBy = stamp.email;
+  if (stamp.commit !== undefined) deployed.deployedCommit = stamp.commit;
+  return {
+    app: deployed,
+    staging: schemas.map(({ cid, schema }) => ({ cid, doc: stagedDoc(schema, stamp, authored, cid) })),
+  };
+}
+
+/** One staged schema document, carrying this cid's rule-facing configuration
+ *  alongside the schema so publish can promote them together. */
+function stagedDoc(schema: CollectionSchema, stamp: PublishStamp, authored: AuthoredApp, cid: string): StagedSchemaDoc {
+  const doc: StagedSchemaDoc = { publishedSchema: schema, deployedAt: stamp.publishedAt, deployedBy: stamp.email };
+  const config = authored.collections?.[cid];
+  if (config !== undefined) doc.config = config;
+  if (authored.participantRead?.includes(cid) === true) doc.participantRead = true;
+  if (stamp.commit !== undefined) doc.deployedCommit = stamp.commit;
+  return doc;
+}
+
+/** Everything `publish` writes that is NOT a promotion — the public face.
+ *
+ *  The schemas are absent on purpose: publish PROMOTES the documents deploy
+ *  staged (copy `staging/{cid}` → `collections/{cid}`, re-stamped with
+ *  {@link promoteSchema}) rather than re-projecting them from git. What the
+ *  roster tested is then exactly what ships; re-projecting would publish
+ *  whatever the working tree says at publish time, which nobody has looked at
+ *  through `/staging/{aid}`.
+ *
+ *  WRITE `public` LAST. It is the only one of the three that grants anything,
+ *  so a partial failure with it last leaves the app private (fail closed).
+ *  See the design note's publish ordering. */
+export interface PublishedFace {
+  /** The COMPLETE app document **without `public`** — write it with `set`,
+   *  replacing.
+   *
+   *  Replacing (not merging) is what lets a key DISAPPEAR: withdrawing a
+   *  collection's rule configuration, or taking `public` out of `app.json`,
+   *  has to actually remove the field. Everything deploy owns is carried
+   *  through from `existing`, so publishing does not revert an invitation.
+   *
+   *  `public` is absent HERE on purpose — see {@link PublishedFace.public}. */
+  app: Record<string, unknown>;
+  /** `apps/{aid}/config/public` — the world-readable projection. */
+  config: PublishedConfigDoc;
+  /** The `public` block, to be written **LAST, as its own update** — or, when
+   *  `undefined`, DELETED from the app document (that is how an app becomes
+   *  private again).
+   *
+   *  Separate from {@link PublishedFace.app} because it is the only one of
+   *  publish's writes that GRANTS anything: the rules authorize anonymous
+   *  reads and submissions from `apps/{aid}.public`. Writing it inside the
+   *  replacement document would open the app before the promoted schemas and
+   *  the world-readable config exist, so a failure part-way would leave
+   *  anonymous access live against a half-published surface. Written last, the
+   *  same failure leaves the app private — which is the direction to fail in.
+   *
+   *  A re-publish therefore passes through a moment with no `public` block.
+   *  That is a brief denial for visitors, not a brief exposure. */
+  public: Record<string, unknown> | undefined;
+}
+
+/** The rule-facing configuration to promote, read from the STAGED documents
+ *  rather than from the manifest as it reads right now.
+ *
+ *  Otherwise: deploy revision A, edit `app.json` to revision B, publish — and
+ *  the promoted schema is A's while the authorization behaviour is B's, a
+ *  combination nobody exercised through `/staging/{aid}`.
+ *
+ *  (`public` is deliberately NOT part of this: it is not staged, because it is
+ *  the decision being made AT publish rather than something under test.) */
+export function stagedRuleConfig(staged: { cid: string; doc: StagedSchemaDoc }[]): {
+  collections: Record<string, AuthoredCollectionConfig> | undefined;
+  participantRead: string[] | undefined;
+} {
+  const entries: [string, AuthoredCollectionConfig][] = [];
+  const participantRead: string[] = [];
+  for (const entry of staged) {
+    const { config } = entry.doc;
+    if (config !== undefined) entries.push([entry.cid, config]);
+    if (entry.doc.participantRead === true) participantRead.push(entry.cid);
+  }
+  return {
+    collections: entries.length > 0 ? Object.fromEntries(entries) : undefined,
+    participantRead: participantRead.length > 0 ? participantRead : undefined,
+  };
+}
+
+export function projectPublish(
+  authored: AuthoredApp,
+  staged: { cid: string; doc: StagedSchemaDoc }[],
+  stamp: PublishStamp,
+  existing: Record<string, unknown> | null,
+): PublishedFace {
+  const { app, config } = projectApp(authored, [], stamp, existing);
+  const staging = stagedRuleConfig(staged);
+  app.collections = staging.collections;
+  app.participantRead = staging.participantRead;
+  // Start from what deploy left, drop everything publish owns — an
+  // authored-away key must DISAPPEAR, that is how an app stops being public —
+  // then write this publish's values, with `public` held back for its own
+  // final update.
+  //
+  // With no existing document there is nothing deploy left, so the projection
+  // itself is the base: publishing into an app that does not exist yet must
+  // still carry `aid` / `owner` / `members` / `memberEmails`, or the rules
+  // refuse the create and the roster invariant cannot hold.
+  const base = existing ?? app;
+  const published = Object.fromEntries(Object.entries(base).filter(([key]) => !isPublishOwned(key)));
+  for (const key of PUBLISH_OWNED_KEYS) {
+    if (key !== "public" && app[key] !== undefined) published[key] = app[key];
+  }
+  const publicBlock = app.public;
+  return { app: published, config, public: isRecord(publicBlock) ? publicBlock : undefined };
+}
+
+/** Re-stamp a staged schema document as it is promoted to `collections/{cid}`.
+ *
+ *  The stamp answers "which version is PUBLIC right now, and who made it so",
+ *  so it is written by the operation that changes the answer — publish — not
+ *  carried over from the deploy that staged it. */
+export function promoteSchema(staged: StagedSchemaDoc, stamp: PublishStamp): PublishedSchemaDoc {
+  const doc: PublishedSchemaDoc = { publishedSchema: staged.publishedSchema, publishedAt: stamp.publishedAt, publishedBy: stamp.email };
+  if (stamp.commit !== undefined) doc.publishedCommit = stamp.commit;
+  return doc;
+}
+
 /** One published schema document. Written key by key rather than through
  *  `compact`, so the declared type is the type — an optional commit is the
  *  only variable part. */
@@ -224,7 +453,37 @@ function schemaDoc(schema: CollectionSchema, stamp: PublishStamp): PublishedSche
 /** The app documents' parent path — the `FirestoreDocs` seam takes a
  *  collection path plus a document id, and the app document's id is the aid. */
 export const APPS_COLLECTION = "apps";
-/** The collection (schema) documents' parent path. */
+/** The collection (schema) documents' parent path — what the PUBLIC page
+ *  reads, written only by publish (promotion). */
 export const appSchemasPath = (aid: string): string => `apps/${aid}/collections`;
+/** The URL-slug reservations — `appSlugs/{slug}` → `{ aid, published }`.
+ *
+ *  A TOP-LEVEL collection, not a field on the app: the public page resolves a
+ *  slug to an aid BEFORE it can read anything under `apps/{aid}`, and a slug
+ *  has to be claimable atomically (create-if-absent) so two apps cannot hold
+ *  the same URL.
+ *
+ *  `published` is what makes the reservation invisible until publish. The slug
+ *  is human-readable, so a readable reservation would let anyone guess the URL
+ *  and get the aid — and the aid is the `/staging/{aid}` entrance. The rule is
+ *  `allow read: if resource.data.published == true`, which needs no `get()` and
+ *  so costs nothing against the rules' expression budget. */
+export const APP_SLUGS_COLLECTION = "appSlugs";
+
+/** The reservation document. Written by deploy as `{ aid, published: false }`
+ *  and flipped by publish — never re-pointed at another aid, which the rules
+ *  enforce on update. */
+export interface AppSlugDoc extends Record<string, unknown> {
+  aid: string;
+  published: boolean;
+}
+
+export const appSlugDoc = (aid: string, published: boolean): AppSlugDoc => ({ aid, published });
+
+/** The staged schema documents' parent path — what `/staging/{aid}` reads,
+ *  written by deploy. A separate DOCUMENT rather than a field beside
+ *  `publishedSchema`, because the rules cannot hide a field: anything inside a
+ *  document the public page may read is public. */
+export const appStagingPath = (aid: string): string => `apps/${aid}/staging`;
 /** The public-config documents' parent path. */
 export const appConfigPath = (aid: string): string => `apps/${aid}/config`;
