@@ -582,26 +582,31 @@ describe("shared collection live updates", () => {
     return { docs, changes, stop };
   }
 
-  it("drops the first snapshot and reports the ones after it, per record", async () => {
+  it("turns the first snapshot into ONE collection-level report, then reports per record", async () => {
     // onSnapshot hands over the collection's CURRENT contents immediately, as
-    // one snapshot in which every document reads as `added`. Passing it through
-    // would announce the whole collection as changed on every mount — and the
-    // watcher's boot reconcile has just covered exactly that ground.
+    // one snapshot in which every document reads as `added`.
+    //
+    // It must not be dropped: a record that moved in the gap on either side of
+    // a subscription (boot reconcile → arm, or listener death → re-arm) appears
+    // ONLY there, and this backend no longer gets the watcher's periodic
+    // re-derivation to catch it later.
+    //
+    // It must not be N per-record reports either — that is a refresh storm to
+    // every open view on every mount. One collection-level report says the same
+    // thing, and the watcher answers it with a full re-derivation plus a sweep.
     const { docs, changes, stop } = await armed();
     docs.emit(["n1", "n2"], { initial: true });
-    assert.deepEqual(changes, []);
+    assert.deepEqual(changes, [{ kind: "collection" }]);
     docs.emit(["n2"]);
     docs.emit(["n5"]);
-    assert.deepEqual(changes, [
-      { kind: "item", itemId: "n2" },
-      { kind: "item", itemId: "n5" },
-    ]);
+    assert.deepEqual(changes, [{ kind: "collection" }, { kind: "item", itemId: "n2" }, { kind: "item", itemId: "n5" }]);
     stop();
   });
 
   it("stops reporting once unsubscribed, and detaches the listener", async () => {
     const { docs, changes, stop } = await armed();
     docs.emit([], { initial: true });
+    changes.length = 0; // the mount's own report; this test is about what comes after
     stop();
     assert.equal(docs.live().length, 0, "unsubscribing must detach, not just ignore");
     docs.emit(["n1"]);
@@ -632,12 +637,14 @@ describe("shared collection live updates", () => {
       assert.equal(docs.live().length, 0, "a Firestore listen error terminates that listener");
       mock.timers.tick(1_000);
       assert.equal(docs.live().length, 1, "a transient error must re-arm");
+      changes.length = 0;
       // The re-armed listener replays the collection as its own first
-      // snapshot; that one is dropped too, or every blip would re-announce
-      // every record.
+      // snapshot. That is the ONLY place a record that moved during the outage
+      // shows up, so it becomes a collection-level report — one event, not one
+      // per record.
       docs.emit(["n1", "n2"], { initial: true });
       docs.emit(["n3"]);
-      assert.deepEqual(changes, [{ kind: "item", itemId: "n3" }]);
+      assert.deepEqual(changes, [{ kind: "collection" }, { kind: "item", itemId: "n3" }]);
       stop();
     } finally {
       mock.timers.reset();
@@ -675,6 +682,7 @@ describe("shared collection live updates", () => {
       setFirestoreAccessor(() => ({ docs, email: "owner@example.com" }));
       mock.timers.tick(60_000);
       assert.equal(docs.live().length, 1, "a returning session must be picked up");
+      changes.length = 0;
       docs.emit(["n7"]);
       assert.deepEqual(changes, [{ kind: "item", itemId: "n7" }]);
       stop();

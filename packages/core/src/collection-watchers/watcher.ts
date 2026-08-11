@@ -74,6 +74,7 @@ import { access } from "node:fs/promises";
 import {
   canonicalRoot,
   collectionChangePayload,
+  sharedCollectionChangePayload,
   discoverCollections,
   firestoreHandle,
   itemFilePath,
@@ -589,7 +590,7 @@ async function reconcileChangedSchemas(gen: WatcherGeneration, collections: read
         /* best-effort */
       }
       gen.watchers.delete(collection.slug);
-      if (collection.schema.dataSource !== undefined) safePublish(gen, { slug: collection.slug, op: "upsert" });
+      if (collection.schema.dataSource !== undefined) safePublish(gen, collection, { slug: collection.slug, op: "upsert" });
       mutated = true;
       continue;
     }
@@ -606,7 +607,7 @@ async function reconcileChangedSchemas(gen: WatcherGeneration, collections: read
     if (collection.schema.dataSource !== undefined) {
       // Read-only rows can't have changed, but a schema edit changes what the
       // views render (fields, displayField, …), so ping them.
-      safePublish(gen, { slug: collection.slug, op: "upsert" });
+      safePublish(gen, collection, { slug: collection.slug, op: "upsert" });
     }
     mutated = true;
   }
@@ -696,12 +697,14 @@ async function handleStoreChange(gen: WatcherGeneration, slug: string, change: S
  *  per slug so a burst of writes collapses into one pass plus one trailing
  *  re-run. */
 function scheduleCollectionReconcile(gen: WatcherGeneration, slug: string): Promise<void> {
+  let target: PublishTarget = gen.watchers.get(slug)?.collection ?? { appId: undefined };
   return runSingleFlight(
     gen.collectionSlots,
     slug,
     async () => {
       const collection = await loadCollection(slug, gen.discoveryOpts);
       if (!collection) return;
+      target = collection;
       await reconcileAllItems(collection, gen.discoveryOpts);
       // A record deleted underneath us leaves a bell that a walk over the
       // SURVIVING records can never clear — the sweep is the other half.
@@ -712,7 +715,10 @@ function scheduleCollectionReconcile(gen: WatcherGeneration, slug: string): Prom
     // it, and a missed event leaves every open view silently stale. The slot
     // is the coalescing unit, so one burst still yields one publish.
     () => {
-      safePublish(gen, { slug, op: "upsert" });
+      // `target` may still be the mount-time entry (the load above can fail),
+      // which is enough: what routes the publish is the APP, and a collection
+      // does not change apps without remounting.
+      safePublish(gen, target, { slug, op: "upsert" });
       return Promise.resolve();
     },
   );
@@ -791,8 +797,28 @@ function runSingleFlight(slots: Map<string, ReconcileSlot>, key: string, pass: (
  *  file-backed collections reach here; a `storage` (db) collection has no
  *  per-record file and publishes wholesale in `scheduleStorageReconcile`. */
 async function publishItemChange(gen: WatcherGeneration, collection: LoadedCollection, itemId: string): Promise<void> {
-  const changeOp = (await itemFileExists(collection.dataDir, itemId)) ? "upsert" : "delete";
-  safePublish(gen, { slug: collection.slug, ids: [itemId], op: changeOp });
+  const changeOp = (await recordStillExists(gen, collection, itemId)) ? "upsert" : "delete";
+  safePublish(gen, collection, { slug: collection.slug, ids: [itemId], op: changeOp });
+}
+
+/** Upsert or delete? Answered by whatever actually holds the record.
+ *
+ *  A shared collection's records are Firestore documents — there is no item
+ *  file, so the file check answers "gone" for every one of them and each live
+ *  change would be published as a DELETE. Asking the store is the question the
+ *  file check was standing in for; the file path keeps it because it is
+ *  cheaper and its semantics (an unreadable dir, an id that is not a safe
+ *  filename) are already settled there. */
+async function recordStillExists(gen: WatcherGeneration, collection: LoadedCollection, itemId: string): Promise<boolean> {
+  if (collection.appId === undefined) return itemFileExists(collection.dataDir, itemId);
+  try {
+    return (await storeFor(collection, gen.discoveryOpts).read(itemId)) !== null;
+  } catch {
+    // A closed session or a denied read tells us nothing about the record.
+    // "Still there" is the safer guess: a spurious delete removes it from
+    // every open view, a spurious upsert only costs a refetch.
+    return true;
+  }
 }
 
 async function itemFileExists(dataDir: string, itemId: string): Promise<boolean> {
@@ -812,11 +838,24 @@ async function itemFileExists(dataDir: string, itemId: string): Promise<boolean>
  *  carries only absolute paths, and a root reconstructed by string surgery
  *  would be a guess. Undefined in a single-workspace host, which is exactly
  *  what the payload contract means by "the host's configured root". */
-function safePublish(gen: WatcherGeneration, payload: Omit<CollectionChangePayload, "root">): void {
-  const enriched = collectionChangePayload(payload, gen.discoveryOpts.workspaceRoot);
+/** Publish a change on the channel the collection actually lives on.
+ *
+ *  A SHARED collection is not keyed by this checkout: its identity is
+ *  `(aid, cid)`, and the same collection is open in every clone. Publishing it
+ *  as `(root, slug)` sends the refresh to a channel no shared subscriber is
+ *  listening on — the live update simply never arrives, and nothing errors.
+ *  That is why this takes the collection rather than a bare slug. */
+function safePublish(gen: WatcherGeneration, collection: PublishTarget, base: { slug: string; ids?: string[]; op?: "upsert" | "delete" }): void {
+  const enriched: CollectionChangePayload =
+    collection.appId === undefined ? collectionChangePayload(base, gen.discoveryOpts.workspaceRoot) : sharedCollectionChangePayload(base, collection.appId);
   try {
     publishCollectionChange(enriched);
   } catch (err) {
     log().warn("collection change publish failed", { slug: enriched.slug, error: errMsg(err) });
   }
+}
+
+/** What `safePublish` needs to know: which app, if any, this belongs to. */
+interface PublishTarget {
+  appId?: string | undefined;
 }

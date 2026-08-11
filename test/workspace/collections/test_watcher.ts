@@ -36,9 +36,9 @@ import {
   startCollectionWatchers,
   stopCollectionWatchers,
 } from "../../../server/workspace/collections/watcher.js";
-import { loadCollection, setFirestoreAccessor, storeFor } from "@mulmoclaude/core/collection/server";
+import { collectionChangeKey, loadCollection, setCollectionChangePublisher, setFirestoreAccessor, storeFor } from "@mulmoclaude/core/collection/server";
 import type { CollectionSchema } from "../../../server/workspace/collections/types.js";
-import type { FirestoreDoc, FirestoreDocs, LoadedCollection } from "@mulmoclaude/core/collection/server";
+import type { CollectionChangePayload, FirestoreDoc, FirestoreDocs, LoadedCollection } from "@mulmoclaude/core/collection/server";
 
 let workdir: string;
 let userDir: string;
@@ -598,6 +598,7 @@ function makeFakeDocs(seed: Record<string, unknown>[]): FakeDocs {
     emit: (ids: string[], initial = false) => {
       for (const notify of listeners) notify(ids, { initial });
     },
+    listenerCount: () => listeners.length,
     list: () => {
       const entries: FirestoreDoc[] = [...rows.entries()].map(([docId, data]) => ({ id: docId, data }));
       entries.sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
@@ -626,7 +627,7 @@ function makeFakeDocs(seed: Record<string, unknown>[]): FakeDocs {
 
 /** The fake seam plus the control a live-update test needs: drive a snapshot
  *  the way Firestore would after someone else wrote a record. */
-type FakeDocs = FirestoreDocs & { emit: (ids: string[], initial?: boolean) => void };
+type FakeDocs = FirestoreDocs & { emit: (ids: string[], initial?: boolean) => void; listenerCount: () => number };
 
 /** Wait for the listener's reaction to land. `emit` is synchronous (so is
  *  Firestore's callback), but what it starts — read the record, decide the
@@ -778,5 +779,41 @@ describe("shared collection — bells don't outlive their schema", () => {
     assert.equal(await _syncWatchersForTesting(workdir), true, "a changed schema is a real mutation");
     legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
     assert.ok(!legacyIds.includes(sharedLegacyIdFor(FSD_SLUG, "a")), "bell must not outlive the field that declared it");
+  });
+});
+
+describe("shared collection — the live refresh reaches the app's own channel", () => {
+  const FSC_SLUG = "test-watcher-fs-channel";
+
+  // A shared collection is not keyed by this checkout: `(aid, cid)` is its
+  // identity, and the same collection is open in every clone. Published as
+  // `(root, slug)` the refresh goes to a channel no shared subscriber listens
+  // on — the live update never arrives, and nothing errors.
+  it("publishes a record change under the app, not under this checkout's root", async () => {
+    writeSharedSchema(FSC_SLUG);
+    const docs = makeFakeDocs([{ id: "a", read: false }]);
+    connectFake(docs);
+    const published: CollectionChangePayload[] = [];
+    setCollectionChangePublisher((payload) => published.push(payload));
+    try {
+      await startForTest();
+      assert.equal(docs.listenerCount(), 1, "the mount must arm a listener");
+      published.length = 0;
+
+      await docs.set("ignored", "a", { id: "a", read: true });
+      docs.emit(["a"]);
+      await waitUntil(async () => Promise.resolve(published.length > 0), "the listener's change to be published");
+
+      const payload = published.at(-1);
+      assert.ok(payload);
+      assert.deepEqual(collectionChangeKey(payload, workdir), { kind: "shared", aid: SHARED_APP_ID, cid: FSC_SLUG });
+      assert.equal(Object.hasOwn(payload, "root"), false, "a shared change carries no root");
+      // And it is an upsert: the record is still there. The file check this
+      // replaced answers "gone" for every shared record, because there is no
+      // item file — so every live change used to publish as a DELETE.
+      assert.equal(payload.op, "upsert");
+    } finally {
+      setCollectionChangePublisher(null);
+    }
   });
 });

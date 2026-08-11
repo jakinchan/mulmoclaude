@@ -224,14 +224,26 @@ interface SharedWatch {
   attempt: number;
 }
 
-/** Deliver one snapshot's changes as per-record reports.
+/** Deliver one snapshot's changes.
  *
- *  THE FIRST SNAPSHOT IS DROPPED. `onSnapshot` hands over the collection's
- *  current contents immediately, as one snapshot in which every existing
- *  document reads as `added` — so passing it through would announce every
- *  record as changed on every mount, and the watcher's boot reconcile
- *  (`reconcileAllItems`, which runs BEFORE the subscribe) has just covered
- *  exactly that ground. What we want from here is what happens NEXT.
+ *  THE FIRST SNAPSHOT IS ONE COLLECTION-LEVEL REPORT, not N per-record ones.
+ *  `onSnapshot` hands over the collection's current contents immediately, as a
+ *  snapshot in which every existing document reads as `added`.
+ *
+ *  Dropping it is wrong. There is a GAP on either side of a subscription — the
+ *  boot reconcile finishes before the listener arms, and a listener that died
+ *  is re-armed after a backoff — and a record that moved inside one of those
+ *  gaps appears only in that first snapshot. Since this backend now HAS a
+ *  `watch`, the watcher's periodic re-derivation no longer covers it, so a
+ *  dropped first snapshot means stale bells and stale views until that record
+ *  happens to change again. That is exactly the failure this step was supposed
+ *  to remove.
+ *
+ *  Announcing every record individually is also wrong: it is a refresh storm
+ *  to every open view, on every mount and every reconnect. `{ kind: "collection" }`
+ *  says the same thing in one event — the watcher answers it with a full
+ *  re-derivation plus a sweep, which is precisely "work out what changed while
+ *  I was not listening".
  *
  *  A change this process made itself also arrives here — the write path has
  *  already published for it, so the record is reconciled twice. Harmless
@@ -239,7 +251,11 @@ interface SharedWatch {
  *  tracking our own in-flight writes, and getting that wrong loses a real
  *  change rather than a duplicate one. */
 function deliverSnapshot(run: SharedWatch, ids: string[], initial: boolean): void {
-  if (run.stopped || initial) return;
+  if (run.stopped) return;
+  if (initial) {
+    run.onChange({ kind: "collection" });
+    return;
+  }
   for (const itemId of ids) run.onChange({ kind: "item", itemId });
 }
 
