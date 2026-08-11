@@ -8,6 +8,59 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Added
+
+#### Publishing a shared app: `manageCollection` action `publishApp`
+
+A repository that declares a shared app (`app.json` + collections with
+`storage.type: "firestore"`) can now publish it — the member roster, the public
+read/submit configuration, and every shared collection's schema — to
+`apps/{aid}` in Firestore, where the deployed security rules read it.
+
+Publishing is the one operation in the collection surface that changes what
+every member sees the moment it runs, so the action is built as a gate rather
+than an upload:
+
+- **The declaration is compiled, not copied.** `app.json` is what a human
+  writes; the Firestore document is what the rules read, and the differences
+  are stated in one place (`publishProject.ts`). The load-bearing one is the
+  submit window: authored as ISO strings, published as epoch millis, because
+  the rules do not coerce a string to a timestamp — comparing one with
+  `request.time` is a type error, which denies, so an ISO string that reached
+  Firestore would present as "nobody can submit" with nothing saying why.
+  `memberEmails` is likewise derived from `members`, never authored.
+- **It refuses declarations that are silently permissive** — chiefly a
+  submission bound to its submitter (`idFrom: "auth.uid"`, `emailField`,
+  `audience: "participant"`) in a collection that does not declare
+  `submitOnly`, which is the difference between "the submitter said this" and
+  "someone with a writer role said this on their behalf".
+- **It refuses declarations that would silently deny everyone** — an
+  `initialStatus` with no `statusField`, a required field outside
+  `createFields`, a mail transition the state machine forbids. Each of these
+  produces a permission denial that carries no explanation to the person
+  hitting it.
+- **It refuses to publish over live records the new schemas would break**,
+  listing them, until the caller passes `confirm`.
+- **It signs what it writes** (`publishedBy` / `publishedCommit` /
+  `publishedAt`, plus `publishedDirty` when the working tree was modified) and
+  keeps the previous app document in `previousPublished` for rollback.
+
+CI publishing is deliberately not included: an owner-role service account is a
+new kind of principal in a permission model that currently assumes the roster
+is people.
+
+### Changed
+
+- **`FirestoreHandle` now carries `uid`** alongside `email`
+  (`@mulmoclaude/core/collection/server`). The roster is keyed by email and
+  every record operation resolves a role from it, but the app document's
+  `owner` is a uid — the rules require `owner == request.auth.uid` when an app
+  is created — so a session that can read and write records still could not
+  create an app. Required rather than optional so the gap is a compile error
+  instead of a permission denial that says nothing about identity. **Breaking
+  for a host that calls `setFirestoreAccessor`**; MulmoClaude's binding is
+  updated here, and MulmoTerminal binds no accessor.
+
 ### Package releases
 
 Ships `@mulmoclaude/core@3.7.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.

@@ -240,7 +240,7 @@ type FakeFirestoreDocs = FirestoreDocs & {
  *  store every time and silently lose every write. */
 function connectFakeFirestore(): FakeFirestoreDocs {
   const docs = makeFakeFirestoreDocs();
-  setFirestoreAccessor(() => ({ docs, email: "owner@example.com" }));
+  setFirestoreAccessor(() => ({ docs, email: "owner@example.com", uid: "uid_owner" }));
   return docs;
 }
 
@@ -501,6 +501,7 @@ describe("shared (firestore) collections", () => {
     setFirestoreAccessor(() => ({
       docs: { list: rejectAll, get: rejectAll, set: rejectAll, create: rejectAll, delete: rejectAll } as unknown as FirestoreDocs,
       email: "stranger@example.com",
+      uid: "uid_stranger",
     }));
     const [collection] = await discoverCollections(discoveryOpts());
     assert.ok(collection);
@@ -679,7 +680,7 @@ describe("shared collection live updates", () => {
       // The handle is fetched at RETRY time, not captured at arm time: a
       // reconnect hands out a new session, and a listener holding the old
       // one would fail forever.
-      setFirestoreAccessor(() => ({ docs, email: "owner@example.com" }));
+      setFirestoreAccessor(() => ({ docs, email: "owner@example.com", uid: "uid_owner" }));
       mock.timers.tick(60_000);
       assert.equal(docs.live().length, 1, "a returning session must be picked up");
       changes.length = 0;

@@ -644,7 +644,7 @@ async function waitUntil(done: () => Promise<boolean>, what: string): Promise<vo
 }
 
 function connectFake(docs: FakeDocs): void {
-  setFirestoreAccessor(() => ({ docs, email: "owner@example.com" }));
+  setFirestoreAccessor(() => ({ docs, email: "owner@example.com", uid: "uid_owner" }));
 }
 
 function writeSharedSchema(slug: string, extra: Record<string, unknown> = {}, appId: string = SHARED_APP_ID): void {

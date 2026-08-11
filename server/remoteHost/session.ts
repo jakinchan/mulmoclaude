@@ -84,14 +84,21 @@ export const currentStorage = (): FirebaseStorage => requireHandles().storage;
 // ask on every operation, including from screens that merely LIST collections,
 // so a throw would break unrelated UI.
 //
-// It reports the signed-in EMAIL, not the uid, because that is the principal
-// the deployed Firestore rules authorize on (`apps/{aid}.members` is keyed by
-// email). A session whose user has no email is not usable for a shared
-// collection, so it is reported as no session at all rather than as a session
-// that will be refused document by document.
-export const currentFirestoreSession = (): { firestore: Firestore; email: string } | null => {
+// The EMAIL is the principal the deployed Firestore rules authorize on
+// (`apps/{aid}.members` is keyed by email), and it is what every record
+// operation resolves a role with. A session whose user has no email is not
+// usable for a shared collection, so it is reported as no session at all
+// rather than as a session that will be refused document by document.
+//
+// The uid rides along for `publish` alone: the app document's `owner` is a uid
+// (`owner == request.auth.uid` on create, unchanged thereafter), so creating
+// an app needs an identity the roster never mentions. Both are required — a
+// session missing either cannot do the whole job, and reporting a half-usable
+// session would move the failure to a permission denial that says nothing.
+export const currentFirestoreSession = (): { firestore: Firestore; email: string; uid: string } | null => {
   const email = handles?.auth.currentUser?.email;
-  return handles && email ? { firestore: handles.firestore, email } : null;
+  const uid = handles?.auth.currentUser?.uid;
+  return handles && email && uid ? { firestore: handles.firestore, email, uid } : null;
 };
 
 // The signed-in user's Firebase ID token, or null when the RemoteHost session
