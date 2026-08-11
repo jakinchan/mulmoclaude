@@ -82,6 +82,59 @@ let notifiedSeveritiesFn: NotifiedSeverities | null = null;
 
 /** Called once from App.vue's setup, where `useAppApi()` / `useNotifications()`
  *  resolve. Wires the capabilities that can't be set at module load. */
+// Which channel a collection's live-change events arrive on.
+//
+// A LOCAL collection publishes on `collection:<slug>`; a SHARED one publishes
+// on `collection:app/<aid>/<cid>`, because two apps may each own a `tasks` and
+// they must not refresh each other's open views. A subscriber that keys on the
+// name alone therefore hears nothing for a shared collection — the refetch this
+// capability exists to provide simply never happens.
+//
+// The app id rides in on every collections list / detail response, but a view
+// can subscribe BEFORE either has resolved (the route's slug is known first).
+// So the local subscription is made immediately (it is what a local collection
+// needs, and it is inert for a shared one, which never publishes there), and
+// the app-scoped one is added as soon as the app id is learnt — including for
+// subscriptions already open.
+type Unsubscribe = () => void;
+
+const appIdBySlug = new Map<string, string>();
+const liveSubscribers = new Map<string, Set<{ onChange: () => void; unsubscribeApp: Unsubscribe | null }>>();
+
+function subscribeToApp(slug: string, aid: string, onChange: () => void): Unsubscribe {
+  return usePubSub().subscribe(collectionChannel(slug, aid), () => onChange());
+}
+
+/** Record (or clear) a collection's app id, and bring already-open
+ *  subscriptions onto the right channel. Called from the two responses that
+ *  carry it rather than by a fetch of its own. */
+function rememberAppId(collection: { slug: string; appId?: string }): void {
+  const { slug, appId } = collection;
+  if (appIdBySlug.get(slug) === appId) return;
+  if (appId === undefined) appIdBySlug.delete(slug);
+  else appIdBySlug.set(slug, appId);
+  for (const subscriber of liveSubscribers.get(slug) ?? []) {
+    subscriber.unsubscribeApp?.();
+    subscriber.unsubscribeApp = appId === undefined ? null : subscribeToApp(slug, appId, subscriber.onChange);
+  }
+}
+
+function subscribeCollectionChanges(slug: string, onChange: () => void): Unsubscribe {
+  const unsubscribeLocal = usePubSub().subscribe(collectionChannel(slug), () => onChange());
+  const aid = appIdBySlug.get(slug);
+  const subscriber = { onChange, unsubscribeApp: aid === undefined ? null : subscribeToApp(slug, aid, onChange) };
+  const forSlug = liveSubscribers.get(slug) ?? new Set<typeof subscriber>();
+  forSlug.add(subscriber);
+  liveSubscribers.set(slug, forSlug);
+  return () => {
+    unsubscribeLocal();
+    subscriber.unsubscribeApp?.();
+    subscriber.unsubscribeApp = null;
+    forSlug.delete(subscriber);
+    if (forSlug.size === 0) liveSubscribers.delete(slug);
+  };
+}
+
 export function installCollectionAppBindings(bindings: {
   startChat: StartChat;
   startNewChatDraft: StartChatDraft;
@@ -93,7 +146,11 @@ export function installCollectionAppBindings(bindings: {
 }
 
 configureCollectionUi({
-  fetchCollectionDetail: (slug) => apiGet<CollectionDetailResponse>(withSlug(API_ROUTES.collections.detail, slug)),
+  fetchCollectionDetail: (slug) =>
+    apiGet<CollectionDetailResponse>(withSlug(API_ROUTES.collections.detail, slug)).then((result) => {
+      if (result.ok) rememberAppId(result.data.collection);
+      return result;
+    }),
   fileAssetUrl: (value) => (isValidFilePath(value) ? (htmlPreviewUrlFor(value) ?? svgPreviewUrlFor(value)) : null),
   fileRoutePath: (value) => (isValidFilePath(value) ? `/files/${value.split("/").map(encodeURIComponent).join("/")}` : null),
   imageSrc: (imageData) => resolveImageSrc(imageData),
@@ -171,7 +228,11 @@ configureCollectionUi({
   },
 
   // index pages
-  listCollections: () => apiGet<CollectionsListResponse>(API_ROUTES.collections.list),
+  listCollections: () =>
+    apiGet<CollectionsListResponse>(API_ROUTES.collections.list).then((result) => {
+      if (result.ok) result.data.collections.forEach(rememberAppId);
+      return result;
+    }),
   listFeeds: () => apiGet<FeedsListResponse>(API_ROUTES.feeds.list),
   fetchOntology: () => apiGet<CollectionOntologyResponse>(API_ROUTES.collections.ontology),
   listRegistry: () => apiGet<RegistryListResponse>(API_ROUTES.collectionsRegistry.list),
@@ -192,7 +253,12 @@ configureCollectionUi({
   // (module-level socket), so this works when invoked from a view's setup; the
   // view owns the returned unsubscribe (onUnmounted). The payload is ignored —
   // subscribers refetch — so the callback is parameterless.
-  subscribeChanges: (slug, onChange) => usePubSub().subscribe(collectionChannel(slug), () => onChange()),
+  //
+  // A SHARED collection publishes on `collection:app/<aid>/<cid>`, not on the
+  // local `collection:<slug>` — which channel a slug lives on is the host's
+  // question, not the view's, so it is answered here and the plugin's
+  // `(slug, cb)` capability is unchanged.
+  subscribeChanges: (slug, onChange) => subscribeCollectionChanges(slug, onChange),
 
   pinToggle: PinToggle,
 

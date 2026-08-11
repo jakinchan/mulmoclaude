@@ -454,6 +454,31 @@ describe("shared (firestore) collections", () => {
     );
   });
 
+  it("names the signed-in address when the app's roster refuses the request", async () => {
+    writeSkill("notescloud", FIRESTORE_SCHEMA);
+    writeAppManifest();
+    // What the SDK actually throws when the rules refuse: a code, and a message
+    // that says nothing about WHO was refused.
+    const denied = Object.assign(new Error("Missing or insufficient permissions."), { code: "permission-denied" });
+    const rejectAll = () => Promise.reject(denied);
+    setFirestoreAccessor(() => ({
+      docs: { list: rejectAll, get: rejectAll, set: rejectAll, create: rejectAll, delete: rejectAll } as unknown as FirestoreDocs,
+      email: "stranger@example.com",
+    }));
+    const [collection] = await discoverCollections(discoveryOpts());
+    assert.ok(collection);
+    const store = storeFor(collection, { workspaceRoot: workdir });
+    const { write, delete: removeItem } = store;
+    assert.ok(write);
+    assert.ok(removeItem);
+    // Every path, not just the one the user happened to be on — and the address
+    // is the fact the app's owner needs in order to fix it.
+    for (const call of [() => store.list(), () => store.page(), () => store.read("n1"), () => write("n1", { id: "n1" }), () => removeItem("n1")]) {
+      await assert.rejects(call, /stranger@example\.com/);
+      await assert.rejects(call, /roster/i);
+    }
+  });
+
   it("refuses create over an existing id — the atomicity the store contract requires", async () => {
     const store = await firestoreStoreFixture();
     assert.ok(store.write);

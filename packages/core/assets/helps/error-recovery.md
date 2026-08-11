@@ -1032,8 +1032,9 @@ The backend deliberately fails loudly instead of returning nothing.
    declaration: `apps/{aid}/collections/{cid}/items` needs an `aid`, which comes
    from `app.json` at the repository root, not from the schema.
 
+   `<repository root>/app.json`:
+
    ```json
-   // <repository root>/app.json
    { "aid": "app_salon_7f3a" }
    ```
 

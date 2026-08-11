@@ -87,6 +87,40 @@ function requireHandle(): FirestoreHandle {
   return handle;
 }
 
+/** Firestore's own refusal, named.
+ *
+ *  `permission-denied` is the failure a shared collection has most often and
+ *  the one the SDK explains worst ("Missing or insufficient permissions") — it
+ *  says nothing about WHO was refused, which is the only fact that leads to a
+ *  fix. Authorization here is the app's member roster, keyed by email, so the
+ *  signed-in address is what the app's owner needs in order to add it. This is
+ *  the whole reason `FirestoreHandle` carries `email`.
+ *
+ *  Reported as a `BackendUnavailableError` deliberately, even though it is a
+ *  refusal rather than an outage: the layers above catch broadly, and without a
+ *  type to test, `store.read(...).catch(() => null)` reports "record missing"
+ *  and an ontology count reports 0 — a denial would read as an empty
+ *  collection, which is the exact confusion this backend refuses to create. */
+function isPermissionDenied(err: unknown): boolean {
+  return isRecord(err) && err.code === "permission-denied";
+}
+
+function deniedMessage(key: SharedCollectionKey, email: string): string {
+  return `permission denied on shared collection '${key.cid}' of app '${key.aid}' — signed in as ${email}. A shared collection is authorized by the app's member roster (by email), so this address needs a role for '${key.cid}' (or '*'); only the app's owner can add it.`;
+}
+
+/** Run one SDK call, translating a roster denial. Every read and write goes
+ *  through this — a denial reaching one path and not another would mean the
+ *  message a user sees depends on which screen they were on. */
+async function guarded<T>(key: SharedCollectionKey, email: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (!isPermissionDenied(err)) throw err;
+    throw new BackendUnavailableError(deniedMessage(key, email));
+  }
+}
+
 /** A stored document's fields → a record. A document written by hand (or by an
  *  older version) can hold anything, so a non-object is dropped rather than
  *  surfaced as a broken record — the same fail-soft the file store applies to
@@ -106,8 +140,8 @@ function withSafeId<T>(itemId: string, onInvalid: () => T, run: (safeId: string,
 }
 
 async function firestoreList(key: SharedCollectionKey): Promise<CollectionItem[]> {
-  const { docs } = requireHandle();
-  const entries = await docs.list(sharedItemsPath(key));
+  const { docs, email } = requireHandle();
+  const entries = await guarded(key, email, () => docs.list(sharedItemsPath(key)));
   return entries.map((entry) => toItem(entry.data)).filter((item): item is CollectionItem => item !== null);
 }
 
@@ -127,7 +161,7 @@ async function firestoreRead(key: SharedCollectionKey, itemId: string): Promise<
   return withSafeId(
     itemId,
     () => Promise.resolve(null),
-    async (safeId, { docs }) => toItem(await docs.get(sharedItemsPath(key), safeId)),
+    async (safeId, { docs, email }) => toItem(await guarded(key, email, () => docs.get(sharedItemsPath(key), safeId))),
   );
 }
 
@@ -150,13 +184,13 @@ async function firestoreWrite(
   return withSafeId<Promise<WriteItemResult>>(
     itemId,
     () => Promise.resolve({ kind: "invalid-id", itemId }),
-    async (safeId, { docs }) => {
+    async (safeId, { docs, email }) => {
       const collectionPath = sharedItemsPath(key);
       if (opts.refuseOverwrite) {
-        const created = await docs.create(collectionPath, safeId, item);
+        const created = await guarded(key, email, () => docs.create(collectionPath, safeId, item));
         if (!created) return { kind: "conflict", itemId: safeId };
       } else {
-        await docs.set(collectionPath, safeId, item);
+        await guarded(key, email, () => docs.set(collectionPath, safeId, item));
       }
       if (opts.slug) publishShared(key, [safeId], "upsert");
       return { kind: "ok", itemId: safeId, item };
@@ -168,8 +202,8 @@ async function firestoreDelete(key: SharedCollectionKey, itemId: string, opts: I
   return withSafeId<Promise<DeleteItemResult>>(
     itemId,
     () => Promise.resolve({ kind: "invalid-id", itemId }),
-    async (safeId, { docs }) => {
-      const removed = await docs.delete(sharedItemsPath(key), safeId);
+    async (safeId, { docs, email }) => {
+      const removed = await guarded(key, email, () => docs.delete(sharedItemsPath(key), safeId));
       if (!removed) return { kind: "not-found", itemId: safeId };
       if (opts.slug) publishShared(key, [safeId], "delete");
       return { kind: "ok", itemId: safeId };

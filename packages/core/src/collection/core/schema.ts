@@ -272,6 +272,13 @@ export interface CollectionSummary {
    *  know which collection change-channel(s) to watch for a live icon
    *  update (see `useDynamicShortcutIcons`). */
   iconSources?: string[];
+  /** The app a SHARED collection belongs to — present iff the schema declares
+   *  `storage.type: "firestore"`. A client needs it to subscribe to the right
+   *  live-change channel: a shared collection publishes on
+   *  `collection:app/<aid>/<cid>`, and a subscriber that keys on the name alone
+   *  listens to the LOCAL channel, so the refetch never arrives. Not a secret —
+   *  it is committed in the repository every clone reads. */
+  appId?: string;
 }
 
 export interface CollectionDetail extends CollectionSummary {

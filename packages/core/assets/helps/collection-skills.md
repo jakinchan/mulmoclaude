@@ -1191,8 +1191,9 @@ Notes:
   APP and comes from `app.json` at the repository root; `cid` is always the slug.
 - The repository must declare its app, or the collection is refused at discovery:
 
+  `<repository root>/app.json`:
+
   ```json
-  // <repository root>/app.json
   { "aid": "app_salon_7f3a" }
   ```
 

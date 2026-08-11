@@ -307,6 +307,7 @@ export function toSummary(collection: LoadedCollection): CollectionSummary {
     icon: collection.schema.icon,
     source: collection.source,
     ...(collection.schema.dataSource !== undefined ? { readonly: true as const } : {}),
+    ...(collection.appId !== undefined ? { appId: collection.appId } : {}),
   };
 }
 
