@@ -332,6 +332,26 @@ test("a failed write becomes a result naming the step, not a thrown call", async
   assert.notEqual(await docs.get("apps", AID), null);
 });
 
+test("a rejecting preflight read becomes a result too, and says nothing was written", async () => {
+  // The read that decides create-vs-update is a backend call like any other.
+  // Left unguarded it escaped as a raw exception while the neighbouring read
+  // and write paths both returned actionable results — and it happens before
+  // any write, so the answer is unambiguous.
+  writeSkill("bookings", BOOKINGS_SCHEMA);
+  writeApp();
+  const failOnGet: FirestoreDocs = {
+    ...docs,
+    get: (collectionPath, docId) => (collectionPath === "apps" ? Promise.reject(new Error("quota exceeded")) : docs.get(collectionPath, docId)),
+  };
+  setFirestoreAccessor(() => ({ docs: failOnGet, email: OWNER_EMAIL, uid: OWNER_UID }));
+
+  const result = await publishApp(opts());
+  assert.equal(result.ok, false);
+  assert.ok(!result.ok && result.problems[0]?.includes(`reading the current app document (apps/${AID})`));
+  assert.ok(!result.ok && result.problems.some((problem) => problem.includes("Nothing was written.")));
+  assert.equal(await docs.get("apps", AID), null);
+});
+
 test("a first-step failure says nothing was written, because nothing was", async () => {
   // The paired case. "Everything before it was written" on the FIRST step
   // would send the user looking for a half-published app that does not exist.

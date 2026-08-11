@@ -293,7 +293,27 @@ async function writePublished(
   issues: { records: number; capped: boolean },
 ): Promise<PublishResult> {
   const { aid } = authored;
-  const existing = await handle.docs.get(APPS_COLLECTION, aid);
+  // The preflight read is a backend call like any other, and it decides two
+  // things the rules care about: whether `owner` is stamped or carried
+  // forward, and what `previousPublished` holds. A rejection here — permission,
+  // network, quota — must become the documented result rather than escape as a
+  // raw exception: `manageCollectionHandler` only translates
+  // `BackendUnavailableError`, so anything else reaches the agent as a tool
+  // crash. It happens before any write, which is the one thing the caller most
+  // needs told.
+  let existing: unknown;
+  try {
+    existing = await handle.docs.get(APPS_COLLECTION, aid);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      problems: [
+        `publish failed while reading the current app document (apps/${aid}): ${reason}`,
+        "Nothing was written. Publishing again is safe — this read only decides whether the app is created or updated.",
+      ],
+    };
+  }
   const stampSource = await (opts.resolveCommit ?? gitStamp)(root);
   const stamp: PublishStamp = {
     uid: handle.uid,
