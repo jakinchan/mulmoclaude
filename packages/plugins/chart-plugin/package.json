@@ -34,16 +34,15 @@
     "lint": "eslint .",
     "test": "echo 'no in-package tests; presentChart logic is covered by host integration tests'"
   },
-  "dependencies": {
-    "@mulmoclaude/core": "^3.1.0"
-  },
   "peerDependencies": {
+    "@mulmoclaude/core": "^3.6.0",
     "echarts": "^6.0.0",
     "gui-chat-protocol": "^2.0.0",
     "vue": "^3.5.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@mulmoclaude/core": "^3.6.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.1.2",
     "@typescript-eslint/eslint-plugin": "^8.66.0",
