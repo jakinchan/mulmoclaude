@@ -38,7 +38,7 @@
   },
   "dependencies": {
     "@mulmoclaude/common": "^1.2.0",
-    "@mulmoclaude/core": "^3.1.0"
+    "@mulmoclaude/core": "^3.6.0"
   },
   "peerDependencies": {
     "express": "^5.2.1",
