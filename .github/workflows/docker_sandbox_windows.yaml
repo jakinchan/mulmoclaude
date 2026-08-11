@@ -54,6 +54,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22.x
+          # No `cache: yarn` — measured on this job, it makes it slower. See
+          # lint_test_windows.yaml's setup-node step for the numbers.
 
       # Defender's realtime scan intermittently EPERMs the atomic renames
       # yarn / tsc do on Windows. Same rationale as lint_test_windows.
