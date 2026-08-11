@@ -580,6 +580,12 @@ describe("a watch that cannot arm is retried, not marked mounted", () => {
 
 const SHARED_APP_ID = "app_test_7f3a";
 
+// A shared collection's bell is keyed by its APP, not by the root this
+// repository happens to be checked out into — the same obligation seen from two
+// worktrees is one bell. Spelled out here rather than imported, like
+// `legacyIdFor` above: it is a cross-app on-disk format.
+const sharedLegacyIdFor = (slug: string, itemId: string): string => `collection-completion:#${SHARED_APP_ID}\u0000${slug}:${itemId}`;
+
 /** In-memory `FirestoreDocs`, keyed only by document id: these tests never
  *  exercise two collection paths at once, and the path itself is pinned in
  *  test_storeContract.ts. */
@@ -678,14 +684,14 @@ describe("shared collection — declared bells actually run", () => {
 
     await _tickTimeTriggersForTesting(undefined, workdir);
     let legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(legacyIds.includes(legacyIdFor(FSB_SLUG, "a")), "pending record must bell");
+    assert.ok(legacyIds.includes(sharedLegacyIdFor(FSB_SLUG, "a")), "pending record must bell");
 
     // The record turns done remotely. Nothing can report that (no `watch`), so
     // only the tick can clear the bell.
     await docs.set("ignored", "a", { id: "a", read: true });
     await _tickTimeTriggersForTesting(undefined, workdir);
     legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(!legacyIds.includes(legacyIdFor(FSB_SLUG, "a")), "bell must clear once done");
+    assert.ok(!legacyIds.includes(sharedLegacyIdFor(FSB_SLUG, "a")), "bell must clear once done");
   });
 
   it("survives a closed session — no throw, and it recovers once connected", async () => {
@@ -699,7 +705,7 @@ describe("shared collection — declared bells actually run", () => {
     connectFake(makeFakeDocs([{ id: "a", read: false }]));
     await _tickTimeTriggersForTesting(undefined, workdir);
     const legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(legacyIds.includes(legacyIdFor(FSB_SLUG, "a")), "must recover after reconnect");
+    assert.ok(legacyIds.includes(sharedLegacyIdFor(FSB_SLUG, "a")), "must recover after reconnect");
   });
 
   // A failed pass learns nothing, so it must change nothing — least of all
@@ -709,12 +715,12 @@ describe("shared collection — declared bells actually run", () => {
     connectFake(makeFakeDocs([{ id: "a", read: false }]));
     await startForTest();
     await _tickTimeTriggersForTesting(undefined, workdir);
-    assert.ok((await activeCompletionEntries()).map((entry) => entry.legacyId).includes(legacyIdFor(FSB_SLUG, "a")), "precondition: the bell exists");
+    assert.ok((await activeCompletionEntries()).map((entry) => entry.legacyId).includes(sharedLegacyIdFor(FSB_SLUG, "a")), "precondition: the bell exists");
 
     setFirestoreAccessor(null); // the session closes again
     await _tickTimeTriggersForTesting(undefined, workdir);
     assert.ok(
-      (await activeCompletionEntries()).map((entry) => entry.legacyId).includes(legacyIdFor(FSB_SLUG, "a")),
+      (await activeCompletionEntries()).map((entry) => entry.legacyId).includes(sharedLegacyIdFor(FSB_SLUG, "a")),
       "a disconnected tick must leave the previous pass's bells alone",
     );
   });
@@ -735,11 +741,11 @@ describe("shared collection — bells don't outlive their schema", () => {
 
     await _tickTimeTriggersForTesting(undefined, workdir);
     let legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(legacyIds.includes(legacyIdFor(FSD_SLUG, "a")), "precondition: the bell exists");
+    assert.ok(legacyIds.includes(sharedLegacyIdFor(FSD_SLUG, "a")), "precondition: the bell exists");
 
     writeSharedSchema(FSD_SLUG); // schema edited — no more completion tracking
     assert.equal(await _syncWatchersForTesting(workdir), true, "a changed schema is a real mutation");
     legacyIds = (await activeCompletionEntries()).map((entry) => entry.legacyId);
-    assert.ok(!legacyIds.includes(legacyIdFor(FSD_SLUG, "a")), "bell must not outlive the field that declared it");
+    assert.ok(!legacyIds.includes(sharedLegacyIdFor(FSD_SLUG, "a")), "bell must not outlive the field that declared it");
   });
 });
