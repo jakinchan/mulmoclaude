@@ -117,6 +117,12 @@ is people.
     スキーマは staging に留めたまま公開の挙動だけが変わってしまう。代償として
     `/staging/{aid}` は「新しいスキーマ × 現在公開中のルール設定」で試すことになるが、
     間違える方向としてはこちらが安全
+  - **`public` は投影から分けて返す**（`PublishedFace.public`）。**最後に、単独の更新
+    として書く**（`undefined` なら削除 = 非公開に戻す）。publish の 3 つの書き込みのうち
+    権限を与えるのはこれだけなので、置換文書に混ぜると、昇格したスキーマと
+    `config/public` が揃う前にアプリが開いてしまう。最後に書けば、途中で失敗しても
+    非公開のまま止まる。再 publish は「`public` が無い瞬間」を通るが、それは短い拒否で
+    あって短い露出ではない
   - **provenance を 2 つに分けた。** deploy は `deployed*`、publish は `published*` と
     `previousPublished`。同じキーを両方が書くと、草稿を deploy しただけで「いま公開されて
     いる版」と rollback 先の記録が動いてしまう

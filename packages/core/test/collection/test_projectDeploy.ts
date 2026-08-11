@@ -54,7 +54,11 @@ test("deploy carries no `public` — the block the rules authorize anonymous acc
 
 test("publish carries the `public` block and the world-readable config, and nothing else", () => {
   const face = projectPublish(app, publishStamp, null);
-  assert.deepEqual(face.app.public, { enabled: true, read: ["bookings"], submit: { bookings: { auth: "verifiedEmail", createFields: ["customerName"] } } });
+  // `public` is handed back SEPARATELY, to be written last: it is the only one
+  // of publish's writes that grants anything, so a failure before it must
+  // leave the app private.
+  assert.equal("public" in face.app, false);
+  assert.deepEqual(face.public, { enabled: true, read: ["bookings"], submit: { bookings: { auth: "verifiedEmail", createFields: ["customerName"] } } });
   assert.equal(face.config.enabled, true);
   // The roster is NOT in the public config — a participant reading it would see
   // everyone else's address.
@@ -66,7 +70,7 @@ test("an author with no `public` block publishes nothing public", () => {
   const priv = parseAuthoredApp(JSON.stringify({ aid: app.aid, name: "Sakura Hair", members: app.members }));
   assert.equal(priv.ok, true);
   const face = projectPublish(priv.ok ? priv.app : app, publishStamp, null);
-  assert.equal("public" in face.app, false); // the rules read a missing block as "not public"
+  assert.equal(face.public, undefined); // undefined = DELETE the field; the rules read its absence as "not public"
   assert.equal(face.config.enabled, false);
 });
 
@@ -133,7 +137,28 @@ test("publishing a declaration without `public` makes the app private", () => {
   assert.equal(priv.ok, true);
   const face = projectPublish(priv.ok ? priv.app : app, publishStamp, livePublic);
   assert.equal("public" in face.app, false);
+  assert.equal(face.public, undefined); // the host deletes the live field
   assert.equal(face.config.enabled, false);
   // …while the roster deploy owns survives the replacing write.
   assert.deepEqual(face.app.members, app.members);
+});
+
+test("a publish that fails before the last write leaves the app private", () => {
+  // The ordering is only real if the API can express it. Replay the writes in
+  // order and cut them short: at every prefix, the app document must still
+  // carry no `public` block, so the rules deny anonymous access.
+  const live = { aid: app.aid, members: app.members, deployedAt: 1 };
+  const face = projectPublish(app, publishStamp, live);
+  const writes: (() => void)[] = [];
+  let stored: Record<string, unknown> = { ...live };
+  writes.push(() => (stored = { ...face.app })); // replace the app document
+  writes.push(() => (stored = { ...stored, promotedSchemas: true })); // collections/{cid}
+  writes.push(() => (stored = { ...stored, config: face.config })); // config/public
+  for (let cut = 0; cut < writes.length; cut++) {
+    stored = { ...live };
+    for (let i = 0; i < cut; i++) writes[i]?.();
+    assert.equal("public" in stored, false, `a failure after ${cut} write(s) must leave the app private`);
+  }
+  // Only the final, separate update opens it.
+  assert.notEqual(face.public, undefined);
 });

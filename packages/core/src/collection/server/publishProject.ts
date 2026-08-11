@@ -36,6 +36,7 @@
 // the emulator round-trip test (`../mulmoserver test/rules/rules_publish.ts`)
 // pins that the rules accept it.
 
+import { isRecord } from "@mulmoclaude/common";
 import type { CollectionSchema } from "../core/schema";
 import type { AuthoredApp, AuthoredCollectionConfig, AuthoredSubmit } from "./publishManifest";
 
@@ -336,26 +337,47 @@ function stagedDoc(schema: CollectionSchema, stamp: PublishStamp, authored: Auth
  *  so a partial failure with it last leaves the app private (fail closed).
  *  See the design note's publish ordering. */
 export interface PublishedFace {
-  /** The COMPLETE app document. **Write it with `set`, replacing** — for the
-   *  same reason deploy does, and for one more: taking `public` out of
-   *  `app.json` must make the app private, and a merge cannot remove a field.
-   *  The roster and everything else deploy owns is carried through from
-   *  `existing`, so publishing does not revert an invitation. */
+  /** The COMPLETE app document **without `public`** — write it with `set`,
+   *  replacing.
+   *
+   *  Replacing (not merging) is what lets a key DISAPPEAR: withdrawing a
+   *  collection's rule configuration, or taking `public` out of `app.json`,
+   *  has to actually remove the field. Everything deploy owns is carried
+   *  through from `existing`, so publishing does not revert an invitation.
+   *
+   *  `public` is absent HERE on purpose — see {@link PublishedFace.public}. */
   app: Record<string, unknown>;
   /** `apps/{aid}/config/public` — the world-readable projection. */
   config: PublishedConfigDoc;
+  /** The `public` block, to be written **LAST, as its own update** — or, when
+   *  `undefined`, DELETED from the app document (that is how an app becomes
+   *  private again).
+   *
+   *  Separate from {@link PublishedFace.app} because it is the only one of
+   *  publish's writes that GRANTS anything: the rules authorize anonymous
+   *  reads and submissions from `apps/{aid}.public`. Writing it inside the
+   *  replacement document would open the app before the promoted schemas and
+   *  the world-readable config exist, so a failure part-way would leave
+   *  anonymous access live against a half-published surface. Written last, the
+   *  same failure leaves the app private — which is the direction to fail in.
+   *
+   *  A re-publish therefore passes through a moment with no `public` block.
+   *  That is a brief denial for visitors, not a brief exposure. */
+  public: Record<string, unknown> | undefined;
 }
 
 export function projectPublish(authored: AuthoredApp, stamp: PublishStamp, existing: Record<string, unknown> | null): PublishedFace {
   const { app, config } = projectApp(authored, [], stamp, existing);
   // Start from what deploy left, drop everything publish owns — an
   // authored-away key must DISAPPEAR, that is how an app stops being public —
-  // then write this publish's values.
+  // then write this publish's values, with `public` held back for its own
+  // final update.
   const published = Object.fromEntries(Object.entries(existing ?? {}).filter(([key]) => !isPublishOwned(key)));
   for (const key of PUBLISH_OWNED_KEYS) {
-    if (app[key] !== undefined) published[key] = app[key];
+    if (key !== "public" && app[key] !== undefined) published[key] = app[key];
   }
-  return { app: published, config };
+  const publicBlock = app.public;
+  return { app: published, config, public: isRecord(publicBlock) ? publicBlock : undefined };
 }
 
 /** Re-stamp a staged schema document as it is promoted to `collections/{cid}`.
