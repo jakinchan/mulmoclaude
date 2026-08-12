@@ -10,7 +10,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { AuthoredAppZ } from "../../src/collection/server/publishManifest";
-import { publishProblems } from "../../src/collection/server/publishChecks";
+import { publishProblems, promotedRoleProblems } from "../../src/collection/server/publishChecks";
 
 const OWNER = "owner@salon.jp";
 /** The repository's shared collections, as publish sees them: a cid and the
@@ -446,4 +446,38 @@ test("a per-record window bound must be reachable from the submission", () => {
   // shut for good rather than open.
   const problems = problemsFor({ public: { submit: { bookings: { ...BOOKING, createFields: ["name"] } } } });
   refuses(problems, "window.fromField.ref names 'serviceId'");
+});
+
+// --- the pair publish actually writes ---------------------------------------
+
+test("an assignee whose field never reached the deploy is refused at publish", () => {
+  // deploy A (no assigneeField) → edit B (add the field AND the member) →
+  // publish, without redeploying. Every manifest-level check passes on a
+  // declaration that is internally sound, while what lands is A's field-less
+  // configuration beside B's roster: that one member is refused every write and
+  // the app keeps working for everybody else.
+  const declared = app({
+    members: { [OWNER]: { "*": "owner" }, "anna@salon.jp": { bookings: "assignee" } },
+    collections: { bookings: { assigneeField: "stylistEmail" } },
+  });
+  const stagedDoc = (config: Record<string, unknown>) => ({
+    cid: "bookings",
+    doc: { publishedSchema: { title: "b", icon: "event", primaryKey: "id", fields: {} }, deployedAt: 1, deployedBy: OWNER, config },
+  });
+
+  // The manifest alone is sound, which is exactly why this needed its own check.
+  assert.deepEqual(publishProblems(declared, CIDS, OWNER), []);
+
+  refuses(promotedRoleProblems(declared, [stagedDoc({})] as never), "carries no assigneeField");
+  assert.deepEqual(promotedRoleProblems(declared, [stagedDoc({ assigneeField: "stylistEmail" })] as never), []);
+});
+
+test("a collection with nothing staged is left to the gate that names them all", () => {
+  // "not staged, so there is no reviewed version to promote" lists every
+  // missing collection at once; repeating it per member would bury it.
+  const declared = app({
+    members: { [OWNER]: { "*": "owner" }, "anna@salon.jp": { bookings: "assignee" } },
+    collections: { bookings: { assigneeField: "stylistEmail" } },
+  });
+  assert.deepEqual(promotedRoleProblems(declared, []), []);
 });

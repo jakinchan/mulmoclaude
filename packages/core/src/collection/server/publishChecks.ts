@@ -27,6 +27,7 @@
 // safety.
 
 import type { AuthoredApp, AuthoredCollectionConfig, AuthoredSubmit } from "./publishManifest";
+import { stagedRuleConfig, type StagedSchemaDoc } from "./publishProject";
 
 /** What publish knows about a shared collection in this repository, as far as
  *  these checks are concerned: its cid and the schema key its records are
@@ -490,4 +491,48 @@ function windowRefProblems(app: AuthoredApp, collections: readonly PublishableCo
     }
     return problems;
   });
+}
+
+/** What publish will actually promote, checked as the PAIR it becomes.
+ *
+ *  `publishProblems` reads the manifest, where `members` and `collections` sit
+ *  side by side and agree. Publish does not write that pair. It writes the
+ *  roster from the manifest and the collection configuration from what DEPLOY
+ *  staged, so the app that lands is one half of each — and no check has ever
+ *  looked at that combination.
+ *
+ *  The sequence that gets through: deploy revision A with no `assigneeField`,
+ *  add the field AND the member in revision B, publish without redeploying.
+ *  Every manifest-level check passes on a declaration that is internally sound,
+ *  while what lands is A's field-less configuration beside B's roster — an
+ *  assignee with nothing to be compared against, refused every write, in an app
+ *  that keeps working for everybody else. That is the precise trap
+ *  `assigneeProblems` exists to prevent, reached by the one route it cannot
+ *  see.
+ *
+ *  Separate from `publishProblems` because it needs what deploy staged, which
+ *  is a Firestore read the host makes and this package does not. It is checked
+ *  against `stagedRuleConfig` — the same function the projection uses — rather
+ *  than against a re-derivation, so the value validated is the value written.
+ *
+ *  Only the staged half can be stale, so only that half is named and the fix is
+ *  "deploy again" rather than "fix the declaration". */
+export function promotedRoleProblems(app: AuthoredApp, staged: { cid: string; doc: StagedSchemaDoc }[]): string[] {
+  const promoted = stagedRuleConfig(staged).collections ?? {};
+  const stagedCids = new Set(staged.map((entry) => entry.cid));
+  return Object.entries(app.members).flatMap(([email, roles]) =>
+    Object.entries(roles).flatMap(([cid, role]) => {
+      // A cid with nothing staged at all is the host's "not staged, so there is
+      // no reviewed version to promote" refusal, which names every missing
+      // collection at once. Repeating it per member would bury it.
+      if (role !== "assignee" || cid === "*" || !stagedCids.has(cid)) return [];
+      if (promoted[cid]?.assigneeField !== undefined) return [];
+      return [
+        `members["${email}"] holds "assignee" on '${cid}', and the STAGED version of '${cid}' — the one publish promotes — carries no assigneeField, even if ` +
+          `app.json declares one now. Publish writes the roster from app.json and the collection configuration from the deploy, so that member would land with ` +
+          `nothing to be compared against: refused every write, while the app keeps working for everybody else. ` +
+          "Run deploy again, so the version being published is the one the declaration describes.",
+      ];
+    }),
+  );
 }
