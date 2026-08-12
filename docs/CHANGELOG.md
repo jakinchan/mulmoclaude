@@ -41,6 +41,31 @@ identity belongs to the id the rules can pin, not to a field they cannot.
 
 ### Added
 
+#### `app.json` may declare the URL name an app is handed out under
+
+`AuthoredAppZ` accepts an optional `slug` — the name in `https://<host>/{slug}`,
+kept separate from the `aid` for the reason the aid is a UUID: `apps/{aid}` is a
+shelf every user of a deployment shares, its `allow create` asks only that you
+name yourself owner, and availability cannot be checked because the app document
+is unreadable until you are on its roster. A memorable id there is
+first-come-first-served; a memorable NAME costs nothing to change, so that is
+where the fightable one belongs.
+
+It lives in the declaration rather than beside it because a reservation has to
+travel with the repository. `appSlugs/{slug}` is unreadable until the app is
+published (`allow read: if resource.data.published == true`), so nothing can ask
+Firestore which slug an app holds — and a second file to keep in step with
+`app.json` is the kind of pair that goes out of step silently. The host reserves
+a slug and writes back the one it got (a wanted name can be taken), which a
+strict schema would have made unwriteable.
+
+Nothing in this package reads the key: reserving and publishing a slug is the
+host's operation. The shape is stricter than a collection name — lowercase
+alphanumerics separated by single hyphens — because it is BOTH a URL path
+segment people retype and a Firestore document id, and a case rule would make
+one name for a person and two reservations for Firestore.
+
+
 #### Publishing a shared app: `manageCollection` action `publishApp`
 
 A repository that declares a shared app (`app.json` + collections with
@@ -173,7 +198,7 @@ is people.
 
 ### Package releases
 
-Ships `@mulmoclaude/core@3.10.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/core@3.11.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ## [1.13.1] - 2026-08-10
 

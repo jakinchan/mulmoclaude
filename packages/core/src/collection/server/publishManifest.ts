@@ -150,6 +150,43 @@ const PublicZ = z
   })
   .strict();
 
+/** The URL name an app is handed out under: `https://<host>/{slug}`.
+ *
+ *  A SEPARATE name from the `aid`, and that separation is the point (design
+ *  D2b). `apps/{aid}` is a shelf every user of the deployment shares and the
+ *  rules' `allow create` asks only that you name yourself owner — so a
+ *  memorable aid is first-come-first-served, cannot be checked for
+ *  availability, and frees up again when an app is deleted. The aid is
+ *  therefore a UUID, and the thing people can fight over is moved to the name
+ *  that costs nothing to change.
+ *
+ *  Declared here rather than kept beside `app.json` because a RESERVATION has
+ *  to travel with the repository: `appSlugs/{slug}` is unreadable until the app
+ *  is published (`allow read: if resource.data.published == true`), so nothing
+ *  can recover which slug an app holds by asking Firestore. A second file to
+ *  keep in step with the declaration is the alternative, and it is the kind of
+ *  pair that goes out of step silently.
+ *
+ *  The shape is stricter than `NameZ` on purpose: it is BOTH a URL path
+ *  segment people read aloud and a Firestore document id. Lowercase
+ *  alphanumerics separated by single hyphens covers both without a case rule
+ *  that would make two slugs collide in one place and not the other.
+ *
+ *  Which slug an app ended up with is the HOST's business — a wanted slug can
+ *  be taken, and the host writes the one it reserved back here. Nothing in this
+ *  package reads the key; it is declared so that writing it back does not make
+ *  the file unparseable. */
+const SLUG_SHAPE = "must be lowercase letters, digits and single hyphens, and must not start or end with one (e.g. sakura-hair)";
+
+const SlugZ = z
+  .string()
+  .trim()
+  .max(64)
+  // Two checks rather than the obvious `^[a-z0-9]+(?:-[a-z0-9]+)*$`: that one nests a quantifier
+  // inside a quantifier, which the ReDoS lint rejects. Split, neither part backtracks.
+  .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/, SLUG_SHAPE)
+  .refine((slug) => !slug.includes("--"), SLUG_SHAPE);
+
 /** The whole authored declaration.
  *
  *  `owner` is accepted but is NOT the published value — publish stamps the
@@ -162,6 +199,8 @@ export const AuthoredAppZ = z
   .object({
     aid: NameZ,
     name: z.string().trim().min(1).optional(),
+    /** The wanted (or reserved) URL name — see {@link SlugZ}. */
+    slug: SlugZ.optional(),
     /** Per-worktree app id (design D6, implementation order 7). Accepted so a
      *  repository already carrying it parses; nothing reads it yet. */
     aidEnv: z.string().trim().min(1).optional(),
