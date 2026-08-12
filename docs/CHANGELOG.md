@@ -66,6 +66,46 @@ segment people retype and a Firestore document id, and a case rule would make
 one name for a person and two reservations for Firestore.
 
 
+#### A row-scoped writer (`assignee`), and the two keys a first-come queue needs
+
+Three additions to the shared-app declaration, all of them paired with rules in
+`mulmoserver`.
+
+**`assignee`**, a fifth role, plus `collections.<cid>.assigneeField`. It reads
+every row and writes only the ones assigned to it — the stylist who approves
+their own bookings and not a colleague's. The four-role split could not express
+that: `writerOf` does not look at the row, and `ownRow` identifies the SUBMITTER
+(the customer), not the person the work belongs to. Putting the scope on the
+collection instead would have made the receptionist inexpressible, so it goes on
+the roster. Reads stay unscoped deliberately — a stylist who cannot see the
+day's schedule cannot work. The field holds an ADDRESS, because that is the only
+thing the rules can compare a member against; a `ref` to a staff collection
+stores that record's primary key and matches nobody.
+
+**`public.submit.<cid>.stampField`** pins a field to the server clock on create
+and freezes it afterwards. A first-come app takes its capacity from RANK rather
+than from a count — the rules cannot count documents, so "the first 8" can only
+ever be a reading of the rows — and a rank is exactly as honest as the field it
+sorts by. `idFrom` stops one person holding two places; nothing else stopped
+them writing yesterday into the field that decides who was first.
+
+**`public.submit.<cid>.window.fromField`** is an opening time that lives on
+another record: `{ ref, collection, field }`, where the target carries epoch
+millis. `window.from` is one instant for the whole collection, which is enough
+for a survey and useless for anything recurring. The bound is not computed in
+the rules — they have no usable date arithmetic and `request.time` is UTC, which
+is the wrong answer for "08:00" — it is computed by whoever schedules the class
+and merely compared. Not spelled `in`: that is an operator in the rules
+language, and `w.fromField.in` does not parse there.
+
+Publish refuses three new fail-closed traps: an `assignee` with no
+`assigneeField` (which fails closed for that ONE member while the app keeps
+working for everybody else), a `stampField` outside `createFields` (which
+refuses every submission), and a `fromField` naming an unknown collection or a
+field the submission never writes (which shuts the window for good). A member's
+per-collection keys also joined the unknown-cid sweep.
+
+
 #### Publishing a shared app: `manageCollection` action `publishApp`
 
 A repository that declares a shared app (`app.json` + collections with
@@ -198,7 +238,7 @@ is people.
 
 ### Package releases
 
-Ships `@mulmoclaude/core@3.11.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/core@3.12.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ## [1.13.1] - 2026-08-10
 
