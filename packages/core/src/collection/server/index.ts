@@ -102,7 +102,7 @@ export {
   type PublishedSchemaDoc,
   type StagedSchemaDoc,
 } from "./publishProject";
-export { publishProblems, bindsSubmitterIdentity, type PublishableCollection } from "./publishChecks";
+export { publishProblems, promotedRoleProblems, bindsSubmitterIdentity, type PublishableCollection } from "./publishChecks";
 export type { LoadedCollection } from "./discoveredCollection";
 export * from "./paths";
 export * from "./templatePath";

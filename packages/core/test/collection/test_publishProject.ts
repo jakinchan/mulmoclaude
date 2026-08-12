@@ -90,6 +90,29 @@ test("a one-sided window publishes only the bound that was declared", () => {
   assert.deepEqual(submit.window, { untilMs: Date.parse("2026-12-31T23:59:59Z") });
 });
 
+test("a per-record window bound survives the lowering that has nothing to lower", () => {
+  // `fromField` names a field on ANOTHER record and the value it points at is
+  // already epoch millis, so there is no conversion — which is exactly how a
+  // key gets dropped by a function whose job is converting. Dropped, the rules
+  // stop seeing a bound the author declared and the window is silently OPEN.
+  const app = authored({
+    public: {
+      submit: {
+        bookings: {
+          auth: "verifiedEmail",
+          createFields: ["customerEmail", "classId"],
+          window: { until: "2026-12-31T23:59:59Z", fromField: { ref: "classId", collection: "services", field: "opensAt" } },
+        },
+      },
+    },
+  });
+  const submit = publishedSubmit(projectApp(app, [], STAMP, null).app, "bookings");
+  assert.deepEqual(submit.window, {
+    untilMs: Date.parse("2026-12-31T23:59:59Z"),
+    fromField: { ref: "classId", collection: "services", field: "opensAt" },
+  });
+});
+
 test("memberEmails is derived from members, and a hand-written one is overwritten", () => {
   // `membersConsistent()` refuses any write where the two disagree, so an
   // authored value could only ever turn publish into a bare permission error.

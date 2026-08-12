@@ -31,6 +31,10 @@ const HOST_SURFACE = [
   "APP_MANIFEST_FILE",
   // the gates — what publish refuses, and which live records a schema breaks
   "publishProblems",
+  // The pair publish actually writes: the staged configuration beside the
+  // manifest's roster. Separate from `publishProblems` because it needs what
+  // deploy staged, which is a read the host makes.
+  "promotedRoleProblems",
   "bindsSubmitterIdentity",
   "validateCollectionRecords",
   "MAX_RECORD_ISSUES",
