@@ -50,9 +50,25 @@ const NameZ = z.string().refine(isValidCollectionName, { message: "is not a vali
  *  narrowing here would refuse addresses Firebase itself accepts. */
 const EmailZ = z.string().trim().min(3).includes("@");
 
-/** The four roles the deployed rules understand. `participant` is the layer
- *  that is NAMED but reads only its own rows — see `readerOf` vs `listedIn`. */
-export const APP_ROLES = ["owner", "editor", "viewer", "participant"] as const;
+/** The roles the deployed rules understand.
+ *
+ *  Two of them are row-scoped, in opposite directions, and the pair is what
+ *  the four-way split could not express:
+ *
+ *    `participant` — the layer that is NAMED but reads only its OWN rows (the
+ *    rows it submitted). See `readerOf` vs `listedIn`.
+ *
+ *    `assignee` — reads EVERY row and writes only the rows ASSIGNED to it. The
+ *    stylist who approves their own bookings and not a colleague's; the marker
+ *    who grades their own students. Which rows are theirs is
+ *    `collections[cid].assigneeField`, a field on the record holding the
+ *    member's address. Reads are deliberately unscoped: a stylist needs the
+ *    whole day's schedule, and scoping the read makes the app unusable.
+ *
+ *  The names are permanent. The deployed rules compare these strings directly
+ *  and they are written into `app.json` files people commit, so a rename is a
+ *  migration over published apps rather than an edit. */
+export const APP_ROLES = ["owner", "editor", "viewer", "participant", "assignee"] as const;
 const RoleZ = z.enum(APP_ROLES);
 
 /** `{ email: { "*" | cid: role } }`. The `"*"` key is the app-wide role; a
@@ -80,6 +96,21 @@ const CollectionConfigZ = z
     transitions: z.record(z.string().trim().min(1), z.array(z.string().trim().min(1))).optional(),
     immutable: z.boolean().optional(),
     submitOnly: z.boolean().optional(),
+    /** The field naming the member a row belongs to, for the `assignee` role.
+     *
+     *  Holds an ADDRESS, because that is the only thing the rules can compare
+     *  a member against (`request.auth.token.email`). A `ref` to a staff
+     *  collection stores the target's primary-key slug, not an address, so it
+     *  cannot be this field — declare a plain field beside the ref and let the
+     *  ref stay the thing the UI renders. The alternative, having the rules
+     *  `get()` the staff record to read an address off it, costs a document
+     *  access on every write and puts a second document between an
+     *  authorization decision and its answer.
+     *
+     *  Only meaningful with a member holding `assignee` on this cid; a
+     *  declaration with the role and no field is refused (`assigneeProblems`),
+     *  because that member would silently hold nothing. */
+    assigneeField: z.string().trim().min(1).optional(),
     peerVisibility: z.enum(["public", "hidden"]).optional(),
     revealGated: z.boolean().optional(),
     gatedFrom: NameZ.optional(),
@@ -103,7 +134,26 @@ const CollectionConfigZ = z
  *  the rules do not coerce strings, so an ISO string reaching Firestore is a
  *  type error that fails CLOSED (`inWindow` refuses every submission and the
  *  author sees "nobody can submit", not an error). */
-const WindowZ = z.object({ from: z.iso.datetime().optional(), until: z.iso.datetime().optional() }).strict();
+/** A window bound that lives on ANOTHER record, read at write time.
+ *
+ *  `window.from` is one absolute instant for the whole collection, which is
+ *  enough for a survey and useless for anything recurring: "each class opens
+ *  three days before it starts, at 08:00" is a bound PER RECORD. So the bound
+ *  is not computed in the rules — they have no usable date arithmetic and
+ *  `request.time` is UTC, which is the wrong answer for "08:00" — it is
+ *  computed by whoever schedules the class, stored on the class record as
+ *  epoch millis, and merely COMPARED here.
+ *
+ *  `ref` is the field on the record being written that names the target
+ *  (`classId`); `collection` is the cid the target lives in, fixed in the
+ *  declaration so that a path is never built out of a value a submitter wrote;
+ *  `field` is the epoch-millis field on the target.
+ *
+ *  Not spelled `in` — that is an operator in the rules language, and
+ *  `w.fromField.in` does not parse there. */
+const WindowRefZ = z.object({ ref: z.string().trim().min(1), collection: NameZ, field: z.string().trim().min(1) }).strict();
+
+const WindowZ = z.object({ from: z.iso.datetime().optional(), until: z.iso.datetime().optional(), fromField: WindowRefZ.optional() }).strict();
 
 const ValidateZ = z
   .object({
@@ -127,6 +177,19 @@ const SubmitZ = z
     idField: z.string().trim().min(1).optional(),
     validate: ValidateZ.optional(),
     window: WindowZ.optional(),
+    /** A field the rules PIN to the server clock on create: the record must
+     *  carry `request.time` in it, and may never change it afterwards.
+     *
+     *  What it buys is an order nobody can jump. A first-come app takes its
+     *  capacity from rank rather than from a count — the rules cannot count
+     *  documents, so "the first 8" can only ever be a reading of the rows —
+     *  and a rank is only as honest as the timestamp it sorts by. `idFrom`
+     *  stops a person holding two places; nothing else stops them writing
+     *  yesterday's date into the field that decides who got there first.
+     *
+     *  Binds EVERY create, the writer branch included, so a staff-entered row
+     *  cannot be back-dated into the queue either. */
+    stampField: z.string().trim().min(1).optional(),
     /** Per CURRENT STATUS, never a flat list: a flat list lets a customer move
      *  an approved booking's `startAt` without anyone re-approving it. */
     selfUpdate: z.record(z.string().trim().min(1), z.array(z.string().trim().min(1))).optional(),

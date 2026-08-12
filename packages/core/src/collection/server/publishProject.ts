@@ -152,7 +152,9 @@ function compact(entries: Record<string, unknown>): Record<string, unknown> {
  *  requires `z.iso.datetime()`), so a NaN here would be a programming error;
  *  it is still checked, because a NaN written to Firestore fails closed in the
  *  same silent way an ISO string does. */
-function windowMillis(window: { from?: string | undefined; until?: string | undefined } | undefined): Record<string, number> | undefined {
+function windowMillis(
+  window: { from?: string | undefined; until?: string | undefined; fromField?: Record<string, string> | undefined } | undefined,
+): Record<string, unknown> | undefined {
   if (!window) return undefined;
   const out: Record<string, number> = {};
   if (window.from !== undefined) out.fromMs = Date.parse(window.from);
@@ -160,7 +162,13 @@ function windowMillis(window: { from?: string | undefined; until?: string | unde
   if (Object.values(out).some((value) => !Number.isFinite(value))) {
     throw new Error(`publish: window bound is not a parseable timestamp (${JSON.stringify(window)})`);
   }
-  return Object.keys(out).length > 0 ? out : undefined;
+  // `fromField` passes through unlowered — it names a field on another record,
+  // and the value it points at is already epoch millis (whoever schedules the
+  // class writes it). There is nothing here to convert, and dropping it is the
+  // failure this function's own comment warns about: the rules would stop
+  // seeing a bound the author declared, and the window would silently be open.
+  const projected: Record<string, unknown> = { ...out, ...(window.fromField === undefined ? {} : { fromField: window.fromField }) };
+  return Object.keys(projected).length > 0 ? projected : undefined;
 }
 
 /** One `public.submit[cid]`, with its window lowered. Everything else passes

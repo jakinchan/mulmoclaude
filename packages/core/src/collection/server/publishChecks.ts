@@ -330,6 +330,11 @@ function unknownCidProblems(app: AuthoredApp, collections: readonly PublishableC
     ["public.read", app.public?.read ?? []],
     ["public.submit", Object.keys(app.public?.submit ?? {})],
     ["participantRead", app.participantRead ?? []],
+    // A member's per-collection keys are cids too, and a typo there is the
+    // quietest of the lot: the member holds the role on a collection that does
+    // not exist, and on the one they were meant to hold it on they fall back
+    // to their `'*'` role — or, holding none, to nothing at all.
+    ["members", [...new Set(Object.values(app.members).flatMap((roles) => Object.keys(roles)))].filter((key) => key !== "*")],
   ];
   return mentions.flatMap(([where, cids]) =>
     cids
@@ -357,6 +362,9 @@ export function publishProblems(app: AuthoredApp, collections: readonly Publisha
     ...submitShapeProblems(app),
     ...coherenceProblems(app),
     ...primaryKeyProblems(app, collections),
+    ...assigneeProblems(app),
+    ...stampProblems(app),
+    ...windowRefProblems(app, collections),
   ];
 }
 
@@ -389,5 +397,97 @@ function primaryKeyProblems(app: AuthoredApp, collections: readonly PublishableC
         "so a submitter could write at their own id while claiming another record's. A shared record's identity is its document id — the store fills the field from it, " +
         "and a submitted value is either the same thing or a lie that is thrown away.",
     ];
+  });
+}
+
+/** `assignee` without the field that says which rows are theirs.
+ *
+ *  A FAIL-CLOSED trap of the worst kind, because it fails closed for one
+ *  person and nobody else: the rules ask `collections[cid].assigneeField` for
+ *  the field to compare, find nothing, and refuse every write that member
+ *  makes. The app works for the owner who set it up, and the member it was set
+ *  up for is told only "permission denied".
+ *
+ *  `'*': "assignee"` is refused outright rather than checked against every
+ *  collection. The role means "the rows assigned to you", and what counts as
+ *  assigned is per collection — an app-wide one would need the same field name
+ *  to be right everywhere, and where it is missing it silently means "no
+ *  access to this collection" rather than "no scoping here".
+ */
+function assigneeProblems(app: AuthoredApp): string[] {
+  return Object.entries(app.members).flatMap(([email, roles]) =>
+    Object.entries(roles).flatMap(([cid, role]) => {
+      if (role !== "assignee") return [];
+      if (cid === "*") {
+        return [
+          `members["${email}"] holds "assignee" under "*", and the role cannot be app-wide: which rows are yours is declared per collection ` +
+            '(`collections.<cid>.assigneeField`). Name the collections instead — { "bookings": "assignee" }.',
+        ];
+      }
+      if (app.collections?.[cid]?.assigneeField !== undefined) return [];
+      return [
+        `members["${email}"] holds "assignee" on '${cid}', but collections.${cid}.assigneeField does not say which field names the member a row belongs to. ` +
+          `Add it (assigneeField: "<a field holding an address>"), or give a role that is not row-scoped. Without it the rules have nothing to compare and refuse ` +
+          "every write that member makes, while the app keeps working for everybody else.",
+      ];
+    }),
+  );
+}
+
+/** A server-stamped field the submitter cannot write, or can rewrite later.
+ *
+ *  Both failures are silent in opposite directions. Left out of
+ *  `createFields`, the rules refuse every submission (`hasOnly(createFields)`
+ *  rejects the key the stamp check requires) — an app nobody can use. Left IN
+ *  a `selfUpdate` list, the field the queue is ordered by becomes editable by
+ *  the person standing in the queue. */
+function stampProblems(app: AuthoredApp): string[] {
+  return Object.entries(app.public?.submit ?? {}).flatMap(([cid, submit]) => {
+    const stamp = submit.stampField;
+    if (stamp === undefined) return [];
+    const problems: string[] = [];
+    if (!submit.createFields.includes(stamp)) {
+      problems.push(
+        `public.submit.${cid}.stampField names '${stamp}', which is not in createFields. The rules require the record to CARRY the server time in that field, ` +
+          "and refuse any key outside createFields — so every submission is denied. Add it to createFields; the page fills it in, not the person.",
+      );
+    }
+    for (const [status, fields] of Object.entries(submit.selfUpdate ?? {})) {
+      if (!fields.includes(stamp)) continue;
+      problems.push(
+        `public.submit.${cid}.selfUpdate.${status} lets the submitter write '${stamp}', which is the field stampField pins to the server clock. ` +
+          "Whatever that field orders — a first-come queue, an audit trail — could then be rewritten by the person it ranks. Remove it from selfUpdate.",
+      );
+    }
+    return problems;
+  });
+}
+
+/** A per-record window bound pointing at a collection or a field the submitter
+ *  never writes.
+ *
+ *  `fromField` makes the rules read another record, and every part of that
+ *  read is fail-closed: an unknown collection, or a `ref` the submission does
+ *  not carry, means the bound can never be satisfied and the form is shut for
+ *  good. */
+function windowRefProblems(app: AuthoredApp, collections: readonly PublishableCollection[]): string[] {
+  const known = new Set(collections.map((collection) => collection.cid));
+  return Object.entries(app.public?.submit ?? {}).flatMap(([cid, submit]) => {
+    const ref = submit.window?.fromField;
+    if (ref === undefined) return [];
+    const problems: string[] = [];
+    if (!known.has(ref.collection)) {
+      problems.push(
+        `public.submit.${cid}.window.fromField.collection names '${ref.collection}', which is not a shared collection in this repository. ` +
+          `The rules read the opening time off a record there, so nothing can ever be submitted. Shared collections here: ${known.size > 0 ? [...known].sort().join(", ") : "(none)"}.`,
+      );
+    }
+    if (!submit.createFields.includes(ref.ref)) {
+      problems.push(
+        `public.submit.${cid}.window.fromField.ref names '${ref.ref}', which is not in createFields. The rules take the target record's id from that field ON THE ` +
+          "SUBMISSION — if the submitter never writes it, there is nothing to look up and every submission is refused.",
+      );
+    }
+    return problems;
   });
 }

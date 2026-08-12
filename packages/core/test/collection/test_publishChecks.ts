@@ -370,3 +370,80 @@ test("a per-collection role is not app-wide owner", () => {
   const problems = publishProblems(AuthoredAppZ.parse({ aid: "app_test", members: { [OWNER]: { bookings: "owner" } } }), CIDS, OWNER);
   refuses(problems, "members must give you app-wide owner");
 });
+
+// --- the assignee role ------------------------------------------------------
+
+const STYLIST = "stylist-a@salon.jp";
+
+test("assignee needs the field that says which rows are the member's", () => {
+  // The nastiest failure shape available: it fails closed for ONE member. The
+  // owner who set the app up sees it working, and the stylist is told
+  // "permission denied" with nothing naming a cause.
+  const problems = problemsFor({ members: { [OWNER]: { "*": "owner" }, [STYLIST]: { bookings: "assignee" } } });
+  refuses(problems, "collections.bookings.assigneeField does not say which field");
+
+  assert.deepEqual(
+    problemsFor({
+      members: { [OWNER]: { "*": "owner" }, [STYLIST]: { bookings: "assignee" } },
+      collections: { bookings: { assigneeField: "stylistEmail" } },
+    }),
+    [],
+  );
+});
+
+test("assignee cannot be app-wide", () => {
+  // Which rows are yours is per collection. An app-wide one would need the
+  // same field name to be right in every collection, and where it is missing
+  // it means "no access at all" rather than "no scoping here".
+  const problems = problemsFor({
+    members: { [OWNER]: { "*": "owner" }, [STYLIST]: { "*": "assignee" } },
+    collections: { bookings: { assigneeField: "stylistEmail" } },
+  });
+  refuses(problems, 'holds "assignee" under "*"');
+});
+
+test("a role on a collection that does not exist is reported", () => {
+  // The member holds the role on nothing, and on the collection they were
+  // meant to hold it on they fall back to their '*' role — or to nothing.
+  refuses(problemsFor({ members: { [OWNER]: { "*": "owner" }, [STYLIST]: { bokings: "editor" } } }), "members names 'bokings'");
+});
+
+// --- the server-stamped field -----------------------------------------------
+
+const QUEUE = { auth: "verifiedEmail" as const, createFields: ["classId", "createdAt"], stampField: "createdAt" };
+
+test("a stamped field the submission may not carry shuts the form", () => {
+  // `hasOnly(createFields)` refuses the key the stamp check requires, so every
+  // submission is denied — and the declaration reads as if it were working.
+  const problems = problemsFor({ public: { submit: { bookings: { ...QUEUE, createFields: ["classId"] } } } });
+  refuses(problems, "which is not in createFields");
+  assert.deepEqual(problemsFor({ public: { submit: { bookings: QUEUE } } }), []);
+});
+
+test("a stamped field the submitter may edit later is not a stamp", () => {
+  // Whatever it orders — a first-come queue, an audit trail — could then be
+  // rewritten by the person it ranks.
+  const problems = problemsFor({
+    public: { submit: { bookings: { ...QUEUE, selfUpdate: { requested: ["createdAt"] } } } },
+  });
+  refuses(problems, "which is the field stampField pins to the server clock");
+});
+
+// --- a window bound that lives on another record ----------------------------
+
+const OPENS = { ref: "serviceId", collection: "services", field: "opensAt" };
+const BOOKING = { auth: "verifiedEmail" as const, createFields: ["serviceId"], window: { fromField: OPENS } };
+
+test("a per-record window bound must point at a real collection", () => {
+  const problems = problemsFor({ public: { submit: { bookings: { ...BOOKING, window: { fromField: { ...OPENS, collection: "classes" } } } } } });
+  refuses(problems, "window.fromField.collection names 'classes'");
+  assert.deepEqual(problemsFor({ public: { submit: { bookings: BOOKING } } }), []);
+});
+
+test("a per-record window bound must be reachable from the submission", () => {
+  // The rules take the target's id from a field ON THE SUBMISSION. If the
+  // submitter never writes it there is nothing to look up, and the form is
+  // shut for good rather than open.
+  const problems = problemsFor({ public: { submit: { bookings: { ...BOOKING, createFields: ["name"] } } } });
+  refuses(problems, "window.fromField.ref names 'serviceId'");
+});
