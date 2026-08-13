@@ -26,6 +26,7 @@
 // everything, which is the one bug this file could have that would look like
 // safety.
 
+import { isSafeCustomViewPath } from "../core/templatePath";
 import type { AuthoredApp, AuthoredCollectionConfig, AuthoredSubmit } from "./publishManifest";
 import { stagedRuleConfig, type StagedSchemaDoc } from "./publishProject";
 
@@ -661,11 +662,24 @@ function publicViewProblems(app: AuthoredApp, collections: readonly PublishableC
   const known = new Set(collections.map((collection) => collection.cid));
   const readable = new Set(app.public?.read ?? []);
   const problems: string[] = [];
-  // Exactly one basename under views/. A prefix-and-suffix test accepts
-  // `views/../../secrets.html`, and the HOST reads this value as a path to
-  // publish -- so a declaration could hand any HTML file in the checkout to
-  // the world, onto a document whose rule is `allow read: if true`.
-  if (!/^views\/[^/]+\.html$/.test(view.path)) {
+  // The SAME validator the host's own custom views use, rather than a second
+  // opinion about what a safe view path is.
+  //
+  // Two ad-hoc attempts were wrong here in the same afternoon: a prefix-and-
+  // suffix test let `views/../../secrets.html` through, and `views/[^/]+\.html`
+  // still let `views/..\..\secrets.html` through, because a backslash is not a
+  // slash on this side of the check and IS a separator on Windows. This one
+  // rejects `..`, backslashes, leading slashes and anything outside
+  // `[A-Za-z0-9._-]` per segment.
+  //
+  // It matters more here than for a host view: the host reads this path to
+  // decide which file to copy onto a document whose rule is
+  // `allow read: if true`, so the blast radius of a bad path is the world
+  // rather than the author's own iframe. Nested paths ARE allowed by the
+  // shared validator; the extra `views/<one name>.html` shape below is this
+  // publisher's own narrowing, kept because there is no reason for a published
+  // view to live in a subdirectory.
+  if (!isSafeCustomViewPath(view.path) || view.path.split("/").length !== 2) {
     problems.push(
       `public.view.path is '${view.path}': a published view is exactly one HTML file directly inside the collection's own views/ directory ` +
         "(e.g. views/booking.html) — no sub-directories, and no segments that climb out of it. The host reads this as a file to publish, " +

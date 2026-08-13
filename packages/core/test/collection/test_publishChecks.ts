@@ -681,6 +681,20 @@ test("refuses a view that is not one HTML file directly under views/", () => {
     }),
     "exactly one HTML file",
   );
+  // A backslash is not a slash to a regex and IS a separator on Windows, so
+  // this is the same escape wearing a different coat.
+  refuses(
+    viewed((view) => {
+      view.path = "views/..\\..\\secrets.html";
+    }),
+    "exactly one HTML file",
+  );
+  refuses(
+    viewed((view) => {
+      view.path = "/etc/views/passwd.html";
+    }),
+    "exactly one HTML file",
+  );
 });
 
 test("refuses an idIn pointing at nothing, or at itself", () => {
