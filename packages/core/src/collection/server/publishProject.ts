@@ -577,8 +577,13 @@ export interface AppViewTier {
  *  a participant with neither `participantRead` nor an own-row submit path
  *  cannot read the collection at all, and a page handed it would fail rather
  *  than render less. */
-function scopeFor(authored: AuthoredApp, audience: Exclude<ViewAudience, "public">, cid: string): ProjectedViewCollection | null {
-  return audience === "member" ? { cid, scope: "all" } : participantScope(authored, cid);
+function scopeFor(
+  authored: AuthoredApp,
+  audience: Exclude<ViewAudience, "public">,
+  cid: string,
+  participantRead: readonly string[],
+): ProjectedViewCollection | null {
+  return audience === "member" ? { cid, scope: "all" } : participantScope(authored, cid, participantRead);
 }
 
 /** Project the declaration into the per-audience documents.
@@ -587,7 +592,12 @@ function scopeFor(authored: AuthoredApp, audience: Exclude<ViewAudience, "public
  *  and neither is the clock. What is here is the answer to "what may this
  *  audience read, and how" — computed once, so the page never has to guess and
  *  never has to discover it from a denial. */
-export function projectAppViews(authored: AuthoredApp, stamp: PublishStamp): AppViewTier[] {
+export function projectAppViews(authored: AuthoredApp, stamp: PublishStamp, promoted?: { participantRead?: readonly string[] }): AppViewTier[] {
+  // What the RULES will say, not what the manifest says. Publish replaces
+  // `participantRead` with the staged schemas' own (see `projectPublish`), so
+  // at publish the caller passes that; at deploy the manifest IS what is being
+  // staged, and the default is right.
+  const participantRead = promoted?.participantRead ?? authored.participantRead ?? [];
   const normalized = normalizeViews(authored);
   if (!normalized.ok) throw new Error(`publish: views declaration is not publishable (${normalized.problems.join(" ")})`);
   const audiences: Exclude<ViewAudience, "public">[] = ["member", "participant"];
@@ -608,7 +618,9 @@ export function projectAppViews(authored: AuthoredApp, stamp: PublishStamp): App
         // unreachable: the gate has already refused the declaration, so
         // reaching here with one is a programming error, and a page that
         // queries it is denied.
-        collections: view.collections.map((cid) => scopeFor(authored, audience, cid)).filter((scope): scope is ProjectedViewCollection => scope !== null),
+        collections: view.collections
+          .map((cid) => scopeFor(authored, audience, cid, participantRead))
+          .filter((scope): scope is ProjectedViewCollection => scope !== null),
       })),
       submit,
       publishedAt: stamp.publishedAt,

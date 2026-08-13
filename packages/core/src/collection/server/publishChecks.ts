@@ -712,12 +712,10 @@ function viewCollectionProblems(app: AuthoredApp, view: NormalizedView, cid: str
         "read and the view draws an empty page. Nothing errors — this is the failure that looks like a working view with no data.",
     ];
   }
-  if (view.audience === "participant" && participantScope(app, cid) === null) {
-    return [
-      `${view.where}.collections names '${cid}', which a participant cannot read: it is not in participantRead, and public.submit.${cid} declares neither ` +
-        'an emailField nor idFrom "auth.uid", so there is no row the rules would call theirs. The page would be refused the read, not handed fewer records.',
-    ];
-  }
+  // No participant check here. Whether a participant reaches a collection
+  // depends on `participantRead`, and publish does not promote the manifest's
+  // — it promotes the STAGED schemas'. That check belongs with the other
+  // promoted-pair ones, in `promotedRoleProblems`.
   return [];
 }
 
@@ -759,7 +757,35 @@ export function promotedRoleProblems(app: AuthoredApp, staged: { cid: string; do
     ...promotedAssigneeProblems(app, promoted, stagedCids),
     ...promotedMirrorProblems(app, promoted, stagedCids),
     ...promotedRefFieldProblems(app, staged),
+    ...promotedParticipantViewProblems(app, staged),
   ];
+}
+
+/** A participant's page, checked against the `participantRead` publish will
+ *  actually PROMOTE.
+ *
+ *  Not against the manifest's. `projectPublish` overwrites `participantRead`
+ *  with what the staged schemas carry, so a cid added to the manifest since the
+ *  last deploy is not in the rules — and a page written for it would be
+ *  published, offered, and then refused the read. The manifest half of this
+ *  file cannot see that; the promoted half can, which is why the check lives
+ *  here rather than beside the other view checks. */
+function promotedParticipantViewProblems(app: AuthoredApp, staged: { cid: string; doc: StagedSchemaDoc }[]): string[] {
+  const normalized = normalizeViews(app);
+  if (!normalized.ok) return [];
+  const participantRead = stagedRuleConfig(staged).participantRead ?? [];
+  return normalized.views
+    .filter((view) => view.audience === "participant")
+    .flatMap((view) =>
+      view.collections
+        .filter((cid) => participantScope(app, cid, participantRead) === null)
+        .map(
+          (cid) =>
+            `${view.where}.collections names '${cid}', which a participant cannot read once this publishes: it is not in the participantRead that DEPLOY ` +
+            `staged, and public.submit.${cid} declares neither an emailField nor idFrom "auth.uid", so there is no row the rules would call theirs. ` +
+            "The page would be refused the read, not handed fewer records. (Adding it to participantRead in app.json is not enough — deploy first.)",
+        ),
+    );
 }
 
 /** The FIELDS a rule reads off another record — `idIn.where.field` and the two

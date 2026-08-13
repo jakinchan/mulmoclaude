@@ -82,12 +82,11 @@ const BOTH_FORMS =
   "app.json declares both `views` and `public.view`. These are the same thing — `public.view` is the older spelling — and publishing would have to choose one silently. " +
   'Move the `public.view` entry into `views` as { id: "public", audience: "public", … } and delete it.';
 
-/** The one shape everything downstream reads.
+/** The two declarations, as one list, or the refusal that they are both there.
  *
- *  Every caller — the publish gate, the projection, the host that writes the
- *  documents — goes through this, so "which declaration was used" is decided
- *  exactly once. */
-export function normalizeViews(app: AuthoredApp): NormalizedViewsResult {
+ *  `public.view` becomes an entry under the reserved id, so everything
+ *  downstream reads one shape and "which spelling was used" is decided once. */
+function declaredViews(app: AuthoredApp): NormalizedViewsResult {
   const legacy = app.public?.view;
   const authored = app.views;
   if (legacy !== undefined && authored !== undefined) return { ok: false, problems: [BOTH_FORMS] };
@@ -99,38 +98,79 @@ export function normalizeViews(app: AuthoredApp): NormalizedViewsResult {
     collections: view.collections,
     where: `views[${index}]`,
   }));
-  if (legacy !== undefined) {
-    // Checked even though the branch above already refuses the pair: the
-    // reserved id is a property of the normalization, not of the order these
-    // two refusals happen to be written in.
-    if (views.some((view) => view.id === PUBLIC_VIEW_ID)) {
-      return { ok: false, problems: [`views declares id '${PUBLIC_VIEW_ID}', which is reserved for the older \`public.view\` spelling. ${BOTH_FORMS}`] };
-    }
-    views.push({ id: PUBLIC_VIEW_ID, audience: "public", path: legacy.path, collections: legacy.collections, where: "public.view" });
+  if (legacy === undefined) return { ok: true, views };
+  // Checked even though the branch above already refuses the pair: the
+  // reserved id is a property of the normalization, not of the order these
+  // two refusals happen to be written in.
+  if (views.some((view) => view.id === PUBLIC_VIEW_ID)) {
+    return { ok: false, problems: [`views declares id '${PUBLIC_VIEW_ID}', which is reserved for the older \`public.view\` spelling. ${BOTH_FORMS}`] };
   }
+  return { ok: true, views: [...views, { id: PUBLIC_VIEW_ID, audience: "public", path: legacy.path, collections: legacy.collections, where: "public.view" }] };
+}
 
-  const problems: string[] = [];
-  const seen = new Map<string, string>();
-  for (const view of views) {
-    if (RESERVED_VIEW_IDS.includes(view.id)) {
-      problems.push(`${view.where}.id is '${view.id}', which is reserved: each audience's own declaration is published at that document id.`);
-    } else if (!VIEW_ID_PATTERN.test(view.id)) {
-      // The id becomes a document id, so this is not style. A `/` in it
-      // addresses a different path — staging writes one place and withdrawal
-      // tidies another, and neither says anything.
-      problems.push(`${view.where}.id is '${view.id}': a view id ${VIEW_ID_SHAPE}. It becomes the document id this view is published at.`);
-    } else if (view.id === PUBLIC_VIEW_ID && view.audience !== "public") {
-      problems.push(`${view.where}.id is '${PUBLIC_VIEW_ID}' with audience '${view.audience}': that id belongs to the public page.`);
-    }
-    const first = seen.get(view.id);
-    if (first !== undefined) {
-      problems.push(
-        `${view.where}.id is '${view.id}', which ${first} already uses. The id is the document a view is published at, so two of them are one page — ` +
-          "whichever was written second would silently replace the first, in staging and again at publish.",
-      );
-    } else seen.set(view.id, view.where);
+/** Whether one id may be used, and what to say when it may not. */
+function viewIdProblems(view: NormalizedView): string[] {
+  if (RESERVED_VIEW_IDS.includes(view.id)) {
+    return [`${view.where}.id is '${view.id}', which is reserved: each audience's own declaration is published at that document id.`];
   }
-  return problems.length > 0 ? { ok: false, problems } : { ok: true, views };
+  if (!VIEW_ID_PATTERN.test(view.id)) {
+    // The id becomes a document id, so this is not style. A `/` in it
+    // addresses a different path — staging writes one place and withdrawal
+    // tidies another, and neither says anything.
+    return [`${view.where}.id is '${view.id}': a view id ${VIEW_ID_SHAPE}. It becomes the document id this view is published at.`];
+  }
+  if (view.id === PUBLIC_VIEW_ID && view.audience !== "public") {
+    return [`${view.where}.id is '${PUBLIC_VIEW_ID}' with audience '${view.audience}': that id belongs to the public page.`];
+  }
+  return [];
+}
+
+/** ONE public page per app, and the reason is the wire rather than taste.
+ *
+ *  The public runtime reads a single `config/view` document and a single
+ *  `config/public.view` declaration beside it. A second `audience: "public"`
+ *  entry would pass every other check and then be published nowhere — and
+ *  which of the two became the live page would depend on declaration order,
+ *  silently. The member tiers have no such limit: `id` is their address, and
+ *  each one gets its own document.
+ *
+ *  The refusal is here rather than "one day we will support it" precisely
+ *  because the failure is invisible: nothing errors, and the author sees a
+ *  successful publish of a page nobody is served. */
+function singlePublicProblems(views: NormalizedView[]): string[] {
+  const [first, ...rest] = views.filter((view) => view.audience === "public");
+  if (first === undefined) return [];
+  return rest.map(
+    (view) =>
+      `${view.where} is a second audience "public" view, after ${first.where}. The public page is published at ONE document (config/view), so only one of ` +
+      'them could ever be served — and which, would depend on the order they were written in. Give the others audience "member" or "participant", ' +
+      "which are addressed by id and may have as many as the app needs.",
+  );
+}
+
+/** The one shape everything downstream reads.
+ *
+ *  Every caller — the publish gate, the projection, the host that writes the
+ *  documents — goes through this, so "which declaration was used" is decided
+ *  exactly once. */
+export function normalizeViews(app: AuthoredApp): NormalizedViewsResult {
+  const declared = declaredViews(app);
+  if (!declared.ok) return declared;
+  const problems: string[] = [...singlePublicProblems(declared.views)];
+  const seen = new Map<string, string>();
+  for (const view of declared.views) {
+    problems.push(...viewIdProblems(view));
+    const first = seen.get(view.id);
+    if (first === undefined) {
+      seen.set(view.id, view.where);
+      continue;
+    }
+    problems.push(
+      `${view.where}.id is '${view.id}', which ${first} already uses. The id is the document a view is published at, so two of them are one page — ` +
+        "whichever was written second would silently replace the first, in staging and again at publish.",
+    );
+  }
+  return problems.length > 0 ? { ok: false, problems } : { ok: true, views: declared.views };
 }
 
 /** How one audience reaches one collection's records.
@@ -152,9 +192,18 @@ export interface ProjectedViewCollection {
  *
  *  Mirrors the rules' read branches for someone holding no role:
  *  `partRead` (the whole collection) and `ownRow` (their own record, found
- *  by the submit declaration's `emailField` or by a uid-derived id). */
-export function participantScope(app: AuthoredApp, cid: string): ProjectedViewCollection | null {
-  if ((app.participantRead ?? []).includes(cid)) return { cid, scope: "all" };
+ *  by the submit declaration's `emailField` or by a uid-derived id).
+ *
+ *  `participantRead` is a PARAMETER rather than read off the manifest, and
+ *  that is the whole point of the signature. Publish does not promote the
+ *  manifest's value: `projectPublish` overwrites `participantRead` with what
+ *  the STAGED schemas carry, so a cid added since the last deploy is in the
+ *  manifest and not in the rules. Deriving the scope from the manifest would
+ *  publish `scope: "all"` for a collection the promoted rules then deny —
+ *  and removing one gives the mirror-image false refusal. The caller passes
+ *  the set that will actually be in force. */
+export function participantScope(app: AuthoredApp, cid: string, participantRead: readonly string[]): ProjectedViewCollection | null {
+  if (participantRead.includes(cid)) return { cid, scope: "all" };
   const submit: AuthoredSubmit | undefined = app.public?.submit?.[cid];
   if (submit?.emailField !== undefined) return { cid, scope: "own", emailField: submit.emailField };
   if (submit?.idFrom === "auth.uid") return { cid, scope: "own", ownDocId: "auth.uid" };

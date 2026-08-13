@@ -93,11 +93,44 @@ test("a participant reads a participantRead collection whole, and their own row 
       },
     },
   });
-  assert.deepEqual(participantScope(declared, "notices"), { cid: "notices", scope: "all" });
-  assert.deepEqual(participantScope(declared, "bookings"), { cid: "bookings", scope: "own", emailField: "email" });
-  assert.deepEqual(participantScope(declared, "seats"), { cid: "seats", scope: "own", ownDocId: "auth.uid" });
+  const promoted = ["notices"];
+  assert.deepEqual(participantScope(declared, "notices", promoted), { cid: "notices", scope: "all" });
+  assert.deepEqual(participantScope(declared, "bookings", promoted), { cid: "bookings", scope: "own", emailField: "email" });
+  assert.deepEqual(participantScope(declared, "seats", promoted), { cid: "seats", scope: "own", ownDocId: "auth.uid" });
   // Neither: the rules would refuse the read, so there is nothing to hand a page.
-  assert.equal(participantScope(declared, "ledger"), null);
+  assert.equal(participantScope(declared, "ledger", promoted), null);
+});
+
+test("the participant scope follows what will be PROMOTED, not what the manifest says", () => {
+  // `projectPublish` overwrites `participantRead` with the staged schemas' own,
+  // so a cid added to app.json since the last deploy is not in the rules.
+  // Reading the manifest here would publish `scope: "all"` for a collection the
+  // rules then deny — the page fails rather than showing less.
+  const declared = app({ participantRead: ["notices"] });
+  assert.equal(participantScope(declared, "notices", []), null);
+  const tiers = projectAppViews(
+    app({ participantRead: ["notices"], views: [{ id: "mine", audience: "participant", path: "views/mine.html", collections: ["notices"] }] }),
+    STAMP,
+    { participantRead: [] },
+  );
+  assert.deepEqual(tiers.find((tier) => tier.audience === "participant")?.config.views, [{ id: "mine", collections: [] }]);
+});
+
+test("more than one public page is refused: there is only one document to publish it at", () => {
+  // Nothing would error. `config/view` is a single document, so the second
+  // entry is published nowhere and which one is live depends on the order they
+  // were written in.
+  refuses(
+    problemsOf({
+      views: [
+        { ...DESK, id: "one", audience: "public" },
+        { ...DESK, id: "two", audience: "public" },
+      ],
+    }),
+    "a second audience",
+  );
+  // The member tiers have no such limit — the id IS the address there.
+  assert.deepEqual(problemsOf({ views: [DESK, { ...DESK, id: "stock" }] }), []);
 });
 
 test("the projection separates the tiers, and a staff page is not in the participants' one", () => {

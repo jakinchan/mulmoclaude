@@ -719,24 +719,27 @@ test("a member view passes without being in public.read — it is not the public
   );
 });
 
-test("refuses a participant view naming a collection a participant cannot reach", () => {
+test("refuses a participant view naming a collection the PROMOTED rules will not let them read", () => {
   // Worse than the public case: an unscoped list on an own-row collection is
   // DENIED rather than narrowed, so the page fails rather than rendering less.
-  refuses(
-    salon((draft) => {
-      draft.views = [{ id: "mine", audience: "participant", path: "views/mine.html", collections: ["slots"] }];
-    }),
-    "which a participant cannot read",
-  );
-  // The neighbouring declaration: the same page, on a collection the roster
-  // may read whole.
-  assert.deepEqual(
-    salon((draft) => {
-      draft.participantRead = ["slots"];
-      draft.views = [{ id: "mine", audience: "participant", path: "views/mine.html", collections: ["slots"] }];
-    }),
-    [],
-  );
+  //
+  // And judged against what DEPLOY staged, not against app.json: publish
+  // overwrites `participantRead` with the staged schemas' own, so adding a cid
+  // to the manifest and publishing without redeploying produces exactly the
+  // page this refuses — offered to the participant, then refused the read.
+  const declared = app({
+    participantRead: ["slots"],
+    views: [{ id: "mine", audience: "participant", path: "views/mine.html", collections: ["slots"] }],
+  });
+  const staged = (participantRead: boolean) => [
+    { cid: "slots", doc: { publishedSchema: { title: "s", icon: "event", primaryKey: "id", fields: {} }, deployedAt: 1, deployedBy: OWNER, participantRead } },
+  ];
+
+  // The manifest alone is sound, which is why this needed the promoted gate.
+  assert.deepEqual(publishProblems(declared, [{ cid: "slots", primaryKey: "id" }], OWNER), []);
+
+  refuses(promotedRoleProblems(declared, staged(false) as never), "which a participant cannot read once this publishes");
+  assert.deepEqual(promotedRoleProblems(declared, staged(true) as never), []);
 });
 
 test("the path check binds every audience, not just the public one", () => {
