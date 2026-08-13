@@ -34,10 +34,10 @@ export interface DevWatchIgnoreOptions {
 }
 
 // Top-level workspace entries that only ever hold runtime data, used when the
-// workspace IS the Vite root. `config` and `.claude` are absent on purpose:
-// both are tracked repo directories here as well as workspace dirs, so pruning
-// them would stop HMR for real source. `test/scripts/test_devWatchIgnore.ts`
-// fails if a new top-level workspace dir appears without a decision here.
+// workspace IS the Vite root. `.claude` is absent on purpose: it is a tracked
+// repo directory here as well as a workspace dir, so pruning it would stop HMR
+// for real source. `test/scripts/test_devWatchIgnore.ts` fails if a new
+// top-level workspace dir appears without a decision here.
 const WORKSPACE_RUNTIME_ENTRIES = [
   "conversations",
   "data",
@@ -47,6 +47,7 @@ const WORKSPACE_RUNTIME_ENTRIES = [
   "github",
   "models",
   "plugins",
+  "config",
   ".mulmoclaude",
   ".session-token",
   ".server-port",

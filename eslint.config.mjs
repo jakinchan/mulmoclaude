@@ -40,16 +40,10 @@ export default [
   {
     ignores: [
       // Runtime workspace files the app rewrites while it runs (scheduler
-      // state, roles, dashboard, …) when the workspace IS the checkout.
-      // `.gitignore` covers prettier, which reads it; eslint does not, and
-      // the `prettier/prettier` rule below applies to every file — JSON
-      // included — so the same paths need re-stating here (#2873). The two
-      // committed build configs are re-admitted so they stay linted. A new
-      // committed file under `config/` needs a negation in both places —
-      // `git add` refuses the ignored path, but nothing flags the miss here.
-      "config/*",
-      "!config/eslint.packages.mjs",
-      "!config/tsconfig.packages.json",
+      // state, roles, dashboard, …) when the workspace IS the checkout. The
+      // `prettier/prettier` rule below applies to every file, JSON included,
+      // and eslint does not read `.gitignore` the way prettier does (#2873).
+      "config",
       "lib",
       "src/plugins/spreadsheet/engine",
       "packages/*/dist",
@@ -764,7 +758,7 @@ export default [
   // that catches a real defect — the `as` ban, unused vars, `prefer-const`,
   // `eqeqeq`, the security tripwires — stays on.
   {
-    files: ["scripts/**/*.{ts,mts,mjs,js}", "batch/**/*.ts", "config/**/*.mjs"],
+    files: ["scripts/**/*.{ts,mts,mjs,js}", "batch/**/*.ts", "build-config/**/*.mjs"],
     languageOptions: {
       globals: { ...globals.node, NodeJS: "readonly" },
     },
