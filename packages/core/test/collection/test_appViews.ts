@@ -177,3 +177,93 @@ test("the document id carries the stage, and the id the author wrote", () => {
   assert.equal(viewDocId("live", "desk"), "live:desk");
   assert.equal(viewDocId("staged", "desk"), "staged:desk");
 });
+
+// --- what each audience may CHANGE -----------------------------------------
+//
+// The rules already allow every write these entries describe. What is pinned
+// here is that the two audiences are handed DIFFERENT tables — a participant
+// offered the staff transitions draws an approve button that the rules refuse
+// when pressed, which is declaration and enforcement disagreeing.
+
+const STYLIST = "stylist@salon.jp";
+const CUSTOMER = "customer@example.jp";
+
+/** A salon whose bookings are approved by staff and cancelled by the customer. */
+const salon = (overrides: Record<string, unknown> = {}) =>
+  app({
+    members: { [OWNER]: { "*": "owner" }, [STYLIST]: { bookings: "assignee" }, [CUSTOMER]: { "*": "participant" } },
+    collections: {
+      bookings: {
+        statusField: "status",
+        transitions: { initial: ["pending"], pending: ["approved", "rejected"], approved: ["done"] },
+        assigneeField: "stylistEmail",
+        mail: { toField: "email", on: { "booking-approved": { from: ["pending"], to: "approved" } } },
+      },
+    },
+    public: {
+      submit: {
+        bookings: {
+          auth: "verifiedEmail",
+          emailField: "email",
+          createFields: ["email", "startAt"],
+          selfTransitions: { pending: ["cancelled"] },
+        },
+      },
+    },
+    views: [
+      { id: "desk", audience: "member", path: "views/desk.html", collections: ["bookings"] },
+      { id: "mine", audience: "participant", path: "views/mine.html", collections: ["bookings"] },
+    ],
+    ...overrides,
+  });
+
+const writeOf = (authored: ReturnType<typeof app>, tier: "member" | "roster") =>
+  projectAppViews(authored, STAMP)
+    .filter((entry) => entry.tier === tier)
+    .flatMap((entry) => entry.config.write);
+
+test("the two audiences get DIFFERENT transition tables for the same field", () => {
+  const staff = writeOf(salon(), "member");
+  const theirs = writeOf(salon(), "roster");
+  assert.deepEqual(staff[0]?.transitions, { initial: ["pending"], pending: ["approved", "rejected"], approved: ["done"] });
+  // The participant's own transitions, and nothing of the staff's: an
+  // `approved` button on their page is refused the moment it is pressed.
+  assert.deepEqual(theirs[0]?.transitions, { pending: ["cancelled"] });
+  assert.equal(theirs[0]?.statusField, "status");
+});
+
+test("assignment, and who may be assigned, reach the staff tier only", () => {
+  const staff = writeOf(salon(), "member");
+  assert.equal(staff[0]?.assigneeField, "stylistEmail");
+  // The customer holds `participant` and the stylist holds `assignee`: naming
+  // a viewer or a participant writes a row nobody may touch afterwards.
+  assert.deepEqual(staff[0]?.assignees, [OWNER, STYLIST].sort());
+  const theirs = writeOf(salon(), "roster");
+  assert.equal(theirs[0]?.assigneeField, undefined);
+  assert.equal(theirs[0]?.assignees, undefined);
+});
+
+test("the mail a transition queues reaches the staff tier only", () => {
+  // The rules let only a writer (or the row's own assignee) queue mail, so a
+  // participant handed this could only ever be refused.
+  assert.equal(writeOf(salon(), "member")[0]?.mail?.toField, "email");
+  assert.equal(writeOf(salon(), "roster")[0]?.mail, undefined);
+});
+
+test("a collection with nothing writable is ABSENT, not present and empty", () => {
+  // A page draws its buttons from these entries; an empty one would be a
+  // collection with a button that does nothing.
+  const readOnly = salon({ collections: { bookings: { statusField: "status" } }, public: { submit: {} } });
+  assert.deepEqual(writeOf(readOnly, "member"), []);
+  assert.deepEqual(writeOf(readOnly, "roster"), []);
+});
+
+test("a status field with no table, and a table with no field, are both nothing", () => {
+  // Half a declaration is not half a feature: a field with no table would
+  // offer every value, and a table with no field has nothing to write to.
+  const noTable = salon({ collections: { bookings: { statusField: "status", assigneeField: "stylistEmail" } } });
+  assert.equal(writeOf(noTable, "member")[0]?.transitions, undefined);
+  assert.equal(writeOf(noTable, "member")[0]?.assigneeField, "stylistEmail");
+  const noField = salon({ collections: { bookings: { transitions: { pending: ["approved"] } } } });
+  assert.deepEqual(writeOf(noField, "member"), []);
+});

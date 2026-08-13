@@ -114,6 +114,7 @@ export {
   normalizeViews,
   participantScope,
   viewDocId,
+  writeFor,
   PUBLIC_VIEW_ID,
   RESERVED_VIEW_IDS,
   VIEW_AUDIENCES,
@@ -124,6 +125,7 @@ export {
   type NormalizedView,
   type NormalizedViewsResult,
   type ProjectedViewCollection,
+  type ProjectedViewWrite,
   type ViewAudience,
 } from "./appViews";
 export type { LoadedCollection } from "./discoveredCollection";

@@ -44,9 +44,11 @@ import {
   VIEW_CONFIG_ID,
   VIEW_TIER,
   viewDocId,
+  writeFor,
   type AppViewConfigDoc,
   type NormalizedView,
   type ProjectedViewCollection,
+  type ProjectedViewWrite,
   type ViewAudience,
 } from "./appViews";
 import type { AuthoredApp, AuthoredCollectionConfig, AuthoredSubmit } from "./publishManifest";
@@ -612,6 +614,9 @@ export function projectAppViews(authored: AuthoredApp, stamp: PublishStamp, prom
       }),
     );
     const config: AppViewConfigDoc = {
+      // Every collection these views draw, asked what THIS audience may change
+      // about it. Read-only ones are absent rather than present and empty.
+      write: cids.map((cid) => writeFor(authored, audience, cid)).filter((entry): entry is ProjectedViewWrite => entry !== null),
       views: views.map((view) => ({
         id: view.id,
         // A collection with no scope is dropped rather than published as
