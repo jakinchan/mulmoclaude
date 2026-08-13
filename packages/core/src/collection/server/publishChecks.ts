@@ -767,6 +767,12 @@ function promotedAssigneeProblems(app: AuthoredApp, promoted: Record<string, Aut
  *  and removing it FROM the staged side while the submission still demands it
  *  is the drift this pair exists to prevent. */
 function promotedMirrorProblems(app: AuthoredApp, promoted: Record<string, AuthoredCollectionConfig>, stagedCids: ReadonlySet<string>): string[] {
+  return [...addedMirrorProblems(app, promoted, stagedCids), ...strandedMirrorProblems(app, promoted)];
+}
+
+/** The manifest asks for a projection the promoted configuration will not
+ *  allow: every submission denied, and nothing on the page to say why. */
+function addedMirrorProblems(app: AuthoredApp, promoted: Record<string, AuthoredCollectionConfig>, stagedCids: ReadonlySet<string>): string[] {
   return Object.entries(app.public?.submit ?? {}).flatMap(([cid, submit]) => {
     const { mirror } = submit;
     // Nothing staged at all is the host's own refusal, which names every
@@ -777,6 +783,31 @@ function promotedMirrorProblems(app: AuthoredApp, promoted: Record<string, Autho
       `public.submit.${cid}.mirror names '${mirror}', and the STAGED version of '${mirror}' — the one publish promotes — does not declare mirrorOf: "${cid}", ` +
         "even if app.json declares it now. Publish writes the submission side from app.json and the collection side from the deploy, so what lands is a " +
         "booking that must move its projection beside a projection that refuses to move: every submission is denied, with nothing on the page to say why. " +
+        "Run deploy again, so the version being published is the one the declaration describes.",
+    ];
+  });
+}
+
+/** The other direction, and the DANGEROUS one.
+ *
+ *  Take a live pair, delete BOTH halves from `app.json`, and publish without
+ *  redeploying. The submission side comes from the manifest, so nothing
+ *  requires the projection to move any more; the collection side comes from
+ *  staging, which still says `mirrorOf`, so the projection stays writable.
+ *  Bookings are then created while the public row goes on saying `open` — the
+ *  precise failure the pair exists to prevent, arrived at by removing it.
+ *
+ *  Refused rather than tolerated because the app keeps WORKING: submissions
+ *  succeed. Only the public page is wrong, and only to the people reading it. */
+function strandedMirrorProblems(app: AuthoredApp, promoted: Record<string, AuthoredCollectionConfig>): string[] {
+  return Object.entries(promoted).flatMap(([cid, config]) => {
+    const authority = config.mirrorOf;
+    if (authority === undefined) return [];
+    if (app.public?.submit?.[authority]?.mirror === cid) return [];
+    return [
+      `the STAGED version of '${cid}' — the one publish promotes — declares mirrorOf: "${authority}", and app.json no longer declares ` +
+        `public.submit.${authority}.mirror: "${cid}". What lands is a projection that is still writable beside submissions that no longer have to move it, ` +
+        `so records can be created while '${cid}' goes on advertising them as available. Nothing fails: the app works and the public page lies. ` +
         "Run deploy again, so the version being published is the one the declaration describes.",
     ];
   });

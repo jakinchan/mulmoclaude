@@ -734,3 +734,29 @@ test("refuses a mirror whose other half was never deployed", () => {
   const fresh = [stagedDoc("bookings", {}), stagedDoc("slots", { mirrorOf: "bookings" })];
   assert.deepEqual(promotedRoleProblems(declared, fresh as never), []);
 });
+
+test("refuses a mirror REMOVED from the declaration but not from the deploy", () => {
+  // The dangerous direction, and the one a submission-side walk cannot see.
+  // Delete both halves from app.json and publish without redeploying: nothing
+  // requires the projection to move any more, while the promoted collection
+  // still allows it to be written. Bookings are created and the public row
+  // goes on saying `open`. Every check passes; every submission succeeds; only
+  // the page is wrong.
+  const withoutPair = salonDraft();
+  delete withoutPair.public.submit.bookings.mirror;
+  delete withoutPair.collections.slots.mirrorOf;
+  const declared = app(withoutPair as unknown as Record<string, unknown>);
+  const stagedDoc = (cid: string, config: Record<string, unknown>) => ({
+    cid,
+    doc: { publishedSchema: { title: cid, icon: "event", primaryKey: "id", fields: {} }, deployedAt: 1, deployedBy: OWNER, config },
+  });
+
+  // The declaration on disk is sound — the pair is simply gone from it.
+  assert.deepEqual(publishProblems(declared, SALON_CIDS, OWNER), []);
+
+  const stale = [stagedDoc("bookings", {}), stagedDoc("slots", { mirrorOf: "bookings" })];
+  refuses(promotedRoleProblems(declared, stale as never), "app.json no longer declares");
+  // Deployed after the removal, the two agree again and publish is free.
+  const fresh = [stagedDoc("bookings", {}), stagedDoc("slots", {})];
+  assert.deepEqual(promotedRoleProblems(declared, fresh as never), []);
+});
