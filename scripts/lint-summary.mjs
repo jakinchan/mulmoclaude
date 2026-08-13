@@ -42,9 +42,12 @@ function directoryOf(relativePath) {
  * A value safe to put in a table cell. A rule id comes from a plugin and a
  * directory from the filesystem, so either can hold a `|`, which ends the cell,
  * or a backtick, which ends the code span around it.
+ *
+ * `\r` counts as a line ending in CommonMark just as `\n` does, so a lone one
+ * ends the row mid-cell — and a POSIX filename may hold either.
  */
 function cell(value) {
-  return `\`${value.replaceAll("`", "'").replaceAll("|", "\\|").replaceAll("\n", " ")}\``;
+  return `\`${value.replaceAll("`", "'").replaceAll("|", "\\|").replaceAll("\n", " ").replaceAll("\r", " ")}\``;
 }
 
 function bar(count, max) {
@@ -68,6 +71,15 @@ function descending(counts) {
 }
 
 /**
+ * Exactly what `renderReport` dereferences on every element. Checking the shape
+ * here turns a `TypeError` thrown deep inside the renderer — where the message
+ * names an internal variable — into one that names the input. The fields of a
+ * `message` are deliberately not checked: the renderer reads them null-safely,
+ * so only the two below can crash it.
+ */
+const isEslintResult = (value) => typeof value === "object" && value !== null && typeof value.filePath === "string" && Array.isArray(value.messages);
+
+/**
  * Parse what eslint piped over. EMPTY IS AN ERROR, not an empty run: eslint
  * writes `[]` for a clean one, and produces nothing at all when it dies before
  * linting (an unreadable config, a plugin that will not load) — where it exits
@@ -79,11 +91,16 @@ export function parseEslintJson(text) {
   if (text.trim() === "") {
     throw new Error("eslint wrote no output — it failed before linting (a clean run emits `[]`)");
   }
+  let parsed;
   try {
-    return JSON.parse(text);
+    parsed = JSON.parse(text);
   } catch (err) {
     throw new Error(`stdin was not eslint --format json output: ${err.message}`, { cause: err });
   }
+  if (!Array.isArray(parsed) || !parsed.every(isEslintResult)) {
+    throw new Error("stdin was not eslint --format json output: expected an array of {filePath, messages}");
+  }
+  return parsed;
 }
 
 function readJson(stream) {

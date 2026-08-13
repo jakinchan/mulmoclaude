@@ -73,7 +73,7 @@ mulmoclaude の `lint` は `--cache --cache-location node_modules/.cache/eslint/
 
 ## 現状の実測（移植前に移植元のレンダラへ通した結果）
 
-```
+```text
 ## Lint findings — 43 (0 errors, 43 warnings)
 ```
 

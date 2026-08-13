@@ -29,6 +29,24 @@ describe("parseEslintJson", () => {
   it("names the input when it is not eslint json", () => {
     assert.throws(() => parseEslintJson("Oops! Something went wrong"), /not eslint --format json/);
   });
+
+  // Valid JSON of the wrong shape used to reach `renderReport`, which then threw
+  // from inside its own loop — an error naming an internal variable rather than
+  // the input that was actually wrong.
+  it("rejects valid JSON that is not an array of results", () => {
+    assert.throws(() => parseEslintJson("{}"), /expected an array/);
+    assert.throws(() => parseEslintJson('{"results":[]}'), /expected an array/);
+  });
+
+  it("rejects an array whose elements lack filePath / messages", () => {
+    assert.throws(() => parseEslintJson("[{}]"), /expected an array/);
+    assert.throws(() => parseEslintJson('[{"filePath":"a.ts"}]'), /expected an array/);
+    assert.throws(() => parseEslintJson("[null]"), /expected an array/);
+  });
+
+  it("accepts a well-formed result", () => {
+    assert.deepEqual(parseEslintJson('[{"filePath":"a.ts","messages":[]}]'), [{ filePath: "a.ts", messages: [] }]);
+  });
 });
 
 describe("renderReport areas", () => {
@@ -77,5 +95,13 @@ describe("renderReport areas", () => {
 
   it("says so when there is nothing to report", () => {
     assert.match(renderReport([], cwd), /Nothing reported\./);
+  });
+
+  // CommonMark ends a line on a lone `\r` as readily as on `\n`, so an unescaped
+  // one splits the row it sits in and the rest of the table renders as prose.
+  it("keeps a carriage return in a path from breaking the table row", () => {
+    const report = renderReport([result(under("src", "we\rird", "x.ts"))], cwd);
+    assert.doesNotMatch(report, /\r/);
+    assert.match(report, /src\/we ird/);
   });
 });
