@@ -123,6 +123,20 @@ export interface PublishedConfigDoc extends Record<string, unknown> {
   enabled: boolean;
   read: string[];
   submit: Record<string, Record<string, unknown>>;
+  /** That the app HAS a published view, and which datasets it asked for.
+   *
+   *  This is the only place the public page can learn it: the rules' app
+   *  document is reader-only and deliberately carries no view, and the HTML
+   *  itself lands in a SEPARATE document (`config/view`) because a 1 MiB limit
+   *  applies per document. Omitted here, the page has the HTML and no idea
+   *  what to send it — the feature does not work at all.
+   *
+   *  The authored PATH is deliberately not published. It names a file in the
+   *  author's repository, which the browser cannot use and which nobody should
+   *  be handed on a world-readable document; what the page needs is the
+   *  dataset list, and `publishedAt` beside it is what pins this declaration
+   *  to the HTML published in the same run. */
+  view?: { collections: string[] };
   publishedAt: number;
 }
 
@@ -153,7 +167,14 @@ function compact(entries: Record<string, unknown>): Record<string, unknown> {
  *  it is still checked, because a NaN written to Firestore fails closed in the
  *  same silent way an ISO string does. */
 function windowMillis(
-  window: { from?: string | undefined; until?: string | undefined; fromField?: Record<string, string> | undefined } | undefined,
+  window:
+    | {
+        from?: string | undefined;
+        until?: string | undefined;
+        fromField?: Record<string, string> | undefined;
+        untilField?: Record<string, string> | undefined;
+      }
+    | undefined,
 ): Record<string, unknown> | undefined {
   if (!window) return undefined;
   const out: Record<string, number> = {};
@@ -167,7 +188,11 @@ function windowMillis(
   // class writes it). There is nothing here to convert, and dropping it is the
   // failure this function's own comment warns about: the rules would stop
   // seeing a bound the author declared, and the window would silently be open.
-  const projected: Record<string, unknown> = { ...out, ...(window.fromField === undefined ? {} : { fromField: window.fromField }) };
+  const projected: Record<string, unknown> = {
+    ...out,
+    ...(window.fromField === undefined ? {} : { fromField: window.fromField }),
+    ...(window.untilField === undefined ? {} : { untilField: window.untilField }),
+  };
   return Object.keys(projected).length > 0 ? projected : undefined;
 }
 
@@ -252,6 +277,7 @@ export function projectApp(
     enabled: authored.public?.enabled === true,
     read: authored.public?.read ?? [],
     submit,
+    ...(authored.public?.view === undefined ? {} : { view: { collections: authored.public.view.collections } }),
     publishedAt: stamp.publishedAt,
   };
   if (authored.name !== undefined) config.name = authored.name;

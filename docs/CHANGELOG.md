@@ -106,6 +106,56 @@ field the submission never writes (which shuts the window for good). A member's
 per-collection keys also joined the unknown-cid sweep.
 
 
+#### One booking per slot: a document id that is a CLAIM about another record
+
+The other answer to "who got there first". A class has a capacity, the rules
+cannot count, so a first-come queue reads an order off `stampField`. A slot is
+not countable at all — it is ONE thing — so the contested identity goes into the
+document id, where Firestore decides it atomically: the second person to want
+that slot is writing a document that already exists, which is an update, which
+the public submission path never allows. No transaction and no retry.
+
+**`public.submit.<cid>.idFrom: "field"`** with **`idField`** makes the booking's
+id the slot's id. **`idIn`** (`{ collection, where? }`) is what makes that claim
+worth anything: uniqueness alone only stops the same string being written twice,
+and nothing stops a client bypassing the page and inventing a slot. `exists()`
+is a FLOOR — a cancelled slot exists too — so the declaration may pin a state as
+well. Publish REQUIRES `idIn` in this mode; without it the app silently accepts
+bookings for things that do not exist.
+
+**`public.submit.<cid>.window.untilField`** is the closing bound's per-record
+twin, and it ships with the mode rather than later: a desk that opens per slot
+and never closes is not a booking desk. Exclusive where `fromField` is
+inclusive, so one slot's closing instant and the next one's opening instant may
+be the same number.
+
+**`public.submit.<cid>.mirror`** and **`collections.<cid>.mirrorOf`** are the
+two halves of a public projection. A booking carries a name, an address and a
+phone number, and Firestore rules cannot hide a field, so the public page must
+not read bookings at all — it reads a slot row whose `state` is a COPY of "does
+a booking with this id exist". The rules accept the two writes only as one
+batch, in BOTH directions, so the copy cannot drift into advertising a slot
+somebody already holds. Anybody may write the projection, because the only value
+that passes is the true one and `state` is the only field that may move — which
+is how a visitor who was just refused repairs the row that offered it to them.
+
+**`public.view`** names one HTML file and the datasets it is handed. A form is
+enough to ANSWER something and not enough to CHOOSE from what is available, and
+a stylist-by-hour grid is not the far end of a table. The datasets are declared
+rather than inferred from `public.read`, because inferring them produces this
+feature's worst failure: the view renders, the data never arrives, and it draws
+an empty grid with nothing anywhere to say why.
+
+Publish refuses, each for a failure nothing else would report: a `field` id with
+no `idIn` or naming a collection that does not exist (or itself, which a create
+can never satisfy); either half of a mirror without the other, a mirror of
+itself, and — the one a manifest-only check misses — a mirror whose `mirrorOf`
+was never DEPLOYED, since publish takes one half from `app.json` and the other
+from staging; an `untilField` naming an unknown collection or an unwritten
+field; a view fed a collection outside `public.read`; and a `view.path` that is
+not exactly one HTML file directly under `views/` (the host reads that path to
+decide what to publish, and what it publishes is world-readable).
+
 #### Publishing a shared app: `manageCollection` action `publishApp`
 
 A repository that declares a shared app (`app.json` + collections with
@@ -238,7 +288,7 @@ is people.
 
 ### Package releases
 
-Ships `@mulmoclaude/core@3.12.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/core@3.13.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ## [1.13.1] - 2026-08-10
 

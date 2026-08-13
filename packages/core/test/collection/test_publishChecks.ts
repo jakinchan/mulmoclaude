@@ -481,3 +481,353 @@ test("a collection with nothing staged is left to the gate that names them all",
   });
   assert.deepEqual(promotedRoleProblems(declared, []), []);
 });
+
+// --- the slot booking: a document id that is a CLAIM about another record ----
+
+/** The declaration the salon template writes, in full. Every case below starts
+ *  from this and breaks exactly one thing: the interesting failures here are
+ *  all "one half of a pair is missing" rather than "the shape is wrong". */
+interface SalonDraft {
+  // Named members rather than an index signature: every case below reaches for
+  // `bookings` and `slots` by name, and an index signature would make each one
+  // possibly-undefined and bury the assertion in guards.
+  collections: { bookings: Record<string, unknown>; slots: Record<string, unknown> };
+  public: { enabled: boolean; read: string[]; view?: { path: string; collections: string[] }; submit: { bookings: Record<string, unknown> } };
+}
+
+const salonDraft = (): SalonDraft => ({
+  collections: {
+    bookings: { statusField: "status", transitions: { initial: ["requested"] }, submitOnly: true },
+    slots: { mirrorOf: "bookings" },
+  },
+  public: {
+    enabled: true,
+    read: ["slots"],
+    submit: {
+      bookings: {
+        auth: "verifiedEmail",
+        emailField: "customerEmail",
+        createFields: ["slot", "customerName", "customerEmail", "status"],
+        initialStatus: "requested",
+        idFrom: "field",
+        idField: "slot",
+        idIn: { collection: "slots", where: { field: "state", equals: "open" } },
+        mirror: "slots",
+        window: {
+          fromField: { ref: "slot", collection: "slots", field: "opensAt" },
+          untilField: { ref: "slot", collection: "slots", field: "closesAt" },
+        },
+      },
+    },
+  },
+});
+
+const SALON_CIDS = [
+  { cid: "bookings", primaryKey: "id" },
+  { cid: "slots", primaryKey: "id" },
+];
+
+/** Break one thing about the salon declaration, and report what publish says. */
+const salon = (mutate: (draft: SalonDraft) => void): string[] => {
+  const draft = salonDraft();
+  mutate(draft);
+  return problemsFor({ collections: draft.collections, public: draft.public }, SALON_CIDS);
+};
+
+const bookingOf = (draft: SalonDraft): Record<string, unknown> => draft.public.submit.bookings;
+const windowOf = (draft: SalonDraft): Record<string, unknown> => bookingOf(draft).window as Record<string, unknown>;
+
+test("the whole booking declaration passes", () => {
+  // First, and not a formality: every refusal below is only meaningful against
+  // a neighbour that publishes.
+  assert.deepEqual(
+    salon(() => {}),
+    [],
+  );
+});
+
+test("refuses a field id with nothing to check it against", () => {
+  // Without idIn the document id is any string a submitter likes, so the app
+  // accepts bookings for slots that do not exist. Nothing downstream notices.
+  refuses(
+    salon((draft) => {
+      delete bookingOf(draft).idIn;
+    }),
+    "no idIn is declared",
+  );
+});
+
+test("refuses a field id with no field", () => {
+  refuses(
+    salon((draft) => {
+      delete bookingOf(draft).idField;
+    }),
+    "no idField is declared",
+  );
+});
+
+test("refuses idIn where the rules would never read it", () => {
+  // Declared under `auth.uid` it looks like a check and is not one.
+  refuses(
+    salon((draft) => {
+      bookingOf(draft).idFrom = "auth.uid";
+      delete bookingOf(draft).idField;
+    }),
+    "the rules read idIn only for",
+  );
+});
+
+test("refuses a field id whose field a submitter may not write", () => {
+  refuses(
+    salon((draft) => {
+      bookingOf(draft).createFields = ["customerName", "customerEmail", "status"];
+    }),
+    "createFields must include",
+  );
+});
+
+test("refuses half a mirror, from either side", () => {
+  refuses(
+    salon((draft) => {
+      delete draft.collections.slots.mirrorOf;
+    }),
+    "does not declare mirrorOf",
+  );
+  refuses(
+    salon((draft) => {
+      delete bookingOf(draft).mirror;
+    }),
+    "does not declare mirror",
+  );
+});
+
+test("refuses a mirror of itself and a mirror of nothing", () => {
+  refuses(
+    salon((draft) => {
+      bookingOf(draft).mirror = "bookings";
+    }),
+    "names its own collection",
+  );
+  refuses(
+    salon((draft) => {
+      bookingOf(draft).mirror = "ghosts";
+      draft.collections.slots = {};
+    }),
+    "not a shared collection",
+  );
+});
+
+test("checks the closing bound as thoroughly as the opening one", () => {
+  refuses(
+    salon((draft) => {
+      windowOf(draft).untilField = { ref: "slot", collection: "ghosts", field: "closesAt" };
+    }),
+    "window.untilField.collection names 'ghosts'",
+  );
+  refuses(
+    salon((draft) => {
+      windowOf(draft).untilField = { ref: "whenever", collection: "slots", field: "closesAt" };
+    }),
+    "window.untilField.ref names 'whenever'",
+  );
+});
+
+// --- the public view --------------------------------------------------------
+
+const viewed = (mutate: (view: { path: string; collections: string[] }) => void): string[] =>
+  salon((draft) => {
+    const view = { path: "views/booking.html", collections: ["slots"] };
+    mutate(view);
+    draft.public.view = view;
+  });
+
+test("a declared public view passes", () => {
+  assert.deepEqual(
+    viewed(() => {}),
+    [],
+  );
+});
+
+test("refuses a view fed a collection the visitor may not read", () => {
+  // The worst failure this feature has: the view renders, the data never
+  // arrives, and it draws an empty grid with nothing anywhere to say why.
+  refuses(
+    viewed((view) => {
+      view.collections = ["slots", "bookings"];
+    }),
+    "not in public.read",
+  );
+});
+
+test("refuses a view that is not one HTML file directly under views/", () => {
+  refuses(
+    viewed((view) => {
+      view.path = "../../etc/passwd";
+    }),
+    "exactly one HTML file",
+  );
+  // The one a prefix-and-suffix test lets through, and the reason this is a
+  // regex: the host reads the path to decide which file to publish, and what
+  // it publishes is `allow read: if true`.
+  refuses(
+    viewed((view) => {
+      view.path = "views/../../secrets.html";
+    }),
+    "exactly one HTML file",
+  );
+  refuses(
+    viewed((view) => {
+      view.path = "views/nested/booking.html";
+    }),
+    "exactly one HTML file",
+  );
+  // A backslash is not a slash to a regex and IS a separator on Windows, so
+  // this is the same escape wearing a different coat.
+  refuses(
+    viewed((view) => {
+      view.path = "views/..\\..\\secrets.html";
+    }),
+    "exactly one HTML file",
+  );
+  refuses(
+    viewed((view) => {
+      view.path = "/etc/views/passwd.html";
+    }),
+    "exactly one HTML file",
+  );
+});
+
+test("refuses an idIn pointing at nothing, or at itself", () => {
+  refuses(
+    salon((draft) => {
+      bookingOf(draft).idIn = { collection: "slotz", where: { field: "state", equals: "open" } };
+    }),
+    "idIn.collection names 'slotz'",
+  );
+  // On a create the document being written does not exist yet, so a
+  // self-referential idIn is a declaration nothing can ever satisfy.
+  refuses(
+    salon((draft) => {
+      bookingOf(draft).idIn = { collection: "bookings" };
+    }),
+    "names 'bookings' itself",
+  );
+});
+
+/** A staged collection as publish sees it: the schema deploy promoted, and
+ *  that collection's rule configuration. `slots` carries the three fields the
+ *  salon declaration reads off it — without them the ref-field check fires
+ *  first and a mirror test would pass on the wrong refusal. */
+const SLOT_FIELDS = { state: { type: "string" }, opensAt: { type: "number" }, closesAt: { type: "number" } };
+
+const stagedSalonDoc = (cid: string, config: Record<string, unknown>) => ({
+  cid,
+  doc: {
+    publishedSchema: { title: cid, icon: "event", primaryKey: "id", fields: cid === "slots" ? SLOT_FIELDS : {} },
+    deployedAt: 1,
+    deployedBy: OWNER,
+    config,
+  },
+});
+
+test("refuses a mirror whose other half was never deployed", () => {
+  // The same trap as the assignee's field, reached the same way: publish takes
+  // the submission side from app.json and the collection side from the DEPLOY.
+  // Declare both halves, publish without redeploying, and what lands is a
+  // booking that must move its projection beside a projection that refuses to
+  // move -- every submission denied, on a declaration that reads as correct.
+  const declared = app(salonDraft() as unknown as Record<string, unknown>);
+
+  // Sound on disk, which is why this needed a check of its own.
+  assert.deepEqual(publishProblems(declared, SALON_CIDS, OWNER), []);
+
+  const stale = [stagedSalonDoc("bookings", {}), stagedSalonDoc("slots", {})];
+  refuses(promotedRoleProblems(declared, stale as never), "does not declare mirrorOf");
+  const fresh = [stagedSalonDoc("bookings", {}), stagedSalonDoc("slots", { mirrorOf: "bookings" })];
+  assert.deepEqual(promotedRoleProblems(declared, fresh as never), []);
+});
+
+test("refuses a mirror REMOVED from the declaration but not from the deploy", () => {
+  // The dangerous direction, and the one a submission-side walk cannot see.
+  // Delete both halves from app.json and publish without redeploying: nothing
+  // requires the projection to move any more, while the promoted collection
+  // still allows it to be written. Bookings are created and the public row
+  // goes on saying `open`. Every check passes; every submission succeeds; only
+  // the page is wrong.
+  const withoutPair = salonDraft();
+  delete withoutPair.public.submit.bookings.mirror;
+  delete withoutPair.collections.slots.mirrorOf;
+  const declared = app(withoutPair as unknown as Record<string, unknown>);
+
+  // The declaration on disk is sound — the pair is simply gone from it.
+  assert.deepEqual(publishProblems(declared, SALON_CIDS, OWNER), []);
+
+  const stale = [stagedSalonDoc("bookings", {}), stagedSalonDoc("slots", { mirrorOf: "bookings" })];
+  refuses(promotedRoleProblems(declared, stale as never), "app.json no longer declares");
+  // Deployed after the removal, the two agree again and publish is free.
+  const fresh = [stagedSalonDoc("bookings", {}), stagedSalonDoc("slots", {})];
+  assert.deepEqual(promotedRoleProblems(declared, fresh as never), []);
+});
+
+/** The salon's two collections as deploy staged them, with `slots` fields
+ *  chosen per case: what these tests are about is what the STAGED schema says. */
+const stagedWithFields = (cid: string, fields: Record<string, unknown>, config: Record<string, unknown> = {}) => ({
+  cid,
+  doc: {
+    publishedSchema: { title: cid, icon: "event", primaryKey: "id", fields },
+    deployedAt: 1,
+    deployedBy: OWNER,
+    config,
+  },
+});
+
+/** What the salon declaration actually needs off `slots`: a state to compare
+ *  and two bounds the rules read as epoch millis. */
+const SOUND = { state: { type: "string" }, opensAt: { type: "number" }, closesAt: { type: "number" } };
+
+const stagedFor = (slotFields: Record<string, unknown>) => [
+  stagedWithFields("bookings", { slot: { type: "string" }, status: { type: "string" } }),
+  stagedWithFields("slots", slotFields, { mirrorOf: "bookings" }),
+];
+
+test("refuses a field the referenced record's staged schema does not declare", () => {
+  // A typo in a field NAME publishes cleanly and denies every submission with
+  // no message: the rules read the field off the record, find nothing, and
+  // refuse. It cannot be caught by the declaration gate, which is given a cid
+  // and a primary key per collection — only a schema can judge a field name,
+  // and the schema that matters is the one publish promotes.
+
+  const declared = app(salonDraft() as unknown as Record<string, unknown>);
+  // With all three present and of the right kind, publish is free.
+  assert.deepEqual(promotedRoleProblems(declared, stagedFor(SOUND) as never), []);
+
+  // One at a time, so a passing case cannot be hiding behind another failure.
+  const without = (field: string) => Object.fromEntries(Object.entries(SOUND).filter(([name]) => name !== field));
+  refuses(promotedRoleProblems(declared, stagedFor(without("state")) as never), "idIn.where.field names 'state'");
+  refuses(promotedRoleProblems(declared, stagedFor(without("opensAt")) as never), "window.fromField.field names 'opensAt'");
+  refuses(promotedRoleProblems(declared, stagedFor(without("closesAt")) as never), "window.untilField.field names 'closesAt'");
+});
+
+test("refuses a comparison the rules could never satisfy", () => {
+  // A field that EXISTS can still be unreachable. These publish cleanly and
+  // deny every submission, and the declaration reads as correct in both cases.
+  const declared = app(salonDraft() as unknown as Record<string, unknown>);
+  const enumState = (values: string[]) => ({ state: { type: "enum", values }, opensAt: { type: "number" }, closesAt: { type: "number" } });
+
+  // An enum whose domain contains the value is exactly right.
+  assert.deepEqual(promotedRoleProblems(declared, stagedFor(enumState(["open", "taken"])) as never), []);
+  refuses(promotedRoleProblems(declared, stagedFor(enumState(["free", "taken"])) as never), "not one of the values");
+
+  // A bound the rules read as epoch millis, stored as an ISO string: a type
+  // error that fails closed, so the window never opens and nothing says why.
+  refuses(
+    promotedRoleProblems(declared, stagedFor({ state: { type: "string" }, opensAt: { type: "datetime" }, closesAt: { type: "number" } }) as never),
+    "is a datetime field",
+  );
+
+  // Comparing a boolean field with a string.
+  refuses(
+    promotedRoleProblems(declared, stagedFor({ state: { type: "boolean" }, opensAt: { type: "number" }, closesAt: { type: "number" } }) as never),
+    "is a boolean field",
+  );
+});

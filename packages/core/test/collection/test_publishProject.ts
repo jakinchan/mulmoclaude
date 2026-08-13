@@ -113,6 +113,62 @@ test("a per-record window bound survives the lowering that has nothing to lower"
   });
 });
 
+test("BOTH per-record bounds survive it, and the closing one is the easier to lose", () => {
+  // `untilField` arrived after `fromField` and reads identically, which is
+  // precisely how the second one gets left out of a function that names the
+  // first. Dropped, the desk that opens per slot never closes: every slot goes
+  // on taking bookings after its deadline, and the declaration says otherwise.
+  const app = authored({
+    public: {
+      submit: {
+        bookings: {
+          auth: "verifiedEmail",
+          createFields: ["customerEmail", "slot"],
+          idFrom: "field",
+          idField: "slot",
+          idIn: { collection: "slots", where: { field: "state", equals: "open" } },
+          mirror: "slots",
+          window: {
+            fromField: { ref: "slot", collection: "slots", field: "opensAt" },
+            untilField: { ref: "slot", collection: "slots", field: "closesAt" },
+          },
+        },
+      },
+    },
+  });
+  const submit = publishedSubmit(projectApp(app, [], STAMP, null).app, "bookings");
+  assert.deepEqual(submit.window, {
+    fromField: { ref: "slot", collection: "slots", field: "opensAt" },
+    untilField: { ref: "slot", collection: "slots", field: "closesAt" },
+  });
+  // The keys the rules read for exclusivity pass through untouched — there is
+  // nothing to lower, and dropping any of them turns "one booking per slot"
+  // into "any string a submitter likes" with no error anywhere.
+  assert.equal(submit.idFrom, "field");
+  assert.equal(submit.idField, "slot");
+  assert.deepEqual(submit.idIn, { collection: "slots", where: { field: "state", equals: "open" } });
+  assert.equal(submit.mirror, "slots");
+});
+
+test("the public view reaches the CONFIG document, and only that one", () => {
+  // Two halves of one requirement, which is why they are one test. The rules'
+  // app document is read on every single write and has no use for a view, so
+  // it must not carry one. The world-readable config document is the ONLY
+  // place the public page can learn that a view exists and what to send it —
+  // omit it there and the page has HTML it cannot feed, which is the feature
+  // not working at all rather than a missing extra.
+  const app = authored({
+    public: { enabled: true, read: ["slots"], view: { path: "views/booking.html", collections: ["slots"] } },
+  });
+  const projected = projectApp(app, [], STAMP, null);
+  assert.deepEqual((projected.app as Record<string, Record<string, unknown>>).public, { enabled: true, read: ["slots"] });
+  assert.deepEqual(projected.config.view, { collections: ["slots"] });
+  // The authored PATH names a file in the author's repository. The browser
+  // cannot use it and nobody should be handed it on a document whose rule is
+  // `allow read: if true`.
+  assert.equal(JSON.stringify(projected.config).includes("views/booking.html"), false);
+});
+
 test("memberEmails is derived from members, and a hand-written one is overwritten", () => {
   // `membersConsistent()` refuses any write where the two disagree, so an
   // authored value could only ever turn publish into a bare permission error.
