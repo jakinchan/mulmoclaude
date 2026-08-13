@@ -174,8 +174,9 @@ You never set these by hand; the server constructs them when spawning Claude ins
 
 | Script                  | Notes                                                                              |
 | ----------------------- | ---------------------------------------------------------------------------------- |
-| `yarn lint`             | ESLint on `src/` and `server/`. CI-blocking.                                       |
-| `yarn format`           | Prettier auto-fix on `{src,server,test}/**/*.{ts,json,yaml,vue}`.                  |
+| `yarn lint`             | ESLint on `src server test e2e e2e-live packages scripts batch config`. CI-blocking. Under GitHub Actions it also writes a findings report to the job summary. |
+| `yarn lint:summary`     | That same report on stdout, for reading it locally.                                |
+| `yarn format`           | Prettier auto-fix on `{src,server,test,e2e,e2e-live,packages,scripts,batch,config}/**/*.{ts,mts,mjs,json,yaml,vue}`. |
 | `yarn typecheck`        | `vue-tsc --noEmit` for the client.                                                 |
 | `yarn typecheck:server` | `tsc -p server/tsconfig.json --noEmit` for the server (separate, stricter config). |
 | `yarn build`            | Vite client build → `dist/client`, then server typecheck.                          |
