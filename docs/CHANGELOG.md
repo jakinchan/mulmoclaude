@@ -80,9 +80,44 @@ Design: mulmoterminal `plans/feat-shared-app-member-view.md`. The rules are
 mulmoserver#168 and the runtime mulmoserver#169; both go out before a host
 writes any of this.
 
+### Removed
+
+#### The shared-app compiler leaves this package (`@mulmoclaude/core@4.0.0`)
+
+`app.json` -> the documents a published app is made of, and the gate that refuses a
+declaration, are no longer here. `AuthoredAppZ`, `projectApp`, `projectAppViews`,
+`projectDeploy`, `projectPublish`, `publishProblems`, `normalizeViews` and everything
+around them moved to [`receptron/sharedapp`](https://github.com/receptron/sharedapp), which
+MulmoTerminal and MulmoServer consume by git ref.
+
+They left because nothing in this monorepo consumed them. MulmoClaude neither writes nor
+reads a shared collection: `projectApp` had no caller outside `packages/core` except
+MulmoTerminal's deploy, and `setSharedCollectionsSupport(true)` is called in production only
+by that host — without it `discovery.ts` refuses rather than skips. Meanwhile every change
+to a shared app was a change to this package, a CI run, a merge, and a HUMAN npm publish
+before the work could continue. In the 90 days before the split, **24 commits** paid that
+toll, the most common of them being a new key in `app.json`.
+
+The collection RUNTIME stays: discovery, the store, the Firestore backend, the host seam,
+`appManifest`. MulmoClaude does use those. The line is declaration to document — anything
+that reads or writes a live collection is on this side of it.
+
+`test_sharedHostSurface.ts` is the ledger for it, and got shorter on purpose: what a host
+still needs from this package is the runtime half, and a test now asserts the compiler does
+not come back. Two implementations of one projection is the failure nothing here would
+notice — this package's tests would pass on its copy while the host compiled with the other.
+
+The seven bundled plugins move up a major with it. None of them use the removed exports;
+what changes is their `@mulmoclaude/core` peer range, from `^3.6.0` to `^4.0.0`, which
+excludes the version they were published against. Leaving the range alone would let a strict
+peer resolution reject a fresh launcher install, so the range moves and the plugins are
+released with it.
+
+Design: mulmoterminal `plans/refactor-shared-app-module.md`.
+
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@3.15.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@3.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ### Fixed
 

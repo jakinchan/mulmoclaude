@@ -68,66 +68,20 @@ export {
 export type { FirestoreDoc, FirestoreDocs } from "./firestoreDocs";
 export { sharedItemsPath } from "./firestoreStore";
 export { loadAppManifest, parseAppManifest, appManifestReason, APP_MANIFEST_FILE, type AppManifest, type AppManifestResult } from "./appManifest";
-// publish (git -> Firestore). `publishManifest` reads the parts of `app.json`
-// that `appManifest` deliberately does not; `publishProject` is the whole
-// authored -> published conversion; `publishChecks` is what publish refuses.
-export {
-  AuthoredAppZ,
-  parseAuthoredApp,
-  APP_ROLES,
-  type AuthoredApp,
-  type AuthoredCollectionConfig,
-  type AuthoredMail,
-  type AuthoredSubmit,
-} from "./publishManifest";
-export {
-  projectApp,
-  projectAppViews,
-  appViewTierPath,
-  viewConfigDocId,
-  type AppViewTier,
-  projectDeploy,
-  projectPublish,
-  stagedRuleConfig,
-  promoteSchema,
-  appStagingPath,
-  APP_SLUGS_COLLECTION,
-  appSlugDoc,
-  type AppSlugDoc,
-  type DeployedApp,
-  type PublishedFace,
-  APPS_COLLECTION,
-  PUBLIC_CONFIG_DOC,
-  appConfigPath,
-  appSchemasPath,
-  type PublishStamp,
-  type PublishedApp,
-  type PublishedConfigDoc,
-  type PublishedSchemaDoc,
-  type StagedSchemaDoc,
-} from "./publishProject";
-export { publishProblems, promotedRoleProblems, bindsSubmitterIdentity, type PublishableCollection } from "./publishChecks";
-// The app's pages, per audience: the declaration (`views[]`, generalised from
-// `public.view`), where each audience's documents live, and what the parent
-// page needs in order to query for them.
-export {
-  normalizeViews,
-  participantScope,
-  viewDocId,
-  writeFor,
-  PUBLIC_VIEW_ID,
-  RESERVED_VIEW_IDS,
-  VIEW_AUDIENCES,
-  VIEW_CONFIG_ID,
-  VIEW_ID_PATTERN,
-  VIEW_TIER,
-  type AppViewConfigDoc,
-  type NormalizedView,
-  type NormalizedViewsResult,
-  type ProjectedViewCollection,
-  type ProjectedViewWrite,
-  type ViewAudience,
-} from "./appViews";
+// NOTE: the shared-app COMPILER is not here. `app.json` -> the documents a
+// published app is made of (`projectApp` / `projectAppViews` / `projectDeploy`
+// / `projectPublish`), the declaration it parses (`AuthoredAppZ`) and the gate
+// that refuses one (`publishProblems`) live in `receptron/sharedapp`, which
+// MulmoTerminal and MulmoServer consume by git ref.
+//
+// They moved because they had no consumer in this monorepo — MulmoClaude
+// neither writes nor reads a shared collection — and every change to them was
+// a release of this package that somebody had to publish by hand. What stays
+// here is the collection RUNTIME (discovery, the store, the Firestore backend,
+// the host seam), which MulmoClaude does use.
+//
+// mulmoterminal plans/refactor-shared-app-module.md
+
 export type { LoadedCollection } from "./discoveredCollection";
 export * from "./paths";
 export * from "./templatePath";
