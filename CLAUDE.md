@@ -12,6 +12,7 @@ MulmoClaude is a text/task-driven agent app with rich visual output. It uses **C
 
 - **Dev server**: `npm run dev` (runs both client and server concurrently)
 - **Lint**: `yarn lint` / **Format**: `yarn format` / **Typecheck**: `yarn typecheck` / **Build**: `yarn build`
+- **Lint findings report**: `yarn lint:summary` (the same report `yarn lint` writes to the Actions job summary)
 - **Unit tests**: `yarn test` (node:test, server handlers + utils)
 - **E2E tests**: `yarn test:e2e` (Playwright, browser UI tests — no backend needed)
 
