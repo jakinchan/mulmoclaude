@@ -19,7 +19,7 @@ import { relative, sep } from "node:path";
 // `packages` stays ONE area on purpose though it holds ~50 workspaces: a pie of
 // 50 slices is unreadable, and the directory table below already breaks it down
 // to `packages/core/src` / `packages/plugins/collection-plugin`.
-const AREAS = ["packages", "test", "src", "server", "e2e", "e2e-live", "scripts", "config", "batch"];
+const AREAS = ["packages", "test", "src", "server", "e2e", "e2e-live", "scripts", "build-config", "batch"];
 const OTHER_AREA = "other";
 
 const BAR_WIDTH = 24;

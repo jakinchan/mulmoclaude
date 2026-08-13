@@ -7,6 +7,7 @@
 // the host must never write outside the target skill dir even if the manifest is
 // malformed/poisoned.
 
+import { isUnknownArray } from "@mulmoclaude/common";
 import { isRecord } from "../guards.js";
 import { fetchCollectionFile, parseJsonObject, rawBaseForEntry } from "./collectionFiles.js";
 import type { RegistryEntry } from "../registryIndex.js";
@@ -25,11 +26,41 @@ export function isSafeBundlePath(rel: unknown): rel is string {
 
 export type ManifestResult = { ok: true; files: string[] } | { ok: false; error: string };
 
+/** A rejected entry, rendered for the error message. A string prints as itself —
+ *  the overwhelmingly common case, and what this always used to print. Anything
+ *  else goes through JSON so a poisoned manifest shows its actual value rather
+ *  than `[object Object]`.
+ *
+ *  Never throws. This runs only on the REJECTION path, so a throw here would
+ *  turn a `{ ok: false }` the caller can handle into an exception it cannot —
+ *  and the input is `unknown`, i.e. whatever a caller passed. */
+const showUnsafe = (entry: unknown): string => {
+  if (typeof entry === "string") return entry;
+  try {
+    // `?? String(entry)`: JSON renders undefined / a function / a symbol as
+    // the value `undefined`, and those still deserve a name in the message.
+    return JSON.stringify(entry) ?? String(entry);
+  } catch {
+    // EVERY other rendering runs user code and can throw again: `String` calls
+    // `toString`/`valueOf`, `Object.prototype.toString` reads
+    // `Symbol.toStringTag`, and a proxy traps all of them. `typeof` reads
+    // nothing off the value, so it is the only one that cannot fail.
+    return `<unprintable ${typeof entry}>`;
+  }
+};
+
 export function parseManifest(value: unknown): ManifestResult {
-  if (!isRecord(value) || !Array.isArray(value.files)) return { ok: false, error: "manifest is missing a files[] array" };
-  const unsafe = value.files.find((file) => !isSafeBundlePath(file));
-  if (unsafe !== undefined) return { ok: false, error: `manifest contains an unsafe path: ${String(unsafe)}` };
-  return { ok: true, files: value.files.filter(isSafeBundlePath) };
+  // `isUnknownArray`, not `Array.isArray`: the latter narrows `unknown` to
+  // `any[]`, so every element read below would be `any`. The elements stay
+  // `unknown` until `isSafeBundlePath`, a type predicate, narrows them.
+  const files = isRecord(value) ? value.files : undefined;
+  if (!isUnknownArray(files)) return { ok: false, error: "manifest is missing a files[] array" };
+  // `findIndex`, not `find`: `find` answers `undefined` both for "nothing
+  // unsafe" and for "the unsafe entry IS `undefined`", so an `undefined` (or a
+  // hole) read as a clean manifest and `filter` then dropped it silently.
+  const unsafeIndex = files.findIndex((file) => !isSafeBundlePath(file));
+  if (unsafeIndex !== -1) return { ok: false, error: `manifest contains an unsafe path: ${showUnsafe(files[unsafeIndex])}` };
+  return { ok: true, files: files.filter(isSafeBundlePath) };
 }
 
 /** `data/collections/<localSlug>/items` — the host owns dataPath, never the

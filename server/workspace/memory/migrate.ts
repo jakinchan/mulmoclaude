@@ -132,7 +132,10 @@ export async function migrateLegacyMemory(workspaceRoot: string, classify: Memor
 // throws (logging once); a concurrent failure can therefore not
 // poison the rest of the batch.
 async function classifyInParallel(classify: MemoryClassifier, candidates: readonly MemoryCandidate[]): Promise<(MemoryClassification | null)[]> {
-  const results: (MemoryClassification | null)[] = new Array(candidates.length).fill(null);
+  // `Array.from`, not `new Array(n).fill(null)`: `fill` on the `any[]` that
+  // `new Array(n)` produces keeps the element type `any`. Both build the same
+  // dense array of nulls.
+  const results: (MemoryClassification | null)[] = Array.from({ length: candidates.length }, () => null);
   let nextIndex = 0;
   const worker = async (): Promise<void> => {
     while (true) {
