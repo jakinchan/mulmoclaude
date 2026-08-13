@@ -26,6 +26,7 @@
 // everything, which is the one bug this file could have that would look like
 // safety.
 
+import type { CollectionFieldSpec, CollectionSchema } from "../core/schema";
 import { isSafeCustomViewPath } from "../core/templatePath";
 import type { AuthoredApp, AuthoredCollectionConfig, AuthoredSubmit } from "./publishManifest";
 import { stagedRuleConfig, type StagedSchemaDoc } from "./publishProject";
@@ -755,31 +756,120 @@ export function promotedRoleProblems(app: AuthoredApp, staged: { cid: string; do
  *  its schema does, but a shared collection's records are written through it,
  *  and "the field exists on some rows" is not something a gate can promise. */
 function promotedRefFieldProblems(app: AuthoredApp, staged: { cid: string; doc: StagedSchemaDoc }[]): string[] {
-  const fieldsOf = new Map(staged.map((entry) => [entry.cid, new Set(Object.keys(entry.doc.publishedSchema.fields ?? {}))]));
-  return Object.entries(app.public?.submit ?? {}).flatMap(([cid, submit]) => [
-    ...refFieldProblem(fieldsOf, cid, `idIn.where.field`, submit.idIn?.collection, submit.idIn?.where?.field),
-    ...refFieldProblem(fieldsOf, cid, `window.fromField.field`, submit.window?.fromField?.collection, submit.window?.fromField?.field),
-    ...refFieldProblem(fieldsOf, cid, `window.untilField.field`, submit.window?.untilField?.collection, submit.window?.untilField?.field),
-  ]);
+  const schemaOf = new Map(staged.map((entry) => [entry.cid, entry.doc.publishedSchema]));
+  return Object.entries(app.public?.submit ?? {}).flatMap(([cid, submit]) => submitRefProblems(schemaOf, cid, submit));
+}
+
+function submitRefProblems(schemaOf: ReadonlyMap<string, CollectionSchema>, cid: string, submit: AuthoredSubmit): string[] {
+  return [
+    ...idInRefProblems(schemaOf, cid, submit),
+    ...boundRefProblems(schemaOf, cid, "fromField", submit.window?.fromField),
+    ...boundRefProblems(schemaOf, cid, "untilField", submit.window?.untilField),
+  ];
+}
+
+function idInRefProblems(schemaOf: ReadonlyMap<string, CollectionSchema>, cid: string, submit: AuthoredSubmit): string[] {
+  const where = submit.idIn?.where;
+  if (where === undefined) return [];
+  return [
+    ...refFieldProblem(schemaOf, cid, "idIn.where.field", submit.idIn?.collection, where.field),
+    ...comparableProblem(schemaOf, cid, submit.idIn?.collection, where),
+  ];
+}
+
+function boundRefProblems(
+  schemaOf: ReadonlyMap<string, CollectionSchema>,
+  cid: string,
+  key: string,
+  ref: { ref: string; collection: string; field: string } | undefined,
+): string[] {
+  if (ref === undefined) return [];
+  return [...refFieldProblem(schemaOf, cid, `window.${key}.field`, ref.collection, ref.field), ...millisProblem(schemaOf, cid, `window.${key}.field`, ref)];
+}
+
+/** The field spec a reference points at, or undefined when there is nothing
+ *  staged to judge it against (the host refuses that separately, naming every
+ *  missing collection at once). */
+function referencedField(
+  schemaOf: ReadonlyMap<string, CollectionSchema>,
+  target: string | undefined,
+  field: string | undefined,
+): CollectionFieldSpec | undefined {
+  if (target === undefined || field === undefined) return undefined;
+  return schemaOf.get(target)?.fields?.[field];
+}
+
+/** An enum's domain, or undefined for every other kind. Narrowed by the key
+ *  rather than asserted: `fields` is a discriminated union and only some of
+ *  its members carry `values`. */
+function enumValues(spec: CollectionFieldSpec): readonly string[] | undefined {
+  return spec.type === "enum" ? spec.values : undefined;
 }
 
 function refFieldProblem(
-  fieldsOf: ReadonlyMap<string, ReadonlySet<string>>,
+  schemaOf: ReadonlyMap<string, CollectionSchema>,
   cid: string,
   key: string,
   target: string | undefined,
   field: string | undefined,
 ): string[] {
   if (target === undefined || field === undefined) return [];
-  const fields = fieldsOf.get(target);
-  // Nothing staged for the target at all is the host's own refusal, which
-  // names every missing collection at once.
-  if (fields === undefined || fields.has(field)) return [];
-  const known = [...fields].sort().join(", ");
+  const schema = schemaOf.get(target);
+  if (schema === undefined || referencedField(schemaOf, target, field) !== undefined) return [];
+  const known = Object.keys(schema.fields ?? {})
+    .sort()
+    .join(", ");
   return [
     `public.submit.${cid}.${key} names '${field}', which the STAGED schema of '${target}' — the one publish promotes — does not declare. ` +
       `The rules read that field off the record and compare it, so as written every submission is refused with nothing to explain it. ` +
       `Fields on '${target}': ${known.length > 0 ? known : "(none)"}.`,
+  ];
+}
+
+/** A comparison the rules can never satisfy is as dead as a missing field, and
+ *  looks even more correct on the page: an `enum` whose domain does not contain
+ *  the value, or a boolean field compared with a string. */
+function comparableProblem(
+  schemaOf: ReadonlyMap<string, CollectionSchema>,
+  cid: string,
+  target: string | undefined,
+  where: { field: string; equals: string | number | boolean },
+): string[] {
+  const spec = referencedField(schemaOf, target, where.field);
+  if (spec === undefined) return [];
+  const said = JSON.stringify(where.equals);
+  const values = enumValues(spec);
+  if (values !== undefined) {
+    if (values.includes(String(where.equals))) return [];
+    return [
+      `public.submit.${cid}.idIn.where.equals is ${said}, which is not one of the values '${where.field}' can hold on '${String(target)}' ` +
+        `(${values.join(", ") || "(none)"}). The comparison can never be true, so every submission is refused.`,
+    ];
+  }
+  const wanted = spec.type === "number" ? "number" : spec.type === "boolean" ? "boolean" : "string";
+  if (typeof where.equals === wanted) return [];
+  return [
+    `public.submit.${cid}.idIn.where.equals is ${said}, and '${where.field}' on '${String(target)}' is a ${spec.type} field. ` +
+      `The rules compare the stored value with this one and never coerce, so the comparison can never be true and every submission is refused.`,
+  ];
+}
+
+/** A per-record window bound is EPOCH MILLIS, because the rules have no date
+ *  arithmetic and do not coerce: they compare `request.time.toMillis()` with
+ *  whatever is stored. A `datetime` field holds an ISO string, which is a type
+ *  error that fails closed — the window never opens, and nothing says so. */
+function millisProblem(
+  schemaOf: ReadonlyMap<string, CollectionSchema>,
+  cid: string,
+  key: string,
+  ref: { collection: string; field: string } | undefined,
+): string[] {
+  const spec = referencedField(schemaOf, ref?.collection, ref?.field);
+  if (spec === undefined || spec.type === "number") return [];
+  return [
+    `public.submit.${cid}.${key} names '${String(ref?.field)}' on '${String(ref?.collection)}', which is a ${spec.type} field. A per-record bound is ` +
+      `EPOCH MILLIS: the rules compare it with request.time.toMillis() and never coerce, so anything else is a type error that refuses every ` +
+      `submission — the window simply never opens. Store the instant as a number.`,
   ];
 }
 

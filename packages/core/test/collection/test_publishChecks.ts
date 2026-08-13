@@ -769,38 +769,65 @@ test("refuses a mirror REMOVED from the declaration but not from the deploy", ()
   assert.deepEqual(promotedRoleProblems(declared, fresh as never), []);
 });
 
+/** The salon's two collections as deploy staged them, with `slots` fields
+ *  chosen per case: what these tests are about is what the STAGED schema says. */
+const stagedWithFields = (cid: string, fields: Record<string, unknown>, config: Record<string, unknown> = {}) => ({
+  cid,
+  doc: {
+    publishedSchema: { title: cid, icon: "event", primaryKey: "id", fields },
+    deployedAt: 1,
+    deployedBy: OWNER,
+    config,
+  },
+});
+
+/** What the salon declaration actually needs off `slots`: a state to compare
+ *  and two bounds the rules read as epoch millis. */
+const SOUND = { state: { type: "string" }, opensAt: { type: "number" }, closesAt: { type: "number" } };
+
+const stagedFor = (slotFields: Record<string, unknown>) => [
+  stagedWithFields("bookings", { slot: { type: "string" }, status: { type: "string" } }),
+  stagedWithFields("slots", slotFields, { mirrorOf: "bookings" }),
+];
+
 test("refuses a field the referenced record's staged schema does not declare", () => {
   // A typo in a field NAME publishes cleanly and denies every submission with
   // no message: the rules read the field off the record, find nothing, and
   // refuse. It cannot be caught by the declaration gate, which is given a cid
   // and a primary key per collection — only a schema can judge a field name,
   // and the schema that matters is the one publish promotes.
-  const stagedWithFields = (cid: string, fields: string[], config: Record<string, unknown> = {}) => ({
-    cid,
-    doc: {
-      publishedSchema: {
-        title: cid,
-        icon: "event",
-        primaryKey: "id",
-        fields: Object.fromEntries(fields.map((field) => [field, { type: "string" }])),
-      },
-      deployedAt: 1,
-      deployedBy: OWNER,
-      config,
-    },
-  });
-  const stagedFor = (slotFields: string[]) => [
-    stagedWithFields("bookings", ["slot", "status"]),
-    stagedWithFields("slots", slotFields, { mirrorOf: "bookings" }),
-  ];
 
   const declared = app(salonDraft() as unknown as Record<string, unknown>);
-  // The salon declaration reads three fields off `slots`; with all three
-  // present publish is free.
-  assert.deepEqual(promotedRoleProblems(declared, stagedFor(["state", "opensAt", "closesAt"]) as never), []);
+  // With all three present and of the right kind, publish is free.
+  assert.deepEqual(promotedRoleProblems(declared, stagedFor(SOUND) as never), []);
 
   // One at a time, so a passing case cannot be hiding behind another failure.
-  refuses(promotedRoleProblems(declared, stagedFor(["opensAt", "closesAt"]) as never), "idIn.where.field names 'state'");
-  refuses(promotedRoleProblems(declared, stagedFor(["state", "closesAt"]) as never), "window.fromField.field names 'opensAt'");
-  refuses(promotedRoleProblems(declared, stagedFor(["state", "opensAt"]) as never), "window.untilField.field names 'closesAt'");
+  const without = (field: string) => Object.fromEntries(Object.entries(SOUND).filter(([name]) => name !== field));
+  refuses(promotedRoleProblems(declared, stagedFor(without("state")) as never), "idIn.where.field names 'state'");
+  refuses(promotedRoleProblems(declared, stagedFor(without("opensAt")) as never), "window.fromField.field names 'opensAt'");
+  refuses(promotedRoleProblems(declared, stagedFor(without("closesAt")) as never), "window.untilField.field names 'closesAt'");
+});
+
+test("refuses a comparison the rules could never satisfy", () => {
+  // A field that EXISTS can still be unreachable. These publish cleanly and
+  // deny every submission, and the declaration reads as correct in both cases.
+  const declared = app(salonDraft() as unknown as Record<string, unknown>);
+  const enumState = (values: string[]) => ({ state: { type: "enum", values }, opensAt: { type: "number" }, closesAt: { type: "number" } });
+
+  // An enum whose domain contains the value is exactly right.
+  assert.deepEqual(promotedRoleProblems(declared, stagedFor(enumState(["open", "taken"])) as never), []);
+  refuses(promotedRoleProblems(declared, stagedFor(enumState(["free", "taken"])) as never), "not one of the values");
+
+  // A bound the rules read as epoch millis, stored as an ISO string: a type
+  // error that fails closed, so the window never opens and nothing says why.
+  refuses(
+    promotedRoleProblems(declared, stagedFor({ state: { type: "string" }, opensAt: { type: "datetime" }, closesAt: { type: "number" } }) as never),
+    "is a datetime field",
+  );
+
+  // Comparing a boolean field with a string.
+  refuses(
+    promotedRoleProblems(declared, stagedFor({ state: { type: "boolean" }, opensAt: { type: "number" }, closesAt: { type: "number" } }) as never),
+    "is a boolean field",
+  );
 });
