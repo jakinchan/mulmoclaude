@@ -153,7 +153,14 @@ function compact(entries: Record<string, unknown>): Record<string, unknown> {
  *  it is still checked, because a NaN written to Firestore fails closed in the
  *  same silent way an ISO string does. */
 function windowMillis(
-  window: { from?: string | undefined; until?: string | undefined; fromField?: Record<string, string> | undefined } | undefined,
+  window:
+    | {
+        from?: string | undefined;
+        until?: string | undefined;
+        fromField?: Record<string, string> | undefined;
+        untilField?: Record<string, string> | undefined;
+      }
+    | undefined,
 ): Record<string, unknown> | undefined {
   if (!window) return undefined;
   const out: Record<string, number> = {};
@@ -167,7 +174,11 @@ function windowMillis(
   // class writes it). There is nothing here to convert, and dropping it is the
   // failure this function's own comment warns about: the rules would stop
   // seeing a bound the author declared, and the window would silently be open.
-  const projected: Record<string, unknown> = { ...out, ...(window.fromField === undefined ? {} : { fromField: window.fromField }) };
+  const projected: Record<string, unknown> = {
+    ...out,
+    ...(window.fromField === undefined ? {} : { fromField: window.fromField }),
+    ...(window.untilField === undefined ? {} : { untilField: window.untilField }),
+  };
   return Object.keys(projected).length > 0 ? projected : undefined;
 }
 

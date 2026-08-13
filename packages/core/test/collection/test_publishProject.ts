@@ -113,6 +113,55 @@ test("a per-record window bound survives the lowering that has nothing to lower"
   });
 });
 
+test("BOTH per-record bounds survive it, and the closing one is the easier to lose", () => {
+  // `untilField` arrived after `fromField` and reads identically, which is
+  // precisely how the second one gets left out of a function that names the
+  // first. Dropped, the desk that opens per slot never closes: every slot goes
+  // on taking bookings after its deadline, and the declaration says otherwise.
+  const app = authored({
+    public: {
+      submit: {
+        bookings: {
+          auth: "verifiedEmail",
+          createFields: ["customerEmail", "slot"],
+          idFrom: "field",
+          idField: "slot",
+          idIn: { collection: "slots", where: { field: "state", equals: "open" } },
+          mirror: "slots",
+          window: {
+            fromField: { ref: "slot", collection: "slots", field: "opensAt" },
+            untilField: { ref: "slot", collection: "slots", field: "closesAt" },
+          },
+        },
+      },
+    },
+  });
+  const submit = publishedSubmit(projectApp(app, [], STAMP, null).app, "bookings");
+  assert.deepEqual(submit.window, {
+    fromField: { ref: "slot", collection: "slots", field: "opensAt" },
+    untilField: { ref: "slot", collection: "slots", field: "closesAt" },
+  });
+  // The keys the rules read for exclusivity pass through untouched — there is
+  // nothing to lower, and dropping any of them turns "one booking per slot"
+  // into "any string a submitter likes" with no error anywhere.
+  assert.equal(submit.idFrom, "field");
+  assert.equal(submit.idField, "slot");
+  assert.deepEqual(submit.idIn, { collection: "slots", where: { field: "state", equals: "open" } });
+  assert.equal(submit.mirror, "slots");
+});
+
+test("the public view is NOT projected into the rules' app document", () => {
+  // `apps/{aid}.public` is what the rules read on every single write, and they
+  // have no use for an HTML path. The view reaches the page through the
+  // world-readable config document the host publishes beside it, so putting it
+  // here would be weight on the authorization document and nothing else.
+  const app = authored({
+    public: { enabled: true, read: ["slots"], view: { path: "views/booking.html", collections: ["slots"] } },
+  });
+  const published = projectApp(app, [], STAMP, null).app as Record<string, Record<string, unknown>>;
+  assert.deepEqual(published.public, { enabled: true, read: ["slots"] });
+});
+
 test("memberEmails is derived from members, and a hand-written one is overwritten", () => {
   // `membersConsistent()` refuses any write where the two disagree, so an
   // authored value could only ever turn publish into a bare permission error.

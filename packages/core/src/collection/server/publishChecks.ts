@@ -239,7 +239,7 @@ function ruleReadFields(submit: AuthoredSubmit): { field: string; why: string }[
   if (submit.emailField !== undefined) {
     fields.push({ field: submit.emailField, why: `public.submit.<cid>.emailField — the rules compare it to the submitter's verified address` });
   }
-  if (submit.idFrom === "auth.uid+field" && submit.idField !== undefined) {
+  if ((submit.idFrom === "auth.uid+field" || submit.idFrom === "field") && submit.idField !== undefined) {
     fields.push({ field: submit.idField, why: `public.submit.<cid>.idField — the rules rebuild the document id from it` });
   }
   return fields;
@@ -279,6 +279,7 @@ function submitCoherenceProblems(app: AuthoredApp, cid: string, submit: Authored
       `public.submit.${cid}.idFrom is "auth.uid+field" but no idField is declared: the rules rebuild the document id from that field and refuse every create.`,
     );
   }
+  problems.push(...fieldIdProblems(cid, submit));
   if ((submit.selfUpdate !== undefined || submit.selfTransitions !== undefined) && !collection?.statusField) {
     problems.push(
       `public.submit.${cid}.selfUpdate / selfTransitions are declared per CURRENT STATUS, but collections.${cid} declares no statusField: ` +
@@ -288,6 +289,43 @@ function submitCoherenceProblems(app: AuthoredApp, cid: string, submit: Authored
   if (submit.audience === "participant" && Object.keys(app.members).length === 0) {
     problems.push(
       `public.submit.${cid}.audience is "participant" but the roster is empty: the rules resolve the submitter's role from members, so every submission is refused.`,
+    );
+  }
+  return problems;
+}
+
+/** `idFrom: "field"` makes the document id a CLAIM ABOUT ANOTHER RECORD, and
+ *  the claim is only worth what is checked.
+ *
+ *  `idIn` is required rather than optional, and that is the whole point of
+ *  refusing here: without it the id is any string a stranger likes, so the app
+ *  quietly accepts bookings for slots that do not exist. Nothing downstream
+ *  ever notices — the booking is real, its slot is not — which is exactly the
+ *  kind of hole a gate is for and a rule cannot state.
+ *
+ *  `idIn` without the mode is refused for the opposite reason: the rules read
+ *  it only in that branch, so an author who wrote it believes a check is
+ *  running that is not. */
+function fieldIdProblems(cid: string, submit: AuthoredSubmit): string[] {
+  const problems: string[] = [];
+  if (submit.idFrom === "field") {
+    if (submit.idField === undefined) {
+      problems.push(
+        `public.submit.${cid}.idFrom is "field" but no idField is declared: the rules take the document id from that field and refuse every create.`,
+      );
+    }
+    if (submit.idIn === undefined) {
+      problems.push(
+        `public.submit.${cid}.idFrom is "field" but no idIn is declared: the document id is then any string a submitter chooses, so the app accepts records ` +
+          `pointing at things that do not exist. Name the collection the id must be found in — and, when only some of those records may be claimed, the state ` +
+          `they must be in: "idIn": { "collection": "slots", "where": { "field": "state", "equals": "open" } }.`,
+      );
+    }
+  } else if (submit.idIn !== undefined) {
+    const mode = submit.idFrom === undefined ? "absent" : JSON.stringify(submit.idFrom);
+    problems.push(
+      `public.submit.${cid}.idIn is declared but idFrom is ${mode}: the rules read idIn only for ` +
+        `idFrom "field", so as written nothing checks the referenced record and the declaration promises a check it does not perform.`,
     );
   }
   return problems;
@@ -366,6 +404,8 @@ export function publishProblems(app: AuthoredApp, collections: readonly Publisha
     ...assigneeProblems(app),
     ...stampProblems(app),
     ...windowRefProblems(app, collections),
+    ...mirrorProblems(app, collections),
+    ...publicViewProblems(app, collections),
   ];
 }
 
@@ -473,24 +513,138 @@ function stampProblems(app: AuthoredApp): string[] {
  *  good. */
 function windowRefProblems(app: AuthoredApp, collections: readonly PublishableCollection[]): string[] {
   const known = new Set(collections.map((collection) => collection.cid));
-  return Object.entries(app.public?.submit ?? {}).flatMap(([cid, submit]) => {
-    const ref = submit.window?.fromField;
-    if (ref === undefined) return [];
-    const problems: string[] = [];
-    if (!known.has(ref.collection)) {
+  return Object.entries(app.public?.submit ?? {}).flatMap(([cid, submit]) => [
+    ...windowBoundProblems(cid, submit, known, "fromField", submit.window?.fromField, "opening"),
+    ...windowBoundProblems(cid, submit, known, "untilField", submit.window?.untilField, "closing"),
+  ]);
+}
+
+/** Both bounds, checked identically. `untilField` arrived with the booking
+ *  desk and reads exactly like its twin, so a check that knew only about
+ *  `fromField` would let the closing half through unchecked — and a closing
+ *  bound that names nothing does not leave the door ajar, it refuses every
+ *  submission with no explanation. */
+function windowBoundProblems(
+  cid: string,
+  submit: AuthoredSubmit,
+  known: ReadonlySet<string>,
+  key: string,
+  ref: { ref: string; collection: string; field: string } | undefined,
+  which: string,
+): string[] {
+  if (ref === undefined) return [];
+  const problems: string[] = [];
+  if (!known.has(ref.collection)) {
+    problems.push(
+      `public.submit.${cid}.window.${key}.collection names '${ref.collection}', which is not a shared collection in this repository. ` +
+        `The rules read the ${which} time off a record there, so nothing can ever be submitted. Shared collections here: ${known.size > 0 ? [...known].sort().join(", ") : "(none)"}.`,
+    );
+  }
+  if (!submit.createFields.includes(ref.ref)) {
+    problems.push(
+      `public.submit.${cid}.window.${key}.ref names '${ref.ref}', which is not in createFields. The rules take the target record's id from that field ON THE ` +
+        "SUBMISSION — if the submitter never writes it, there is nothing to look up and every submission is refused.",
+    );
+  }
+  return problems;
+}
+
+/** The two halves of a mirror, checked as the pair they only work as.
+ *
+ *  `mirror` on the submission and `mirrorOf` on the projection are separate
+ *  keys in separate places, and each is inert without the other: a booking
+ *  whose slot declares no `mirrorOf` can never be created (the rules demand a
+ *  paired write that the projection's own rule will refuse), and a projection
+ *  whose authority declares no `mirror` drifts unbounded because nothing makes
+ *  the two move together. Both failures are silent, and one of them —
+ *  advertising a slot somebody already holds — is the exact thing the mirror
+ *  exists to prevent.
+ *
+ *  Also refuses a collection mirroring ITSELF, which reads as a typo and
+ *  behaves as an unwritable collection: every create would have to prove its
+ *  own document is simultaneously taken and open. */
+function mirrorProblems(app: AuthoredApp, collections: readonly PublishableCollection[]): string[] {
+  const known = new Set(collections.map((collection) => collection.cid));
+  const names = known.size > 0 ? [...known].sort().join(", ") : "(none)";
+  return [
+    ...Object.entries(app.public?.submit ?? {}).flatMap(([cid, submit]) => mirrorClaimProblems(app, cid, submit, known, names)),
+    ...Object.entries(app.collections ?? {}).flatMap(([cid, collection]) => mirrorOfProblems(app, cid, collection, known, names)),
+  ];
+}
+
+/** The submission side: `public.submit[cid].mirror`. */
+function mirrorClaimProblems(app: AuthoredApp, cid: string, submit: AuthoredSubmit, known: ReadonlySet<string>, names: string): string[] {
+  const { mirror } = submit;
+  if (mirror === undefined) return [];
+  if (mirror === cid) {
+    return [`public.submit.${cid}.mirror names its own collection: the projection is a SEPARATE record, and as written no create can satisfy the rules.`];
+  }
+  if (!known.has(mirror)) {
+    return [
+      `public.submit.${cid}.mirror names '${mirror}', which is not a shared collection in this repository. ` +
+        `The rules require the projection to move in the same write, so every submission is refused. Shared collections here: ${names}.`,
+    ];
+  }
+  if (app.collections?.[mirror]?.mirrorOf !== cid) {
+    return [
+      `public.submit.${cid}.mirror names '${mirror}', but collections.${mirror} does not declare mirrorOf: "${cid}". ` +
+        "The two halves only work as a pair — the submission side demands the projection move with it, and the projection side is what allows that move — " +
+        "so as written every submission is refused.",
+    ];
+  }
+  return [];
+}
+
+/** The projection side: `collections[cid].mirrorOf`. */
+function mirrorOfProblems(app: AuthoredApp, cid: string, collection: AuthoredCollectionConfig, known: ReadonlySet<string>, names: string): string[] {
+  const authority = collection.mirrorOf;
+  if (authority === undefined) return [];
+  if (!known.has(authority)) {
+    return [
+      `collections.${cid}.mirrorOf names '${authority}', which is not a shared collection in this repository. ` +
+        `Nothing can then be true of it, so the projection's state may never be written. Shared collections here: ${names}.`,
+    ];
+  }
+  if (app.public?.submit?.[authority]?.mirror !== cid) {
+    return [
+      `collections.${cid}.mirrorOf names '${authority}', but public.submit.${authority} does not declare mirror: "${cid}". ` +
+        "Only the pair keeps the projection honest: without the other half a record can be created without moving this one, and the public page goes on " +
+        "offering something that is already taken.",
+    ];
+  }
+  return [];
+}
+
+/** What the public view is handed. Declared, never inferred — a view whose
+ *  datasets were guessed from `public.read` renders perfectly and draws an
+ *  empty grid, with nothing in the page, the rules or the log to say why. */
+function publicViewProblems(app: AuthoredApp, collections: readonly PublishableCollection[]): string[] {
+  const view = app.public?.view;
+  if (view === undefined) return [];
+  const known = new Set(collections.map((collection) => collection.cid));
+  const readable = new Set(app.public?.read ?? []);
+  const problems: string[] = [];
+  if (!view.path.startsWith("views/") || !view.path.endsWith(".html")) {
+    problems.push(
+      `public.view.path is '${view.path}': a published view is one HTML file inside the collection's own views/ directory (e.g. views/booking.html).`,
+    );
+  }
+  for (const cid of view.collections) {
+    if (!known.has(cid)) {
       problems.push(
-        `public.submit.${cid}.window.fromField.collection names '${ref.collection}', which is not a shared collection in this repository. ` +
-          `The rules read the opening time off a record there, so nothing can ever be submitted. Shared collections here: ${known.size > 0 ? [...known].sort().join(", ") : "(none)"}.`,
+        `public.view.collections names '${cid}', which is not a shared collection in this repository. ` +
+          `Shared collections here: ${known.size > 0 ? [...known].sort().join(", ") : "(none)"}.`,
+      );
+      continue;
+    }
+    if (!readable.has(cid)) {
+      problems.push(
+        `public.view.collections names '${cid}', which is not in public.read: the page reads these with the VISITOR's permissions, so the rules refuse the ` +
+          "read and the view draws an empty page. Nothing errors — this is the failure that looks like a working view with no data.",
       );
     }
-    if (!submit.createFields.includes(ref.ref)) {
-      problems.push(
-        `public.submit.${cid}.window.fromField.ref names '${ref.ref}', which is not in createFields. The rules take the target record's id from that field ON THE ` +
-          "SUBMISSION — if the submitter never writes it, there is nothing to look up and every submission is refused.",
-      );
-    }
-    return problems;
-  });
+  }
+  return problems;
 }
 
 /** What publish will actually promote, checked as the PAIR it becomes.

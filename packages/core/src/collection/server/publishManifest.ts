@@ -111,6 +111,14 @@ const CollectionConfigZ = z
      *  declaration with the role and no field is refused (`assigneeProblems`),
      *  because that member would silently hold nothing. */
     assigneeField: z.string().trim().min(1).optional(),
+    /** This collection is the public projection of `mirrorOf` — the other
+     *  half of `public.submit[...].mirror`, declared here because the rules
+     *  read it when the PROJECTION is written rather than when the record is.
+     *
+     *  What it buys: `state` may be written by anybody, and only to the value
+     *  the authority actually says, so a visitor who was refused a slot can
+     *  repair the stale row that offered it to them. */
+    mirrorOf: NameZ.optional(),
     peerVisibility: z.enum(["public", "hidden"]).optional(),
     revealGated: z.boolean().optional(),
     gatedFrom: NameZ.optional(),
@@ -153,7 +161,40 @@ const CollectionConfigZ = z
  *  `w.fromField.in` does not parse there. */
 const WindowRefZ = z.object({ ref: z.string().trim().min(1), collection: NameZ, field: z.string().trim().min(1) }).strict();
 
-const WindowZ = z.object({ from: z.iso.datetime().optional(), until: z.iso.datetime().optional(), fromField: WindowRefZ.optional() }).strict();
+/** The closing bound's per-record twin, and it ships WITH `fromField` rather
+ *  than as a symmetric extra: a booking desk that opens per slot and never
+ *  closes is not a booking desk. Same shape, opposite comparison — and
+ *  EXCLUSIVE where `fromField` is inclusive, so one slot's closing instant and
+ *  the next one's opening instant may be the same number. */
+const WindowZ = z
+  .object({
+    from: z.iso.datetime().optional(),
+    until: z.iso.datetime().optional(),
+    fromField: WindowRefZ.optional(),
+    untilField: WindowRefZ.optional(),
+  })
+  .strict();
+
+/** Which record a `field` document id must name, and what state it must be in.
+ *
+ *  `idFrom: "field"` alone only stops the same string being written twice —
+ *  nothing stops a client bypassing the page and inventing a slot, so the
+ *  rules check the referenced record themselves. `exists()` is a FLOOR: a
+ *  cancelled slot and a slot nobody may book any more exist too, which is what
+ *  `where` is for.
+ *
+ *  Always the object form, never a bare collection name. Two shapes for one
+ *  key is the kind of thing a generator gets right once and wrong afterwards,
+ *  and the rules read `s.idIn.collection` either way. */
+const IdInZ = z
+  .object({
+    collection: NameZ,
+    where: z
+      .object({ field: z.string().trim().min(1), equals: z.union([z.string(), z.number(), z.boolean()]) })
+      .strict()
+      .optional(),
+  })
+  .strict();
 
 const ValidateZ = z
   .object({
@@ -173,8 +214,26 @@ const SubmitZ = z
     emailField: z.string().trim().min(1).optional(),
     createFields: z.array(z.string().trim().min(1)).min(1),
     initialStatus: z.string().trim().min(1).optional(),
-    idFrom: z.enum(["auto", "auth.uid", "auth.uid+field"]).optional(),
+    /** `field` is the mode that makes a CONTESTED resource exclusive: the
+     *  booking's document id IS the slot's id, so the second person to want
+     *  that slot is writing a document that already exists — an update, which
+     *  the public submission path never allows. Firestore decides that
+     *  atomically, so unlike a countable capacity (see `stampField`) this is
+     *  first-come ENFORCED rather than first-come read off a rank. */
+    idFrom: z.enum(["auto", "auth.uid", "auth.uid+field", "field"]).optional(),
     idField: z.string().trim().min(1).optional(),
+    /** Required by `idFrom: "field"` — see {@link IdInZ}. */
+    idIn: IdInZ.optional(),
+    /** The collection holding this record's PUBLIC PROJECTION, one row per
+     *  contested thing, sharing its document id.
+     *
+     *  A booking carries a name, an address and a phone number, and Firestore
+     *  rules cannot hide a field, so the public page must not read bookings at
+     *  all. It reads the projection instead, whose `state` is a copy of "does
+     *  a booking with this id exist" — and the rules accept the two writes
+     *  only as one batch, in both directions, so the copy cannot drift into
+     *  advertising a slot that is gone. */
+    mirror: NameZ.optional(),
     validate: ValidateZ.optional(),
     window: WindowZ.optional(),
     /** A field the rules PIN to the server clock on create: the record must
@@ -209,6 +268,24 @@ const PublicZ = z
      *  well as its own declaration. */
     enabled: z.boolean().optional(),
     read: z.array(NameZ).optional(),
+    /** The page the public sees, instead of the generated form.
+     *
+     *  A form is enough to ANSWER something and not enough to CHOOSE from
+     *  what is available — a stylist-by-hour grid is not the far end of a
+     *  table. So the app may name one HTML file, which the host publishes to
+     *  `config/view` and the public page renders in a sandboxed iframe.
+     *
+     *  `submit` stays declared alongside: the view sends an INTENT, and the
+     *  page it is embedded in performs the write against these rules.
+     *
+     *  `collections` is declared rather than inferred from `read`. Inferring
+     *  it produces the worst failure this feature has — the view renders, the
+     *  data it wanted was never sent, and it draws an empty grid with no error
+     *  anywhere. */
+    view: z
+      .object({ path: z.string().trim().min(1), collections: z.array(NameZ).min(1) })
+      .strict()
+      .optional(),
     submit: z.record(NameZ, SubmitZ).optional(),
   })
   .strict();
