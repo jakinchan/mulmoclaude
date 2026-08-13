@@ -10,6 +10,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
+#### The projection says what each audience may CHANGE, and who may change it (#2891)
+
+`{tier}/config` gains `write[]`: per collection, the status field a transition
+moves, the transitions THIS audience may make, the assignee field, and the mail
+one queues. Nothing here grants anything — `firestore.rules` already allows
+every one of these writes — it tells a page which buttons exist and lets a
+refusal name itself instead of arriving as a permission error that names
+nothing.
+
+The transition tables differ per tier and that is the point. Staff move along
+`collections[cid].transitions`; the person who booked moves along
+`public.submit[cid].selfTransitions`. Publishing one table to both draws an
+approve button on a customer's page that the rules refuse when pressed.
+
+`writers` (owner / editor) and `rowWriters` (assignee) travel with it, into the
+`member` tier only. One `member/config` is read by everybody `staffOf` admits,
+and holding a role somewhere is not the same as being able to change a given
+collection — a `viewer` reads the same entry as the front desk. It cannot be
+answered per principal (one document, many readers) and the reader cannot look
+their own role up: `apps/{aid}` is `readerOf(a, '*')`, which a per-collection
+role does not satisfy. So the roster's answer travels with the declaration and
+the page compares its own address to it. The assignment CANDIDATES are the two
+lists together, derived rather than published a third time.
+
+At publish the write tables follow the PROMOTED collection config, beside
+`participantRead` and for the same reason: a manifest edited since the last
+deploy would otherwise advertise transitions the live rules deny.
+
+Design: mulmoterminal `plans/feat-shared-app-member-write.md`. The runtime is
+mulmoserver#171 and #172; both go out before a host publishes any of this.
+
 #### A shared app can declare a page per audience, not only a public one (#2877)
 
 `public.view` named ONE page, for anonymous visitors. `views[]` names as many as
@@ -51,7 +82,7 @@ writes any of this.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@3.14.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@3.15.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ### Fixed
 
