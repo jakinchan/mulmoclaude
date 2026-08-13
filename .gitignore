@@ -42,6 +42,14 @@ test-results-live/
 /.mulmoclaude/
 /.session-token
 /.server-port
+# `config/` can't join the list above wholesale — it is the one workspace dir
+# that also holds committed build config. Ignore its contents and re-admit
+# those two files, so scheduler state / roles / dashboard and friends stay
+# uncommittable. Prettier reads .gitignore, so this also keeps `yarn format`
+# off files the running app rewrites (#2873).
+/config/*
+!/config/eslint.packages.mjs
+!/config/tsconfig.packages.json
 
 # V8 heap snapshots written by the dev server on near-OOM (scripts/dev-server.mjs)
 *.heapsnapshot
