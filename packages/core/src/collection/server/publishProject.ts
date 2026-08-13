@@ -610,6 +610,37 @@ export interface PromotedRuleConfig {
   collections?: Record<string, AuthoredCollectionConfig>;
 }
 
+/** What this audience may CHANGE, per collection it draws.
+ *
+ *  The `collections` config is the PROMOTED one where there is one: at publish
+ *  the rules run against what deploy staged, so projecting the manifest's
+ *  would advertise transitions the live rules deny. */
+export function tierWrites(
+  authored: AuthoredApp,
+  audience: Exclude<ViewAudience, "public">,
+  cids: string[],
+  promoted: PromotedRuleConfig,
+): ProjectedViewWrite[] {
+  const effective: AuthoredApp = promoted.collections === undefined ? authored : { ...authored, collections: promoted.collections };
+  // Read-only collections are absent rather than present and empty: an entry
+  // is what a page draws a button from.
+  return cids.map((cid) => writeFor(effective, audience, cid)).filter((entry): entry is ProjectedViewWrite => entry !== null);
+}
+
+/** What this audience may READ, and how to query for it.
+ *
+ *  A collection with no scope is dropped rather than published as unreachable:
+ *  the gate has already refused the declaration, so reaching here with one is
+ *  a programming error, and a page that queries it is denied. */
+export function tierViews(authored: AuthoredApp, audience: Exclude<ViewAudience, "public">, views: NormalizedView[], participantRead: readonly string[]) {
+  return views.map((view) => ({
+    id: view.id,
+    collections: view.collections
+      .map((cid) => scopeFor(authored, audience, cid, participantRead))
+      .filter((scope): scope is ProjectedViewCollection => scope !== null),
+  }));
+}
+
 /** One tier's projection: what this audience may read, and what it may change. */
 function tierConfig(
   authored: AuthoredApp,
@@ -619,22 +650,9 @@ function tierConfig(
   promoted: PromotedRuleConfig,
 ): AppViewConfigDoc {
   const cids = [...new Set(views.flatMap((view) => view.collections))];
-  const participantRead = promoted.participantRead ?? authored.participantRead ?? [];
-  const effective: AuthoredApp = promoted.collections === undefined ? authored : { ...authored, collections: promoted.collections };
   const config: AppViewConfigDoc = {
-    // Every collection these views draw, asked what THIS audience may change
-    // about it. Read-only ones are absent rather than present and empty.
-    write: cids.map((cid) => writeFor(effective, audience, cid)).filter((entry): entry is ProjectedViewWrite => entry !== null),
-    views: views.map((view) => ({
-      id: view.id,
-      // A collection with no scope is dropped rather than published as
-      // unreachable: the gate has already refused the declaration, so
-      // reaching here with one is a programming error, and a page that
-      // queries it is denied.
-      collections: view.collections
-        .map((cid) => scopeFor(authored, audience, cid, participantRead))
-        .filter((scope): scope is ProjectedViewCollection => scope !== null),
-    })),
+    write: tierWrites(authored, audience, cids, promoted),
+    views: tierViews(authored, audience, views, promoted.participantRead ?? authored.participantRead ?? []),
     submit: tierSubmit(authored, cids),
     publishedAt: stamp.publishedAt,
   };
