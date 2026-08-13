@@ -493,6 +493,9 @@ interface SalonDraft {
   // possibly-undefined and bury the assertion in guards.
   collections: { bookings: Record<string, unknown>; slots: Record<string, unknown> };
   public: { enabled: boolean; read: string[]; view?: { path: string; collections: string[] }; submit: { bookings: Record<string, unknown> } };
+  /** The app's pages, per audience — the generalisation of `public.view`. */
+  views?: Record<string, unknown>[];
+  participantRead?: string[];
 }
 
 const salonDraft = (): SalonDraft => ({
@@ -531,7 +534,15 @@ const SALON_CIDS = [
 const salon = (mutate: (draft: SalonDraft) => void): string[] => {
   const draft = salonDraft();
   mutate(draft);
-  return problemsFor({ collections: draft.collections, public: draft.public }, SALON_CIDS);
+  return problemsFor(
+    {
+      collections: draft.collections,
+      public: draft.public,
+      ...(draft.views === undefined ? {} : { views: draft.views }),
+      ...(draft.participantRead === undefined ? {} : { participantRead: draft.participantRead }),
+    },
+    SALON_CIDS,
+  );
 };
 
 const bookingOf = (draft: SalonDraft): Record<string, unknown> => draft.public.submit.bookings;
@@ -694,6 +705,55 @@ test("refuses a view that is not one HTML file directly under views/", () => {
       view.path = "/etc/views/passwd.html";
     }),
     "exactly one HTML file",
+  );
+});
+
+// --- the same gate, once per audience ---------------------------------------
+
+test("a member view passes without being in public.read — it is not the public page", () => {
+  assert.deepEqual(
+    salon((draft) => {
+      draft.views = [{ id: "desk", audience: "member", path: "views/desk.html", collections: ["bookings"] }];
+    }),
+    [],
+  );
+});
+
+test("refuses a participant view naming a collection a participant cannot reach", () => {
+  // Worse than the public case: an unscoped list on an own-row collection is
+  // DENIED rather than narrowed, so the page fails rather than rendering less.
+  refuses(
+    salon((draft) => {
+      draft.views = [{ id: "mine", audience: "participant", path: "views/mine.html", collections: ["slots"] }];
+    }),
+    "which a participant cannot read",
+  );
+  // The neighbouring declaration: the same page, on a collection the roster
+  // may read whole.
+  assert.deepEqual(
+    salon((draft) => {
+      draft.participantRead = ["slots"];
+      draft.views = [{ id: "mine", audience: "participant", path: "views/mine.html", collections: ["slots"] }];
+    }),
+    [],
+  );
+});
+
+test("the path check binds every audience, not just the public one", () => {
+  refuses(
+    salon((draft) => {
+      draft.views = [{ id: "desk", audience: "member", path: "views/../../secrets.html", collections: ["bookings"] }];
+    }),
+    "exactly one HTML file",
+  );
+});
+
+test("refuses a view naming a collection this repository does not publish, whoever it is for", () => {
+  refuses(
+    salon((draft) => {
+      draft.views = [{ id: "desk", audience: "member", path: "views/desk.html", collections: ["nowhere"] }];
+    }),
+    "which is not a shared collection",
   );
 });
 

@@ -82,6 +82,10 @@ export {
 } from "./publishManifest";
 export {
   projectApp,
+  projectAppViews,
+  appViewTierPath,
+  viewConfigDocId,
+  type AppViewTier,
   projectDeploy,
   projectPublish,
   stagedRuleConfig,
@@ -103,6 +107,25 @@ export {
   type StagedSchemaDoc,
 } from "./publishProject";
 export { publishProblems, promotedRoleProblems, bindsSubmitterIdentity, type PublishableCollection } from "./publishChecks";
+// The app's pages, per audience: the declaration (`views[]`, generalised from
+// `public.view`), where each audience's documents live, and what the parent
+// page needs in order to query for them.
+export {
+  normalizeViews,
+  participantScope,
+  viewDocId,
+  PUBLIC_VIEW_ID,
+  RESERVED_VIEW_IDS,
+  VIEW_AUDIENCES,
+  VIEW_CONFIG_ID,
+  VIEW_ID_PATTERN,
+  VIEW_TIER,
+  type AppViewConfigDoc,
+  type NormalizedView,
+  type NormalizedViewsResult,
+  type ProjectedViewCollection,
+  type ViewAudience,
+} from "./appViews";
 export type { LoadedCollection } from "./discoveredCollection";
 export * from "./paths";
 export * from "./templatePath";
