@@ -150,16 +150,23 @@ test("BOTH per-record bounds survive it, and the closing one is the easier to lo
   assert.equal(submit.mirror, "slots");
 });
 
-test("the public view is NOT projected into the rules' app document", () => {
-  // `apps/{aid}.public` is what the rules read on every single write, and they
-  // have no use for an HTML path. The view reaches the page through the
-  // world-readable config document the host publishes beside it, so putting it
-  // here would be weight on the authorization document and nothing else.
+test("the public view reaches the CONFIG document, and only that one", () => {
+  // Two halves of one requirement, which is why they are one test. The rules'
+  // app document is read on every single write and has no use for a view, so
+  // it must not carry one. The world-readable config document is the ONLY
+  // place the public page can learn that a view exists and what to send it —
+  // omit it there and the page has HTML it cannot feed, which is the feature
+  // not working at all rather than a missing extra.
   const app = authored({
     public: { enabled: true, read: ["slots"], view: { path: "views/booking.html", collections: ["slots"] } },
   });
-  const published = projectApp(app, [], STAMP, null).app as Record<string, Record<string, unknown>>;
-  assert.deepEqual(published.public, { enabled: true, read: ["slots"] });
+  const projected = projectApp(app, [], STAMP, null);
+  assert.deepEqual((projected.app as Record<string, Record<string, unknown>>).public, { enabled: true, read: ["slots"] });
+  assert.deepEqual(projected.config.view, { collections: ["slots"] });
+  // The authored PATH names a file in the author's repository. The browser
+  // cannot use it and nobody should be handed it on a document whose rule is
+  // `allow read: if true`.
+  assert.equal(JSON.stringify(projected.config).includes("views/booking.html"), false);
 });
 
 test("memberEmails is derived from members, and a hand-written one is overwritten", () => {

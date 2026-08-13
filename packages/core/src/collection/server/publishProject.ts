@@ -123,6 +123,20 @@ export interface PublishedConfigDoc extends Record<string, unknown> {
   enabled: boolean;
   read: string[];
   submit: Record<string, Record<string, unknown>>;
+  /** That the app HAS a published view, and which datasets it asked for.
+   *
+   *  This is the only place the public page can learn it: the rules' app
+   *  document is reader-only and deliberately carries no view, and the HTML
+   *  itself lands in a SEPARATE document (`config/view`) because a 1 MiB limit
+   *  applies per document. Omitted here, the page has the HTML and no idea
+   *  what to send it — the feature does not work at all.
+   *
+   *  The authored PATH is deliberately not published. It names a file in the
+   *  author's repository, which the browser cannot use and which nobody should
+   *  be handed on a world-readable document; what the page needs is the
+   *  dataset list, and `publishedAt` beside it is what pins this declaration
+   *  to the HTML published in the same run. */
+  view?: { collections: string[] };
   publishedAt: number;
 }
 
@@ -263,6 +277,7 @@ export function projectApp(
     enabled: authored.public?.enabled === true,
     read: authored.public?.read ?? [],
     submit,
+    ...(authored.public?.view === undefined ? {} : { view: { collections: authored.public.view.collections } }),
     publishedAt: stamp.publishedAt,
   };
   if (authored.name !== undefined) config.name = authored.name;

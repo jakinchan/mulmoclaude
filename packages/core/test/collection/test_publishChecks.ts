@@ -659,11 +659,64 @@ test("refuses a view fed a collection the visitor may not read", () => {
   );
 });
 
-test("refuses a view that is not one HTML file under views/", () => {
+test("refuses a view that is not one HTML file directly under views/", () => {
   refuses(
     viewed((view) => {
       view.path = "../../etc/passwd";
     }),
-    "one HTML file inside",
+    "exactly one HTML file",
   );
+  // The one a prefix-and-suffix test lets through, and the reason this is a
+  // regex: the host reads the path to decide which file to publish, and what
+  // it publishes is `allow read: if true`.
+  refuses(
+    viewed((view) => {
+      view.path = "views/../../secrets.html";
+    }),
+    "exactly one HTML file",
+  );
+  refuses(
+    viewed((view) => {
+      view.path = "views/nested/booking.html";
+    }),
+    "exactly one HTML file",
+  );
+});
+
+test("refuses an idIn pointing at nothing, or at itself", () => {
+  refuses(
+    salon((draft) => {
+      bookingOf(draft).idIn = { collection: "slotz", where: { field: "state", equals: "open" } };
+    }),
+    "idIn.collection names 'slotz'",
+  );
+  // On a create the document being written does not exist yet, so a
+  // self-referential idIn is a declaration nothing can ever satisfy.
+  refuses(
+    salon((draft) => {
+      bookingOf(draft).idIn = { collection: "bookings" };
+    }),
+    "names 'bookings' itself",
+  );
+});
+
+test("refuses a mirror whose other half was never deployed", () => {
+  // The same trap as the assignee's field, reached the same way: publish takes
+  // the submission side from app.json and the collection side from the DEPLOY.
+  // Declare both halves, publish without redeploying, and what lands is a
+  // booking that must move its projection beside a projection that refuses to
+  // move -- every submission denied, on a declaration that reads as correct.
+  const declared = app(salonDraft() as unknown as Record<string, unknown>);
+  const stagedDoc = (cid: string, config: Record<string, unknown>) => ({
+    cid,
+    doc: { publishedSchema: { title: cid, icon: "event", primaryKey: "id", fields: {} }, deployedAt: 1, deployedBy: OWNER, config },
+  });
+
+  // Sound on disk, which is why this needed a check of its own.
+  assert.deepEqual(publishProblems(declared, SALON_CIDS, OWNER), []);
+
+  const stale = [stagedDoc("bookings", {}), stagedDoc("slots", {})];
+  refuses(promotedRoleProblems(declared, stale as never), "does not declare mirrorOf");
+  const fresh = [stagedDoc("bookings", {}), stagedDoc("slots", { mirrorOf: "bookings" })];
+  assert.deepEqual(promotedRoleProblems(declared, fresh as never), []);
 });

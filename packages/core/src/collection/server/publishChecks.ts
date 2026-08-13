@@ -331,6 +331,42 @@ function fieldIdProblems(cid: string, submit: AuthoredSubmit): string[] {
   return problems;
 }
 
+/** Every `idIn` target, checked against the collections this repository has.
+ *
+ *  Separate from {@link fieldIdProblems} for the reason the file is split at
+ *  all: that one reads the declaration alone, this one needs to know what
+ *  exists. */
+function idTargetProblems(app: AuthoredApp, collections: readonly PublishableCollection[]): string[] {
+  const known = new Set(collections.map((collection) => collection.cid));
+  const names = known.size > 0 ? [...known].sort().join(", ") : "(none)";
+  return Object.entries(app.public?.submit ?? {}).flatMap(([cid, submit]) => idInTargetProblems(cid, submit, known, names));
+}
+
+/** Where a `field` id says its record must be found.
+ *
+ *  A typo passes every other check: the rules look the record up in a
+ *  collection that does not exist, the lookup can never succeed, and every
+ *  submission is refused with no explanation anywhere. A collection pointing
+ *  at ITSELF is worse than a typo — on a create the document being written
+ *  does not exist yet, so it is a declaration that can never accept anything. */
+function idInTargetProblems(cid: string, submit: AuthoredSubmit, known: ReadonlySet<string>, names: string): string[] {
+  const target = submit.idIn?.collection;
+  if (target === undefined) return [];
+  if (target === cid) {
+    return [
+      `public.submit.${cid}.idIn.collection names '${cid}' itself: a create writes a document that does not exist yet, so the record can never be found ` +
+        "and every submission is refused. Name the collection of the thing being claimed (the slots, the seats, the assets).",
+    ];
+  }
+  if (!known.has(target)) {
+    return [
+      `public.submit.${cid}.idIn.collection names '${target}', which is not a shared collection in this repository. The rules look the record up there, ` +
+        `so nothing can ever be submitted. Shared collections here: ${names}.`,
+    ];
+  }
+  return [];
+}
+
 /** The staged reveal reads its flag off the PARENT record, so the path to that
  *  parent is not optional decoration — without it the gate never opens. */
 function gateCoherenceProblems(cid: string, collection: AuthoredCollectionConfig): string[] {
@@ -404,6 +440,7 @@ export function publishProblems(app: AuthoredApp, collections: readonly Publisha
     ...assigneeProblems(app),
     ...stampProblems(app),
     ...windowRefProblems(app, collections),
+    ...idTargetProblems(app, collections),
     ...mirrorProblems(app, collections),
     ...publicViewProblems(app, collections),
   ];
@@ -624,9 +661,15 @@ function publicViewProblems(app: AuthoredApp, collections: readonly PublishableC
   const known = new Set(collections.map((collection) => collection.cid));
   const readable = new Set(app.public?.read ?? []);
   const problems: string[] = [];
-  if (!view.path.startsWith("views/") || !view.path.endsWith(".html")) {
+  // Exactly one basename under views/. A prefix-and-suffix test accepts
+  // `views/../../secrets.html`, and the HOST reads this value as a path to
+  // publish -- so a declaration could hand any HTML file in the checkout to
+  // the world, onto a document whose rule is `allow read: if true`.
+  if (!/^views\/[^/]+\.html$/.test(view.path)) {
     problems.push(
-      `public.view.path is '${view.path}': a published view is one HTML file inside the collection's own views/ directory (e.g. views/booking.html).`,
+      `public.view.path is '${view.path}': a published view is exactly one HTML file directly inside the collection's own views/ directory ` +
+        "(e.g. views/booking.html) — no sub-directories, and no segments that climb out of it. The host reads this as a file to publish, " +
+        "and what it publishes is world-readable.",
     );
   }
   for (const cid of view.collections) {
@@ -674,6 +717,10 @@ function publicViewProblems(app: AuthoredApp, collections: readonly PublishableC
 export function promotedRoleProblems(app: AuthoredApp, staged: { cid: string; doc: StagedSchemaDoc }[]): string[] {
   const promoted = stagedRuleConfig(staged).collections ?? {};
   const stagedCids = new Set(staged.map((entry) => entry.cid));
+  return [...promotedAssigneeProblems(app, promoted, stagedCids), ...promotedMirrorProblems(app, promoted, stagedCids)];
+}
+
+function promotedAssigneeProblems(app: AuthoredApp, promoted: Record<string, AuthoredCollectionConfig>, stagedCids: ReadonlySet<string>): string[] {
   return Object.entries(app.members).flatMap(([email, roles]) =>
     Object.entries(roles).flatMap(([cid, role]) => {
       // A cid with nothing staged at all is the host's "not staged, so there is
@@ -689,4 +736,34 @@ export function promotedRoleProblems(app: AuthoredApp, staged: { cid: string; do
       ];
     }),
   );
+}
+
+/** The mirror's other half, checked against what publish will actually
+ *  promote — the same trap as the assignee's field, reached by the same route.
+ *
+ *  `mirror` is published from the MANIFEST (it lives in `public.submit`) while
+ *  `mirrorOf` is promoted from what DEPLOY staged. Add both halves to
+ *  `app.json` and publish without redeploying, and what lands is a submission
+ *  demanding a paired projection write beside a projection whose rule config
+ *  does not allow it: every booking is refused, and the declaration on disk
+ *  looks perfectly sound.
+ *
+ *  Refused in the reverse direction too. Removing `mirrorOf` from a live app
+ *  and publishing without a deploy leaves the projection accepting nothing —
+ *  and removing it FROM the staged side while the submission still demands it
+ *  is the drift this pair exists to prevent. */
+function promotedMirrorProblems(app: AuthoredApp, promoted: Record<string, AuthoredCollectionConfig>, stagedCids: ReadonlySet<string>): string[] {
+  return Object.entries(app.public?.submit ?? {}).flatMap(([cid, submit]) => {
+    const { mirror } = submit;
+    // Nothing staged at all is the host's own refusal, which names every
+    // missing collection at once.
+    if (mirror === undefined || !stagedCids.has(mirror)) return [];
+    if (promoted[mirror]?.mirrorOf === cid) return [];
+    return [
+      `public.submit.${cid}.mirror names '${mirror}', and the STAGED version of '${mirror}' — the one publish promotes — does not declare mirrorOf: "${cid}", ` +
+        "even if app.json declares it now. Publish writes the submission side from app.json and the collection side from the deploy, so what lands is a " +
+        "booking that must move its projection beside a projection that refuses to move: every submission is denied, with nothing on the page to say why. " +
+        "Run deploy again, so the version being published is the one the declaration describes.",
+    ];
+  });
 }
