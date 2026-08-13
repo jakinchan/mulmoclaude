@@ -7,6 +7,7 @@
 // the host must never write outside the target skill dir even if the manifest is
 // malformed/poisoned.
 
+import { isUnknownArray } from "@mulmoclaude/common";
 import { isRecord } from "../guards.js";
 import { fetchCollectionFile, parseJsonObject, rawBaseForEntry } from "./collectionFiles.js";
 import type { RegistryEntry } from "../registryIndex.js";
@@ -25,11 +26,21 @@ export function isSafeBundlePath(rel: unknown): rel is string {
 
 export type ManifestResult = { ok: true; files: string[] } | { ok: false; error: string };
 
+/** A rejected entry, rendered for the error message. A string prints as itself —
+ *  the overwhelmingly common case, and what this always used to print. Anything
+ *  else goes through JSON so a poisoned manifest shows its actual value rather
+ *  than `[object Object]`. */
+const showUnsafe = (entry: unknown): string => (typeof entry === "string" ? entry : JSON.stringify(entry));
+
 export function parseManifest(value: unknown): ManifestResult {
-  if (!isRecord(value) || !Array.isArray(value.files)) return { ok: false, error: "manifest is missing a files[] array" };
-  const unsafe = value.files.find((file) => !isSafeBundlePath(file));
-  if (unsafe !== undefined) return { ok: false, error: `manifest contains an unsafe path: ${String(unsafe)}` };
-  return { ok: true, files: value.files.filter(isSafeBundlePath) };
+  // `isUnknownArray`, not `Array.isArray`: the latter narrows `unknown` to
+  // `any[]`, so every element read below would be `any`. The elements stay
+  // `unknown` until `isSafeBundlePath`, a type predicate, narrows them.
+  const files = isRecord(value) ? value.files : undefined;
+  if (!isUnknownArray(files)) return { ok: false, error: "manifest is missing a files[] array" };
+  const unsafe = files.find((file) => !isSafeBundlePath(file));
+  if (unsafe !== undefined) return { ok: false, error: `manifest contains an unsafe path: ${showUnsafe(unsafe)}` };
+  return { ok: true, files: files.filter(isSafeBundlePath) };
 }
 
 /** `data/collections/<localSlug>/items` — the host owns dataPath, never the

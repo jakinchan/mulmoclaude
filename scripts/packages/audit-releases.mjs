@@ -41,15 +41,17 @@ const RELEASE_MANIFEST_KEYS = [
 // or anything else says so there. README is included by npm whether or not `files`
 // lists it, so an edit there changes the published artifact too.
 const BUILD_INPUT_DIRS = ["src", "bin"];
-export const shippedRoots = (pkg) =>
-  (Array.isArray(pkg.files) ? pkg.files : [])
-    .map((entry) =>
-      entry
-        .replace(/^\.\//, "")
-        .replace(/\/?\*+.*$/, "")
-        .replace(/\/$/, ""),
-    )
-    .filter(Boolean);
+/** A `files` entry reduced to the directory it ships from: `./dist/**` → `dist`.
+ *  Scanned rather than matched with `/\/?\*+.*$/`, whose unanchored `.*` costs
+ *  O(n²) on a long entry. */
+const shippedRoot = (entry) => {
+  const bare = entry.startsWith("./") ? entry.slice(2) : entry;
+  const star = bare.indexOf("*");
+  const cut = star === -1 ? bare : bare.slice(0, star > 0 && bare[star - 1] === "/" ? star - 1 : star);
+  return cut.endsWith("/") ? cut.slice(0, -1) : cut;
+};
+
+export const shippedRoots = (pkg) => (Array.isArray(pkg.files) ? pkg.files : []).map(shippedRoot).filter(Boolean);
 
 // Sources that feed a package's tarball from OUTSIDE its own directory, as
 // repo-root-relative paths. Declared per package rather than inferred: a diff

@@ -54,7 +54,14 @@ const WORKSPACE_RUNTIME_ENTRIES = [
 
 const SERVER_LOG_DIR = ["server", "system", "logs"] as const;
 
-const toPosix = (filePath: string): string => filePath.replace(/\\/g, "/").replace(/\/+$/, "");
+// Trailing slashes come off by scanning rather than by `/\/+$/`, which
+// backtracks super-linearly on a long run of them.
+const toPosix = (filePath: string): string => {
+  const slashed = filePath.replace(/\\/g, "/");
+  let end = slashed.length;
+  while (end > 0 && slashed[end - 1] === "/") end -= 1;
+  return slashed.slice(0, end);
+};
 
 const isInside = (candidate: string, directory: string): boolean => candidate === directory || candidate.startsWith(`${directory}/`);
 
