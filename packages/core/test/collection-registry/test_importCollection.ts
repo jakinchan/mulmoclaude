@@ -63,15 +63,39 @@ describe("parseManifest", () => {
   // circular object and on a bigint, and this runs only while REJECTING — a
   // throw would turn a `{ ok: false }` the caller handles into an exception it
   // does not expect.
+  // Adversarial rather than representative: the input is `unknown`, so the
+  // rendering has to survive a value that fights back. Every escape hatch short
+  // of `typeof` runs user code — `String` calls `toString`/`valueOf`,
+  // `Object.prototype.toString` reads `Symbol.toStringTag`, and a proxy traps
+  // all of it.
   it("rejects, rather than throws, on an entry that cannot be stringified", () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;
+    const hostileProxy = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("trap");
+        },
+        ownKeys() {
+          throw new Error("keys");
+        },
+      },
+    );
+    const throwingTag = {
+      get [Symbol.toStringTag](): string {
+        throw new Error("tag");
+      },
+    };
     const throwingToString = {
       toString() {
         throw new Error("boom");
       },
+      valueOf() {
+        throw new Error("val");
+      },
     };
-    for (const entry of [circular, 1n, Symbol("s"), () => 1, throwingToString]) {
+    for (const entry of [circular, 1n, hostileProxy, throwingTag, throwingToString, Symbol("s"), () => 1]) {
       const result = parseManifest({ files: ["SKILL.md", entry] });
       assert.equal(result.ok, false);
       if (!result.ok) assert.match(result.error, /unsafe path/);

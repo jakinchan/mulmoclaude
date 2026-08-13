@@ -31,11 +31,9 @@ export type ManifestResult = { ok: true; files: string[] } | { ok: false; error:
  *  else goes through JSON so a poisoned manifest shows its actual value rather
  *  than `[object Object]`.
  *
- *  Never throws. `JSON.stringify` does — on a circular object, on a `bigint` —
- *  and this function only ever runs on the REJECTION path, so a throw here
- *  would turn a `{ ok: false }` the caller can handle into an exception it
- *  cannot. `Object.prototype.toString` is the one renderer with no user code
- *  in it. */
+ *  Never throws. This runs only on the REJECTION path, so a throw here would
+ *  turn a `{ ok: false }` the caller can handle into an exception it cannot —
+ *  and the input is `unknown`, i.e. whatever a caller passed. */
 const showUnsafe = (entry: unknown): string => {
   if (typeof entry === "string") return entry;
   try {
@@ -43,7 +41,11 @@ const showUnsafe = (entry: unknown): string => {
     // the value `undefined`, and those still deserve a name in the message.
     return JSON.stringify(entry) ?? String(entry);
   } catch {
-    return Object.prototype.toString.call(entry);
+    // EVERY other rendering runs user code and can throw again: `String` calls
+    // `toString`/`valueOf`, `Object.prototype.toString` reads
+    // `Symbol.toStringTag`, and a proxy traps all of them. `typeof` reads
+    // nothing off the value, so it is the only one that cannot fail.
+    return `<unprintable ${typeof entry}>`;
   }
 };
 
