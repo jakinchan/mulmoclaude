@@ -47,6 +47,10 @@ test-results-live/
 # those two files, so scheduler state / roles / dashboard and friends stay
 # uncommittable. Prettier reads .gitignore, so this also keeps `yarn format`
 # off files the running app rewrites (#2873).
+#
+# Committing a NEW file here takes a negation in two places: below, and in
+# `eslint.config.mjs`'s ignores. `git add` refuses an ignored path outright,
+# so the first half announces itself; the eslint half does not.
 /config/*
 !/config/eslint.packages.mjs
 !/config/tsconfig.packages.json
