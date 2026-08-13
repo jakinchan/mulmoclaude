@@ -62,7 +62,31 @@ test("the shared-app compiler is not here, and must not come back", () => {
   // `sharedapp` while this package's tests passed on its own copy.
   //
   // mulmoterminal plans/refactor-shared-app-module.md
-  for (const name of ["projectApp", "projectAppViews", "projectDeploy", "projectPublish", "AuthoredAppZ", "publishProblems", "normalizeViews"]) {
+  // At least two names per moved file, so a partial re-export — one that put
+  // back the manifest but not the projection, say — cannot slip through on the
+  // strength of a single representative.
+  const moved = [
+    // publishManifest
+    "AuthoredAppZ",
+    "parseAuthoredApp",
+    "APP_ROLES",
+    // appViews
+    "normalizeViews",
+    "participantScope",
+    "writeFor",
+    // publishProject
+    "projectApp",
+    "projectAppViews",
+    "projectDeploy",
+    "projectPublish",
+    "appViewTierPath",
+    "APPS_COLLECTION",
+    // publishChecks
+    "publishProblems",
+    "promotedRoleProblems",
+    "bindsSubmitterIdentity",
+  ];
+  for (const name of moved) {
     assert.equal(name in server, false, `${name} belongs to receptron/sharedapp`);
   }
 });
