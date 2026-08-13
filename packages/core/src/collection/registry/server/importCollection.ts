@@ -38,8 +38,11 @@ export function parseManifest(value: unknown): ManifestResult {
   // `unknown` until `isSafeBundlePath`, a type predicate, narrows them.
   const files = isRecord(value) ? value.files : undefined;
   if (!isUnknownArray(files)) return { ok: false, error: "manifest is missing a files[] array" };
-  const unsafe = files.find((file) => !isSafeBundlePath(file));
-  if (unsafe !== undefined) return { ok: false, error: `manifest contains an unsafe path: ${showUnsafe(unsafe)}` };
+  // `findIndex`, not `find`: `find` answers `undefined` both for "nothing
+  // unsafe" and for "the unsafe entry IS `undefined`", so an `undefined` (or a
+  // hole) read as a clean manifest and `filter` then dropped it silently.
+  const unsafeIndex = files.findIndex((file) => !isSafeBundlePath(file));
+  if (unsafeIndex !== -1) return { ok: false, error: `manifest contains an unsafe path: ${showUnsafe(files[unsafeIndex])}` };
   return { ok: true, files: files.filter(isSafeBundlePath) };
 }
 

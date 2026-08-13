@@ -35,6 +35,29 @@ describe("parseManifest", () => {
     assert.equal(result.ok, false);
     if (!result.ok) assert.match(result.error, /unsafe path/);
   });
+
+  // `find` answers `undefined` both for "nothing unsafe" and for "the unsafe
+  // entry IS `undefined`", so these read as clean manifests and `filter` then
+  // dropped the entry — reporting ok on a manifest that had a bad one. Not
+  // reachable through `fetchManifest`, whose input is always `JSON.parse`
+  // output, but `parseManifest` is exported from `@mulmoclaude/core`.
+  it("rejects an undefined entry rather than filtering it away", () => {
+    // Assigned past the end rather than written as `["a", , "b"]`, which is a
+    // sparse-array literal and a lint error. Index 1 is a genuine hole.
+    const withHole: string[] = ["SKILL.md"];
+    withHole[2] = "b.json";
+    for (const bad of [{ files: ["SKILL.md", undefined] }, { files: withHole }]) {
+      const result = parseManifest(bad);
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /unsafe path/);
+    }
+  });
+
+  // The reachable path: JSON has no `undefined`, so a null entry is what a
+  // poisoned manifest.json can actually carry. Guarded before and after.
+  it("rejects a null entry", () => {
+    assert.equal(parseManifest(JSON.parse('{"files":["SKILL.md",null]}')).ok, false);
+  });
 });
 
 describe("dataPath normalization", () => {
