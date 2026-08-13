@@ -28,6 +28,7 @@
 
 import type { CollectionFieldSpec, CollectionSchema } from "../core/schema";
 import { isSafeCustomViewPath } from "../core/templatePath";
+import { normalizeViews, participantScope, type NormalizedView } from "./appViews";
 import type { AuthoredApp, AuthoredCollectionConfig, AuthoredSubmit } from "./publishManifest";
 import { stagedRuleConfig, type StagedSchemaDoc } from "./publishProject";
 
@@ -444,7 +445,7 @@ export function publishProblems(app: AuthoredApp, collections: readonly Publisha
     ...windowRefProblems(app, collections),
     ...idTargetProblems(app, collections),
     ...mirrorProblems(app, collections),
-    ...publicViewProblems(app, collections),
+    ...viewProblems(app, collections),
   ];
 }
 
@@ -654,55 +655,75 @@ function mirrorOfProblems(app: AuthoredApp, cid: string, collection: AuthoredCol
   return [];
 }
 
-/** What the public view is handed. Declared, never inferred — a view whose
- *  datasets were guessed from `public.read` renders perfectly and draws an
- *  empty grid, with nothing in the page, the rules or the log to say why. */
-function publicViewProblems(app: AuthoredApp, collections: readonly PublishableCollection[]): string[] {
-  const view = app.public?.view;
-  if (view === undefined) return [];
+/** What each view is handed, and whether its audience can actually read it.
+ *
+ *  Declared, never inferred — a view whose datasets were guessed from
+ *  `public.read` renders perfectly and draws an empty grid, with nothing in
+ *  the page, the rules or the log to say why.
+ *
+ *  The reachability check below is that same failure, once per audience. A
+ *  `public` view naming a collection outside `public.read` draws nothing; a
+ *  `participant` view naming one the participant reaches by neither
+ *  `participantRead` nor their own row is worse, because an unscoped list on
+ *  an own-row collection is DENIED rather than narrowed — the page does not
+ *  render less, it fails.
+ *
+ *  There is deliberately no such check for `member`. Every read a role opens
+ *  is unscoped, and WHICH role a given member holds is not a property of the
+ *  declaration: a stylist scoped to `bookings` and an owner read the same
+ *  projection. That one is settled at the entrance, by trying the read. */
+/** The path, for one view. The SAME validator the host's own custom views use,
+ *  rather than a second opinion about what a safe view path is.
+ *
+ *  Two ad-hoc attempts were wrong here in the same afternoon: a prefix-and-
+ *  suffix test let `views/../../secrets.html` through, and `views/[^/]+\.html`
+ *  still let `views/..\..\secrets.html` through, because a backslash is not a
+ *  slash on this side of the check and IS a separator on Windows. This one
+ *  rejects `..`, backslashes, leading slashes and anything outside
+ *  `[A-Za-z0-9._-]` per segment.
+ *
+ *  It matters more here than for a host view: the host reads this path to
+ *  decide which file to copy onto a document other people read — for a public
+ *  view, a document whose rule is `allow read: if true`, so the blast radius of
+ *  a bad path is the world rather than the author's own iframe. Nested paths
+ *  ARE allowed by the shared validator; the extra `views/<one name>.html` shape
+ *  is this publisher's own narrowing, kept because there is no reason for a
+ *  published view to live in a subdirectory. */
+function viewPathProblems(view: NormalizedView): string[] {
+  if (isSafeCustomViewPath(view.path) && view.path.split("/").length === 2) return [];
+  return [
+    `${view.where}.path is '${view.path}': a published view is exactly one HTML file directly inside the collection's own views/ directory ` +
+      "(e.g. views/booking.html) — no sub-directories, and no segments that climb out of it. The host reads this as a file to publish.",
+  ];
+}
+
+/** One dataset, for one view: does it exist here, and can the audience it is
+ *  handed to actually read it? */
+function viewCollectionProblems(app: AuthoredApp, view: NormalizedView, cid: string, known: ReadonlySet<string>): string[] {
+  if (!known.has(cid)) {
+    return [
+      `${view.where}.collections names '${cid}', which is not a shared collection in this repository. ` +
+        `Shared collections here: ${known.size > 0 ? [...known].sort().join(", ") : "(none)"}.`,
+    ];
+  }
+  if (view.audience === "public" && !(app.public?.read ?? []).includes(cid)) {
+    return [
+      `${view.where}.collections names '${cid}', which is not in public.read: the page reads these with the VISITOR's permissions, so the rules refuse the ` +
+        "read and the view draws an empty page. Nothing errors — this is the failure that looks like a working view with no data.",
+    ];
+  }
+  // No participant check here. Whether a participant reaches a collection
+  // depends on `participantRead`, and publish does not promote the manifest's
+  // — it promotes the STAGED schemas'. That check belongs with the other
+  // promoted-pair ones, in `promotedRoleProblems`.
+  return [];
+}
+
+function viewProblems(app: AuthoredApp, collections: readonly PublishableCollection[]): string[] {
+  const normalized = normalizeViews(app);
+  if (!normalized.ok) return normalized.problems;
   const known = new Set(collections.map((collection) => collection.cid));
-  const readable = new Set(app.public?.read ?? []);
-  const problems: string[] = [];
-  // The SAME validator the host's own custom views use, rather than a second
-  // opinion about what a safe view path is.
-  //
-  // Two ad-hoc attempts were wrong here in the same afternoon: a prefix-and-
-  // suffix test let `views/../../secrets.html` through, and `views/[^/]+\.html`
-  // still let `views/..\..\secrets.html` through, because a backslash is not a
-  // slash on this side of the check and IS a separator on Windows. This one
-  // rejects `..`, backslashes, leading slashes and anything outside
-  // `[A-Za-z0-9._-]` per segment.
-  //
-  // It matters more here than for a host view: the host reads this path to
-  // decide which file to copy onto a document whose rule is
-  // `allow read: if true`, so the blast radius of a bad path is the world
-  // rather than the author's own iframe. Nested paths ARE allowed by the
-  // shared validator; the extra `views/<one name>.html` shape below is this
-  // publisher's own narrowing, kept because there is no reason for a published
-  // view to live in a subdirectory.
-  if (!isSafeCustomViewPath(view.path) || view.path.split("/").length !== 2) {
-    problems.push(
-      `public.view.path is '${view.path}': a published view is exactly one HTML file directly inside the collection's own views/ directory ` +
-        "(e.g. views/booking.html) — no sub-directories, and no segments that climb out of it. The host reads this as a file to publish, " +
-        "and what it publishes is world-readable.",
-    );
-  }
-  for (const cid of view.collections) {
-    if (!known.has(cid)) {
-      problems.push(
-        `public.view.collections names '${cid}', which is not a shared collection in this repository. ` +
-          `Shared collections here: ${known.size > 0 ? [...known].sort().join(", ") : "(none)"}.`,
-      );
-      continue;
-    }
-    if (!readable.has(cid)) {
-      problems.push(
-        `public.view.collections names '${cid}', which is not in public.read: the page reads these with the VISITOR's permissions, so the rules refuse the ` +
-          "read and the view draws an empty page. Nothing errors — this is the failure that looks like a working view with no data.",
-      );
-    }
-  }
-  return problems;
+  return normalized.views.flatMap((view) => [...viewPathProblems(view), ...view.collections.flatMap((cid) => viewCollectionProblems(app, view, cid, known))]);
 }
 
 /** What publish will actually promote, checked as the PAIR it becomes.
@@ -736,7 +757,35 @@ export function promotedRoleProblems(app: AuthoredApp, staged: { cid: string; do
     ...promotedAssigneeProblems(app, promoted, stagedCids),
     ...promotedMirrorProblems(app, promoted, stagedCids),
     ...promotedRefFieldProblems(app, staged),
+    ...promotedParticipantViewProblems(app, staged),
   ];
+}
+
+/** A participant's page, checked against the `participantRead` publish will
+ *  actually PROMOTE.
+ *
+ *  Not against the manifest's. `projectPublish` overwrites `participantRead`
+ *  with what the staged schemas carry, so a cid added to the manifest since the
+ *  last deploy is not in the rules — and a page written for it would be
+ *  published, offered, and then refused the read. The manifest half of this
+ *  file cannot see that; the promoted half can, which is why the check lives
+ *  here rather than beside the other view checks. */
+function promotedParticipantViewProblems(app: AuthoredApp, staged: { cid: string; doc: StagedSchemaDoc }[]): string[] {
+  const normalized = normalizeViews(app);
+  if (!normalized.ok) return [];
+  const participantRead = stagedRuleConfig(staged).participantRead ?? [];
+  return normalized.views
+    .filter((view) => view.audience === "participant")
+    .flatMap((view) =>
+      view.collections
+        .filter((cid) => participantScope(app, cid, participantRead) === null)
+        .map(
+          (cid) =>
+            `${view.where}.collections names '${cid}', which a participant cannot read once this publishes: it is not in the participantRead that DEPLOY ` +
+            `staged, and public.submit.${cid} declares neither an emailField nor idFrom "auth.uid", so there is no row the rules would call theirs. ` +
+            "The page would be refused the read, not handed fewer records. (Adding it to participantRead in app.json is not enough — deploy first.)",
+        ),
+    );
 }
 
 /** The FIELDS a rule reads off another record — `idIn.where.field` and the two

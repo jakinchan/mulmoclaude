@@ -38,6 +38,17 @@
 
 import { isRecord } from "@mulmoclaude/common";
 import type { CollectionSchema } from "../core/schema";
+import {
+  normalizeViews,
+  participantScope,
+  VIEW_CONFIG_ID,
+  VIEW_TIER,
+  viewDocId,
+  type AppViewConfigDoc,
+  type NormalizedView,
+  type ProjectedViewCollection,
+  type ViewAudience,
+} from "./appViews";
 import type { AuthoredApp, AuthoredCollectionConfig, AuthoredSubmit } from "./publishManifest";
 
 /** Who and when. Threaded in rather than read from a clock inside the
@@ -273,11 +284,22 @@ export function projectApp(
     previousPublished: previousOf(existing),
   });
 
+  // Refusals belong to the gate (`publishProblems`), which has already run by
+  // the time anything is projected. A declaration that cannot be normalized
+  // here is a programming error, and projecting half of it would publish a
+  // page with no data.
+  const normalized = normalizeViews(authored);
+  if (!normalized.ok) throw new Error(`publish: views declaration is not publishable (${normalized.problems.join(" ")})`);
+  const publicView = normalized.views.find((view) => view.audience === "public");
+
   const config: PublishedConfigDoc = {
     enabled: authored.public?.enabled === true,
     read: authored.public?.read ?? [],
     submit,
-    ...(authored.public?.view === undefined ? {} : { view: { collections: authored.public.view.collections } }),
+    // Read through the normalization, not off `public.view`: an app that
+    // declares its public page in `views[]` must publish the same document, or
+    // the page has the HTML and no idea what to send it.
+    ...(publicView === undefined ? {} : { view: { collections: publicView.collections } }),
     publishedAt: stamp.publishedAt,
   };
   if (authored.name !== undefined) config.name = authored.name;
@@ -521,3 +543,93 @@ export const appSlugDoc = (aid: string, published: boolean): AppSlugDoc => ({ ai
 export const appStagingPath = (aid: string): string => `apps/${aid}/staging`;
 /** The public-config documents' parent path. */
 export const appConfigPath = (aid: string): string => `apps/${aid}/config`;
+
+/** Where one audience's pages live. `member` is read by anyone holding a role;
+ *  `roster` by anyone on the roster, participants included. */
+export const appViewTierPath = (aid: string, tier: "member" | "roster"): string => `apps/${aid}/${tier}`;
+
+/** One audience's tier, as publish (or deploy) must write it.
+ *
+ *  Both tiers are returned even when empty, deliberately. An app that WITHDREW
+ *  its member pages produces an empty tier, and a host that only ever saw the
+ *  tiers with something in them would leave the previous pages live — the
+ *  failure `config/view` already had, where a declaration was withdrawn and
+ *  the world went on reading the page. */
+export interface AppViewTier {
+  tier: "member" | "roster";
+  audience: Exclude<ViewAudience, "public">;
+  /** The projection document, for `{tier}/live:config` or `{tier}/staged:config`.
+   *  Meaningless when `views` is empty — the host deletes the tier instead. */
+  config: AppViewConfigDoc;
+  /** The views to publish, in declaration order. The host reads each `path`
+   *  and writes it to `{tier}/live:{id}`. */
+  views: NormalizedView[];
+}
+
+/** What one audience may see of one collection.
+ *
+ *  For `member` this is always the whole collection: every read branch a role
+ *  opens (`readerOf`) is unscoped. Whether THIS member holds the role is not
+ *  knowable here — one projection is read by every member of the tier — and is
+ *  settled where it can be, by the entrance trying the read.
+ *
+ *  For `participant` it is the rules' own answer, which is why it can be null:
+ *  a participant with neither `participantRead` nor an own-row submit path
+ *  cannot read the collection at all, and a page handed it would fail rather
+ *  than render less. */
+function scopeFor(
+  authored: AuthoredApp,
+  audience: Exclude<ViewAudience, "public">,
+  cid: string,
+  participantRead: readonly string[],
+): ProjectedViewCollection | null {
+  return audience === "member" ? { cid, scope: "all" } : participantScope(authored, cid, participantRead);
+}
+
+/** Project the declaration into the per-audience documents.
+ *
+ *  Pure, like `projectApp`: the HTML is not here (the host reads the files),
+ *  and neither is the clock. What is here is the answer to "what may this
+ *  audience read, and how" — computed once, so the page never has to guess and
+ *  never has to discover it from a denial. */
+export function projectAppViews(authored: AuthoredApp, stamp: PublishStamp, promoted?: { participantRead?: readonly string[] }): AppViewTier[] {
+  // What the RULES will say, not what the manifest says. Publish replaces
+  // `participantRead` with the staged schemas' own (see `projectPublish`), so
+  // at publish the caller passes that; at deploy the manifest IS what is being
+  // staged, and the default is right.
+  const participantRead = promoted?.participantRead ?? authored.participantRead ?? [];
+  const normalized = normalizeViews(authored);
+  if (!normalized.ok) throw new Error(`publish: views declaration is not publishable (${normalized.problems.join(" ")})`);
+  const audiences: Exclude<ViewAudience, "public">[] = ["member", "participant"];
+  return audiences.map((audience) => {
+    const views = normalized.views.filter((view) => view.audience === audience);
+    const cids = [...new Set(views.flatMap((view) => view.collections))];
+    const declaredSubmit = authored.public?.submit ?? {};
+    const submit = Object.fromEntries(
+      cids.flatMap((cid) => {
+        const spec = declaredSubmit[cid];
+        return spec === undefined ? [] : [[cid, projectSubmit(spec)] as const];
+      }),
+    );
+    const config: AppViewConfigDoc = {
+      views: views.map((view) => ({
+        id: view.id,
+        // A collection with no scope is dropped rather than published as
+        // unreachable: the gate has already refused the declaration, so
+        // reaching here with one is a programming error, and a page that
+        // queries it is denied.
+        collections: view.collections
+          .map((cid) => scopeFor(authored, audience, cid, participantRead))
+          .filter((scope): scope is ProjectedViewCollection => scope !== null),
+      })),
+      submit,
+      publishedAt: stamp.publishedAt,
+    };
+    if (authored.name !== undefined) config.name = authored.name;
+    return { tier: VIEW_TIER[audience], audience, config, views };
+  });
+}
+
+/** The document a tier's projection is published at. Beside the views
+ *  themselves, under one `match` — see `firestore.rules`. */
+export const viewConfigDocId = (stage: "live" | "staged"): string => viewDocId(stage, VIEW_CONFIG_ID);

@@ -39,6 +39,9 @@
 import { z } from "zod";
 import { isValidCollectionName } from "../core/collectionKey";
 import { parseAppManifest, type AppManifestResult } from "./appManifest";
+// Values only; `appViews` imports nothing but types from here, so the pair is
+// not a runtime cycle.
+import { VIEW_AUDIENCES } from "./appViews";
 
 /** A collection id / app id, held to the one name rule (`SAFE_SLUG_PATTERN`)
  *  that `sharedCollectionKey` applies. Stated once so a path built later
@@ -290,6 +293,31 @@ const PublicZ = z
   })
   .strict();
 
+/** One page the app shows, and who it is for.
+ *
+ *  Generalised from `public.view` (which is still accepted, and normalizes
+ *  into this — see `appViews.ts`). The audience is what decides which document
+ *  the HTML is published to, and therefore who may read it: a rule cannot hide
+ *  a field, so "the front desk sees this" is a place, not a filter.
+ *
+ *  `id` is not decoration. It becomes the document id the page is published
+ *  at, which is what lets one audience have more than one page — the front
+ *  desk and the stock room — and what lets a withdrawn view be found and
+ *  deleted. Its grammar is enforced at the gate, not here, so the refusal can
+ *  say what the value is used for.
+ *
+ *  `collections` is declared rather than inferred, for the reason `public.view`
+ *  gives: an inferred list renders a perfect page with no data in it, and
+ *  nothing anywhere says why. */
+const ViewZ = z
+  .object({
+    id: z.string().trim().min(1),
+    audience: z.enum(VIEW_AUDIENCES),
+    path: z.string().trim().min(1),
+    collections: z.array(NameZ).min(1),
+  })
+  .strict();
+
 /** The URL name an app is handed out under: `https://<host>/{slug}`.
  *
  *  A SEPARATE name from the `aid`, and that separation is the point (design
@@ -349,6 +377,9 @@ export const AuthoredAppZ = z
     collections: z.record(NameZ, CollectionConfigZ).optional(),
     participantRead: z.array(NameZ).optional(),
     public: PublicZ.optional(),
+    /** The app's pages, per audience. See {@link ViewZ}; `public.view` is the
+     *  older spelling of the `public` one and normalizes into this list. */
+    views: z.array(ViewZ).optional(),
   })
   .strict();
 

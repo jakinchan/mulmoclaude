@@ -8,6 +8,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Added
+
+#### A shared app can declare a page per audience, not only a public one (#2877)
+
+`public.view` named ONE page, for anonymous visitors. `views[]` names as many as
+the app needs, each saying who it is for:
+
+```json
+"views": [
+  { "id": "public", "audience": "public", "path": "views/booking.html", "collections": ["slots"] },
+  { "id": "desk",   "audience": "member", "path": "views/desk.html",    "collections": ["bookings"] }
+]
+```
+
+`audience` decides which DOCUMENT the page is published to, and therefore who
+may read it — a rule cannot hide a field, so "the front desk sees this" is a
+place rather than a filter. `member` lands under `apps/{aid}/member` (anyone
+holding a role) and `participant` under `apps/{aid}/roster` (the whole roster);
+`public` keeps `config/view`, which is already deployed. `id` becomes the
+document id, so it carries a grammar rather than merely being unique.
+
+The declaration is projected PER TIER (`projectAppViews`). A participant cannot
+read `apps/{aid}` — their classmates' addresses are on it — so the datasets
+their page draws, and the field their own row is found by, can only reach them
+through their tier's own config. One shared projection could not serve both:
+handed the staff datasets, a participant's page builds a query the rules refuse,
+which fails rather than showing less.
+
+`public.view` still parses and normalizes to `id: "public"`. Declaring both is
+refused rather than resolved silently. Only one `public` view is allowed —
+`config/view` is a single document, so a second would be published nowhere and
+which was live would depend on declaration order.
+
+Publish refuses a `participant` page naming a collection a participant cannot
+reach, and judges that against the `participantRead` publish will PROMOTE (what
+deploy staged) rather than what `app.json` says now.
+
+Design: mulmoterminal `plans/feat-shared-app-member-view.md`. The rules are
+mulmoserver#168 and the runtime mulmoserver#169; both go out before a host
+writes any of this.
+
+### Package releases
+
+Ships `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@3.14.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
 ### Fixed
 
 #### A shared record's identity is its document id, not a field a submitter can name
