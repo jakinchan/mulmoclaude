@@ -58,7 +58,7 @@ interface ConfigCheck {
 
 // The effective value after `extends` resolution, never the literal text: 7 of
 // the 59 are `*.build.json` that inherit both flags from a sibling, and 34
-// inherit them from `config/tsconfig.packages.json`. A grep would call all 41
+// inherit them from `build-config/tsconfig.packages.json`. A grep would call all 41
 // of them violations.
 //
 // `tsc --showConfig` IS TypeScript's own resolver, so package-style
