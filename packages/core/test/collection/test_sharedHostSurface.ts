@@ -11,6 +11,11 @@
 // so it should fail HERE first — while the person doing it is still looking at
 // this package.
 //
+// WHAT IS LEFT HERE IS THE RUNTIME HALF. The shared-app COMPILER — the
+// declaration, the projections, the publish gate — moved to
+// `receptron/sharedapp`, which the host consumes by git ref. So this list got
+// SHORTER on purpose, and the reason is at the bottom of this file.
+//
 // Adding to this list is fine. Removing from it means a host is about to break.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -25,42 +30,41 @@ const HOST_SURFACE = [
   "setFirestoreAccessor",
   "firestoreHandle",
   // reading the repository's declaration
-  "parseAuthoredApp",
-  "AuthoredAppZ",
   "loadAppManifest",
   "APP_MANIFEST_FILE",
-  // the gates — what publish refuses, and which live records a schema breaks
-  "publishProblems",
-  // The pair publish actually writes: the staged configuration beside the
-  // manifest's roster. Separate from `publishProblems` because it needs what
-  // deploy staged, which is a read the host makes.
-  "promotedRoleProblems",
-  "bindsSubmitterIdentity",
+  // the gate over live RECORDS — which existing rows a schema change breaks.
+  // (What refuses a DECLARATION is `sharedapp`'s `publishProblems`.)
   "validateCollectionRecords",
   "MAX_RECORD_ISSUES",
   "STORE_UNREADABLE",
   // finding the collections to deploy
   "discoverCollections",
   "loadCollection",
-  // authored -> written: the deploy half, the publish half, and promotion
-  "projectApp",
-  "projectDeploy",
-  "projectPublish",
-  "promoteSchema",
-  // where each document lives, and the shapes the rules read
-  "APPS_COLLECTION",
-  "PUBLIC_CONFIG_DOC",
-  "appConfigPath",
-  "appSchemasPath",
-  "appStagingPath",
-  "APP_SLUGS_COLLECTION",
-  "appSlugDoc",
+  // where a shared collection's items live
   "sharedItemsPath",
 ];
 
 test("every symbol a shared-collection host imports is exported", () => {
   const missing = HOST_SURFACE.filter((name) => !(name in server));
   assert.deepEqual(missing, [], `not exported from @mulmoclaude/core/collection/server: ${missing.join(", ")}`);
+});
+
+test("the shared-app compiler is not here, and must not come back", () => {
+  // `app.json` -> the documents a published app is made of, and the gate that
+  // refuses a declaration, live in `receptron/sharedapp`. They left because
+  // nothing in THIS monorepo consumed them — MulmoClaude neither writes nor
+  // reads a shared collection — and every change to them was a release of this
+  // package that somebody had to publish by hand. In the 90 days before the
+  // split, 24 commits paid that toll.
+  //
+  // Re-adding one here would put the toll back for whatever it touches, and it
+  // would be the SECOND implementation: the host would keep compiling with
+  // `sharedapp` while this package's tests passed on its own copy.
+  //
+  // mulmoterminal plans/refactor-shared-app-module.md
+  for (const name of ["projectApp", "projectAppViews", "projectDeploy", "projectPublish", "AuthoredAppZ", "publishProblems", "normalizeViews"]) {
+    assert.equal(name in server, false, `${name} belongs to receptron/sharedapp`);
+  }
 });
 
 test("the engine exposes no whole-app publish operation", () => {
