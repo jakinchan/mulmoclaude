@@ -4,7 +4,7 @@
 
 After the scheduler runs, a commit-time check fails on a tree nobody edited:
 
-```
+```text
 [warn] config/scheduler/state.json
 [warn] Code style issues fixed in the above file.
 ```
