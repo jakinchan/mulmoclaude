@@ -1,0 +1,31 @@
+# Dependabot version updates.
+#
+# NOTE: security updates are a separate, repository-level setting and were
+# already running without this file (see the `dependabot/npm_and_yarn/*`
+# branches). Version updates require this file — which is why no
+# `actions/*` bump had ever been proposed, and every first-party action
+# drifted a full major behind. (#2875)
+#
+# npm is deliberately NOT listed: this is a ~50-workspace monorepo, so npm
+# version updates would open an impractical number of PRs. npm CVEs keep
+# arriving through security updates, so nothing is left uncovered.
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    # `github-actions` scans .github/workflows from the repository root.
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      # Match the existing npm security-update commits
+      # ("chore(deps): bump nanoid from 3.3.16 to 3.3.18").
+      prefix: "chore(deps)"
+    groups:
+      # One PR for all actions rather than one each. .github/zizmor.yml
+      # tag-pins first-party actions specifically to avoid Dependabot churn
+      # (#1423); a moving major tag (@v7) only triggers a PR when the MAJOR
+      # changes, so grouping keeps that to a single PR a few times a year.
+      github-actions:
+        patterns:
+          - "*"

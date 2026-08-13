@@ -41,7 +41,7 @@ jobs:
     outputs:
       run_e2e: ${{ steps.filter.outputs.run_e2e }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false  # no git push; zizmor artipacked
@@ -73,11 +73,11 @@ jobs:
         node-version: [22.x, 24.x]
         os: [ubuntu-latest, macos-latest]
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         persist-credentials: false  # no git push; zizmor artipacked
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@v7
       with:
         node-version: ${{ matrix.node-version }}
         cache: yarn
@@ -90,7 +90,7 @@ jobs:
     # restore-keys lets an unrelated lockfile change still land on a warm
     # browser (postinstall re-downloads only if the pinned revision differs).
     - name: Cache puppeteer browsers
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: ~/.cache/puppeteer
         key: puppeteer-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
@@ -105,7 +105,7 @@ jobs:
     # version because emitted JS can differ across them.
     - name: Cache packages/dist
       id: pkg-dist-cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           packages/*/dist
@@ -162,10 +162,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false  # no git push; zizmor artipacked
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24.x
       - name: Enable Yarn 4 via Corepack
@@ -217,11 +217,11 @@ jobs:
       matrix:
         shard: [1, 2]
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         persist-credentials: false  # no git push; zizmor artipacked
     - name: Use Node.js 22.x
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@v7
       with:
         node-version: 22.x
         cache: 'yarn'
@@ -231,7 +231,7 @@ jobs:
     # finishes building first warms the cache for the other.
     - name: Cache packages/dist
       id: pkg-dist-cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           packages/*/dist
@@ -255,7 +255,7 @@ jobs:
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
     - name: Cache Playwright browsers
       id: playwright-cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
