@@ -29,8 +29,23 @@ export type ManifestResult = { ok: true; files: string[] } | { ok: false; error:
 /** A rejected entry, rendered for the error message. A string prints as itself —
  *  the overwhelmingly common case, and what this always used to print. Anything
  *  else goes through JSON so a poisoned manifest shows its actual value rather
- *  than `[object Object]`. */
-const showUnsafe = (entry: unknown): string => (typeof entry === "string" ? entry : JSON.stringify(entry));
+ *  than `[object Object]`.
+ *
+ *  Never throws. `JSON.stringify` does — on a circular object, on a `bigint` —
+ *  and this function only ever runs on the REJECTION path, so a throw here
+ *  would turn a `{ ok: false }` the caller can handle into an exception it
+ *  cannot. `Object.prototype.toString` is the one renderer with no user code
+ *  in it. */
+const showUnsafe = (entry: unknown): string => {
+  if (typeof entry === "string") return entry;
+  try {
+    // `?? String(entry)`: JSON renders undefined / a function / a symbol as
+    // the value `undefined`, and those still deserve a name in the message.
+    return JSON.stringify(entry) ?? String(entry);
+  } catch {
+    return Object.prototype.toString.call(entry);
+  }
+};
 
 export function parseManifest(value: unknown): ManifestResult {
   // `isUnknownArray`, not `Array.isArray`: the latter narrows `unknown` to

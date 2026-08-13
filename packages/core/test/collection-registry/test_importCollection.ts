@@ -58,6 +58,25 @@ describe("parseManifest", () => {
   it("rejects a null entry", () => {
     assert.equal(parseManifest(JSON.parse('{"files":["SKILL.md",null]}')).ok, false);
   });
+
+  // Rendering the rejected entry must not throw: `JSON.stringify` does on a
+  // circular object and on a bigint, and this runs only while REJECTING — a
+  // throw would turn a `{ ok: false }` the caller handles into an exception it
+  // does not expect.
+  it("rejects, rather than throws, on an entry that cannot be stringified", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const throwingToString = {
+      toString() {
+        throw new Error("boom");
+      },
+    };
+    for (const entry of [circular, 1n, Symbol("s"), () => 1, throwingToString]) {
+      const result = parseManifest({ files: ["SKILL.md", entry] });
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /unsafe path/);
+    }
+  });
 });
 
 describe("dataPath normalization", () => {
