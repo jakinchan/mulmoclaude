@@ -186,36 +186,44 @@ test("the document id carries the stage, and the id the author wrote", () => {
 // when pressed, which is declaration and enforcement disagreeing.
 
 const STYLIST = "stylist@salon.jp";
+const RECEPTION = "reception@salon.jp";
+const OBSERVER = "observer@salon.jp";
 const CUSTOMER = "customer@example.jp";
+
+/** One roster carrying every role the rules distinguish, because the staff
+ *  tier's single document is read by all of them. */
+const SALON_MEMBERS = {
+  [OWNER]: { "*": "owner" },
+  [RECEPTION]: { bookings: "editor" },
+  [STYLIST]: { bookings: "assignee" },
+  // Holds a role, so `staffOf` admits them — and may write nothing.
+  [OBSERVER]: { bookings: "viewer" },
+  [CUSTOMER]: { "*": "participant" },
+};
+
+const SALON_COLLECTIONS = {
+  bookings: {
+    statusField: "status",
+    transitions: { initial: ["pending"], pending: ["approved", "rejected"], approved: ["done"] },
+    assigneeField: "stylistEmail",
+    mail: { toField: "email", on: { "booking-approved": { from: ["pending"], to: "approved" } } },
+  },
+};
+
+const SALON_PUBLIC = {
+  submit: {
+    bookings: { auth: "verifiedEmail", emailField: "email", createFields: ["email", "startAt"], selfTransitions: { pending: ["cancelled"] } },
+  },
+};
+
+const SALON_VIEWS = [
+  { id: "desk", audience: "member", path: "views/desk.html", collections: ["bookings"] },
+  { id: "mine", audience: "participant", path: "views/mine.html", collections: ["bookings"] },
+];
 
 /** A salon whose bookings are approved by staff and cancelled by the customer. */
 const salon = (overrides: Record<string, unknown> = {}) =>
-  app({
-    members: { [OWNER]: { "*": "owner" }, [STYLIST]: { bookings: "assignee" }, [CUSTOMER]: { "*": "participant" } },
-    collections: {
-      bookings: {
-        statusField: "status",
-        transitions: { initial: ["pending"], pending: ["approved", "rejected"], approved: ["done"] },
-        assigneeField: "stylistEmail",
-        mail: { toField: "email", on: { "booking-approved": { from: ["pending"], to: "approved" } } },
-      },
-    },
-    public: {
-      submit: {
-        bookings: {
-          auth: "verifiedEmail",
-          emailField: "email",
-          createFields: ["email", "startAt"],
-          selfTransitions: { pending: ["cancelled"] },
-        },
-      },
-    },
-    views: [
-      { id: "desk", audience: "member", path: "views/desk.html", collections: ["bookings"] },
-      { id: "mine", audience: "participant", path: "views/mine.html", collections: ["bookings"] },
-    ],
-    ...overrides,
-  });
+  app({ members: SALON_MEMBERS, collections: SALON_COLLECTIONS, public: SALON_PUBLIC, views: SALON_VIEWS, ...overrides });
 
 const writeOf = (authored: ReturnType<typeof app>, tier: "member" | "roster") =>
   projectAppViews(authored, STAMP)
@@ -232,15 +240,44 @@ test("the two audiences get DIFFERENT transition tables for the same field", () 
   assert.equal(theirs[0]?.statusField, "status");
 });
 
-test("assignment, and who may be assigned, reach the staff tier only", () => {
+test("the roster's answer to WHO may write travels with the declaration", () => {
+  // The point of the pair. One `member/config` is read by everybody the tier
+  // admits — the receptionist, the stylist scoped to their own rows, and an
+  // observer who may write nothing — and none of them can look their own role
+  // up (`apps/{aid}` is `readerOf(a, '*')`, which a per-collection role does
+  // not satisfy). Without these lists the page draws approve for all three and
+  // the rules refuse two of them when pressed.
+  const staff = writeOf(salon(), "member");
+  assert.deepEqual(staff[0]?.writers, [OWNER, RECEPTION].sort(), "owner and editor write every row");
+  assert.deepEqual(staff[0]?.rowWriters, [STYLIST], "the assignee writes only the rows assigned to them");
+  // A viewer is in neither, which is the whole difference between "holds a
+  // role" and "may change this".
+  assert.ok(!(staff[0]?.writers ?? []).includes(OBSERVER));
+  assert.ok(!(staff[0]?.rowWriters ?? []).includes(OBSERVER));
+  // And the assignment candidates are these two together — not published a
+  // third time, so a third list cannot disagree with the two the rules read.
+  assert.deepEqual([...(staff[0]?.writers ?? []), ...(staff[0]?.rowWriters ?? [])].sort(), [OWNER, RECEPTION, STYLIST].sort());
+});
+
+test("assignment, and every address, reach the staff tier only", () => {
   const staff = writeOf(salon(), "member");
   assert.equal(staff[0]?.assigneeField, "stylistEmail");
-  // The customer holds `participant` and the stylist holds `assignee`: naming
-  // a viewer or a participant writes a row nobody may touch afterwards.
-  assert.deepEqual(staff[0]?.assignees, [OWNER, STYLIST].sort());
   const theirs = writeOf(salon(), "roster");
   assert.equal(theirs[0]?.assigneeField, undefined);
-  assert.equal(theirs[0]?.assignees, undefined);
+  // A participant writes their own row, which the rules answer from the record
+  // rather than from a role — so an address list there would be a roster leak
+  // for nothing.
+  assert.equal(theirs[0]?.writers, undefined);
+  assert.equal(theirs[0]?.rowWriters, undefined);
+});
+
+test("the assignee role with no field to compare grants nothing, and says so", () => {
+  // `isAssigned` in the rules requires the field, so publishing `rowWriters`
+  // without one would name people who cannot write after all.
+  const noField = salon({ collections: { bookings: { statusField: "status", transitions: { pending: ["approved"] } } } });
+  const staff = writeOf(noField, "member");
+  assert.equal(staff[0]?.rowWriters, undefined);
+  assert.deepEqual(staff[0]?.writers, [OWNER, RECEPTION].sort(), "the unscoped writers are still named");
 });
 
 test("the mail a transition queues reaches the staff tier only", () => {
@@ -264,6 +301,27 @@ test("a status field with no table, and a table with no field, are both nothing"
   const noTable = salon({ collections: { bookings: { statusField: "status", assigneeField: "stylistEmail" } } });
   assert.equal(writeOf(noTable, "member")[0]?.transitions, undefined);
   assert.equal(writeOf(noTable, "member")[0]?.assigneeField, "stylistEmail");
+  // The OTHER tier reads a different table, so dropping the staff one must not
+  // take the customer's cancel with it: the two are independent declarations.
+  assert.deepEqual(writeOf(noTable, "roster")[0]?.transitions, { pending: ["cancelled"] });
+
   const noField = salon({ collections: { bookings: { transitions: { pending: ["approved"] } } } });
   assert.deepEqual(writeOf(noField, "member"), []);
+  // And with no status field there is nothing to write either table to, so the
+  // participant loses their move as well — for the same reason, not by accident.
+  assert.deepEqual(writeOf(noField, "roster"), []);
+});
+
+test("the write tables follow what publish PROMOTES, not what the manifest says", () => {
+  // The mirror of the `participantRead` case above, and the same failure: at
+  // publish `projectPublish` replaces `collections` with what the staged
+  // schemas carry, so a manifest edited since the last deploy would advertise
+  // transitions the live rules deny. Both halves are passed together — one
+  // without the other publishes datasets from revision A beside buttons from B.
+  const promoted = { collections: { bookings: { statusField: "status", transitions: { pending: ["approved"] } } } };
+  const staff = projectAppViews(salon({ collections: { bookings: { statusField: "state", transitions: { open: ["closed"] } } } }), STAMP, promoted)
+    .filter((entry) => entry.tier === "member")
+    .flatMap((entry) => entry.config.write);
+  assert.equal(staff[0]?.statusField, "status");
+  assert.deepEqual(staff[0]?.transitions, { pending: ["approved"] });
 });

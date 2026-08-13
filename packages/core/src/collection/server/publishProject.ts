@@ -594,44 +594,73 @@ function scopeFor(
  *  and neither is the clock. What is here is the answer to "what may this
  *  audience read, and how" — computed once, so the page never has to guess and
  *  never has to discover it from a denial. */
-export function projectAppViews(authored: AuthoredApp, stamp: PublishStamp, promoted?: { participantRead?: readonly string[] }): AppViewTier[] {
-  // What the RULES will say, not what the manifest says. Publish replaces
-  // `participantRead` with the staged schemas' own (see `projectPublish`), so
-  // at publish the caller passes that; at deploy the manifest IS what is being
-  // staged, and the default is right.
-  const participantRead = promoted?.participantRead ?? authored.participantRead ?? [];
+/** What the RULES will be in force with, as against what the manifest says.
+ *
+ *  `projectPublish` replaces BOTH `participantRead` and `collections` with what
+ *  the staged schemas carry, so at publish the promoted pair is what decides
+ *  whether a read is allowed and which transitions exist. They travel together
+ *  deliberately: passing one and not the other publishes a page whose datasets
+ *  follow revision A and whose buttons follow revision B.
+ *
+ *  At DEPLOY the manifest is exactly what is being staged, so the default is
+ *  right — and today deploy is the only caller, because publish PROMOTES the
+ *  staged documents rather than re-projecting them. */
+export interface PromotedRuleConfig {
+  participantRead?: readonly string[];
+  collections?: Record<string, AuthoredCollectionConfig>;
+}
+
+/** One tier's projection: what this audience may read, and what it may change. */
+function tierConfig(
+  authored: AuthoredApp,
+  audience: Exclude<ViewAudience, "public">,
+  views: NormalizedView[],
+  stamp: PublishStamp,
+  promoted: PromotedRuleConfig,
+): AppViewConfigDoc {
+  const cids = [...new Set(views.flatMap((view) => view.collections))];
+  const participantRead = promoted.participantRead ?? authored.participantRead ?? [];
+  const effective: AuthoredApp = promoted.collections === undefined ? authored : { ...authored, collections: promoted.collections };
+  const config: AppViewConfigDoc = {
+    // Every collection these views draw, asked what THIS audience may change
+    // about it. Read-only ones are absent rather than present and empty.
+    write: cids.map((cid) => writeFor(effective, audience, cid)).filter((entry): entry is ProjectedViewWrite => entry !== null),
+    views: views.map((view) => ({
+      id: view.id,
+      // A collection with no scope is dropped rather than published as
+      // unreachable: the gate has already refused the declaration, so
+      // reaching here with one is a programming error, and a page that
+      // queries it is denied.
+      collections: view.collections
+        .map((cid) => scopeFor(authored, audience, cid, participantRead))
+        .filter((scope): scope is ProjectedViewCollection => scope !== null),
+    })),
+    submit: tierSubmit(authored, cids),
+    publishedAt: stamp.publishedAt,
+  };
+  if (authored.name !== undefined) config.name = authored.name;
+  return config;
+}
+
+/** The submit declarations for the collections these views draw, so a page can
+ *  show what may be sent rather than discovering it from a denial. */
+function tierSubmit(authored: AuthoredApp, cids: string[]): Record<string, Record<string, unknown>> {
+  const declared = authored.public?.submit ?? {};
+  return Object.fromEntries(
+    cids.flatMap((cid) => {
+      const spec = declared[cid];
+      return spec === undefined ? [] : [[cid, projectSubmit(spec)] as const];
+    }),
+  );
+}
+
+export function projectAppViews(authored: AuthoredApp, stamp: PublishStamp, promoted: PromotedRuleConfig = {}): AppViewTier[] {
   const normalized = normalizeViews(authored);
   if (!normalized.ok) throw new Error(`publish: views declaration is not publishable (${normalized.problems.join(" ")})`);
   const audiences: Exclude<ViewAudience, "public">[] = ["member", "participant"];
   return audiences.map((audience) => {
     const views = normalized.views.filter((view) => view.audience === audience);
-    const cids = [...new Set(views.flatMap((view) => view.collections))];
-    const declaredSubmit = authored.public?.submit ?? {};
-    const submit = Object.fromEntries(
-      cids.flatMap((cid) => {
-        const spec = declaredSubmit[cid];
-        return spec === undefined ? [] : [[cid, projectSubmit(spec)] as const];
-      }),
-    );
-    const config: AppViewConfigDoc = {
-      // Every collection these views draw, asked what THIS audience may change
-      // about it. Read-only ones are absent rather than present and empty.
-      write: cids.map((cid) => writeFor(authored, audience, cid)).filter((entry): entry is ProjectedViewWrite => entry !== null),
-      views: views.map((view) => ({
-        id: view.id,
-        // A collection with no scope is dropped rather than published as
-        // unreachable: the gate has already refused the declaration, so
-        // reaching here with one is a programming error, and a page that
-        // queries it is denied.
-        collections: view.collections
-          .map((cid) => scopeFor(authored, audience, cid, participantRead))
-          .filter((scope): scope is ProjectedViewCollection => scope !== null),
-      })),
-      submit,
-      publishedAt: stamp.publishedAt,
-    };
-    if (authored.name !== undefined) config.name = authored.name;
-    return { tier: VIEW_TIER[audience], audience, config, views };
+    return { tier: VIEW_TIER[audience], audience, config: tierConfig(authored, audience, views, stamp, promoted), views };
   });
 }
 
