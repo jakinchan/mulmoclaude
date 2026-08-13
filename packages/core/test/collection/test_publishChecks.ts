@@ -714,6 +714,22 @@ test("refuses an idIn pointing at nothing, or at itself", () => {
   );
 });
 
+/** A staged collection as publish sees it: the schema deploy promoted, and
+ *  that collection's rule configuration. `slots` carries the three fields the
+ *  salon declaration reads off it — without them the ref-field check fires
+ *  first and a mirror test would pass on the wrong refusal. */
+const SLOT_FIELDS = { state: { type: "string" }, opensAt: { type: "number" }, closesAt: { type: "number" } };
+
+const stagedSalonDoc = (cid: string, config: Record<string, unknown>) => ({
+  cid,
+  doc: {
+    publishedSchema: { title: cid, icon: "event", primaryKey: "id", fields: cid === "slots" ? SLOT_FIELDS : {} },
+    deployedAt: 1,
+    deployedBy: OWNER,
+    config,
+  },
+});
+
 test("refuses a mirror whose other half was never deployed", () => {
   // The same trap as the assignee's field, reached the same way: publish takes
   // the submission side from app.json and the collection side from the DEPLOY.
@@ -721,17 +737,13 @@ test("refuses a mirror whose other half was never deployed", () => {
   // booking that must move its projection beside a projection that refuses to
   // move -- every submission denied, on a declaration that reads as correct.
   const declared = app(salonDraft() as unknown as Record<string, unknown>);
-  const stagedDoc = (cid: string, config: Record<string, unknown>) => ({
-    cid,
-    doc: { publishedSchema: { title: cid, icon: "event", primaryKey: "id", fields: {} }, deployedAt: 1, deployedBy: OWNER, config },
-  });
 
   // Sound on disk, which is why this needed a check of its own.
   assert.deepEqual(publishProblems(declared, SALON_CIDS, OWNER), []);
 
-  const stale = [stagedDoc("bookings", {}), stagedDoc("slots", {})];
+  const stale = [stagedSalonDoc("bookings", {}), stagedSalonDoc("slots", {})];
   refuses(promotedRoleProblems(declared, stale as never), "does not declare mirrorOf");
-  const fresh = [stagedDoc("bookings", {}), stagedDoc("slots", { mirrorOf: "bookings" })];
+  const fresh = [stagedSalonDoc("bookings", {}), stagedSalonDoc("slots", { mirrorOf: "bookings" })];
   assert.deepEqual(promotedRoleProblems(declared, fresh as never), []);
 });
 
@@ -746,17 +758,49 @@ test("refuses a mirror REMOVED from the declaration but not from the deploy", ()
   delete withoutPair.public.submit.bookings.mirror;
   delete withoutPair.collections.slots.mirrorOf;
   const declared = app(withoutPair as unknown as Record<string, unknown>);
-  const stagedDoc = (cid: string, config: Record<string, unknown>) => ({
-    cid,
-    doc: { publishedSchema: { title: cid, icon: "event", primaryKey: "id", fields: {} }, deployedAt: 1, deployedBy: OWNER, config },
-  });
 
   // The declaration on disk is sound — the pair is simply gone from it.
   assert.deepEqual(publishProblems(declared, SALON_CIDS, OWNER), []);
 
-  const stale = [stagedDoc("bookings", {}), stagedDoc("slots", { mirrorOf: "bookings" })];
+  const stale = [stagedSalonDoc("bookings", {}), stagedSalonDoc("slots", { mirrorOf: "bookings" })];
   refuses(promotedRoleProblems(declared, stale as never), "app.json no longer declares");
   // Deployed after the removal, the two agree again and publish is free.
-  const fresh = [stagedDoc("bookings", {}), stagedDoc("slots", {})];
+  const fresh = [stagedSalonDoc("bookings", {}), stagedSalonDoc("slots", {})];
   assert.deepEqual(promotedRoleProblems(declared, fresh as never), []);
+});
+
+test("refuses a field the referenced record's staged schema does not declare", () => {
+  // A typo in a field NAME publishes cleanly and denies every submission with
+  // no message: the rules read the field off the record, find nothing, and
+  // refuse. It cannot be caught by the declaration gate, which is given a cid
+  // and a primary key per collection — only a schema can judge a field name,
+  // and the schema that matters is the one publish promotes.
+  const stagedWithFields = (cid: string, fields: string[], config: Record<string, unknown> = {}) => ({
+    cid,
+    doc: {
+      publishedSchema: {
+        title: cid,
+        icon: "event",
+        primaryKey: "id",
+        fields: Object.fromEntries(fields.map((field) => [field, { type: "string" }])),
+      },
+      deployedAt: 1,
+      deployedBy: OWNER,
+      config,
+    },
+  });
+  const stagedFor = (slotFields: string[]) => [
+    stagedWithFields("bookings", ["slot", "status"]),
+    stagedWithFields("slots", slotFields, { mirrorOf: "bookings" }),
+  ];
+
+  const declared = app(salonDraft() as unknown as Record<string, unknown>);
+  // The salon declaration reads three fields off `slots`; with all three
+  // present publish is free.
+  assert.deepEqual(promotedRoleProblems(declared, stagedFor(["state", "opensAt", "closesAt"]) as never), []);
+
+  // One at a time, so a passing case cannot be hiding behind another failure.
+  refuses(promotedRoleProblems(declared, stagedFor(["opensAt", "closesAt"]) as never), "idIn.where.field names 'state'");
+  refuses(promotedRoleProblems(declared, stagedFor(["state", "closesAt"]) as never), "window.fromField.field names 'opensAt'");
+  refuses(promotedRoleProblems(declared, stagedFor(["state", "opensAt"]) as never), "window.untilField.field names 'closesAt'");
 });

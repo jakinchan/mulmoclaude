@@ -731,7 +731,56 @@ function publicViewProblems(app: AuthoredApp, collections: readonly PublishableC
 export function promotedRoleProblems(app: AuthoredApp, staged: { cid: string; doc: StagedSchemaDoc }[]): string[] {
   const promoted = stagedRuleConfig(staged).collections ?? {};
   const stagedCids = new Set(staged.map((entry) => entry.cid));
-  return [...promotedAssigneeProblems(app, promoted, stagedCids), ...promotedMirrorProblems(app, promoted, stagedCids)];
+  return [
+    ...promotedAssigneeProblems(app, promoted, stagedCids),
+    ...promotedMirrorProblems(app, promoted, stagedCids),
+    ...promotedRefFieldProblems(app, staged),
+  ];
+}
+
+/** The FIELDS a rule reads off another record — `idIn.where.field` and the two
+ *  window bounds — checked against the schema publish is about to promote.
+ *
+ *  These are checked here rather than in `publishProblems` because that gate
+ *  is given a cid and a primary key per collection and nothing else, on
+ *  purpose: it reads the DECLARATION. A field name can only be judged against
+ *  a schema, and the schema that matters is the STAGED one — the version
+ *  publish promotes — not whatever the working tree says now.
+ *
+ *  What a typo costs: `where: { field: "staet" }` publishes cleanly, the
+ *  rules' comparison can never match, and every submission is denied with no
+ *  message. The author's own app looks broken with nothing to read.
+ *
+ *  Only fields the schema DECLARES are accepted. A record may carry more than
+ *  its schema does, but a shared collection's records are written through it,
+ *  and "the field exists on some rows" is not something a gate can promise. */
+function promotedRefFieldProblems(app: AuthoredApp, staged: { cid: string; doc: StagedSchemaDoc }[]): string[] {
+  const fieldsOf = new Map(staged.map((entry) => [entry.cid, new Set(Object.keys(entry.doc.publishedSchema.fields ?? {}))]));
+  return Object.entries(app.public?.submit ?? {}).flatMap(([cid, submit]) => [
+    ...refFieldProblem(fieldsOf, cid, `idIn.where.field`, submit.idIn?.collection, submit.idIn?.where?.field),
+    ...refFieldProblem(fieldsOf, cid, `window.fromField.field`, submit.window?.fromField?.collection, submit.window?.fromField?.field),
+    ...refFieldProblem(fieldsOf, cid, `window.untilField.field`, submit.window?.untilField?.collection, submit.window?.untilField?.field),
+  ]);
+}
+
+function refFieldProblem(
+  fieldsOf: ReadonlyMap<string, ReadonlySet<string>>,
+  cid: string,
+  key: string,
+  target: string | undefined,
+  field: string | undefined,
+): string[] {
+  if (target === undefined || field === undefined) return [];
+  const fields = fieldsOf.get(target);
+  // Nothing staged for the target at all is the host's own refusal, which
+  // names every missing collection at once.
+  if (fields === undefined || fields.has(field)) return [];
+  const known = [...fields].sort().join(", ");
+  return [
+    `public.submit.${cid}.${key} names '${field}', which the STAGED schema of '${target}' — the one publish promotes — does not declare. ` +
+      `The rules read that field off the record and compare it, so as written every submission is refused with nothing to explain it. ` +
+      `Fields on '${target}': ${known.length > 0 ? known : "(none)"}.`,
+  ];
 }
 
 function promotedAssigneeProblems(app: AuthoredApp, promoted: Record<string, AuthoredCollectionConfig>, stagedCids: ReadonlySet<string>): string[] {
