@@ -69,8 +69,11 @@ export interface ActiveToolDescriptor {
   source: ToolSource;
 }
 
-const FULL_PREFIX = `mcp__${MCP_SERVER_ID}__`;
-const fullNameFor = (toolName: string): string => `${FULL_PREFIX}${toolName}`;
+/** What every tool published by the built-in broker is called. User-configured
+ *  MCP servers get their own `mcp__<their-id>__` prefix, so this is how callers
+ *  tell "our broker answered" from "some MCP server answered". */
+export const BUILTIN_MCP_TOOL_PREFIX = `mcp__${MCP_SERVER_ID}__`;
+const fullNameFor = (toolName: string): string => `${BUILTIN_MCP_TOOL_PREFIX}${toolName}`;
 const promptFor = (def: ToolDefinition): string | undefined => (hasStringProp(def, "prompt") ? def.prompt : undefined);
 
 export function getActiveToolDescriptors(role: Role): ActiveToolDescriptor[] {
