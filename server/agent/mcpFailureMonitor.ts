@@ -36,7 +36,9 @@ export const MCP_FAILURE_THRESHOLD = 3;
 // what lets the monitor attribute failures back to the right
 // server entry in `mcp.json`.
 const MCP_SERVER_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
-const MCP_PREFIX = "mcp__";
+/** What the CLI prefixes every MCP tool name with. Exported so callers that
+ *  only need "is this an MCP tool at all?" don't re-declare the literal. */
+export const MCP_PREFIX = "mcp__";
 const MCP_DELIM = "__";
 
 function isValidServerId(value: string): boolean {
