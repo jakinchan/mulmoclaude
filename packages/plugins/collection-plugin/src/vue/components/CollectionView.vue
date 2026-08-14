@@ -361,6 +361,7 @@ import { useViewMode } from "../composables/useViewMode";
 import { useLiveCollectionRefresh } from "../composables/useLiveCollectionRefresh";
 import {
   dateOf,
+  fieldDefaultValue,
   itemMatchesQuery,
   snapshotEmptyEnums,
   rowIdOf,
@@ -1083,7 +1084,7 @@ function openCreate(): void {
     } else if (field.type === "table") {
       table[key] = [];
     } else if (!COMPUTED_TYPES.has(field.type)) {
-      text[key] = "";
+      text[key] = fieldDefaultValue(field) ?? "";
     }
     // The computed/projected kinds (COMPUTED_TYPES: derived, embed,
     // backlinks, rollup, toggle) have no draft slot.

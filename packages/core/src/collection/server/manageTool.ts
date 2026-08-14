@@ -51,6 +51,7 @@ import type { CollectionItem, CollectionSchema } from "../core/schema";
 import { CollectionSchemaZ } from "../core/schemaZ";
 import { CollectionQueryZ } from "../core/queryZ";
 import { defangForPrompt } from "../core/promptSafety";
+import { firstUnknownDefault, schemaDefaults } from "../core/fieldDefaults";
 import { loadCollection, resolvePrimaryField, type DiscoveryOptions } from "./discovery";
 import type { LoadedCollection } from "./discoveredCollection";
 import { resolveCreateItemId } from "./io";
@@ -331,6 +332,12 @@ async function putOneItem(
   const computed = computedKeyProblem(record, schema);
   if (computed) return reject(itemId, computed);
   let toWrite = record;
+  if (mode === "create") {
+    // Schema defaults fill only what the row left out, and only here: "upsert"
+    // and "merge" edit a record that already answered this question, so
+    // re-applying a default there would overwrite the answer (#2839).
+    toWrite = { ...schemaDefaults(schema), ...record };
+  }
   if (mode === "merge") {
     const merged = await mergeWithExisting(collection, store, record, itemId);
     if (typeof merged === "string") return reject(itemId, merged);
@@ -587,6 +594,15 @@ async function handlePutSchema(slug: string, schemaArg: unknown, deps: ManageCol
   if (refusal) return refusal;
   const parsed = CollectionSchemaZ.safeParse(schemaArg);
   if (!parsed.success) return formatSchemaIssues(parsed.error.issues);
+  // Write-only, and deliberately not part of the parse: discovery runs that on
+  // every load, and rejecting there would drop the whole collection out of the
+  // index over one bad key. Refusing the WRITE is strictly narrower than what
+  // discovery accepts, so it cannot hide a collection (#2839).
+  const unknownDefault = firstUnknownDefault(parsed.data);
+  if (unknownDefault) {
+    const { key, value, values } = unknownDefault;
+    return `manageCollection: schema rejected — field '${key}' has default '${value}', which is not one of its values (${values.join(", ")}).`;
+  }
   // Run the SAME post-Zod gates discovery applies, so a write can't pass
   // here yet be silently skipped on the next load (hiding the collection).
   const gate = schemaDiscoveryGate(parsed.data, resolveBase(deps));

@@ -10,6 +10,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
+#### An `enum` field can declare the value a new record starts on (#2839)
+
+```jsonc
+"status": { "type": "enum", "values": ["todo","doing","done"], "required": true, "default": "todo" }
+```
+
+The Add form opens on it, and a `putItems` row in `create` mode that omits the
+field gets it — both paths, because a default the form fills but the tool
+ignores is worse than none. `required: true` and a `default` go together: the
+requirement is already satisfied, so the user just saves. `upsert` and `merge`
+do NOT re-apply it; those edit a record that already carries an answer.
+
+Only `enum` for now. Literals for the scalar types and `today` / `now`
+sentinels for dates are the same request's later tiers, deliberately left until
+this one has been used.
+
+**Note for anyone who already wrote `default`.** The key parsed but did nothing
+before this change, so a schema may carry one that is not among its `values`.
+Two deliberate choices keep that harmless:
+
+- **Nothing that loads today stops loading.** Membership is checked when
+  `putSchema` WRITES a schema, not when discovery parses one. Rejecting at parse
+  time would drop the whole collection out of the index over one cosmetic key —
+  it would vanish from the UI with a log line as the only clue.
+- **A stale value is treated as no default.** The Add form starts blank rather
+  than on a value the `<select>` cannot offer, which would otherwise fail the
+  save for a reason nothing on screen explains.
+
+So a pre-existing `default` either starts working as written, or goes on being
+ignored exactly as before. The only new refusal is at authoring time, where the
+error names the offending field and lists the allowed values.
+
 #### The collections index has a search box (#2837)
 
 A substring over title and slug, case-insensitive, ANDed with the existing
