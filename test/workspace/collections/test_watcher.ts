@@ -664,12 +664,34 @@ type FakeDocs = FirestoreDocs & { emit: (ids: string[], initial?: boolean) => vo
  *  that means nothing. */
 const WAIT_UNTIL_DEADLINE_MS = 10_000;
 const WAIT_UNTIL_POLL_MS = 5;
+const EXPIRED = Symbol("deadline expired");
+
+/** One timer for the whole wait, raced against every step. Checking the clock
+ *  only between steps would leave the deadline unenforced for as long as
+ *  `done()` runs — a check that never settles would hang the job rather than
+ *  fail it, which is the failure mode this budget exists to prevent (Codex
+ *  review on #2908). `cancel` keeps a finished wait from leaving a live timer. */
+function deadlineSignal(budget_ms: number): { expired: Promise<typeof EXPIRED>; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout>;
+  const expired = new Promise<typeof EXPIRED>((resolve) => {
+    timer = setTimeout(() => resolve(EXPIRED), budget_ms);
+  });
+  return { expired, cancel: () => clearTimeout(timer) };
+}
 
 async function waitUntil(done: () => Promise<boolean>, what: string): Promise<void> {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < WAIT_UNTIL_DEADLINE_MS) {
-    if (await done()) return;
-    await new Promise((resolve) => setTimeout(resolve, WAIT_UNTIL_POLL_MS));
+  const { expired, cancel } = deadlineSignal(WAIT_UNTIL_DEADLINE_MS);
+  try {
+    for (;;) {
+      const checked = await Promise.race([done(), expired]);
+      if (checked === true) return;
+      if (checked === EXPIRED) break;
+      const slept = await Promise.race([new Promise((resolve) => setTimeout(resolve, WAIT_UNTIL_POLL_MS)), expired]);
+      if (slept === EXPIRED) break;
+    }
+  } finally {
+    cancel();
   }
   assert.fail(`timed out waiting for ${what} after ${Date.now() - startedAt}ms`);
 }
