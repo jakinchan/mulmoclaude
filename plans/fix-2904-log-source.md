@@ -9,7 +9,7 @@
 
 両者は同じログファイルに、**完全に同一の行**を書く。
 
-```
+```json
 {"time":"…","level":"info","prefix":"plugins/preset","message":"loaded","data":{"requested":3,"succeeded":3}}
 ```
 
@@ -46,7 +46,7 @@ source は `mcp-broker` 固定でよい。
 
 出力例（text）:
 
-```
+```text
 2026-08-14T09:00:47.172Z INFO  [mcp-broker] [plugins/preset] loaded requested=3 succeeded=3
 2026-08-14T09:00:47.180Z INFO  [plugins/preset] loaded requested=3 succeeded=3
 ```

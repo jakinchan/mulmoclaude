@@ -93,14 +93,36 @@ function parseBool(raw: string | undefined): boolean | undefined {
   return undefined;
 }
 
+/** A process label is one short printable run. C0 controls, DEL and C1 are
+ *  excluded by code point rather than a regex, so the `no-control-regex` lint
+ *  rule has nothing to trip on. */
+function isLabelChar(char: string): boolean {
+  const code = char.codePointAt(0) ?? 0;
+  return code > 0x1f && (code < 0x7f || code > 0x9f);
+}
+
+/** Longest label kept. A source names a process; anything longer is a mistake,
+ *  and bounding it also bounds what a bad value can push into every line. */
+const SOURCE_MAX = 32;
+
 // Returns a spreadable fragment rather than `string | undefined` so the branch
 // lives here instead of in `resolveConfig`, which is already at its complexity
-// ceiling. A whitespace-only value is a shell accident (`LOG_SOURCE=$UNSET`),
-// not a process claiming to be called " " — treat it as unset so the record
-// stays untagged rather than gaining an empty bracket.
+// ceiling.
+//
+// The text formatter interpolates the label verbatim, so a newline inside it
+// would end the line early and let the remainder pose as a second record —
+// `mcp-broker\n2026-01-01T00:00:00Z ERROR [auth] forged` reads as two entries
+// in the file (the JSON sink escapes it, so only text logs forge). Dropping
+// every control character removes that, and dropping rather than rejecting the
+// whole value keeps the attribution this field exists for: a mangled
+// LOG_SOURCE must not make a broker's lines read as the parent server's.
+//
+// A whitespace-only value is a shell accident (`LOG_SOURCE=$UNSET`), not a
+// process claiming to be called " " — it ends up unset, and the record stays
+// untagged rather than gaining an empty bracket.
 function sourceField(raw: string | undefined): { source?: string } {
-  const trimmed = raw?.trim();
-  return trimmed ? { source: trimmed } : {};
+  const label = [...(raw ?? "")].filter(isLabelChar).join("").trim().slice(0, SOURCE_MAX);
+  return label ? { source: label } : {};
 }
 
 function parsePositiveInt(raw: string | undefined): number | undefined {

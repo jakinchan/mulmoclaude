@@ -95,9 +95,10 @@ describe("createLogger level filtering", () => {
 });
 
 describe("createLogger source stamping (#2904)", () => {
-  function captureJsonRecords(config: Parameters<typeof createLogger>[0]): { source?: string; message: string }[] {
-    const originalOut = process.stdout.write.bind(process.stdout);
-    const originalErr = process.stderr.write.bind(process.stderr);
+  // Both console streams are captured because `stream: "split"` sends
+  // info to stdout and error to stderr.
+  function withCapturedStreams(run: () => void): string[] {
+    const originals = { out: process.stdout.write.bind(process.stdout), err: process.stderr.write.bind(process.stderr) };
     const lines: string[] = [];
     const recordWrite = (chunk: string | Uint8Array) => {
       lines.push(typeof chunk === "string" ? chunk : chunk.toString());
@@ -106,13 +107,20 @@ describe("createLogger source stamping (#2904)", () => {
     process.stdout.write = recordWrite as typeof process.stdout.write;
     process.stderr.write = recordWrite as typeof process.stderr.write;
     try {
+      run();
+    } finally {
+      process.stdout.write = originals.out;
+      process.stderr.write = originals.err;
+    }
+    return lines;
+  }
+
+  function captureJsonRecords(config: Parameters<typeof createLogger>[0]): { source?: string; message: string }[] {
+    const lines = withCapturedStreams(() => {
       const logger = createLogger(config);
       logger.info("plugins/preset", "loaded");
       logger.error("plugins/preset", "boom");
-    } finally {
-      process.stdout.write = originalOut;
-      process.stderr.write = originalErr;
-    }
+    });
     return lines.map((line) => JSON.parse(line.trim()));
   }
 

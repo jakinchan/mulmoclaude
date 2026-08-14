@@ -122,4 +122,35 @@ describe("resolveConfig", () => {
   it("trims surrounding whitespace off a real LOG_SOURCE", () => {
     assert.equal(resolveConfig({ LOG_SOURCE: "  mcp-broker\n" }).source, "mcp-broker");
   });
+
+  // The text formatter interpolates the label verbatim, so a newline inside it
+  // would close the line early and let the rest pose as its own log entry.
+  // (Codex review on #2905.)
+  it("strips control characters so a label cannot forge a second log line", () => {
+    const forged = "mcp-broker\n2026-01-01T00:00:00.000Z ERROR [auth] forged";
+    const source = resolveConfig({ LOG_SOURCE: forged }).source ?? "";
+    assert.ok(!source.includes("\n"), `newline survived: ${JSON.stringify(source)}`);
+    assert.ok(!source.includes("\r"));
+    assert.ok(source.startsWith("mcp-broker"));
+  });
+
+  it("strips CR, tab, ESC and DEL as well as LF", () => {
+    const ESC = String.fromCharCode(0x1b);
+    const DEL = String.fromCharCode(0x7f);
+    const C1_CSI = String.fromCharCode(0x9b);
+    assert.equal(resolveConfig({ LOG_SOURCE: `a\rb` }).source, "ab");
+    assert.equal(resolveConfig({ LOG_SOURCE: `a\tb` }).source, "ab");
+    assert.equal(resolveConfig({ LOG_SOURCE: `a${ESC}[31mb` }).source, "a[31mb");
+    assert.equal(resolveConfig({ LOG_SOURCE: `a${DEL}b` }).source, "ab");
+    assert.equal(resolveConfig({ LOG_SOURCE: `a${C1_CSI}b` }).source, "ab");
+  });
+
+  it("treats an all-control-character LOG_SOURCE as unset", () => {
+    assert.equal(resolveConfig({ LOG_SOURCE: "\n\r\t" }).source, undefined);
+  });
+
+  it("caps the label so a bad value cannot pad every line", () => {
+    const source = resolveConfig({ LOG_SOURCE: "x".repeat(200) }).source ?? "";
+    assert.equal(source.length, 32);
+  });
 });
