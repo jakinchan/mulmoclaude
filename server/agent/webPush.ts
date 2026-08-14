@@ -32,6 +32,7 @@ export interface TaskFinishedPush {
 // a single lazy span between literals, so matching stays linear — this repo has
 // had polynomial-ReDoS findings, and a push body is model-authored text.
 const FENCED_CODE = /```[\s\S]*?```/g;
+const FENCE = "```";
 const INLINE_CODE = /`([^`]*)`/g;
 // Bounded, and the label excludes `[` as well as `]`: an unbounded label lets
 // `[[[[[…` restart a full scan at every bracket, which is the super-linear
@@ -43,6 +44,20 @@ const LINE_MARKER = /^[ \t]*(?:#{1,6}|>|[-*+]|\d+\.)[ \t]+/gm;
 const BOLD_MARKER = /\*\*|__/g;
 const WHITESPACE_RUN = /\s+/g;
 
+/** Cut a reply at an opening fence that never closed. Run only AFTER the paired
+ *  blocks are gone, so any fence still present is an unclosed opener — a reply
+ *  cut short mid-block, which is what an abort or an error turn (still pushed,
+ *  under ⚠️) produces. Everything after it IS the code block as far as markdown
+ *  is concerned, so it goes too, and the raw snippet stays off the lock screen
+ *  (Codex review on #2909).
+ *
+ *  `indexOf` rather than a regex: `/```[\s\S]*$/` rescans to the end from every
+ *  backtick run, which is the super-linear shape sonarjs rejects. */
+function dropUnclosedFence(text: string): string {
+  const open = text.indexOf(FENCE);
+  return open === -1 ? text : text.slice(0, open);
+}
+
 /** Reduce an assistant reply to one plain line fit for a notification.
  *
  *  Deliberately not a markdown parser — a notification shows one line, so the
@@ -50,8 +65,7 @@ const WHITESPACE_RUN = /\s+/g;
  *  Returns "" when nothing survives (a turn that only ran tools), which the
  *  caller turns into the generic body. */
 export function condenseReplyForPush(reply: string | undefined): string {
-  return (reply ?? "")
-    .replace(FENCED_CODE, " ")
+  return dropUnclosedFence((reply ?? "").replace(FENCED_CODE, " "))
     .replace(INLINE_CODE, "$1")
     .replace(MARKDOWN_LINK, "$1")
     .replace(LINE_MARKER, "")

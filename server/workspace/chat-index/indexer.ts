@@ -137,47 +137,39 @@ export async function removeSessionFromIndex(workspaceRoot: string, sessionId: s
 
 // --- freshness check ------------------------------------------------
 
-// Shared parsing of `<indexDir>/<sessionId>.json` → `indexedAt` as
-// milliseconds since epoch. Returns null on any failure (file
-// missing, unreadable, JSON parse error, wrong shape, unparseable
-// timestamp) so callers can each pick their own "no entry" semantic
-// (skip vs reindex vs throttle) without duplicating the read.
-/** One session's cached AI title, or null when it has never been indexed (or
- *  the file is unreadable / malformed / titleless).
- *
- *  Reads the per-session file rather than the manifest: the session LIST wants
- *  every title and goes through the manifest, while a single push needs exactly
- *  one (#2901). Same shape as `readIndexedAtMs` — one field, never throws. */
-export async function readIndexTitle(workspaceRoot: string, sessionId: string): Promise<string | null> {
+/** One session's `<indexDir>/<sessionId>.json` as a plain record, or null when
+ *  the id is unsafe, the file is missing / unreadable, the JSON is malformed,
+ *  or it isn't an object. The single-field readers below narrow from this
+ *  rather than each repeating the read (jscpd on #2909); each keeps its own
+ *  "no entry" semantic (skip vs reindex vs throttle). */
+async function readIndexEntryRecord(workspaceRoot: string, sessionId: string): Promise<Record<string, unknown> | null> {
   const safeId = safeSessionIdOrNull(sessionId);
   if (safeId === null) return null;
   try {
     const raw = await readFile(indexEntryPathFor(workspaceRoot, safeId), "utf-8");
     const entry: unknown = JSON.parse(raw);
-    if (!isRecord(entry)) return null;
-    const { title } = entry;
-    return typeof title === "string" && title.length > 0 ? title : null;
+    return isRecord(entry) ? entry : null;
   } catch {
     return null;
   }
 }
 
+/** One session's cached AI title, or null when it has never been indexed, or
+ *  has no usable title. Reads the per-session file rather than the manifest:
+ *  the session LIST wants every title and goes through the manifest, while a
+ *  single push needs exactly one (#2901). */
+export async function readIndexTitle(workspaceRoot: string, sessionId: string): Promise<string | null> {
+  const title = (await readIndexEntryRecord(workspaceRoot, sessionId))?.title;
+  return typeof title === "string" && title.length > 0 ? title : null;
+}
+
 // Exported so `isFresh` / `sessionJsonlChangedSinceIndex` share one
 // canonical parse — CodeRabbit review on #1930.
 export async function readIndexedAtMs(workspaceRoot: string, sessionId: string): Promise<number | null> {
-  const safeId = safeSessionIdOrNull(sessionId);
-  if (safeId === null) return null;
-  try {
-    const raw = await readFile(indexEntryPathFor(workspaceRoot, safeId), "utf-8");
-    const entry: unknown = JSON.parse(raw);
-    if (!isRecord(entry)) return null;
-    const { indexedAt } = entry;
-    if (typeof indexedAt !== "string") return null;
-    const parsed = Date.parse(indexedAt);
-    return Number.isNaN(parsed) ? null : parsed;
-  } catch {
-    return null;
-  }
+  const indexedAt = (await readIndexEntryRecord(workspaceRoot, sessionId))?.indexedAt;
+  if (typeof indexedAt !== "string") return null;
+  const parsed = Date.parse(indexedAt);
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 // A session is "fresh" when its per-session index file exists and

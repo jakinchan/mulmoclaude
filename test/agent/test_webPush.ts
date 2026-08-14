@@ -69,6 +69,21 @@ describe("condenseReplyForPush", () => {
     assert.equal(condenseReplyForPush("Done.\n\n```ts\nconst a = 1;\n```\n\nNext up: tests."), "Done. Next up: tests.");
   });
 
+  // A reply cut short mid-block — an abort, or an error turn (which still
+  // pushes, under ⚠️) — leaves an opening fence with no partner. The paired
+  // rule cannot touch it, so the raw fence reached the lock screen.
+  // (Codex review on #2909.)
+  it("drops an unterminated fence and everything after it", () => {
+    assert.equal(condenseReplyForPush("Here you go:\n\n```ts\nconst a = 1;"), "Here you go:");
+    assert.equal(condenseReplyForPush("```"), "");
+    assert.equal(condenseReplyForPush("Wrote the file.\n\n```"), "Wrote the file.");
+  });
+
+  it("keeps a complete block's trailing prose when a later fence is unclosed", () => {
+    const reply = "Step one.\n\n```sh\nyarn build\n```\n\nStep two.\n\n```sh\nyarn test";
+    assert.equal(condenseReplyForPush(reply), "Step one. Step two.");
+  });
+
   it("keeps inline code content without the backticks", () => {
     assert.equal(condenseReplyForPush("Updated `webPush.ts`."), "Updated webPush.ts.");
   });
