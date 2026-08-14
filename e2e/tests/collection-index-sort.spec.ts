@@ -86,6 +86,28 @@ test.describe("collections index display order", () => {
     await expect(page.getByTestId("collections-sort-slug")).toHaveAttribute("aria-pressed", "true");
   });
 
+  test("hides the toggle when a FILTER leaves a single card, and brings it back", async ({ page }) => {
+    // The single-collection case below would also pass an implementation that
+    // counted the unfiltered list (CodeRabbit on #2896). This one only passes
+    // when the count follows what is actually on screen. The read-only entry is
+    // what makes the facet chips render at all.
+    await mockCollections(page, {
+      collections: [...COLLECTIONS_LIST.collections, { slug: "delta", title: "Data", icon: "database", source: "user", readonly: true }],
+    });
+    await page.goto("/collections");
+    await expect(page.getByTestId("collections-sort")).toBeVisible();
+
+    await page.getByTestId("collections-filter-data").click();
+
+    await expect(page.getByTestId("collections-index-card-delta")).toBeVisible();
+    await expect(page.getByTestId("collections-index-card-beta")).toBeHidden();
+    await expect(page.getByTestId("collections-sort")).toBeHidden();
+
+    await page.getByTestId("collections-filter-all").click();
+
+    await expect(page.getByTestId("collections-sort")).toBeVisible();
+  });
+
   test("hides the toggle when a single collection leaves nothing to order", async ({ page }) => {
     await mockCollections(page, { collections: [COLLECTIONS_LIST.collections[0]] });
     await page.goto("/collections");
