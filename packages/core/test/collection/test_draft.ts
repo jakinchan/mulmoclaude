@@ -60,3 +60,24 @@ test("omits an untouched boolean table sub-field named after a prototype member"
   const record = draftToRecord(emptyState({ table: { rows: [row] } }), schema);
   assert.deepEqual(record.rows, [{}]);
 });
+
+// The WRITE side of the same hazard: the value reached the draft, but building
+// the record by assignment ran the prototype setter for this one name, so the
+// user's choice disappeared between the form and the save — on create AND on
+// edit, where it also removed a value the record already had (Codex review on
+// #2910).
+test("saves the value of a field named __proto__ as an own property", () => {
+  const PROTO_KEY = "__proto__";
+  const schema = schemaWith({
+    id: { type: "string", label: "Id", primary: true },
+    [PROTO_KEY]: { type: "enum", label: "Proto", values: ["todo", "done"] } satisfies CollectionFieldSpec,
+  });
+  const text = Object.fromEntries([
+    ["id", "x1"],
+    [PROTO_KEY, "done"],
+  ]);
+  const record = draftToRecord(emptyState({ text }), schema);
+  assert.equal(Object.hasOwn(record, PROTO_KEY), true, "the value must survive the save");
+  assert.equal(record[PROTO_KEY], "done");
+  assert.deepEqual(Object.keys(record).sort(), ["__proto__", "id"]);
+});
