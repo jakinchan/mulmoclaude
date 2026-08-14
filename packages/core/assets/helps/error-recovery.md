@@ -800,40 +800,77 @@ shipped builders produce, and asserts `handlePermission` comes back over the MCP
 
 ### Cause
 
-`Dockerfile.sandbox` installs the CLI unpinned (`RUN npm install -g @anthropic-ai/claude-code
-tsx`), so the image freezes whatever was latest when it was built. Two mechanisms then keep it
-frozen:
-
-1. `ensureSandboxImage()` (`server/system/docker.ts`) rebuilds only when the **Dockerfile's
-   SHA** changes. A new CLI release upstream doesn't change that SHA, so nothing retriggers.
-2. Deleting the image does not delete the **build cache**. The rebuild reuses the cached
-   `npm install -g` layer (it reports `CACHED` in 0.0s) and reinstalls nothing.
-
-So the usual "remove it and let it rebuild" reflex genuinely does nothing here, which is why
-this one burns time.
+The image freezes whichever CLI was current when it was built, and
+`ensureSandboxImage()` (`server/system/docker.ts`) rebuilds only when the **Dockerfile's SHA**
+changes. A new CLI release upstream doesn't change that SHA, so nothing retriggers the build.
 
 ### Fix
 
-Check the version inside the image — the host's `claude --version` says nothing about it, and
-the entrypoint override is required because the image's ENTRYPOINT is the sandbox script:
+Read it off the boot log — since #2842 the server records the version at build time as an image
+label and prints it on every start, so no container has to be run to find out:
+
+```
+INFO [sandbox] sandbox image claudeCodeVersion=2.1.220 ageDays=3
+```
+
+`claudeCodeVersion=unrecorded` means the image predates the label (or was built with npm
+unreachable). In that case ask the image directly — the entrypoint override is required because
+the image's ENTRYPOINT is the sandbox script, and the host's own `claude --version` says nothing
+about what is inside:
 
 ```bash
 docker run --rm --entrypoint claude mulmoclaude-sandbox --version
 ```
 
-If it's behind, drop the image AND the build cache, then let the next run rebuild:
+If it's behind, drop the image and let the next run rebuild:
 
 ```bash
 yarn sandbox:remove          # docker rmi mulmoclaude-sandbox
-docker builder prune -a -f   # the step that actually invalidates the npm layer
 ```
 
-`docker builder prune -a -f` clears the builder cache for the whole daemon, not just this
-image, so unrelated builds are slower once afterwards. That is the cost of the fix, not a
-sign something went wrong.
+Two warns fire on their own when this is worth acting on: `sandbox image is stale` past 30 days,
+and `Claude CLI in the sandbox image is older than the version our MCP config needs` below
+2.1.121 (the floor for `alwaysLoad`).
 
-The CLI is deliberately left unpinned (#2202), so this can recur whenever an upstream fix
-matters to you — the check above is the way to rule it in or out.
+> **Older than #2842?** Back then the rebuild reused the cached `npm install -g` layer (reported
+> `CACHED` in 0.0s) and reinstalled nothing, so `yarn sandbox:remove` alone genuinely did nothing
+> and `docker builder prune -a -f` was needed. The Dockerfile now installs an exact
+> `@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}` resolved on the host, so a moved CLI changes
+> the layer's own command string and invalidates it. Don't reach for `builder prune` first — it
+> clears the cache for the whole daemon.
+
+The CLI is deliberately left unpinned by default (#2202), so this can recur whenever an upstream
+fix matters to you — the log line above is the way to rule it in or out.
+
+## A turn dies on `handlePermission not found` — read the broker lines before anything else
+
+### Symptoms
+
+The same `MCP tool mcp__mulmoclaude__handlePermission ... not found` as the three sections
+above, and you can't yet tell WHICH of them you are in.
+
+### Cause
+
+They are genuinely different failures — a permanent load failure, a startup race, a frozen CLI —
+and guessing between them is what makes this expensive. Since #2842 the log answers it directly,
+so read these three before forming a theory:
+
+| Log line | What it tells you |
+|---|---|
+| `spawning agent … broker=tsx` | This install is on the SLOW path: the bundle is missing, so the broker is transcoded from source on every spawn (seconds to tens of seconds over a Windows/macOS bind mount). A `broker bundle missing` warn accompanies it once per process. |
+| `[mcp] broker ready bootMs=… initializeMs=…` | The broker DID connect, and how long it took. `broker cold boot is slow` replaces it past 5 s. |
+| `brokerEverReady=false` on the retry warn | No beacon ever arrived for that chat — the broker did not come up at all, so the automatic 3 s replay will reproduce the same error and only double the wait. |
+
+### Fix
+
+- `broker=tsx` → this is the cold-boot cost, not the connect-wait ceiling. In a dev checkout run
+  `yarn build:mcp-broker` (or plain `yarn build`); on an npm install, update `mulmoclaude` —
+  published launchers have shipped the bundle since 1.9.0.
+- `broker ready` present with a small `initializeMs`, failing anyway → it is the startup race,
+  not the boot. See the scheduled-run section above.
+- `brokerEverReady=false` with no `broker ready` line anywhere → the broker never started. That
+  is the permanent load failure; check the `Cannot find module` section.
+- Old or unrecorded `claudeCodeVersion` alongside any of these → rule out the frozen CLI first.
 
 ---
 

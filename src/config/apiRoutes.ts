@@ -195,6 +195,15 @@ const HOST_API_ROUTES = {
     unlink: "/api/google/unlink",
   },
 
+  /** Startup beacon from the mulmoclaude MCP broker (#2842). The broker is a
+   *  GRANDCHILD of this server — Claude CLI spawns it and owns its stderr — so
+   *  this endpoint is the only path by which its cold-boot timing reaches our
+   *  logs. Without it, "the broker is slow" and "the broker never came up" are
+   *  indistinguishable from the host side. */
+  mcp: {
+    brokerReady: "/api/mcp/broker-ready",
+  },
+
   mcpTools: {
     list: "/api/mcp-tools",
     invoke: "/api/mcp-tools/:tool",
