@@ -60,5 +60,10 @@ e2e は **UI の prefill を戻すと2件落ちる**ことを確認済み（プ�
 
 ## publish
 
-`@mulmoclaude/core`（schemaZ / fieldDefaults / manageTool）と `@mulmoclaude/collection-plugin`（UI）の
-両方に差分があるので、npm 利用者に届けるには次の publish 波で両方を出す必要がある。
+`@mulmoclaude/core`（schemaZ / fieldDefaults / draft / manageTool）と
+`@mulmoclaude/collection-plugin`（UI）の両方に差分があるので、npm 利用者に届けるには次の publish 波で
+両方を出す必要がある。順序は依存の下から **core → collection-plugin**。
+
+各 publish には git タグ（`@mulmoclaude/core@X.Y.Z` / `@mulmoclaude/collection-plugin@X.Y.Z`、`v` 接頭辞なし）と
+GitHub リリース（`--latest=false` —— このリポジトリには `v*` のアプリリリースがあるため）を必ず付ける。
+あわせて宣言側のレンジを新バージョンに掃く。手順は `/publish` skill。

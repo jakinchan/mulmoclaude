@@ -163,3 +163,44 @@ test("a field named __proto__ gets its default like any other", async ({ page })
   // The ordinary primary key still gets its generated id.
   await expect(page.getByTestId("collections-input-id")).not.toHaveValue("");
 });
+
+// The edit path builds its own draft maps, and without a slot the field cannot
+// be edited at all — the form would show the record as empty and a save would
+// drop what it stores (CodeRabbit on #2910).
+test("a field named __proto__ is editable, showing what the record stores", async ({ page }) => {
+  const PROTO_KEY = "__proto__";
+  const detail = {
+    collection: {
+      slug: "odd",
+      title: "Odd",
+      icon: "list",
+      source: "user",
+      schema: {
+        title: "Odd",
+        icon: "list",
+        dataPath: "data/odd/items",
+        primaryKey: "id",
+        fields: {
+          id: { type: "string", label: "ID", primary: true, required: true },
+          [PROTO_KEY]: { type: "enum", label: "Proto", values: ["todo", "done"], default: "todo" },
+        },
+      },
+    },
+    items: [
+      Object.fromEntries([
+        ["id", "o1"],
+        [PROTO_KEY, "done"],
+      ]),
+    ],
+  };
+  await mockAllApis(page);
+  await page.route(
+    (url) => url.pathname === "/api/collections/odd",
+    (route) => route.fulfill({ json: detail }),
+  );
+  await page.goto("/collections/odd?selected=o1");
+  await expect(page.getByTestId("collections-detail")).toBeVisible();
+
+  await page.getByTestId("collections-detail-edit").click();
+  await expect(page.getByTestId(`collections-input-${PROTO_KEY}`)).toHaveValue("done");
+});

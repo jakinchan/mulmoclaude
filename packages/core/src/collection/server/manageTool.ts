@@ -602,8 +602,13 @@ async function handlePutSchema(slug: string, schemaArg: unknown, deps: ManageCol
   // discovery accepts, so it cannot hide a collection (#2839).
   const unknownDefault = firstUnknownDefault(parsed.data);
   if (unknownDefault) {
-    const { key, value, values } = unknownDefault;
-    return `manageCollection: schema rejected — field '${key}' has default '${value}', which is not one of its values (${values.join(", ")}).`;
+    // Every piece of this message came from the submitted schema, so it is
+    // caller-controlled text on its way back into the agent's context — defanged
+    // like every other echo in this file (CodeRabbit on #2910).
+    const key = defangForPrompt(unknownDefault.key);
+    const value = defangForPrompt(unknownDefault.value);
+    const values = unknownDefault.values.map(defangForPrompt).join(", ");
+    return `manageCollection: schema rejected — field '${key}' has default '${value}', which is not one of its values (${values}).`;
   }
   // Run the SAME post-Zod gates discovery applies, so a write can't pass
   // here yet be silently skipped on the next load (hiding the collection).

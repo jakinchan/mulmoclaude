@@ -81,15 +81,16 @@ function rowDraftToRecord(rowDraft: TableRowDraft, subFields: Record<string, Fie
   return row;
 }
 
-/** Convert a full edit draft to the record to persist. */
+/** Convert a full edit draft to the record to persist.
+ *
+ *  Collected as entries rather than assigned into an accumulator: a field may
+ *  be named `__proto__` (JSON.parse hands that over as an own key, so it
+ *  reaches here like any other), and `record[key] = value` would run the
+ *  prototype setter for that one name — the user's value would vanish between
+ *  the form and the save, with nothing to see. `fromEntries` defines an own
+ *  property whatever the name is. The read side of this file already guards the
+ *  same hazard with `ownFlag` (Codex review on #2910). */
 export function draftToRecord(state: EditState, schema: CollectionSchema): CollectionItem {
-  // Collected as entries rather than assigned into an accumulator: a field may
-  // be named `__proto__` (JSON.parse hands that over as an own key, so it
-  // reaches here like any other), and `record[key] = value` would run the
-  // prototype setter for that one name — the user's value would vanish between
-  // the form and the save, with nothing to see. `fromEntries` defines an own
-  // property whatever the name is. The read side of this file already guards
-  // the same hazard with `ownFlag` (Codex review on #2910).
   const entries: [string, unknown][] = [];
   for (const [key, field] of Object.entries(schema.fields)) {
     if (COMPUTED_TYPES.has(field.type)) continue; // never persisted (toggle projects an enum field)
