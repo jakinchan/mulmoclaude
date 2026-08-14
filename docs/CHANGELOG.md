@@ -138,6 +138,31 @@ Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`,
 
 ### Fixed
 
+#### A Web Push that does not arrive now says why in the log (#2903)
+
+`sendWebPush` answered `null` for every failure — not signed in, non-2xx,
+offline, timeout, unparseable body — and wrote nothing. Its caller logged only
+the case where the push succeeded and reached zero devices. So the two answers a
+reader actually needs, "tried and failed" and "never tried", were the same
+observation from outside: #2886's reporter grepped the log for `web-push` and
+got no lines at all, and settling it took reading the source.
+
+Never throwing is the right design for a push fired from a turn-end hook, and
+that has not changed. What changed is that failing is no longer invisible:
+`SendWebPushOptions` takes an `onFailure` callback carrying a typed reason
+(`not-signed-in` / `http-error` with its status / `network` with the thrown
+message / `bad-response`), and the host logs it. The return type is untouched,
+so this is not a breaking change for anything already calling it.
+
+The caller now accounts for all three outcomes rather than one: a warn when the
+push did not deliver, an info with the delivery counts when it did, and a debug
+line when push is simply disabled in settings. That last one is deliberately
+debug — the file sink records debug while the console starts at info, so it
+lands in `server/system/logs/` where the search was run, without a line per turn
+on anyone's terminal.
+
+Ships as `@mulmobridge/web-push@1.1.0`.
+
 #### An embed whose optional `idField` is empty reads as unset, not as a broken link (#2863)
 
 `embedTargetId()` resolves an absent or empty `idField` to `""`, and the schema
