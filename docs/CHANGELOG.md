@@ -10,6 +10,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
+#### `putItems` reads its rows from a file, so a generated batch never passes through the model (#2914)
+
+`manageCollection` `putItems` gains **`itemsFile`** — an absolute path to a JSON
+file of record objects, read by the host — as the alternative to `items`.
+
+The old shape had one way in, and it was the model's own output: to store 540
+generated booking slots the agent had to write ~80 KB of JSON token by token,
+even though a script had already produced exactly that JSON as a file. In the
+session that prompted this, the agent declined to — and instead spawned the MCP
+bridge itself and spoke JSON-RPC to it from a script it wrote. The judgement was
+right (that batch cannot go through `items`); only the workaround was wrong, and
+a hand-written MCP client fails invisibly and can leave a half-written
+collection. The skill telling it to "let the script do the counting, then pass
+the output to putItems" was asking for something the tool could not do.
+
+Three refusals keep the new door from failing quietly:
+
+- **Absolute paths only.** The tool body runs in the HOST'S SERVER PROCESS
+  (`server/agent/mcp-server.ts` POSTs to `/api/mcp-tools/<name>`), whose working
+  directory is not the agent's — and under a sandbox, not even the same
+  filesystem. A relative path would not reliably error; it would resolve against
+  an unrelated directory and either miss or read a different file of the same
+  name. So it is refused, with the reason, rather than resolved.
+- **`items` and `itemsFile` are mutually exclusive.** Two row sets in one call
+  has no correct reading: honouring one silently discards the other, and
+  concatenating them writes rows nobody asked to write together.
+- **1000 rows per call.** `putOneItem` validates and writes one record at a
+  time, so an unbounded file holds the call open for minutes. Over the cap the
+  call is refused WHOLE, before the first write — a truncating write that
+  reported success would leave a half-filled collection nobody knows is
+  half-filled. The cap is checked on the resolved rows, so it holds for `items`
+  too.
+
+Everything else is unchanged: same per-row schema validation, same `mode`, same
+`{ written, rejected }`. `collection-skills.md` documents the file route and
+`error-recovery.md` names the bridge-spawning workaround so the agent meets the
+answer before it improvises one.
+
 #### The projection says what each audience may CHANGE, and who may change it (#2891)
 
 `{tier}/config` gains `write[]`: per collection, the status field a transition
@@ -117,7 +155,7 @@ Design: mulmoterminal `plans/refactor-shared-app-module.md`.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@3.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@3.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ### Fixed
 

@@ -971,6 +971,51 @@ Do NOT tell the user to re-check the spelling in `.env`, add the key
 again, or move it elsewhere; the file is already correct, and it is being
 read. The conflict is the whole problem.
 
+## A `putItems` batch is too large to pass inline — use `itemsFile`, never the MCP bridge
+
+### Symptoms
+
+- You generated records with a script (a month of booking slots, an imported
+  CSV, anything past a few dozen rows) and the only way you can see to store
+  them is to write every object into `manageCollection`'s `items` argument.
+- You start looking for the collection's data directory on disk, or for a way
+  to hand the file to the tool.
+- The next step that suggests itself is spawning `server/mcp/bridge.mjs` (or
+  the host's MCP server) yourself and speaking JSON-RPC to it from a script.
+
+### Cause
+
+`items` takes the rows inline, so a 540-row batch means writing ~80 KB of JSON
+token by token — even when a script already produced exactly that JSON as a
+file. The judgement that the batch cannot go through `items` is correct; only
+the workaround is wrong.
+
+### Fix
+
+Pass the file instead. `putItems` accepts **`itemsFile`** — an absolute path to
+a JSON file holding the array of record objects, read by the host:
+
+```jsonc
+{ "action": "putItems", "slug": "slots", "mode": "create",
+  "itemsFile": "/absolute/path/to/generated-slots.json" }
+```
+
+Rules that make it fail cleanly rather than silently:
+
+- **Absolute paths only.** The tool runs in the host's SERVER process, whose
+  working directory is not yours; a relative path is refused rather than
+  resolved against some unrelated directory.
+- **`items` or `itemsFile`, never both** — passing both is refused, not merged.
+- **1000 rows per call, max.** Over that the call is refused WHOLE with nothing
+  written; split the file and call again, so you never meet a half-filled
+  collection.
+- `could not read \`itemsFile\`` on a path you know exists means the file is not
+  on the server process's filesystem — a file written inside the sandbox is not.
+  Write it somewhere the host can read, or pass the rows in capped batches.
+
+Do NOT spawn the MCP bridge yourself. A hand-written JSON-RPC client fails
+invisibly and can leave a partially written collection that nothing reports.
+
 ## A tool your own instructions describe returns "No such tool available"
 
 ### Symptoms

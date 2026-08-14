@@ -16,7 +16,7 @@ import { makeManageCollectionTool as makeCoreTool, type ManageCollectionDeps } f
 import { helpsAssetDir } from "@mulmoclaude/core/workspace-setup";
 import { isAblated } from "../../system/env.js";
 
-export { MAX_UNSELECTIVE_ITEMS, MAX_SCHEMA_ISSUES, type ManageCollectionDeps } from "@mulmoclaude/core/collection/server";
+export { MAX_UNSELECTIVE_ITEMS, MAX_SCHEMA_ISSUES, MAX_PUT_ITEMS, type ManageCollectionDeps } from "@mulmoclaude/core/collection/server";
 
 /** Best-effort post-write refresh. Discovery re-reads schema.json from
  *  disk on every call, so a failed refresh only delays the live UI

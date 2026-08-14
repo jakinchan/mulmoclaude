@@ -43,7 +43,7 @@
 // evaluation-only validation ablation are injected, and tests point the
 // whole tool at a tmpdir workspace via the same deps.
 
-import { isRecord, isStringArray, isUnknownArray } from "@mulmoclaude/common";
+import { errorMessage, isRecord, isStringArray, isUnknownArray } from "@mulmoclaude/common";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { COMPUTED_TYPES } from "../core/schema";
@@ -81,6 +81,12 @@ const SCHEMA_FILE = "schema.json";
 const SCHEMA_DOCS_FILE = "collection-skills.md";
 /** Cap the rejected-schema issue list so a deeply-broken schema can't flood the result. */
 export const MAX_SCHEMA_ISSUES = 20;
+/** Cap the rows one putItems call may write. `putOneItem` validates and
+ *  writes one record at a time, so a large `itemsFile` holds the tool call
+ *  open for minutes. Over the cap the call is refused WHOLE — a truncating
+ *  write that reported success would leave a half-filled collection nobody
+ *  knows is half-filled. */
+export const MAX_PUT_ITEMS = 1000;
 /** The workspace help-docs dir both hosts seed (`@mulmoclaude/core/workspace-setup`
  *  syncs the bundled assets here) — the user-editable copy schemaDocs prefers. */
 const HELPS_DIR = "config/helps";
@@ -166,11 +172,15 @@ interface GetItemsArgs {
 
 type PutMode = "upsert" | "create" | "merge";
 
-interface PutItemsArgs {
+/** Where putItems' rows come from — exactly one of the two, never both
+ *  (see `parseItemsSource`). `itemsFile` is always an absolute path by the
+ *  time it reaches here. */
+type PutItemsSource = { items: CollectionItem[]; itemsFile?: undefined } | { items?: undefined; itemsFile: string };
+
+type PutItemsArgs = PutItemsSource & {
   slug: string;
-  items: CollectionItem[];
   mode: PutMode;
-}
+};
 
 function optionalStringArray(value: unknown, name: string): { ok: true; value?: string[] } | { ok: false; error: string } {
   if (value === undefined) return { ok: true };
@@ -366,6 +376,42 @@ async function handleQueryItems(collection: LoadedCollection, queryArg: unknown,
   return JSON.stringify({ collection: collection.slug, count: rows.length, rows });
 }
 
+/** Read the rows an `itemsFile` holds. Every failure comes back as tool text,
+ *  never a throw: a bad path or a malformed file is something the agent can
+ *  fix and retry, and the sandbox case in the read error is the one it cannot
+ *  otherwise diagnose — a file written INSIDE a sandbox is not on the server
+ *  process's filesystem at all, so a correct absolute path still misses. */
+async function readItemsFile(file: string): Promise<CollectionItem[] | string> {
+  const where = defangForPrompt(file);
+  let raw: string;
+  try {
+    raw = await readFile(file, "utf-8");
+  } catch (err) {
+    return `manageCollection: could not read \`itemsFile\` '${where}' — ${defangForPrompt(errorMessage(err))}. It must be readable by the host's server process; a file written inside a sandbox is not.`;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return `manageCollection: \`itemsFile\` '${where}' is not valid JSON — ${defangForPrompt(errorMessage(err))}. It must hold a JSON array of record objects.`;
+  }
+  if (!isRecordArray(parsed) || parsed.length === 0) return `manageCollection: \`itemsFile\` '${where}' must hold a non-empty JSON array of record objects.`;
+  return parsed;
+}
+
+/** The rows this call will write, from whichever source it named. The cap is
+ *  checked here — on the resolved rows, so it holds for `items` and `itemsFile`
+ *  alike — and BEFORE the first write, so an over-cap call leaves the
+ *  collection exactly as it found it instead of half-filled. */
+async function resolvePutRows(args: PutItemsArgs): Promise<CollectionItem[] | string> {
+  const rows = args.itemsFile === undefined ? args.items : await readItemsFile(args.itemsFile);
+  if (typeof rows === "string") return rows;
+  if (rows.length > MAX_PUT_ITEMS) {
+    return `manageCollection: refused — ${rows.length} rows is over the putItems limit of ${MAX_PUT_ITEMS}. Nothing was written; split them across several calls.`;
+  }
+  return rows;
+}
+
 async function handlePutItems(collection: LoadedCollection, args: PutItemsArgs, deps: ManageCollectionDeps): Promise<string> {
   // Server-enforced read-only: a `dataSource` collection's rows live in
   // the external data file — point the agent at the real update path
@@ -376,9 +422,11 @@ async function handlePutItems(collection: LoadedCollection, args: PutItemsArgs, 
   if (!write) {
     return `manageCollection: ${readOnlyRefusal(collection.slug)} (its records are the rows of '${collection.schema.dataSource?.path}'; edit that file to change the data).`;
   }
+  const rows = await resolvePutRows(args);
+  if (typeof rows === "string") return rows;
   const written: string[] = [];
   const rejected: RejectedRow[] = [];
-  for (const record of args.items) {
+  for (const record of rows) {
     const outcome = await putOneItem(collection, store, write, record, args.mode, deps);
     if (outcome.written) written.push(outcome.written);
     if (outcome.rejected) rejected.push(outcome.rejected);
@@ -437,12 +485,42 @@ function isRecordArray(value: unknown): value is CollectionItem[] {
   return isUnknownArray(value) && value.every(isRecord);
 }
 
+/** `items` and `itemsFile` are ALTERNATIVES, never a pair: two row sets in one
+ *  call has no correct reading — honouring one silently discards the other, and
+ *  concatenating them writes rows the caller never asked to write together. So
+ *  both present is refused, rather than resolved by precedence.
+ *
+ *  A relative `itemsFile` is refused too, for a reason the agent cannot see from
+ *  where it stands: this tool runs inside the HOST'S SERVER PROCESS, whose
+ *  working directory is not the agent's. A relative path would not reliably
+ *  fail — it would resolve against an unrelated directory and either miss or,
+ *  worse, read a different file that happens to share the name. */
+function parseItemsSource(items: unknown, itemsFile: unknown): PutItemsSource | string {
+  if (items !== undefined && itemsFile !== undefined) {
+    return "manageCollection: pass either `items` or `itemsFile` for putItems, not both — two row sets in one call is ambiguous.";
+  }
+  if (itemsFile !== undefined) return parseItemsFile(itemsFile);
+  if (!isRecordArray(items) || items.length === 0) {
+    return "manageCollection: putItems needs `items` (a non-empty array of record objects) or `itemsFile` (an absolute path to a JSON file of them — use it for a set a script generated, so the rows never pass through your context).";
+  }
+  return { items };
+}
+
+function parseItemsFile(itemsFile: unknown): PutItemsSource | string {
+  const file = typeof itemsFile === "string" ? itemsFile.trim() : "";
+  if (!file) return "manageCollection: `itemsFile` must be a non-empty absolute path to a JSON file of record objects.";
+  if (!path.isAbsolute(file)) {
+    return `manageCollection: \`itemsFile\` must be an ABSOLUTE path — '${defangForPrompt(file)}' is relative, and this tool runs in the host's server process, whose working directory is not yours. Pass the full path.`;
+  }
+  return { itemsFile: file };
+}
+
 function parsePutItems(args: Record<string, unknown>, slug: string): PutItemsArgs | string {
-  const { items, mode } = args;
-  if (!isRecordArray(items) || items.length === 0) return "manageCollection: `items` is required for putItems — a non-empty array of record objects.";
-  const putMode = parsePutMode(mode);
+  const source = parseItemsSource(args.items, args.itemsFile);
+  if (typeof source === "string") return source;
+  const putMode = parsePutMode(args.mode);
   if (putMode === null) return 'manageCollection: `mode` must be "upsert" (default), "create", or "merge".';
-  return { slug, items, mode: putMode };
+  return { ...source, slug, mode: putMode };
 }
 
 /** The machine-readable workspace ontology: every collection with its
@@ -604,6 +682,7 @@ const MANAGE_COLLECTION_PROMPT =
   "`getItems` is the only way to see computed values — `derived` fields (e.g. a portfolio's value), `toggle` projections, and `embed` records are host-computed and never present in the stored JSON files. On large collections pass `ids` and/or `fields` to keep the result small. " +
   'For a question that spans collections ("which clients have unpaid invoices?"), start with `getOntology`: it lists every collection with its primaryKey, record count, and outbound `ref`/`embed` relations, so you know which collections to join before reading any records. ' +
   "`putItems` validates every row against the schema before writing (required fields, enum values, primaryKey = record id) and returns `{ written, rejected }`; fix each rejected row using its `problem` text and retry just those rows. Never include computed fields in a row you write. " +
+  "When the rows come from a script rather than from you (a generated schedule, an imported set, anything past a few dozen records), write them to a JSON file and pass its ABSOLUTE path as `itemsFile` instead of `items` — the host reads the file, so the rows never pass through your context. Do NOT hand-transcribe a generated file into `items`, and never drive the collection by spawning the MCP bridge yourself. " +
   'To update a few fields of an existing record, use `mode: "merge"` with a partial row ({ id, <changed fields> }) — the default upsert replaces the WHOLE record, so a partial upsert would silently erase every optional field it omits. ' +
   "`deleteItems` removes records by id and returns `{ deleted, rejected }`; an id that doesn't exist comes back rejected rather than counted as deleted, so check `rejected` before reporting a deletion as done. " +
   "Answer aggregation questions (counts, sums, averages, group-bys) with `queryItems` on ANY collection — on a dataSource (CSV) collection it scans the whole file (getItems is row-capped, so aggregates computed from its output can be silently wrong on large files); on a file-backed collection it aggregates the enriched records, so computed fields (derived/rollup/toggle) are queryable columns.";
@@ -697,7 +776,13 @@ const MANAGE_COLLECTION_DEFINITION = {
       items: {
         type: "array",
         items: { type: "object" },
-        description: "putItems: the record objects to store. Each must carry the schema's primaryKey value (it doubles as the filename).",
+        description:
+          "putItems: the record objects to store, inline. Each must carry the schema's primaryKey value (it doubles as the filename). For rows a script generated, pass `itemsFile` instead — never both.",
+      },
+      itemsFile: {
+        type: "string",
+        description:
+          "putItems: an ABSOLUTE path to a JSON file holding the array of record objects, read by the host — the alternative to `items` for rows a script produced. Use it whenever the data already exists as a file: passing a generated set of several hundred records through `items` means writing every byte of it yourself. The path must be absolute (this tool runs in the host's server process, whose working directory is not yours), the file must hold a non-empty JSON array, and `items` and `itemsFile` are mutually exclusive.",
       },
       mode: {
         type: "string",
