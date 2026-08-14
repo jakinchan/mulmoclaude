@@ -107,7 +107,7 @@ All are optional; omitted values fall back to the defaults table above.
 | `LOG_TELEMETRY_ENABLED` | boolean | telemetry sink (currently a no-op stub) |
 | `LOG_TELEMETRY_LEVEL` | level | telemetry |
 | `LOG_TELEMETRY_FORMAT` | `text` / `json` | telemetry |
-| `LOG_SOURCE` | a short printable label (e.g. `mcp-broker`) | every sink — stamps which process emitted the record. Unset (the default) means the main server; empty / whitespace-only is treated as unset. Control characters are stripped and the label is capped at 32 chars, so a value cannot break the one-record-per-line shape of the text log |
+| `LOG_SOURCE` | a short label from `A-Z a-z 0-9 . _ : / -` (e.g. `mcp-broker`) | every sink — stamps which process emitted the record. Unset (the default) means the main server. Any other character is dropped and the label is capped at 32 chars, so a value cannot break the one-record-per-line shape of the text log (control characters, Unicode line separators and bidi overrides included); a value with nothing left is treated as unset |
 
 Invalid values (e.g. `LOG_LEVEL=chatty`) are silently ignored — the
 logger falls back to the default for that knob rather than crashing

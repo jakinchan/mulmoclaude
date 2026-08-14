@@ -140,9 +140,35 @@ describe("resolveConfig", () => {
     const C1_CSI = String.fromCharCode(0x9b);
     assert.equal(resolveConfig({ LOG_SOURCE: `a\rb` }).source, "ab");
     assert.equal(resolveConfig({ LOG_SOURCE: `a\tb` }).source, "ab");
-    assert.equal(resolveConfig({ LOG_SOURCE: `a${ESC}[31mb` }).source, "a[31mb");
+    // The brackets go too — they are not label characters, and a `[` inside the
+    // label would make the text line's bracket structure ambiguous.
+    assert.equal(resolveConfig({ LOG_SOURCE: `a${ESC}[31mb` }).source, "a31mb");
     assert.equal(resolveConfig({ LOG_SOURCE: `a${DEL}b` }).source, "ab");
     assert.equal(resolveConfig({ LOG_SOURCE: `a${C1_CSI}b` }).source, "ab");
+  });
+
+  // The denylist form of this filter passed the ASCII cases above and still let
+  // these through: U+2028/U+2029 break a line in Unicode-aware viewers, and
+  // U+202E reverses the rendering of everything after it. (Codex iter-2 on
+  // #2905 — the reason the filter became an allowlist.)
+  it("strips Unicode line/paragraph separators and bidi overrides", () => {
+    const LINE_SEP = "\u2028";
+    const PARA_SEP = "\u2029";
+    const RLO = "\u202e";
+    const ZWJ = "\u200d";
+    assert.equal(resolveConfig({ LOG_SOURCE: `a${LINE_SEP}b` }).source, "ab");
+    assert.equal(resolveConfig({ LOG_SOURCE: `a${PARA_SEP}b` }).source, "ab");
+    assert.equal(resolveConfig({ LOG_SOURCE: `a${RLO}b` }).source, "ab");
+    assert.equal(resolveConfig({ LOG_SOURCE: `a${ZWJ}b` }).source, "ab");
+    assert.equal(resolveConfig({ LOG_SOURCE: `mcp-broker${LINE_SEP}ERROR [auth] forged` }).source, "mcp-brokerERRORauthforged");
+  });
+
+  it("keeps only the allowlisted label characters", () => {
+    assert.equal(resolveConfig({ LOG_SOURCE: "mcp-broker_2.worker:a/b" }).source, "mcp-broker_2.worker:a/b");
+    // Non-ASCII is dropped: the field is a machine-readable process tag, and an
+    // allowlist that admits arbitrary scripts is back to guessing which of them
+    // render as a line break.
+    assert.equal(resolveConfig({ LOG_SOURCE: "ワーカー" }).source, undefined);
   });
 
   it("treats an all-control-character LOG_SOURCE as unset", () => {
