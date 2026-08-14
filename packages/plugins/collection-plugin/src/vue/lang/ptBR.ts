@@ -59,6 +59,7 @@ const ptBRMessages: CollectionMessages = {
     readonlyChip: "Somente leitura",
     itemsEmptyReadonly: "O arquivo de dados ainda não tem linhas. Adicione linhas ao arquivo e elas aparecerão aqui.",
     filter: { all: "Todas", editable: "Editáveis", data: "Dados" },
+    sort: { label: "Ordem", slug: "Slug", title: "Nome" },
     mapTab: "Mapa",
     mapEmpty: "Nada para mostrar ainda — o mapa se desenha sozinho conforme coleções e os vínculos entre elas aparecem.",
     mapRecordCount: "{count} registros",

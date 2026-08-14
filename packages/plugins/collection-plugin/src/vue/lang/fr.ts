@@ -60,6 +60,7 @@ const frMessages: CollectionMessages = {
     readonlyChip: "Lecture seule",
     itemsEmptyReadonly: "Le fichier de données ne contient pas encore de lignes. Ajoutez-en au fichier et elles apparaîtront ici.",
     filter: { all: "Toutes", editable: "Modifiables", data: "Données" },
+    sort: { label: "Tri", slug: "Slug", title: "Nom" },
     mapTab: "Carte",
     mapEmpty: "Rien à afficher pour l'instant — la carte se dessine d'elle-même à mesure que les collections et leurs liens apparaissent.",
     mapRecordCount: "{count} enregistrements",
