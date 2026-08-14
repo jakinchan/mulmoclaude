@@ -130,6 +130,10 @@ const initializeRequest = JSON.stringify({
 const initializedNotification = JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
 const toolsListRequest = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
 
+// Distinctive so a mismatch names itself in the assertion message rather than
+// reading as an empty-string coincidence.
+const BEACON_SPAWN_ID = "spawn-smoke-7f3a";
+
 function isJsonLine(line: string): boolean {
   try {
     JSON.parse(line);
@@ -318,6 +322,7 @@ describe("MCP server subprocess smoke test", () => {
     try {
       await runBroker([initializeRequest, initializedNotification], {
         SESSION_ID: "test-beacon",
+        MCP_SPAWN_ID: BEACON_SPAWN_ID,
         PORT: String(port),
         MCP_HOST: "127.0.0.1",
         PLUGIN_NAMES: TOOL_NAMES.manageSkills,
@@ -339,6 +344,11 @@ describe("MCP server subprocess smoke test", () => {
     assert.equal(payload.kind, "tsx");
     assert.ok(payload.bootMs > 0, `bootMs should measure real startup, got ${payload.bootMs}`);
     assert.ok(payload.initializeMs >= payload.bootMs, `initialize cannot precede module load: ${JSON.stringify(payload)}`);
+    // The half no unit test can reach: the id the parent puts in the broker's
+    // env has to come back out in the beacon body. Without that round-trip the
+    // host cannot tell a straggler from the current attempt, and the failure is
+    // silent — every beacon would simply be discarded as superseded.
+    assert.equal(payload.spawnId, BEACON_SPAWN_ID, "the beacon must echo MCP_SPAWN_ID so the host can attribute it");
   });
 });
 
@@ -359,10 +369,16 @@ interface BeaconPayload {
   bootMs: number;
   initializeMs: number;
   kind: string;
+  spawnId: string;
 }
 
 function isBeaconPayload(value: unknown): value is BeaconPayload {
   if (typeof value !== "object" || value === null) return false;
   const candidate: Record<string, unknown> = { ...value };
-  return typeof candidate.bootMs === "number" && typeof candidate.initializeMs === "number" && typeof candidate.kind === "string";
+  return (
+    typeof candidate.bootMs === "number" &&
+    typeof candidate.initializeMs === "number" &&
+    typeof candidate.kind === "string" &&
+    typeof candidate.spawnId === "string"
+  );
 }
