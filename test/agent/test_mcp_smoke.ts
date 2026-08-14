@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { AddressInfo } from "node:net";
+import type { AddressInfo } from "node:net";
 import path from "node:path";
 
 import { ONE_SECOND_MS } from "../../server/utils/time.ts";
@@ -313,7 +313,7 @@ describe("MCP server subprocess smoke test", () => {
     });
     host.listen(0, "127.0.0.1");
     await once(host, "listening");
-    const { port } = host.address() as AddressInfo;
+    const port = listeningPort(host);
 
     try {
       await runBroker([initializeRequest, initializedNotification], {
@@ -344,6 +344,15 @@ describe("MCP server subprocess smoke test", () => {
 
 function closeServer(server: Server): Promise<void> {
   return new Promise((resolve) => server.close(() => resolve()));
+}
+
+/** `address()` is `string | AddressInfo | null` — a pipe path or a not-yet-
+ *  listening socket both type-check as the TCP shape under a cast, and would
+ *  hand the broker a bogus BASE_URL that fails as "no beacon". */
+function listeningPort(server: Server): number {
+  const address: string | AddressInfo | null = server.address();
+  if (address === null || typeof address === "string") throw new Error(`expected a TCP address, got ${JSON.stringify(address)}`);
+  return address.port;
 }
 
 interface BeaconPayload {

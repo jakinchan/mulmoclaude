@@ -7,7 +7,14 @@ import { log } from "./logger/index.js";
 import { env } from "./env.js";
 import { SUBPROCESS_PROBE_TIMEOUT_MS } from "../utils/time.js";
 import { claudeConfigDir, claudeConfigJson } from "../utils/claudeConfigPath.js";
-import { CLAUDE_CODE_LABEL, DOCKERFILE_SHA_LABEL, IMAGE_INSPECT_FORMAT, parseSandboxImageInfo, sandboxImageWarnings } from "./sandboxImageInfo.js";
+import {
+  CLAUDE_CODE_LABEL,
+  DOCKERFILE_SHA_LABEL,
+  IMAGE_INSPECT_FORMAT,
+  parseSandboxImageInfo,
+  sandboxImageWarnings,
+  type SandboxImageInfo,
+} from "./sandboxImageInfo.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -118,39 +125,52 @@ async function buildImage(sha: string): Promise<void> {
   });
 }
 
-/** Read the image's labels and age, and say what they mean. Best-effort: a
- *  failure here must never block the sandbox, so it only ever logs. */
-async function reportSandboxImage(): Promise<void> {
+/** The image's labels and age, or `null` when there is no image (first run) or
+ *  docker refused to answer. One template covers all three fields, so the sha
+ *  check and the version report share a single call. */
+async function inspectSandboxImage(): Promise<SandboxImageInfo | null> {
   try {
     const { stdout } = await execFileAsync("docker", ["image", "inspect", IMAGE_NAME, "--format", IMAGE_INSPECT_FORMAT]);
-    const info = parseSandboxImageInfo(stdout, Date.now());
-    log.info("sandbox", "sandbox image", {
-      claudeCodeVersion: info.claudeCodeVersion ?? "unrecorded",
-      ageDays: info.ageDays,
-    });
-    sandboxImageWarnings(info).forEach((warning) => log.warn("sandbox", warning.message, warning.data));
-  } catch (err) {
-    log.warn("sandbox", `could not inspect the sandbox image: ${String(err)}`);
+    return parseSandboxImageInfo(stdout, Date.now());
+  } catch {
+    return null;
   }
 }
 
-async function needsRebuild(expectedSha: string): Promise<boolean> {
-  try {
-    const { stdout } = await execFileAsync("docker", ["image", "inspect", IMAGE_NAME, "--format", IMAGE_INSPECT_FORMAT]);
-    if (parseSandboxImageInfo(stdout, Date.now()).dockerfileSha === expectedSha) return false;
-    log.info("sandbox", "Dockerfile.sandbox changed, rebuilding sandbox image...");
-    return true;
-  } catch {
+/** Say what the image is and whether anything about it needs attention.
+ *  Best-effort: a failure here must never block the sandbox, so it only logs. */
+function reportSandboxImage(info: SandboxImageInfo | null): void {
+  if (info === null) {
+    log.warn("sandbox", "could not inspect the sandbox image — its Claude CLI version is unknown");
+    return;
+  }
+  log.info("sandbox", "sandbox image", {
+    claudeCodeVersion: info.claudeCodeVersion ?? "unrecorded",
+    ageDays: info.ageDays,
+  });
+  sandboxImageWarnings(info).forEach((warning) => log.warn("sandbox", warning.message, warning.data));
+}
+
+function needsRebuild(info: SandboxImageInfo | null, expectedSha: string): boolean {
+  if (info === null) {
     log.info("sandbox", "Building sandbox image (first time only, may take a minute)...");
     return true;
   }
+  if (info.dockerfileSha === expectedSha) return false;
+  log.info("sandbox", "Dockerfile.sandbox changed, rebuilding sandbox image...");
+  return true;
 }
 
 export async function ensureSandboxImage(): Promise<void> {
   const expectedSha = getDockerfileSha256();
-  if (await needsRebuild(expectedSha)) {
-    await buildImage(expectedSha);
-    log.info("sandbox", "Sandbox image built.");
+  const existing = await inspectSandboxImage();
+  if (!needsRebuild(existing, expectedSha)) {
+    reportSandboxImage(existing);
+    return;
   }
-  await reportSandboxImage();
+  await buildImage(expectedSha);
+  log.info("sandbox", "Sandbox image built.");
+  // Re-read: the labels and age just changed, so `existing` describes an image
+  // that no longer exists.
+  reportSandboxImage(await inspectSandboxImage());
 }

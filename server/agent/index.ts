@@ -7,6 +7,7 @@ import { loadMcpConfig, loadSettings } from "../system/config.js";
 import type { Role } from "../../src/config/roles.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { loadMemorySnapshot } from "../workspace/memory/snapshot.js";
+import { clearBrokerReady } from "./brokerReadiness.js";
 import {
   CONTAINER_WORKSPACE_PATH,
   buildMcpConfig,
@@ -214,6 +215,10 @@ function buildAgentInput(
     // from the log alone rather than by inspecting the filesystem (#2842).
     broker: hasMcp ? resolveBrokerKind(useDocker) : "none",
   };
+  // This spawn gets its own broker, so it must start with no beacon on record.
+  // The readiness key is the chat session, which outlives the turn — see
+  // `clearBrokerReady` for what carrying one over would report.
+  clearBrokerReady(sessionId);
   // --debug only: kept off the default log to avoid leaking user MCP server names into long-lived sinks.
   if (process.argv.includes("--debug") && hasMcp) {
     spawnLog.mcpServers = mcpServerNames;

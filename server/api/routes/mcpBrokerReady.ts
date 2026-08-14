@@ -21,6 +21,7 @@ import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { badRequest } from "../../utils/httpError.js";
 import { log } from "../../system/logger/index.js";
 import { BROKER_SLOW_BOOT_MS, recordBrokerReady, type BrokerReady } from "../../agent/brokerReadiness.js";
+import { ONE_MINUTE_MS } from "../../utils/time.js";
 
 interface BrokerReadyBody {
   bootMs?: unknown | undefined;
@@ -34,7 +35,7 @@ const isBrokerKind = (value: unknown): value is BrokerReady["kind"] => value ===
 
 // A negative or absurd duration means the sender's clock is not what we think
 // it is; reject rather than log a number that would mislead a later reader.
-const MAX_PLAUSIBLE_BOOT_MS = 10 * 60 * 1000;
+const MAX_PLAUSIBLE_BOOT_MS = 10 * ONE_MINUTE_MS;
 const isDuration = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_PLAUSIBLE_BOOT_MS;
 
 function validate(body: BrokerReadyBody | undefined, res: Response): BrokerReady | null {

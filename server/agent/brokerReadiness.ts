@@ -9,11 +9,13 @@
 // merely slow and one that never came up produce identical symptoms otherwise,
 // which is exactly the ambiguity #2842 was filed against.
 
+import { ONE_SECOND_MS } from "../utils/time.js";
+
 /** How slow a cold boot has to be before it is worth a warn rather than an
  *  info. The bundled broker answers in well under a second; the `tsx` path was
  *  measured at 20-24 s (#2233). Anything past this is already a large fraction
  *  of the CLI's connect wait, so the turn is one bad mount away from failing. */
-export const BROKER_SLOW_BOOT_MS = 5_000;
+export const BROKER_SLOW_BOOT_MS = 5 * ONE_SECOND_MS;
 
 /** Sessions to remember. Only the most recent matter — the beacon is read when
  *  a turn fails, which is always the turn just now — and the map would
@@ -43,8 +45,20 @@ export function recordBrokerReady(sessionId: string, ready: BrokerReady): void {
   }
 }
 
-/** `null` means no beacon arrived for this session — either the broker never
- *  got far enough to send one, or it is still booting. */
+/** Drop the session's reading, called at every spawn.
+ *
+ *  Load-bearing, not tidiness. The key is the CHAT session id, which is stable
+ *  for the life of a conversation, while each turn spawns its own broker. Left
+ *  alone, turn 1's successful beacon would still be sitting there when turn 5's
+ *  broker fails to start, and the diagnostic would report `brokerEverReady:
+ *  true` for a broker that never ran — the exact wrong answer, in the exact
+ *  case the field exists to answer. */
+export function clearBrokerReady(sessionId: string): void {
+  readyBySession.delete(sessionId);
+}
+
+/** `null` means no beacon arrived for the CURRENT spawn — either the broker
+ *  never got far enough to send one, or it is still booting. */
 export function getBrokerReady(sessionId: string): BrokerReady | null {
   return readyBySession.get(sessionId) ?? null;
 }

@@ -37,10 +37,16 @@ export interface SandboxImageInfo {
   ageDays: number | null;
 }
 
-// Go templates print this for a map key that isn't there, and a build that
-// could not resolve npm's latest passes the literal `latest` — neither names
-// a version, so both mean "not recorded".
-const ABSENT_LABEL_VALUES: ReadonlySet<string> = new Set(["", "<no value>", "latest"]);
+// What docker emits for a label that isn't there. An unlabelled image gives an
+// EMPTY field (verified against `docker image inspect`); `<no value>` is Go's
+// output when `.Config.Labels` is nil rather than an empty map.
+const ABSENT_LABEL_VALUES: ReadonlySet<string> = new Set(["", "<no value>"]);
+
+// Additionally for the version label only: a build that could not reach npm
+// passes the literal `latest` through, which names no version. Kept separate
+// from the set above because it is meaningless for the sha label — a rule that
+// applies to one field should not be reachable from the other.
+const UNRESOLVED_VERSION = "latest";
 
 const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)/;
 
@@ -71,6 +77,11 @@ function labelOrNull(raw: string | undefined): string | null {
   return ABSENT_LABEL_VALUES.has(value) ? null : value;
 }
 
+function versionLabelOrNull(raw: string | undefined): string | null {
+  const value = labelOrNull(raw);
+  return value === UNRESOLVED_VERSION ? null : value;
+}
+
 function ageDaysFrom(created: string | undefined, nowMs: number): number | null {
   const createdMs = Date.parse(created?.trim() ?? "");
   if (Number.isNaN(createdMs)) return null;
@@ -82,7 +93,7 @@ export function parseSandboxImageInfo(stdout: string, nowMs: number): SandboxIma
   const [sha, version, created] = stdout.trim().split("|");
   return {
     dockerfileSha: labelOrNull(sha) ?? "",
-    claudeCodeVersion: labelOrNull(version),
+    claudeCodeVersion: versionLabelOrNull(version),
     ageDays: ageDaysFrom(created, nowMs),
   };
 }

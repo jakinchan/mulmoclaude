@@ -13,8 +13,9 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Request, Response, Router } from "express";
 import mcpBrokerReadyRoutes from "../../../server/api/routes/mcpBrokerReady.js";
-import { BROKER_SLOW_BOOT_MS, getBrokerReady, _resetBrokerReadiness } from "../../../server/agent/brokerReadiness.js";
+import { BROKER_SLOW_BOOT_MS, clearBrokerReady, getBrokerReady, _resetBrokerReadiness } from "../../../server/agent/brokerReadiness.js";
 import { log } from "../../../server/system/logger/index.js";
+import { ONE_HOUR_MS } from "../../../server/utils/time.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 
 interface LogCall {
@@ -134,7 +135,7 @@ describe("POST /api/mcp/broker-ready", () => {
     assert.equal((await post("s", { ...fastBoot, bootMs: -1 })).statusCode, 400);
     assert.equal((await post("s", { ...fastBoot, initializeMs: Number.POSITIVE_INFINITY })).statusCode, 400);
     assert.equal((await post("s", { ...fastBoot, bootMs: "120" })).statusCode, 400);
-    assert.equal((await post("s", { ...fastBoot, bootMs: 60 * 60 * 1000 })).statusCode, 400);
+    assert.equal((await post("s", { ...fastBoot, bootMs: ONE_HOUR_MS })).statusCode, 400);
     assert.equal(getBrokerReady("s"), null);
   });
 
@@ -142,5 +143,19 @@ describe("POST /api/mcp/broker-ready", () => {
     assert.equal((await post("s", { ...fastBoot, kind: "deno" })).statusCode, 400);
     assert.equal((await post("s", { bootMs: 1, initializeMs: 2 })).statusCode, 400);
     assert.equal(getBrokerReady("s"), null);
+  });
+
+  // Codex review on #2898. The key is the CHAT session, stable for the life of
+  // a conversation, but each turn spawns its own broker — so without the clear
+  // at spawn, turn 1's beacon answers for turn 5's broker that never started,
+  // reporting `brokerEverReady: true` in precisely the case the field exists to
+  // catch. `runAgent` calls `clearBrokerReady` at every spawn; this pins that
+  // the state actually goes away when it does.
+  it("does not let one turn's beacon vouch for a later turn's broker", async () => {
+    await post("chat-1", fastBoot);
+    assert.ok(getBrokerReady("chat-1"), "precondition: turn 1 recorded a beacon");
+
+    clearBrokerReady("chat-1"); // what the next spawn does
+    assert.equal(getBrokerReady("chat-1"), null, "a fresh spawn must start with no beacon on record");
   });
 });
