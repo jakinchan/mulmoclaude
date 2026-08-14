@@ -692,6 +692,27 @@ describe("manageCollection — enum field defaults", () => {
     assert.equal(storedTask("t1").priority, "low");
   });
 
+  // An `enum` is a legal primary key (`primary` lives on every field type), so
+  // a default can be what supplies the record id — which means the merge has to
+  // happen before the id is resolved, not after (Codex review on #2910).
+  it("supplies the id when the primary key is an enum with a default", async () => {
+    writeSkill("phases", {
+      title: "Phases",
+      icon: "list",
+      dataPath: "data/phases/items",
+      primaryKey: "phase",
+      fields: {
+        phase: { type: "enum", label: "Phase", values: ["intake", "review"], primary: true, required: true, default: "intake" },
+        note: { type: "string", label: "Note" },
+      },
+    });
+    const result = await runJson({ action: "putItems", slug: "phases", items: [{ note: "no id given" }], mode: "create" });
+    assert.deepEqual(result.rejected, []);
+    assert.deepEqual(result.written, ["intake"]);
+    const stored = JSON.parse(readFileSync(path.join(workdir, "data/phases/items/intake.json"), "utf-8")) as Record<string, unknown>;
+    assert.equal(stored.phase, "intake");
+  });
+
   it("never overrides a value the row carries", async () => {
     await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t2", title: "Urgent", status: "doing", priority: "high" }], mode: "create" });
     assert.equal(storedTask("t2").status, "doing");

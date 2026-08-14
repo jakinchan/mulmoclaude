@@ -324,20 +324,22 @@ async function putOneItem(
   deps: ManageCollectionDeps,
 ): Promise<{ written?: string; rejected?: RejectedRow }> {
   const { schema } = collection;
-  const itemId = resolveCreateItemId(schema, record);
+  // Schema defaults fill only what the row left out, and only on create:
+  // "upsert" and "merge" edit a record that already answered this question, so
+  // re-applying a default there would overwrite the answer (#2839). Applied
+  // BEFORE the id is resolved — an `enum` is a legal primary key, so a default
+  // can be what supplies the id (Codex review on #2910).
+  const created = mode === "create" ? { ...schemaDefaults(schema), ...record } : record;
+  const itemId = resolveCreateItemId(schema, created);
   const reject = (about: string, problem: string): { rejected: RejectedRow } => ({
     rejected: { id: defangForPrompt(about), problem: defangForPrompt(problem) },
   });
   if (itemId === null) return reject("(no id)", `record has no '${schema.primaryKey}' value — set it (it doubles as the filename)`);
+  // Against the row as the caller wrote it: a default never introduces a
+  // computed key, and the message should name what they sent.
   const computed = computedKeyProblem(record, schema);
   if (computed) return reject(itemId, computed);
-  let toWrite = record;
-  if (mode === "create") {
-    // Schema defaults fill only what the row left out, and only here: "upsert"
-    // and "merge" edit a record that already answered this question, so
-    // re-applying a default there would overwrite the answer (#2839).
-    toWrite = { ...schemaDefaults(schema), ...record };
-  }
+  let toWrite = created;
   if (mode === "merge") {
     const merged = await mergeWithExisting(collection, store, record, itemId);
     if (typeof merged === "string") return reject(itemId, merged);

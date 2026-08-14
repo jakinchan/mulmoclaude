@@ -1098,7 +1098,10 @@ function openCreate(): void {
   const { singleton, primaryKey } = collection.value.schema;
   if (singleton) {
     text[primaryKey] = singleton;
-  } else if (primaryKey in text) {
+  } else if (primaryKey in text && !text[primaryKey]) {
+    // Only when nothing filled it: an `enum` is a legal primary key, and a
+    // generated UUID is not one of its `values` — the form would open blank on
+    // a field that cannot be saved (Codex review on #2910).
     text[primaryKey] = generateUniqueItemId(primaryKey);
   }
   viewing.value = null; // one panel open at a time

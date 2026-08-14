@@ -85,3 +85,42 @@ test.describe("collection enum field default", () => {
     await expect(page.getByTestId("collections-input-priority")).toHaveValue("low");
   });
 });
+
+// `primary` lives on every field type, so an enum can be the primary key. The
+// id pre-fill must not stomp its default: a generated UUID is not one of the
+// enum's values, so the form would open blank on a field that cannot be saved
+// (Codex review on #2910).
+test.describe("enum primary key", () => {
+  const PHASES_DETAIL = {
+    collection: {
+      slug: "phases",
+      title: "Phases",
+      icon: "list",
+      source: "user",
+      schema: {
+        title: "Phases",
+        icon: "list",
+        dataPath: "data/phases/items",
+        primaryKey: "phase",
+        fields: {
+          phase: { type: "enum", label: "Phase", values: ["intake", "review"], primary: true, required: true, default: "intake" },
+          note: { type: "string", label: "Note" },
+        },
+      },
+    },
+    items: [{ phase: "review", note: "existing" }],
+  };
+
+  test("the Add form opens on the declared default, not a generated id", async ({ page }) => {
+    await mockAllApis(page);
+    await page.route(
+      (url) => url.pathname === "/api/collections/phases",
+      (route) => route.fulfill({ json: PHASES_DETAIL }),
+    );
+    await page.goto("/collections/phases");
+    await page.getByTestId("collections-row-review").waitFor();
+
+    await page.getByTestId("collections-add-item").click();
+    await expect(page.getByTestId("collections-input-phase")).toHaveValue("intake");
+  });
+});
