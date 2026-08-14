@@ -123,8 +123,7 @@
           >
             <span class="material-icons text-4xl text-slate-300">search_off</span>
             <p class="font-semibold text-slate-600">{{ t("collectionsView.indexNoMatches") }}</p>
-            <!-- Clears the chip too — either narrowing can be the one that emptied the grid. -->
-            <button type="button" class="text-xs text-indigo-600 font-semibold hover:underline" @click="((searchQuery = ''), (filter = 'all'))">
+            <button type="button" class="text-xs text-indigo-600 font-semibold hover:underline" @click="clearNarrowing">
               {{ t("collectionsView.clearSearch") }}
             </button>
           </div>
@@ -240,6 +239,14 @@ const filter = ref<CollectionIndexFilter>("all");
 const searchQuery = ref("");
 const hasReadonlyCollections = computed<boolean>(() => collections.value.some((collection) => collection.readonly === true));
 const filteredCollections = computed<CollectionSummary[]>(() => filterIndexCollections(collections.value, filter.value, searchQuery.value));
+
+// The empty state clears the chip as well as the query: either narrowing can be
+// the one that emptied the grid, and the reader can't tell which from an empty
+// grid.
+function clearNarrowing(): void {
+  searchQuery.value = "";
+  filter.value = "all";
+}
 
 async function loadCollections(): Promise<void> {
   loading.value = true;
