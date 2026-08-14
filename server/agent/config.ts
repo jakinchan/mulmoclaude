@@ -17,8 +17,11 @@ import { convertAttachment } from "./attachmentConverter.js";
 import { log } from "../system/logger/index.js";
 import { isRecord } from "../utils/types.js";
 import { preflightUserServers, logPreflightResult } from "./mcpPreflight.js";
+import { CONTAINER_WORKSPACE_PATH } from "./containerPaths.js";
 
-export const CONTAINER_WORKSPACE_PATH = "/home/node/mulmoclaude";
+// Lives in a leaf module so an mcp-tool can read it without importing this
+// file, which imports `mcp-tools/index.js` and would close a cycle.
+export { CONTAINER_WORKSPACE_PATH } from "./containerPaths.js";
 
 // Junction-free NODE_PATH fallback root for the in-container MCP child.
 // On Windows the yarn-workspace `node_modules/@mulmoclaude/*` links are

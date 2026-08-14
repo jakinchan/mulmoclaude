@@ -43,8 +43,9 @@
 // evaluation-only validation ablation are injected, and tests point the
 // whole tool at a tmpdir workspace via the same deps.
 
-import { isRecord, isStringArray, isUnknownArray } from "@mulmoclaude/common";
-import { readFile } from "node:fs/promises";
+import { errorMessage, isErrorWithCode, isRecord, isStringArray, isUnknownArray } from "@mulmoclaude/common";
+import { lstat, open, readFile, realpath, stat, type FileHandle } from "node:fs/promises";
+import { constants as FS_CONSTANTS, type Stats } from "node:fs";
 import path from "node:path";
 import { COMPUTED_TYPES } from "../core/schema";
 import type { CollectionItem, CollectionSchema } from "../core/schema";
@@ -61,7 +62,7 @@ import { runCollectionQuery } from "./queryRunner";
 import { enrichItems } from "./derive";
 import { validateCollectionRecords, validateRecordObject } from "./validate";
 import { buildWorkspaceOntology } from "./ontology";
-import { resolveDataDir } from "./paths";
+import { isContainedInRoot, resolveDataDir } from "./paths";
 import { getWorkspaceRoot, stagingSkillDir } from "./host";
 import { writeFileAtomic } from "../../files/atomic.js";
 import { mirrorSkillWrite } from "../../skill-bridge/index.js";
@@ -82,6 +83,26 @@ const SCHEMA_FILE = "schema.json";
 const SCHEMA_DOCS_FILE = "collection-skills.md";
 /** Cap the rejected-schema issue list so a deeply-broken schema can't flood the result. */
 export const MAX_SCHEMA_ISSUES = 20;
+/** Cap the rows one putItems call may write. `putOneItem` validates and
+ *  writes one record at a time, so a large `itemsFile` holds the tool call
+ *  open for minutes. Over the cap the call is refused WHOLE — a truncating
+ *  write that reported success would leave a half-filled collection nobody
+ *  knows is half-filled. */
+export const MAX_PUT_ITEMS = 1000;
+/** Refuse an `itemsFile` larger than this, from `stat` and before any read.
+ *  The row cap alone cannot bound the work: the file has to be read and parsed
+ *  WHOLE before there are rows to count, so a huge blob is paid for in full
+ *  first. 8 MiB is far past what 1000 records need and far short of trouble. */
+export const MAX_ITEMS_FILE_BYTES = 8 * 1024 * 1024;
+/** `itemsFile` is opened read-only, without following a symlink, and without
+ *  blocking on a fifo — see `openContainedItemsFile`.
+ *
+ *  `O_NOFOLLOW` and `O_NONBLOCK` are POSIX-only: on Windows they are absent, and
+ *  `x | undefined` is `x`, so the flags silently soften to a plain read-only
+ *  open. They are hardening where they exist, never the guarantee — the symlink
+ *  refusal is an explicit `lstat` (`verifyOpenedItemsFile`) so it holds on every
+ *  platform. `?? 0` states that rather than leaving it to coercion. */
+const OPEN_ITEMS_FILE_FLAGS = FS_CONSTANTS.O_RDONLY | (FS_CONSTANTS.O_NOFOLLOW ?? 0) | (FS_CONSTANTS.O_NONBLOCK ?? 0);
 /** The workspace help-docs dir both hosts seed (`@mulmoclaude/core/workspace-setup`
  *  syncs the bundled assets here) — the user-editable copy schemaDocs prefers. */
 const HELPS_DIR = "config/helps";
@@ -129,6 +150,20 @@ export type ManageCollectionDeps = DiscoveryOptions & {
    *  returning null, because the doc variant is a statement the host makes, not
    *  something the package should infer. */
   stagedSkillAuthoring?: boolean | undefined;
+  /** Where the workspace is mounted INSIDE this host's agent sandbox
+   *  (MulmoClaude's `CONTAINER_WORKSPACE_PATH`, `/home/node/mulmoclaude`).
+   *
+   *  Only `putItems`' `itemsFile` needs it, and it needs it badly: a sandboxed
+   *  agent's absolute paths are CONTAINER paths, while this tool body runs on
+   *  the host. Read verbatim, `/home/node/mulmoclaude/rows.json` is ENOENT on
+   *  every host whose workspace is not literally that directory — i.e. all of
+   *  them. Given this, the prefix is translated back to the workspace root, so
+   *  the path the agent wrote to and the file the host reads are the same bytes.
+   *
+   *  Omitted (a host with no sandbox, or one that mounts the workspace at its
+   *  real path), absolute paths are used as given. Binding it is harmless when
+   *  the sandbox is off — the prefix simply never appears. */
+  sandboxWorkspacePath?: string | undefined;
 };
 
 /** Resolve the workspace root the same way every collections call does:
@@ -167,11 +202,15 @@ interface GetItemsArgs {
 
 type PutMode = "upsert" | "create" | "merge";
 
-interface PutItemsArgs {
+/** Where putItems' rows come from — exactly one of the two, never both
+ *  (see `parseItemsSource`). `itemsFile` is always an absolute path by the
+ *  time it reaches here. */
+type PutItemsSource = { items: CollectionItem[]; itemsFile?: undefined } | { items?: undefined; itemsFile: string };
+
+type PutItemsArgs = PutItemsSource & {
   slug: string;
-  items: CollectionItem[];
   mode: PutMode;
-}
+};
 
 function optionalStringArray(value: unknown, name: string): { ok: true; value?: string[] } | { ok: false; error: string } {
   if (value === undefined) return { ok: true };
@@ -375,6 +414,179 @@ async function handleQueryItems(collection: LoadedCollection, queryArg: unknown,
   return JSON.stringify({ collection: collection.slug, count: rows.length, rows });
 }
 
+/** Rewrite a sandbox-mount prefix to the host's workspace root, so the path the
+ *  agent wrote to and the file this process reads are the same bytes. Anything
+ *  not under the mount is returned untouched — a host with no sandbox hands the
+ *  agent real paths already. */
+function toHostWorkspacePath(absPath: string, sandboxRoot: string | undefined, workspaceRoot: string): string {
+  if (!sandboxRoot) return absPath;
+  if (absPath === sandboxRoot) return workspaceRoot;
+  // Container paths are always POSIX, whatever the host's separator is.
+  const prefix = sandboxRoot.endsWith("/") ? sandboxRoot : `${sandboxRoot}/`;
+  if (!absPath.startsWith(prefix)) return absPath;
+  return path.join(workspaceRoot, ...absPath.slice(prefix.length).split("/"));
+}
+
+/** The host path an `itemsFile` names — translated out of the sandbox, and
+ *  required to land INSIDE the workspace.
+ *
+ *  Containment is not tidiness. `manageCollection` is always available to a
+ *  sandboxed agent, and an unconstrained absolute path would turn this
+ *  host-side handler into a read primitive for the whole host filesystem —
+ *  point it at any JSON array the server user can open, store the rows, read
+ *  them back with `getItems`. The sandbox mounts a few app directories besides
+ *  the workspace, but nothing that gives the agent that reach, and the
+ *  workspace is where its own generated files land — so confining reads to it
+ *  denies the primitive without costing the feature anything.
+ *
+ *  This is the CHEAP check, for the ordinary case and a precise message. The
+ *  binding one is on the opened descriptor (`verifyOpenedItemsFile`) — a path
+ *  checked here and read again later is a path that can change in between. */
+function resolveItemsFilePath(itemsFile: string, deps: ManageCollectionDeps): string | { hostPath: string } {
+  const root = resolveBase(deps);
+  const hostPath = toHostWorkspacePath(itemsFile, deps.sandboxWorkspacePath, root);
+  if (!isContainedInRoot(hostPath, root)) return outsideWorkspaceRefusal(defangForPrompt(itemsFile));
+  return { hostPath };
+}
+
+function outsideWorkspaceRefusal(shown: string): string {
+  return `manageCollection: \`itemsFile\` must be inside the workspace — '${shown}' is not, and the host reads this file on your behalf. Write the generated rows under the workspace and pass that path.`;
+}
+
+function symlinkRefusal(shown: string): string {
+  return `manageCollection: \`itemsFile\` '${shown}' is a symbolic link. Pass the real path of a regular file inside the workspace.`;
+}
+
+function openItemsFileRefusal(err: unknown, shown: string): string {
+  if (isErrorWithCode(err) && (err.code === "ELOOP" || err.code === "EMLINK")) return symlinkRefusal(shown);
+  return `manageCollection: could not read \`itemsFile\` '${shown}' — ${defangForPrompt(errorMessage(err))}. It must exist inside the workspace and be readable by the host.`;
+}
+
+/** Everything decided about the file, decided about the OPEN DESCRIPTOR rather
+ *  than about the path a second time.
+ *
+ *  Re-`stat`ing and re-`readFile`ing the pathname would leave a TOCTOU window
+ *  the containment check cannot close: the caller is a sandboxed agent with
+ *  write access to the workspace, so it can point `rows.json` at an in-workspace
+ *  file, call the tool, and swap the symlink to a host file outside the mount
+ *  while the first `await` is pending — restoring exactly the read primitive
+ *  containment exists to deny. Bound to one descriptor, a swap after the open
+ *  changes nothing about the bytes this call goes on to read.
+ *
+ *  The `dev`/`ino` comparison is what ties the two together: it proves the
+ *  descriptor's inode is the one reachable at a contained path. A hardlink
+ *  would satisfy it, but the agent cannot create one across the mount boundary
+ *  — only the workspace is mounted, and a hardlink cannot cross filesystems. */
+async function verifyOpenedItemsFile(handle: FileHandle, hostPath: string, root: string, shown: string): Promise<{ size: number } | string> {
+  const opened = await handle.stat();
+  if (!opened.isFile()) return `manageCollection: \`itemsFile\` '${shown}' is not a regular file. It must be a JSON file holding an array of record objects.`;
+  if (opened.size > MAX_ITEMS_FILE_BYTES) {
+    return `manageCollection: \`itemsFile\` '${shown}' is ${opened.size} bytes, over the limit of ${MAX_ITEMS_FILE_BYTES}. Nothing was read; split the rows across several files and call once per file.`;
+  }
+  let real: string;
+  let atPath: Stats;
+  let link: Stats;
+  try {
+    link = await lstat(hostPath);
+    real = await realpath(hostPath);
+    atPath = await stat(real);
+  } catch (err) {
+    return openItemsFileRefusal(err, shown);
+  }
+  // The platform-independent half of the symlink refusal: `O_NOFOLLOW` above
+  // does not exist on Windows, where the open would follow the link instead —
+  // and a link resolving back INSIDE the workspace passes both the containment
+  // and the inode check, so nothing else here would catch it.
+  if (link.isSymbolicLink()) return symlinkRefusal(shown);
+  if (!isContainedInRoot(real, root)) return outsideWorkspaceRefusal(shown);
+  if (atPath.ino !== opened.ino || atPath.dev !== opened.dev) {
+    return `manageCollection: \`itemsFile\` '${shown}' changed while it was being opened. Nothing was read; write the file, then call putItems.`;
+  }
+  return { size: opened.size };
+}
+
+/** Open the file ONCE, then prove that descriptor is the contained file.
+ *  `O_NOFOLLOW` refuses a symlink outright rather than resolving it, and
+ *  `O_NONBLOCK` keeps a fifo from parking this call on `open` itself — the
+ *  descriptor is what `verifyOpenedItemsFile` then judges. */
+async function openContainedItemsFile(hostPath: string, root: string, shown: string): Promise<{ handle: FileHandle; size: number } | string> {
+  let handle: FileHandle;
+  try {
+    handle = await open(hostPath, OPEN_ITEMS_FILE_FLAGS);
+  } catch (err) {
+    return openItemsFileRefusal(err, shown);
+  }
+  const verified = await verifyOpenedItemsFile(handle, hostPath, root, shown);
+  if (typeof verified !== "string") return { handle, size: verified.size };
+  await handle.close();
+  return verified;
+}
+
+/** Read the descriptor into a buffer bounded by the size that was CHECKED,
+ *  rather than to EOF.
+ *
+ *  `FileHandle.readFile()` reads until end-of-file, which the size check cannot
+ *  bound: the agent can hold the same file open and append to it after the
+ *  `stat` and before the read, and because appending does not change the inode,
+ *  the identity check cannot see it either. A 2-byte file that passed the gate
+ *  can hand back gigabytes. Allocating `size + 1` makes the cap hold on the
+ *  bytes actually taken, whatever the file does meanwhile — and that one extra
+ *  byte is what detects the growth, so a file being written under us is refused
+ *  rather than parsed as the truncated half it would otherwise look like. */
+async function readItemsBytes(handle: FileHandle, size: number, shown: string): Promise<{ raw: string } | string> {
+  const buffer = Buffer.allocUnsafe(size + 1);
+  const { bytesRead } = await handle.read(buffer, 0, size + 1, 0);
+  if (bytesRead > size) {
+    return `manageCollection: \`itemsFile\` '${shown}' grew while it was being read. Nothing was written; finish writing the file, then call putItems.`;
+  }
+  return { raw: buffer.subarray(0, bytesRead).toString("utf-8") };
+}
+
+function parseItemsJson(raw: string, shown: string): CollectionItem[] | string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return `manageCollection: \`itemsFile\` '${shown}' could not be read as JSON — ${defangForPrompt(errorMessage(err))}. It must hold a JSON array of record objects.`;
+  }
+  if (!isRecordArray(parsed) || parsed.length === 0) return `manageCollection: \`itemsFile\` '${shown}' must hold a non-empty JSON array of record objects.`;
+  return parsed;
+}
+
+/** Read the rows an `itemsFile` holds. Every failure comes back as tool text,
+ *  never a throw: a bad path or a malformed file is something the agent can fix
+ *  and retry. The path it passed is what the messages name, even when the bytes
+ *  were read from the translated host path — it is the one the agent recognises. */
+async function readItemsFile(itemsFile: string, deps: ManageCollectionDeps): Promise<CollectionItem[] | string> {
+  const shown = defangForPrompt(itemsFile);
+  const resolved = resolveItemsFilePath(itemsFile, deps);
+  if (typeof resolved === "string") return resolved;
+  const opened = await openContainedItemsFile(resolved.hostPath, resolveBase(deps), shown);
+  if (typeof opened === "string") return opened;
+  let read: { raw: string } | string;
+  try {
+    read = await readItemsBytes(opened.handle, opened.size, shown);
+  } catch (err) {
+    return openItemsFileRefusal(err, shown);
+  } finally {
+    await opened.handle.close();
+  }
+  return typeof read === "string" ? read : parseItemsJson(read.raw, shown);
+}
+
+/** The rows this call will write, from whichever source it named. The cap is
+ *  checked here — on the resolved rows, so it holds for `items` and `itemsFile`
+ *  alike — and BEFORE the first write, so an over-cap call leaves the
+ *  collection exactly as it found it instead of half-filled. */
+async function resolvePutRows(args: PutItemsArgs, deps: ManageCollectionDeps): Promise<CollectionItem[] | string> {
+  const rows = args.itemsFile === undefined ? args.items : await readItemsFile(args.itemsFile, deps);
+  if (typeof rows === "string") return rows;
+  if (rows.length > MAX_PUT_ITEMS) {
+    return `manageCollection: refused — ${rows.length} rows is over the putItems limit of ${MAX_PUT_ITEMS}. Nothing was written; split them across several calls.`;
+  }
+  return rows;
+}
+
 async function handlePutItems(collection: LoadedCollection, args: PutItemsArgs, deps: ManageCollectionDeps): Promise<string> {
   // Server-enforced read-only: a `dataSource` collection's rows live in
   // the external data file — point the agent at the real update path
@@ -385,9 +597,11 @@ async function handlePutItems(collection: LoadedCollection, args: PutItemsArgs, 
   if (!write) {
     return `manageCollection: ${readOnlyRefusal(collection.slug)} (its records are the rows of '${collection.schema.dataSource?.path}'; edit that file to change the data).`;
   }
+  const rows = await resolvePutRows(args, deps);
+  if (typeof rows === "string") return rows;
   const written: string[] = [];
   const rejected: RejectedRow[] = [];
-  for (const record of args.items) {
+  for (const record of rows) {
     const outcome = await putOneItem(collection, store, write, record, args.mode, deps);
     if (outcome.written) written.push(outcome.written);
     if (outcome.rejected) rejected.push(outcome.rejected);
@@ -446,12 +660,42 @@ function isRecordArray(value: unknown): value is CollectionItem[] {
   return isUnknownArray(value) && value.every(isRecord);
 }
 
+/** `items` and `itemsFile` are ALTERNATIVES, never a pair: two row sets in one
+ *  call has no correct reading — honouring one silently discards the other, and
+ *  concatenating them writes rows the caller never asked to write together. So
+ *  both present is refused, rather than resolved by precedence.
+ *
+ *  A relative `itemsFile` is refused too, for a reason the agent cannot see from
+ *  where it stands: this tool runs inside the HOST'S SERVER PROCESS, whose
+ *  working directory is not the agent's. A relative path would not reliably
+ *  fail — it would resolve against an unrelated directory and either miss or,
+ *  worse, read a different file that happens to share the name. */
+function parseItemsSource(items: unknown, itemsFile: unknown): PutItemsSource | string {
+  if (items !== undefined && itemsFile !== undefined) {
+    return "manageCollection: pass either `items` or `itemsFile` for putItems, not both — two row sets in one call is ambiguous.";
+  }
+  if (itemsFile !== undefined) return parseItemsFile(itemsFile);
+  if (!isRecordArray(items) || items.length === 0) {
+    return "manageCollection: putItems needs `items` (a non-empty array of record objects) or `itemsFile` (an absolute path to a JSON file of them — use it for a set a script generated, so the rows never pass through your context).";
+  }
+  return { items };
+}
+
+function parseItemsFile(itemsFile: unknown): PutItemsSource | string {
+  const file = typeof itemsFile === "string" ? itemsFile.trim() : "";
+  if (!file) return "manageCollection: `itemsFile` must be a non-empty absolute path to a JSON file of record objects.";
+  if (!path.isAbsolute(file)) {
+    return `manageCollection: \`itemsFile\` must be an ABSOLUTE path — '${defangForPrompt(file)}' is relative, and this tool runs in the host's server process, whose working directory is not yours. Pass the full path.`;
+  }
+  return { itemsFile: file };
+}
+
 function parsePutItems(args: Record<string, unknown>, slug: string): PutItemsArgs | string {
-  const { items, mode } = args;
-  if (!isRecordArray(items) || items.length === 0) return "manageCollection: `items` is required for putItems — a non-empty array of record objects.";
-  const putMode = parsePutMode(mode);
+  const source = parseItemsSource(args.items, args.itemsFile);
+  if (typeof source === "string") return source;
+  const putMode = parsePutMode(args.mode);
   if (putMode === null) return 'manageCollection: `mode` must be "upsert" (default), "create", or "merge".';
-  return { slug, items, mode: putMode };
+  return { ...source, slug, mode: putMode };
 }
 
 /** The machine-readable workspace ontology: every collection with its
@@ -627,6 +871,7 @@ const MANAGE_COLLECTION_PROMPT =
   "`getItems` is the only way to see computed values — `derived` fields (e.g. a portfolio's value), `toggle` projections, and `embed` records are host-computed and never present in the stored JSON files. On large collections pass `ids` and/or `fields` to keep the result small. " +
   'For a question that spans collections ("which clients have unpaid invoices?"), start with `getOntology`: it lists every collection with its primaryKey, record count, and outbound `ref`/`embed` relations, so you know which collections to join before reading any records. ' +
   "`putItems` validates every row against the schema before writing (required fields, enum values, primaryKey = record id) and returns `{ written, rejected }`; fix each rejected row using its `problem` text and retry just those rows. Never include computed fields in a row you write. " +
+  "When the rows come from a script rather than from you (a generated schedule, an imported set, anything past a few dozen records), write them to a JSON file UNDER THE WORKSPACE and pass its absolute path as `itemsFile` instead of `items` — the host reads the file, so the rows never pass through your context. Do NOT hand-transcribe a generated file into `items`, and never drive the collection by spawning the MCP bridge yourself. " +
   'To update a few fields of an existing record, use `mode: "merge"` with a partial row ({ id, <changed fields> }) — the default upsert replaces the WHOLE record, so a partial upsert would silently erase every optional field it omits. ' +
   "`deleteItems` removes records by id and returns `{ deleted, rejected }`; an id that doesn't exist comes back rejected rather than counted as deleted, so check `rejected` before reporting a deletion as done. " +
   "Answer aggregation questions (counts, sums, averages, group-bys) with `queryItems` on ANY collection — on a dataSource (CSV) collection it scans the whole file (getItems is row-capped, so aggregates computed from its output can be silently wrong on large files); on a file-backed collection it aggregates the enriched records, so computed fields (derived/rollup/toggle) are queryable columns.";
@@ -720,7 +965,13 @@ const MANAGE_COLLECTION_DEFINITION = {
       items: {
         type: "array",
         items: { type: "object" },
-        description: "putItems: the record objects to store. Each must carry the schema's primaryKey value (it doubles as the filename).",
+        description:
+          "putItems: the record objects to store, inline. Each must carry the schema's primaryKey value (it doubles as the filename). For rows a script generated, pass `itemsFile` instead — never both.",
+      },
+      itemsFile: {
+        type: "string",
+        description:
+          "putItems: an ABSOLUTE path to a JSON file holding the array of record objects, read by the host — the alternative to `items` for rows a script produced. Use it whenever the data already exists as a file: passing a generated set of several hundred records through `items` means writing every byte of it yourself. The path must be absolute (this tool runs in the host's server process, whose working directory is not yours) and must be INSIDE the workspace — write the generated file under the workspace, not to a system temp dir. The file must hold a non-empty JSON array, and `items` and `itemsFile` are mutually exclusive.",
       },
       mode: {
         type: "string",

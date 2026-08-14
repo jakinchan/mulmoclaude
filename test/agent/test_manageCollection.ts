@@ -9,11 +9,17 @@ import "../../server/workspace/collections/configure.js"; // configure @mulmocla
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { makeManageCollectionTool, MAX_UNSELECTIVE_ITEMS, MAX_SCHEMA_ISSUES } from "../../server/agent/mcp-tools/manageCollection.js";
+import {
+  makeManageCollectionTool,
+  MAX_UNSELECTIVE_ITEMS,
+  MAX_SCHEMA_ISSUES,
+  MAX_PUT_ITEMS,
+  MAX_ITEMS_FILE_BYTES,
+} from "../../server/agent/mcp-tools/manageCollection.js";
 import { mcpTools } from "../../server/agent/mcp-tools/index.js";
 
 let workdir: string;
@@ -105,8 +111,8 @@ describe("manageCollection — argument validation", () => {
   it("rejects malformed ids / fields / items / mode", async () => {
     assert.match(await run({ action: "getItems", slug: "portfolio", ids: [42] }), /`ids` must be an array/);
     assert.match(await run({ action: "getItems", slug: "portfolio", fields: "name" }), /`fields` must be an array/);
-    assert.match(await run({ action: "putItems", slug: "portfolio" }), /`items` is required/);
-    assert.match(await run({ action: "putItems", slug: "portfolio", items: [[1]] }), /`items` is required/);
+    assert.match(await run({ action: "putItems", slug: "portfolio" }), /putItems needs `items`.*or `itemsFile`/);
+    assert.match(await run({ action: "putItems", slug: "portfolio", items: [[1]] }), /putItems needs `items`.*or `itemsFile`/);
     assert.match(await run({ action: "putItems", slug: "portfolio", items: [{ id: "a" }], mode: "replace" }), /`mode` must be/);
   });
 
@@ -342,6 +348,150 @@ describe("manageCollection — putItems", () => {
     assert.equal(rejectedRow?.id, "bad");
     assert.match(rejectedRow?.problem ?? "", /malformed stored file/);
     assert.equal(stored("h1").status, "closed"); // the healthy row landed
+  });
+});
+
+// `itemsFile` exists so a generated set of rows never has to pass through the
+// model's context (issue #2914 — the agent hand-spawned the MCP bridge rather
+// than write 540 records inline). The failure modes it must NOT have: reading a
+// path that resolved somewhere unintended, and writing part of an over-cap file.
+describe("manageCollection — putItems from itemsFile", () => {
+  const record = (itemId: string, extra: Record<string, unknown> = {}) => ({ id: itemId, name: `Name ${itemId}`, status: "open", ...extra });
+  const stored = (itemId: string) => JSON.parse(readFileSync(path.join(workdir, `data/portfolio/items/${itemId}.json`), "utf-8")) as Record<string, unknown>;
+  const writeItemsFile = (name: string, rows: unknown): string => {
+    const file = path.join(workdir, name);
+    writeFileSync(file, JSON.stringify(rows));
+    return file;
+  };
+
+  it("writes the rows the file holds, with the same per-row results as inline items", async () => {
+    const itemsFile = writeItemsFile("rows.json", [record("f1"), { id: "noname", status: "open" }]);
+    const result = await runJson({ action: "putItems", slug: "portfolio", itemsFile });
+    assert.deepEqual(result.written, ["f1"]);
+    assert.match((result.rejected as { problem: string }[])[0]?.problem ?? "", /missing required field 'name'/);
+    assert.deepEqual(stored("f1"), record("f1"));
+  });
+
+  it("honours mode, so a file can be a create-only batch", async () => {
+    const itemsFile = writeItemsFile("dup.json", [record("dup")]);
+    assert.deepEqual((await runJson({ action: "putItems", slug: "portfolio", itemsFile, mode: "create" })).written, ["dup"]);
+    const again = await runJson({ action: "putItems", slug: "portfolio", itemsFile, mode: "create" });
+    assert.deepEqual(again.written, []);
+    assert.match((again.rejected as { problem: string }[])[0]?.problem ?? "", /already exists/);
+  });
+
+  it("refuses items and itemsFile together rather than picking one", async () => {
+    const itemsFile = writeItemsFile("both.json", [record("fromfile")]);
+    const result = await run({ action: "putItems", slug: "portfolio", items: [record("inline")], itemsFile });
+    assert.match(result, /either `items` or `itemsFile`.*not both/);
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/inline.json")), "neither source may be written");
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/fromfile.json")), "neither source may be written");
+  });
+
+  it("refuses a relative path — the server process's cwd is not the agent's", async () => {
+    const result = await run({ action: "putItems", slug: "portfolio", itemsFile: "rows.json" });
+    assert.match(result, /must be an ABSOLUTE path/);
+  });
+
+  // Unconstrained, this handler would be a host-filesystem read primitive for a
+  // sandboxed agent: any JSON array on the host, stored and then read back out
+  // with getItems. The workspace is also the only region the sandbox shares.
+  it("refuses a path outside the workspace, and a symlink that leaves it", async () => {
+    const outside = path.join(emptyUserDir, "elsewhere.json");
+    writeFileSync(outside, JSON.stringify([record("smuggled")]));
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: outside }), /must be inside the workspace/);
+
+    const bridge = path.join(workdir, "bridge.json");
+    symlinkSync(outside, bridge);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: bridge }), /must be inside the workspace/);
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/smuggled.json")), "nothing outside the workspace may be read in");
+  });
+
+  // The containment check and the read must be bound to ONE descriptor. Checking
+  // a pathname and reading that pathname again leaves a window in which the
+  // agent — which can write anywhere in the workspace — swaps the symlink for
+  // one pointing outside, restoring the read primitive containment denies.
+  it("refuses a symlink even when it points inside the workspace", async () => {
+    const real = writeItemsFile("real.json", [record("linked")]);
+    const link = path.join(workdir, "link.json");
+    symlinkSync(real, link);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: link }), /is a symbolic link/);
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/linked.json")), "a symlink is never followed, contained or not");
+  });
+
+  it("never reads what the path was swapped to mid-call", async () => {
+    const outside = path.join(emptyUserDir, "swapped-in.json");
+    writeFileSync(outside, JSON.stringify([record("swapped")]));
+    const target = writeItemsFile("racy.json", [record("honest")]);
+
+    // Swap the file for a symlink out of the workspace while the call is in
+    // flight. Either outcome is safe — the descriptor's own bytes, or a refusal
+    // once the swap is noticed — but the swapped-in target must never be read.
+    const inFlight = run({ action: "putItems", slug: "portfolio", itemsFile: target });
+    rmSync(target, { force: true });
+    symlinkSync(outside, target);
+    const result = await inFlight;
+
+    assert.ok(!result.includes("swapped"), `the swapped-in target must never be read, got: ${result}`);
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/swapped.json")), "the swapped-in target must never be written");
+  });
+
+  // A sandboxed agent's absolute paths are CONTAINER paths; the host mounts the
+  // workspace elsewhere. Read verbatim they ENOENT on every real host.
+  it("translates a sandbox mount prefix back to the workspace root", async () => {
+    const sandboxed = makeManageCollectionTool({ workspaceRoot: workdir, userSkillsDir: emptyUserDir, sandboxWorkspacePath: "/home/node/mulmoclaude" });
+    writeItemsFile("from-sandbox.json", [record("boxed")]);
+    const result = JSON.parse(
+      await sandboxed.handler({ action: "putItems", slug: "portfolio", itemsFile: "/home/node/mulmoclaude/from-sandbox.json" }),
+    ) as Record<string, unknown>;
+    assert.deepEqual(result.written, ["boxed"], "the container path must resolve to the same bytes on the host");
+  });
+
+  it("reports an unreadable file, a non-regular file and bad JSON as fixable text, not a throw", async () => {
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: path.join(workdir, "ghost.json") }), /could not read `itemsFile`/);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: path.join(workdir, "data") }), /is not a regular file/);
+    const notJson = path.join(workdir, "bad.json");
+    writeFileSync(notJson, "{not json");
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: notJson }), /could not be read as JSON/);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: writeItemsFile("empty.json", []) }), /non-empty JSON array/);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: writeItemsFile("scalars.json", [1, 2]) }), /non-empty JSON array/);
+  });
+
+  // The row cap cannot bound this: the file is read and parsed WHOLE before
+  // there are rows to count, so an oversized blob is paid for in full first.
+  it("refuses an oversized file from stat, before reading it", async () => {
+    const fat = path.join(workdir, "fat.json");
+    writeFileSync(fat, `[${" ".repeat(MAX_ITEMS_FILE_BYTES)}]`);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: fat }), new RegExp(`over the limit of ${MAX_ITEMS_FILE_BYTES}`));
+  });
+
+  // A size check bounds nothing if the read then runs to EOF: appending keeps
+  // the same inode, so neither the cap nor the identity check would notice a
+  // 2-byte file turning into gigabytes between the stat and the read.
+  it("reads no further than the size it checked, when the file grows underneath", async () => {
+    const growing = writeItemsFile("growing.json", [record("small")]);
+    const inFlight = run({ action: "putItems", slug: "portfolio", itemsFile: growing });
+    appendFileSync(growing, " ".repeat(MAX_ITEMS_FILE_BYTES));
+    const result = await inFlight;
+    // Which gate catches it depends on whether the append lands before the
+    // stat or after; all three outcomes are bounded reads. What must never
+    // happen is the call taking the grown file as its rows.
+    assert.ok(
+      /over the limit of/.test(result) || /grew while it was being read/.test(result) || /"written":\["small"\]/.test(result),
+      `expected a bounded read, got: ${result}`,
+    );
+  });
+
+  it("refuses an over-cap file WHOLE, leaving nothing written", async () => {
+    const rows = Array.from({ length: MAX_PUT_ITEMS + 1 }, (_unused, index) => record(`cap${index}`));
+    const result = await run({ action: "putItems", slug: "portfolio", itemsFile: writeItemsFile("toomany.json", rows) });
+    assert.match(result, new RegExp(`over the putItems limit of ${MAX_PUT_ITEMS}`));
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/cap0.json")), "an over-cap call must not write its first rows");
+  });
+
+  it("applies the same cap to inline items", async () => {
+    const items = Array.from({ length: MAX_PUT_ITEMS + 1 }, (_unused, index) => record(`inline${index}`));
+    assert.match(await run({ action: "putItems", slug: "portfolio", items }), new RegExp(`over the putItems limit of ${MAX_PUT_ITEMS}`));
   });
 });
 

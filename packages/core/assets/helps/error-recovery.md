@@ -1008,6 +1008,69 @@ Do NOT tell the user to re-check the spelling in `.env`, add the key
 again, or move it elsewhere; the file is already correct, and it is being
 read. The conflict is the whole problem.
 
+## A `putItems` batch is too large to pass inline — use `itemsFile`, never the MCP bridge
+
+### Symptoms
+
+- You generated records with a script (a month of booking slots, an imported
+  CSV, anything past a few dozen rows) and the only way you can see to store
+  them is to write every object into `manageCollection`'s `items` argument.
+- You start looking for the collection's data directory on disk, or for a way
+  to hand the file to the tool.
+- The next step that suggests itself is spawning `server/mcp/bridge.mjs` (or
+  the host's MCP server) yourself and speaking JSON-RPC to it from a script.
+
+### Cause
+
+`items` takes the rows inline, so a 540-row batch means writing ~80 KB of JSON
+token by token — even when a script already produced exactly that JSON as a
+file. The judgement that the batch cannot go through `items` is correct; only
+the workaround is wrong.
+
+### Fix
+
+Pass the file instead. `putItems` accepts **`itemsFile`** — an absolute path to
+a JSON file holding the array of record objects, read by the host:
+
+```jsonc
+{ "action": "putItems", "slug": "slots", "mode": "create",
+  "itemsFile": "/absolute/path/to/generated-slots.json" }
+```
+
+Write the generated file **under the workspace**. Paths outside it are refused:
+the host reads this file on your behalf, so an unconstrained path would let the
+tool reach host files you cannot otherwise see. Under a sandbox your workspace
+path is translated to the host's automatically — you pass the path you wrote to.
+
+Rules that make it fail cleanly rather than silently:
+
+- **Absolute paths only.** The tool runs in the host's SERVER process, whose
+  working directory is not yours; a relative path is refused rather than
+  resolved against some unrelated directory.
+- **Inside the workspace only**, and **not a symlink** — pass the real path of a
+  regular file. Symlinks are refused rather than followed, contained or not.
+- **`items` or `itemsFile`, never both** — passing both is refused, not merged.
+- **1000 rows per call, max**, and the file itself at most 8 MiB. Over either,
+  the call is refused WHOLE with nothing written; split the file and call again,
+  so you never meet a half-filled collection.
+
+Reading the refusal you got:
+
+| Message | What it means |
+| --- | --- |
+| `must be an ABSOLUTE path` | You passed a relative path. Pass the full one. |
+| `must be inside the workspace` | The file is outside the workspace (or a symlink out of it). Regenerate it under the workspace. |
+| `is a symbolic link` | Symlinks are never followed. Pass the real path. |
+| `changed while it was being opened` | The file was replaced mid-call. Finish writing it, then call putItems. |
+| `grew while it was being read` | The file was still being written. Wait for the script to finish, then call putItems. |
+| `could not read \`itemsFile\`` | The host cannot see that path — the usual cause is a file written to a temp dir outside the mount. Write it under the workspace. |
+| `is not a regular file` | The path is a directory, device, or fifo. |
+| `could not be read as JSON` | The file exists and was read, but does not parse. This is YOUR file's shape, not a host problem — check the script that wrote it (a truncated write, a trailing comma, log output mixed into the file). |
+| `must hold a non-empty JSON array of record objects` | It parsed, but is `[]`, an object, or an array of scalars. The file must be `[{…}, {…}]` — the same row objects you would have passed as `items`. |
+
+Do NOT spawn the MCP bridge yourself. A hand-written JSON-RPC client fails
+invisibly and can leave a partially written collection that nothing reports.
+
 ## A tool your own instructions describe returns "No such tool available"
 
 ### Symptoms
