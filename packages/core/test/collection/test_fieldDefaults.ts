@@ -46,6 +46,20 @@ describe("schemaDefaults", () => {
     assert.deepEqual(schemaDefaults(schemaOf({ id: field("string"), name: field("string") })), {});
   });
 
+  // A field may legitimately be named `__proto__` — JSON.parse hands it over as
+  // an OWN key, and the schema keeps it. Assigning that name into a plain
+  // object would run the prototype setter and drop the default silently
+  // (Codex review on #2910). Held in a const so the lookups read as data
+  // rather than as the deprecated `__proto__` accessor.
+  it("keeps a default on a field named __proto__", () => {
+    const PROTO_KEY = "__proto__";
+    const fields: Record<string, CollectionFieldSpec> = { [PROTO_KEY]: field("enum", { values: ["todo", "done"], default: "todo" }) };
+    const defaults = schemaDefaults(schemaOf(fields));
+    assert.equal(Object.hasOwn(defaults, PROTO_KEY), true, "must be an own property, not a prototype write");
+    assert.equal(defaults[PROTO_KEY], "todo");
+    assert.deepEqual(Object.keys(defaults), [PROTO_KEY]);
+  });
+
   it("skips a default the values do not offer", () => {
     const schema = schemaOf({ status: field("enum", { values: ["todo"], default: "gone" }) });
     assert.deepEqual(schemaDefaults(schema), {});

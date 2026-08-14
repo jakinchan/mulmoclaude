@@ -20,14 +20,19 @@ export function fieldDefaultValue(field: CollectionFieldSpec): string | null {
   return field.values.includes(field.default) ? field.default : null;
 }
 
-/** Every applicable default in a schema, keyed by field. */
+/** Every applicable default in a schema, keyed by field.
+ *
+ *  Built through `Object.fromEntries` rather than by assigning into an
+ *  accumulator, because a field may legitimately be named `__proto__` —
+ *  `JSON.parse` hands that over as an OWN key, so it survives into the parsed
+ *  schema (the same reason the primary-field resolver reaches for
+ *  `Object.hasOwn`). `out[key] = value` on a plain object would run the
+ *  prototype setter for that one name and drop the default with no error
+ *  anywhere; `fromEntries` defines an own property either way (Codex review on
+ *  #2910). */
 export function schemaDefaults(schema: CollectionSchema): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, field] of Object.entries(schema.fields)) {
-    const value = fieldDefaultValue(field);
-    if (value !== null) out[key] = value;
-  }
-  return out;
+  const entries = Object.entries(schema.fields).map(([key, field]): [string, string | null] => [key, fieldDefaultValue(field)]);
+  return Object.fromEntries(entries.filter((entry): entry is [string, string] => entry[1] !== null));
 }
 
 /** The first `default` that names something `values` does not offer, for the
