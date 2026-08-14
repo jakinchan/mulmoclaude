@@ -970,9 +970,9 @@ records through **`manageCollection`**, not raw file I/O:
   - `items` and `itemsFile` are mutually exclusive — passing both is refused,
     not merged.
   - The path must be **absolute** (the tool runs in the host's server process,
-    whose working directory is not yours) and **inside the workspace** — which
-    is also the only place the host can reach when you are sandboxed, so write
-    the generated file there rather than to a system temp dir.
+    whose working directory is not yours) and **inside the workspace** — write
+    the generated file there rather than to a system temp dir. It must be a real
+    file, not a symlink.
   - The file must hold a **non-empty JSON array of objects**, at most 8 MiB.
   - One call writes at most **1000 rows** — over that it is refused whole,
     with nothing written, so split the file and call again.

@@ -1037,17 +1037,18 @@ a JSON file holding the array of record objects, read by the host:
   "itemsFile": "/absolute/path/to/generated-slots.json" }
 ```
 
-Write the generated file **under the workspace** — that is the one place both
-you and the host can see (it is what the sandbox mounts), and paths outside it
-are refused for exactly that reason.
+Write the generated file **under the workspace**. Paths outside it are refused:
+the host reads this file on your behalf, so an unconstrained path would let the
+tool reach host files you cannot otherwise see. Under a sandbox your workspace
+path is translated to the host's automatically — you pass the path you wrote to.
 
 Rules that make it fail cleanly rather than silently:
 
 - **Absolute paths only.** The tool runs in the host's SERVER process, whose
   working directory is not yours; a relative path is refused rather than
   resolved against some unrelated directory.
-- **Inside the workspace only.** A path outside it — or a symlink under it that
-  points out — is refused.
+- **Inside the workspace only**, and **not a symlink** — pass the real path of a
+  regular file. Symlinks are refused rather than followed, contained or not.
 - **`items` or `itemsFile`, never both** — passing both is refused, not merged.
 - **1000 rows per call, max**, and the file itself at most 8 MiB. Over either,
   the call is refused WHOLE with nothing written; split the file and call again,
@@ -1059,6 +1060,8 @@ Reading the refusal you got:
 | --- | --- |
 | `must be an ABSOLUTE path` | You passed a relative path. Pass the full one. |
 | `must be inside the workspace` | The file is outside the workspace (or a symlink out of it). Regenerate it under the workspace. |
+| `is a symbolic link` | Symlinks are never followed. Pass the real path. |
+| `changed while it was being opened` | The file was replaced mid-call. Finish writing it, then call putItems. |
 | `could not read \`itemsFile\`` | The host cannot see that path — the usual cause is a file written to a temp dir outside the mount. Write it under the workspace. |
 | `is not a regular file` | The path is a directory, device, or fifo. |
 | `could not be read as JSON` | The file exists and was read, but does not parse. This is YOUR file's shape, not a host problem — check the script that wrote it (a truncated write, a trailing comma, log output mixed into the file). |

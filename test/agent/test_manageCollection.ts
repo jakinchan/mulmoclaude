@@ -407,6 +407,35 @@ describe("manageCollection — putItems from itemsFile", () => {
     assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/smuggled.json")), "nothing outside the workspace may be read in");
   });
 
+  // The containment check and the read must be bound to ONE descriptor. Checking
+  // a pathname and reading that pathname again leaves a window in which the
+  // agent — which can write anywhere in the workspace — swaps the symlink for
+  // one pointing outside, restoring the read primitive containment denies.
+  it("refuses a symlink even when it points inside the workspace", async () => {
+    const real = writeItemsFile("real.json", [record("linked")]);
+    const link = path.join(workdir, "link.json");
+    symlinkSync(real, link);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: link }), /is a symbolic link/);
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/linked.json")), "a symlink is never followed, contained or not");
+  });
+
+  it("never reads what the path was swapped to mid-call", async () => {
+    const outside = path.join(emptyUserDir, "swapped-in.json");
+    writeFileSync(outside, JSON.stringify([record("swapped")]));
+    const target = writeItemsFile("racy.json", [record("honest")]);
+
+    // Swap the file for a symlink out of the workspace while the call is in
+    // flight. Either outcome is safe — the descriptor's own bytes, or a refusal
+    // once the swap is noticed — but the swapped-in target must never be read.
+    const inFlight = run({ action: "putItems", slug: "portfolio", itemsFile: target });
+    rmSync(target, { force: true });
+    symlinkSync(outside, target);
+    const result = await inFlight;
+
+    assert.ok(!result.includes("swapped"), `the swapped-in target must never be read, got: ${result}`);
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/swapped.json")), "the swapped-in target must never be written");
+  });
+
   // A sandboxed agent's absolute paths are CONTAINER paths; the host mounts the
   // workspace elsewhere. Read verbatim they ENOENT on every real host.
   it("translates a sandbox mount prefix back to the workspace root", async () => {

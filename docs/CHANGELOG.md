@@ -25,13 +25,14 @@ a hand-written MCP client fails invisibly and can leave a half-written
 collection. The skill telling it to "let the script do the counting, then pass
 the output to putItems" was asking for something the tool could not do.
 
-The path is resolved against the one region the agent and the host actually
-share. Under Docker the sandbox mounts the workspace and nothing else
-(`server/agent/config.ts`), so the agent's absolute paths are CONTAINER paths
-(`/home/node/mulmoclaude/…`) while this tool body runs on the host. A verbatim
-read would ENOENT on every host whose workspace is not literally that directory
-— i.e. all of them — so the mount prefix is translated back to the workspace
-root, injected as `ManageCollectionDeps.sandboxWorkspacePath`.
+The path is resolved against the workspace, on both sides. Under Docker the
+sandbox mounts the workspace at `/home/node/mulmoclaude`
+(`server/agent/config.ts`), so a sandboxed agent's absolute paths into it are
+CONTAINER paths while this tool body runs on the host. A verbatim read would
+ENOENT on every host whose workspace is not literally that directory — i.e. all
+of them — so that one prefix is translated back to the workspace root, injected
+as `ManageCollectionDeps.sandboxWorkspacePath`. No other mount is translated,
+and the translated path still has to pass containment.
 
 Refusals keep the new door from failing quietly, or opening too wide:
 
@@ -40,13 +41,22 @@ Refusals keep the new door from failing quietly, or opening too wide:
   directory is not the agent's. A relative path would not reliably error; it
   would resolve against an unrelated directory and either miss or read a
   different file of the same name. So it is refused, with the reason.
-- **Inside the workspace only**, checked through `isContainedInRoot` so a
-  symlink out of it is refused as well. `manageCollection` is always available
-  to the sandboxed agent, so an unconstrained absolute path would make this
-  host-side handler a read primitive for the whole host filesystem: point it at
-  any JSON array, store the rows, read them back with `getItems`. Confinement
-  costs the feature nothing, because a path outside the mount was never
-  readable from the agent's side either.
+- **Inside the workspace only.** `manageCollection` is always available to the
+  sandboxed agent, so an unconstrained absolute path would make this host-side
+  handler a read primitive for the whole host filesystem: point it at any JSON
+  array the server user can open, store the rows, read them back with
+  `getItems`. Confinement denies that while costing the feature nothing — the
+  workspace is where the agent's own generated files land.
+- **One descriptor, not two lookups.** The file is opened once (`O_NOFOLLOW`,
+  so a symlink is refused rather than followed; `O_NONBLOCK`, so a fifo cannot
+  park the call on `open` itself) and every later decision is made about THAT
+  descriptor. Checking a pathname and then `stat`ing and reading the same
+  pathname would leave a TOCTOU window the containment check cannot close: the
+  agent can write anywhere in the workspace, so it could point `rows.json` at an
+  in-workspace file, call the tool, and swap in a symlink to a host file while
+  the first `await` was pending. `realpath` + a `dev`/`ino` comparison against
+  the open descriptor is what ties the checked path and the read bytes together;
+  a mismatch refuses rather than reads.
 - **`items` and `itemsFile` are mutually exclusive.** Two row sets in one call
   has no correct reading: honouring one silently discards the other, and
   concatenating them writes rows nobody asked to write together.

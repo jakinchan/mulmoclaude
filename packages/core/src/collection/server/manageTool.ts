@@ -43,8 +43,9 @@
 // evaluation-only validation ablation are injected, and tests point the
 // whole tool at a tmpdir workspace via the same deps.
 
-import { errorMessage, isRecord, isStringArray, isUnknownArray } from "@mulmoclaude/common";
-import { readFile, stat } from "node:fs/promises";
+import { errorMessage, isErrorWithCode, isRecord, isStringArray, isUnknownArray } from "@mulmoclaude/common";
+import { open, readFile, realpath, stat, type FileHandle } from "node:fs/promises";
+import { constants as FS_CONSTANTS, type Stats } from "node:fs";
 import path from "node:path";
 import { COMPUTED_TYPES } from "../core/schema";
 import type { CollectionItem, CollectionSchema } from "../core/schema";
@@ -93,6 +94,9 @@ export const MAX_PUT_ITEMS = 1000;
  *  WHOLE before there are rows to count, so a huge blob is paid for in full
  *  first. 8 MiB is far past what 1000 records need and far short of trouble. */
 export const MAX_ITEMS_FILE_BYTES = 8 * 1024 * 1024;
+/** `itemsFile` is opened read-only, without following a symlink, and without
+ *  blocking on a fifo — see `openContainedItemsFile`. */
+const { O_RDONLY, O_NOFOLLOW, O_NONBLOCK } = FS_CONSTANTS;
 /** The workspace help-docs dir both hosts seed (`@mulmoclaude/core/workspace-setup`
  *  syncs the bundled assets here) — the user-editable copy schemaDocs prefers. */
 const HELPS_DIR = "config/helps";
@@ -421,40 +425,97 @@ function toHostWorkspacePath(absPath: string, sandboxRoot: string | undefined, w
  *  required to land INSIDE the workspace.
  *
  *  Containment is not tidiness. `manageCollection` is always available to a
- *  sandboxed agent, whose whole filesystem view is the mounted workspace; an
- *  unconstrained absolute path would turn this host-side handler into a read
- *  primitive for everything outside it — point it at any JSON array on the
- *  host, store the rows, read them back with `getItems`. And it costs the
- *  feature nothing: the workspace is the only region the two sides SHARE, so
- *  a path outside it could not have been read anyway.
+ *  sandboxed agent, and an unconstrained absolute path would turn this
+ *  host-side handler into a read primitive for the whole host filesystem —
+ *  point it at any JSON array the server user can open, store the rows, read
+ *  them back with `getItems`. The sandbox mounts a few app directories besides
+ *  the workspace, but nothing that gives the agent that reach, and the
+ *  workspace is where its own generated files land — so confining reads to it
+ *  denies the primitive without costing the feature anything.
  *
- *  `isContainedInRoot` realpaths, so a symlink under the workspace pointing
- *  out of it is refused too — a lexical prefix check would pass it. */
+ *  This is the CHEAP check, for the ordinary case and a precise message. The
+ *  binding one is on the opened descriptor (`verifyOpenedItemsFile`) — a path
+ *  checked here and read again later is a path that can change in between. */
 function resolveItemsFilePath(itemsFile: string, deps: ManageCollectionDeps): string | { hostPath: string } {
   const root = resolveBase(deps);
   const hostPath = toHostWorkspacePath(itemsFile, deps.sandboxWorkspacePath, root);
-  if (!isContainedInRoot(hostPath, root)) {
-    return `manageCollection: \`itemsFile\` must be inside the workspace — '${defangForPrompt(itemsFile)}' is not, and the host reads this file on your behalf. Write the generated rows under the workspace and pass that path.`;
-  }
+  if (!isContainedInRoot(hostPath, root)) return outsideWorkspaceRefusal(defangForPrompt(itemsFile));
   return { hostPath };
 }
 
-/** Refuse BEFORE reading. A non-regular file (`/dev/zero`, a fifo) would block
- *  or exhaust this process long before the row cap could ever apply, and an
- *  oversized blob costs the same — both are decided from `stat`, not from how
- *  far a read gets. Returns null when the file is fine to read. */
-async function gateItemsFile(hostPath: string, shown: string): Promise<string | null> {
-  let info;
-  try {
-    info = await stat(hostPath);
-  } catch (err) {
-    return `manageCollection: could not read \`itemsFile\` '${shown}' — ${defangForPrompt(errorMessage(err))}. It must exist inside the workspace and be readable by the host.`;
+function outsideWorkspaceRefusal(shown: string): string {
+  return `manageCollection: \`itemsFile\` must be inside the workspace — '${shown}' is not, and the host reads this file on your behalf. Write the generated rows under the workspace and pass that path.`;
+}
+
+function openItemsFileRefusal(err: unknown, shown: string): string {
+  if (isErrorWithCode(err) && (err.code === "ELOOP" || err.code === "EMLINK")) {
+    return `manageCollection: \`itemsFile\` '${shown}' is a symbolic link. Pass the real path of a regular file inside the workspace.`;
   }
-  if (!info.isFile()) return `manageCollection: \`itemsFile\` '${shown}' is not a regular file. It must be a JSON file holding an array of record objects.`;
-  if (info.size > MAX_ITEMS_FILE_BYTES) {
-    return `manageCollection: \`itemsFile\` '${shown}' is ${info.size} bytes, over the limit of ${MAX_ITEMS_FILE_BYTES}. Nothing was read; split the rows across several files and call once per file.`;
+  return `manageCollection: could not read \`itemsFile\` '${shown}' — ${defangForPrompt(errorMessage(err))}. It must exist inside the workspace and be readable by the host.`;
+}
+
+/** Everything decided about the file, decided about the OPEN DESCRIPTOR rather
+ *  than about the path a second time.
+ *
+ *  Re-`stat`ing and re-`readFile`ing the pathname would leave a TOCTOU window
+ *  the containment check cannot close: the caller is a sandboxed agent with
+ *  write access to the workspace, so it can point `rows.json` at an in-workspace
+ *  file, call the tool, and swap the symlink to a host file outside the mount
+ *  while the first `await` is pending — restoring exactly the read primitive
+ *  containment exists to deny. Bound to one descriptor, a swap after the open
+ *  changes nothing about the bytes this call goes on to read.
+ *
+ *  The `dev`/`ino` comparison is what ties the two together: it proves the
+ *  descriptor's inode is the one reachable at a contained path. A hardlink
+ *  would satisfy it, but the agent cannot create one across the mount boundary
+ *  — only the workspace is mounted, and a hardlink cannot cross filesystems. */
+async function verifyOpenedItemsFile(handle: FileHandle, hostPath: string, root: string, shown: string): Promise<string | null> {
+  const opened = await handle.stat();
+  if (!opened.isFile()) return `manageCollection: \`itemsFile\` '${shown}' is not a regular file. It must be a JSON file holding an array of record objects.`;
+  if (opened.size > MAX_ITEMS_FILE_BYTES) {
+    return `manageCollection: \`itemsFile\` '${shown}' is ${opened.size} bytes, over the limit of ${MAX_ITEMS_FILE_BYTES}. Nothing was read; split the rows across several files and call once per file.`;
+  }
+  let real: string;
+  let atPath: Stats;
+  try {
+    real = await realpath(hostPath);
+    atPath = await stat(real);
+  } catch (err) {
+    return openItemsFileRefusal(err, shown);
+  }
+  if (!isContainedInRoot(real, root)) return outsideWorkspaceRefusal(shown);
+  if (atPath.ino !== opened.ino || atPath.dev !== opened.dev) {
+    return `manageCollection: \`itemsFile\` '${shown}' changed while it was being opened. Nothing was read; write the file, then call putItems.`;
   }
   return null;
+}
+
+/** Open the file ONCE, then prove that descriptor is the contained file.
+ *  `O_NOFOLLOW` refuses a symlink outright rather than resolving it, and
+ *  `O_NONBLOCK` keeps a fifo from parking this call on `open` itself — the
+ *  descriptor is what `verifyOpenedItemsFile` then judges. */
+async function openContainedItemsFile(hostPath: string, root: string, shown: string): Promise<FileHandle | string> {
+  let handle: FileHandle;
+  try {
+    handle = await open(hostPath, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+  } catch (err) {
+    return openItemsFileRefusal(err, shown);
+  }
+  const refusal = await verifyOpenedItemsFile(handle, hostPath, root, shown);
+  if (refusal === null) return handle;
+  await handle.close();
+  return refusal;
+}
+
+function parseItemsJson(raw: string, shown: string): CollectionItem[] | string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return `manageCollection: \`itemsFile\` '${shown}' could not be read as JSON — ${defangForPrompt(errorMessage(err))}. It must hold a JSON array of record objects.`;
+  }
+  if (!isRecordArray(parsed) || parsed.length === 0) return `manageCollection: \`itemsFile\` '${shown}' must hold a non-empty JSON array of record objects.`;
+  return parsed;
 }
 
 /** Read the rows an `itemsFile` holds. Every failure comes back as tool text,
@@ -465,16 +526,17 @@ async function readItemsFile(itemsFile: string, deps: ManageCollectionDeps): Pro
   const shown = defangForPrompt(itemsFile);
   const resolved = resolveItemsFilePath(itemsFile, deps);
   if (typeof resolved === "string") return resolved;
-  const refusal = await gateItemsFile(resolved.hostPath, shown);
-  if (refusal !== null) return refusal;
-  let parsed: unknown;
+  const opened = await openContainedItemsFile(resolved.hostPath, resolveBase(deps), shown);
+  if (typeof opened === "string") return opened;
+  let raw: string;
   try {
-    parsed = JSON.parse(await readFile(resolved.hostPath, "utf-8"));
+    raw = await opened.readFile("utf-8");
   } catch (err) {
-    return `manageCollection: \`itemsFile\` '${shown}' could not be read as JSON — ${defangForPrompt(errorMessage(err))}. It must hold a JSON array of record objects.`;
+    return openItemsFileRefusal(err, shown);
+  } finally {
+    await opened.close();
   }
-  if (!isRecordArray(parsed) || parsed.length === 0) return `manageCollection: \`itemsFile\` '${shown}' must hold a non-empty JSON array of record objects.`;
-  return parsed;
+  return parseItemsJson(raw, shown);
 }
 
 /** The rows this call will write, from whichever source it named. The cap is
