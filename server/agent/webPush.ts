@@ -38,11 +38,23 @@ export function buildTaskFinishedPush(firstUserMessage: string | undefined, didE
 // Notify the user's registered devices that a visible agent turn finished.
 // No-op when push is disabled or RemoteHost isn't connected. Never throws.
 export async function notifyTaskFinished(chatSessionId: string, didError: boolean): Promise<void> {
-  if (!isPushEnabled(loadSettings())) return;
+  // Logged, quietly: "push is off" and "push failed" are the two answers a
+  // reader is choosing between, and a silent return leaves `grep web-push`
+  // empty for both (#2903).
+  if (!isPushEnabled(loadSettings())) {
+    log.debug("web-push", "skipped — push is disabled in settings", { chatSessionId });
+    return;
+  }
   const meta = await readSessionMeta(chatSessionId);
   const { title, body } = buildTaskFinishedPush(meta?.firstUserMessage, didError);
-  const result = await sendWebPush(title, body, { getIdToken: currentIdToken });
-  if (result?.targets === 0) {
+  const result = await sendWebPush(title, body, {
+    getIdToken: currentIdToken,
+    onFailure: (failure) => log.warn("web-push", "sendPush did not deliver", { chatSessionId, ...failure }),
+  });
+  if (!result) return; // already reported by onFailure
+  if (result.targets === 0) {
     log.info("web-push", "sendPush reached no registered devices", { chatSessionId });
+    return;
   }
+  log.info("web-push", "sendPush delivered", { chatSessionId, ...result });
 }
