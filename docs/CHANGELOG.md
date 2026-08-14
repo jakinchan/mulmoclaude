@@ -8,6 +8,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [1.13.2] - 2026-08-15
+
+**Google sign-in on the remote host works again, and the plugin family that had
+been sitting unpublished since June finally reaches npm.**
+
 ### Added
 
 #### An `enum` field can declare the value a new record starts on (#2839)
@@ -169,6 +174,25 @@ Design: mulmoterminal `plans/refactor-shared-app-module.md`.
 Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@3.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ### Fixed
+
+#### Remote host: Google sign-in failed with `Database is closing/hidden` (#2835, #2912)
+
+Pressing **Sign in with Google** left the remote host offline behind a red
+`Database is closing/hidden`, reproducibly, in both Chrome and Safari on macOS.
+Nothing in MulmoClaude was wrong: `@firebase/auth` 1.13.4 added a
+`visibilitychange` listener to `IndexedDBLocalPersistence` that treats a hidden
+document as page teardown. The sign-in popup backgrounds the opener, so the
+credential write `signInWithPopup` performs on return hits `_openDb()` while the
+database is closed and throws. Reads degrade to an empty result; writes are
+fatal and `_withRetries` does not retry them, so there is no recovery path — the
+idToken is never handed back and `/connect` is never reached.
+
+Upstream fixed it in firebase-js-sdk#10300 but has not published it, and
+`firebase@12.17.1` still carries the broken auth. `firebase` is therefore pinned
+to an exact `12.16.0` — the newest 12.x on `@firebase/auth` 1.13.3 — in the root
+and in the launcher alike, since `server/remoteHost/` resolves `firebase` from
+the launcher at runtime. The caret is deliberately gone so nothing floats back
+to 12.17.x; #2835 stays open until a fixed release lets the pin be lifted.
 
 #### A Web Push that does not arrive now says why in the log (#2903)
 
@@ -484,10 +508,6 @@ is people.
   instead of a permission denial that says nothing about identity. **Breaking
   for a host that calls `setFirestoreAccessor`**; MulmoClaude's binding is
   updated here, and MulmoTerminal binds no accessor.
-
-### Package releases
-
-Ships `@mulmoclaude/core@3.13.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ## [1.13.1] - 2026-08-10
 
