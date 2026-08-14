@@ -233,7 +233,9 @@ const filteredCollections = computed<CollectionSummary[]>(() => {
 // first gives the user a way to arrange the index by renaming a title, which is
 // safe, instead of renaming a slug, which means migrating the data.
 const sort = ref<CollectionIndexSort>(readCollectionIndexSort());
-const canSort = computed<boolean>(() => collections.value.length > 1);
+// Reads the FILTERED list, not the whole one: a facet that leaves a single card
+// leaves nothing to order, and a toggle that cannot change what you see is noise.
+const canSort = computed<boolean>(() => filteredCollections.value.length > 1);
 const visibleCollections = computed<CollectionSummary[]>(() => sortCollectionsForIndex(filteredCollections.value, sort.value, locale.value));
 
 function setSort(key: CollectionIndexSort): void {

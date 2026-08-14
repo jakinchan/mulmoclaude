@@ -8,16 +8,19 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
 
+// Served in an order no client-side comparator would reproduce by accident, so
+// the default mode is pinned to "hand back exactly what the server sent" rather
+// than to "re-sort by slug and hope it matches" (Codex + Sourcery on #2896).
 const COLLECTIONS_LIST = {
   collections: [
-    { slug: "alpha", title: "Zebra", icon: "bookmark", source: "user" },
-    { slug: "beta", title: "Mango", icon: "bookmark", source: "user" },
+    { slug: "beta", title: "Zebra", icon: "bookmark", source: "user" },
+    { slug: "alpha", title: "Mango", icon: "bookmark", source: "user" },
     { slug: "gamma", title: "Apple", icon: "bookmark", source: "user" },
   ],
 };
 
-const BY_SLUG = ["alpha", "beta", "gamma"];
-const BY_TITLE = ["gamma", "beta", "alpha"];
+const SERVER_ORDER = ["beta", "alpha", "gamma"];
+const BY_TITLE = ["gamma", "alpha", "beta"];
 
 async function mockCollections(page: Page, json: unknown = COLLECTIONS_LIST): Promise<void> {
   await page.route(
@@ -40,13 +43,13 @@ test.describe("collections index display order", () => {
     await mockCollections(page);
   });
 
-  test("defaults to slug order and switches to name order on click", async ({ page }) => {
+  test("keeps the server order by default and switches to name order on click", async ({ page }) => {
     await page.goto("/collections");
-    await expect(page.getByTestId("collections-index-card-alpha")).toBeVisible();
+    await expect(page.getByTestId("collections-index-card-beta")).toBeVisible();
 
-    // Default matches the server's discovery order, so nothing moves for a user
-    // who never touches the toggle.
-    expect(await renderedSlugs(page)).toEqual(BY_SLUG);
+    // Default hands back the server's discovery order verbatim, so nothing moves
+    // for a user who never touches the toggle.
+    expect(await renderedSlugs(page)).toEqual(SERVER_ORDER);
     await expect(page.getByTestId("collections-sort-slug")).toHaveAttribute("aria-pressed", "true");
     // Labels come from the plugin's own i18n bundle; a missing key renders the
     // raw key path instead, which every testid-only assertion would sail past.
@@ -67,19 +70,19 @@ test.describe("collections index display order", () => {
 
     await page.reload();
 
-    await expect(page.getByTestId("collections-index-card-alpha")).toBeVisible();
+    await expect(page.getByTestId("collections-index-card-beta")).toBeVisible();
     expect(await renderedSlugs(page)).toEqual(BY_TITLE);
     await expect(page.getByTestId("collections-sort-title")).toHaveAttribute("aria-pressed", "true");
   });
 
-  test("switching back to slug restores the discovery order", async ({ page }) => {
+  test("switching back to slug restores the server order", async ({ page }) => {
     await page.goto("/collections");
     await page.getByTestId("collections-sort-title").click();
     await expect.poll(() => renderedSlugs(page)).toEqual(BY_TITLE);
 
     await page.getByTestId("collections-sort-slug").click();
 
-    await expect.poll(() => renderedSlugs(page)).toEqual(BY_SLUG);
+    await expect.poll(() => renderedSlugs(page)).toEqual(SERVER_ORDER);
     await expect(page.getByTestId("collections-sort-slug")).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -87,7 +90,7 @@ test.describe("collections index display order", () => {
     await mockCollections(page, { collections: [COLLECTIONS_LIST.collections[0]] });
     await page.goto("/collections");
 
-    await expect(page.getByTestId("collections-index-card-alpha")).toBeVisible();
+    await expect(page.getByTestId("collections-index-card-beta")).toBeVisible();
     await expect(page.getByTestId("collections-sort")).toBeHidden();
   });
 });

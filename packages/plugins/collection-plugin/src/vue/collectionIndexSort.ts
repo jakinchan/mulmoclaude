@@ -21,16 +21,24 @@ export function isCollectionIndexSort(value: unknown): value is CollectionIndexS
   return typeof value === "string" && INDEX_SORT_KEYS.some((key) => key === value);
 }
 
-/** Order the index list by the chosen key. Titles are compared with the UI
- *  locale's collator — the browser default varies by OS, so the same workspace
- *  would otherwise sort differently per machine. Ties break on slug, which is
- *  unique, so two collections sharing a title keep a stable order instead of
+/** Order the index list by the chosen key.
+ *
+ *  `slug` returns the fetched order untouched. Re-sorting it here would have to
+ *  reproduce discovery's `slug.localeCompare` exactly, and any drift moves cards
+ *  for users who never open the toggle — a `numeric: true` collator, for one,
+ *  puts `s2` ahead of `s10` where discovery puts `s10` first.
+ *
+ *  `title` is compared with the UI locale's collator: the browser default varies
+ *  by OS, so the same workspace would otherwise sort differently per machine.
+ *  Ties break on slug — which is unique, and compared the way discovery compares
+ *  it — so two collections sharing a title keep a stable order instead of
  *  swapping places on every re-render. */
 export function sortCollectionsForIndex<T extends SortableCollection>(list: readonly T[], key: CollectionIndexSort, locale: string): T[] {
+  if (key === "slug") return [...list];
   const collator = new Intl.Collator(locale, { numeric: true });
   return [...list].sort((left, right) => {
-    const byKey = key === "title" ? collator.compare(left.title, right.title) : collator.compare(left.slug, right.slug);
-    return byKey !== 0 ? byKey : collator.compare(left.slug, right.slug);
+    const byTitle = collator.compare(left.title, right.title);
+    return byTitle !== 0 ? byTitle : left.slug.localeCompare(right.slug);
   });
 }
 

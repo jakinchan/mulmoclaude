@@ -25,9 +25,31 @@ const SAMPLE: SortableCollection[] = [
   { slug: "memo", title: "Apple" },
 ];
 
+// What `discoverCollections()` does before the list ever reaches the browser
+// (packages/core/src/collection/server/discovery.ts). Written out rather than
+// imported so the expectation is pinned to the RULE, not to a fixture that
+// would drift with it.
+const inDiscoveryOrder = <T extends SortableCollection>(list: readonly T[]): T[] => [...list].sort((left, right) => left.slug.localeCompare(right.slug));
+
 describe("sortCollectionsForIndex", () => {
-  it("orders by slug when the key is slug, whatever the input order", () => {
-    assert.deepEqual(slugsOf(sortCollectionsForIndex(SAMPLE, "slug", "en")), ["budget", "memo", "reading-list"]);
+  it("hands back the server's order untouched in slug mode", () => {
+    const discovered = inDiscoveryOrder(SAMPLE);
+    assert.deepEqual(slugsOf(sortCollectionsForIndex(discovered, "slug", "en")), slugsOf(discovered));
+  });
+
+  it("does not reorder digit-bearing slugs in slug mode", () => {
+    // Regression (Codex + Sourcery on #2896): a `numeric: true` collator puts
+    // `s2` ahead of `s10`, while discovery's `slug.localeCompare` puts `s10`
+    // first. Sorting again on the client moved cards for users who never open
+    // the toggle — the one thing the default mode must never do.
+    const discovered = inDiscoveryOrder([
+      { slug: "s2", title: "Sprint 2" },
+      { slug: "s10", title: "Sprint 10" },
+      { slug: "x1", title: "X 1" },
+      { slug: "x02", title: "X 02" },
+    ]);
+    assert.deepEqual(slugsOf(discovered), ["s10", "s2", "x02", "x1"]);
+    assert.deepEqual(slugsOf(sortCollectionsForIndex(discovered, "slug", "en")), slugsOf(discovered));
   });
 
   it("orders by title when the key is title", () => {
@@ -61,7 +83,15 @@ describe("sortCollectionsForIndex", () => {
     assert.deepEqual(slugsOf(sortCollectionsForIndex(numbered, "title", "en")), ["s2", "s10"]);
   });
 
-  it("uses the locale's collator for Japanese titles — kana ahead of kanji, and kanji NOT by reading", () => {
+  it("uses the locale's collator for Japanese titles — kana ahead of kanji, and kanji NOT by reading", (ctx) => {
+    // A small-icu runtime has no `ja` collation data and resolves the request
+    // down to root, where this order does not hold. Skip rather than assert an
+    // order the runtime cannot produce — and rather than mock `Intl.Collator`,
+    // which would only assert the mock (Sourcery's suggestion on #2896).
+    if (new Intl.Collator("ja").resolvedOptions().locale !== "ja") {
+      ctx.skip("runtime lacks ja collation data (small-icu)");
+      return;
+    }
     // The order the issue documents and accepts (#2836): dictionary order, the
     // same a file manager shows, NOT 五十音順 — 家計簿 sorts by code point, so it
     // lands after the kana titles rather than under か.
