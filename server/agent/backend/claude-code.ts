@@ -16,8 +16,9 @@ import { writeFileAtomic } from "../../utils/files/atomic.js";
 import { resolveSandboxAuth } from "../sandboxMounts.js";
 import { getCachedReferenceDirs, referenceDirMountArgs } from "../../workspace/reference-dirs.js";
 import { createStreamParser, type AgentEvent, type RawStreamEvent } from "../stream.js";
-import { createMcpFailureMonitor, MCP_PREFIX } from "../mcpFailureMonitor.js";
+import { createMcpFailureMonitor } from "../mcpFailureMonitor.js";
 import { getBrokerReady } from "../brokerReadiness.js";
+import { BUILTIN_MCP_TOOL_PREFIX } from "../activeTools.js";
 import { isMcpBrokerNotReadyError } from "../mcpBrokerFailover.js";
 import { log } from "../../system/logger/index.js";
 import { errorMessage } from "../../utils/errors.js";
@@ -60,15 +61,21 @@ function spawnClaude(useDocker: boolean, workspacePath: string, cliArgs: string[
   return spawn("docker", dockerArgs, { stdio: ["pipe", "pipe", "pipe"] });
 }
 
-// Counts the MCP tools a turn actually ran. A Set rather than a boolean so the
-// state stays `const` and the count can go into the log line. Which names count
-// is the half of #2886 that went wrong, so it is exported and pinned by tests.
-export function createMcpToolWatcher() {
+// Counts the tools a turn ran FROM THE BUILT-IN BROKER. Scoped to
+// `mcp__mulmoclaude__` rather than `mcp__`, because the beacon only speaks for
+// that broker: a working `mcp__github__…` call says nothing about whether OUR
+// broker loaded, and counting it would hide the very startup failure this
+// feeds (Codex review on #2906).
+//
+// A Set rather than a boolean so the state stays `const` and the count can go
+// into the log line. Which names count is the half of #2886 that went wrong,
+// so this is exported and pinned by tests.
+export function createBuiltinMcpToolWatcher() {
   const called = new Set<string>();
   return {
     track(event: AgentEvent): void {
       if (event.type !== EVENT_TYPES.toolCall) return;
-      if (event.toolName.startsWith(MCP_PREFIX)) called.add(event.toolName);
+      if (event.toolName.startsWith(BUILTIN_MCP_TOOL_PREFIX)) called.add(event.toolName);
     },
     count: (): number => called.size,
   };
@@ -85,14 +92,16 @@ export function createMcpToolWatcher() {
  *    resolves CLI built-ins (`WebFetch`, `PushNotification`), so a perfectly
  *    healthy turn satisfied it — which is how #2886 came to be filed against a
  *    working MCP server.
- *  - `mcpToolsCalled === 0` — the beacon is a POST from the broker back to the
- *    host, so a relay or firewall can swallow it (#2842's socat setup is
- *    exactly that). Tools that ran prove the broker delivered whether or not
- *    its beacon arrived; without this the fix would re-create the false
- *    positive in the very environment that reported it.
+ *  - `builtinMcpToolsCalled === 0` — the beacon is a POST from the broker back
+ *    to the host, so a relay or firewall can swallow it (#2842's socat setup is
+ *    exactly that). Built-in tools that ran prove the broker delivered whether
+ *    or not its beacon arrived; without this the fix would re-create the false
+ *    positive in the very environment that reported it. Only the BUILT-IN
+ *    broker's tools count — a user-configured MCP server answering says nothing
+ *    about ours.
  */
-export function shouldWarnMcpUnavailable(turn: { mcpConfigured: boolean; brokerEverReady: boolean; mcpToolsCalled: number }): boolean {
-  return turn.mcpConfigured && !turn.brokerEverReady && turn.mcpToolsCalled === 0;
+export function shouldWarnMcpUnavailable(turn: { mcpConfigured: boolean; brokerEverReady: boolean; builtinMcpToolsCalled: number }): boolean {
+  return turn.mcpConfigured && !turn.brokerEverReady && turn.builtinMcpToolsCalled === 0;
 }
 
 // Exit codes the claude CLI reports when it is terminated by one of the
@@ -165,13 +174,13 @@ interface TurnMcpContext {
   mcpConfigured: boolean;
 }
 
-function logIfMcpUnavailable(turn: TurnMcpContext, mcpToolsCalled: number): void {
+function logIfMcpUnavailable(turn: TurnMcpContext, builtinMcpToolsCalled: number): void {
   const brokerEverReady = getBrokerReady(turn.chatSessionId) !== null;
-  if (!shouldWarnMcpUnavailable({ mcpConfigured: turn.mcpConfigured, brokerEverReady, mcpToolsCalled })) return;
-  log.warn("agent", "MCP tools were unavailable this turn — the broker never reported ready and no MCP tool ran", {
+  if (!shouldWarnMcpUnavailable({ mcpConfigured: turn.mcpConfigured, brokerEverReady, builtinMcpToolsCalled })) return;
+  log.warn("agent", "MCP tools were unavailable this turn — the broker never reported ready and none of its tools ran", {
     chatSessionId: turn.chatSessionId,
     brokerEverReady,
-    mcpToolsCalled,
+    builtinMcpToolsCalled,
     hint: "Look for `[mcp] broker ready` in server/system/logs/; on Docker also check the sandbox volume mounts.",
   });
 }
@@ -195,8 +204,8 @@ async function* readAgentEvents(proc: ClaudeProc, turn: TurnMcpContext, abortSig
   // text is suppressed. See createStreamParser() in stream.ts.
   const parser = createStreamParser();
 
-  const mcpToolWatcher = createMcpToolWatcher();
-  // Runtime failure monitor (#1353). Lives next to mcpToolWatcher
+  const builtinMcpToolWatcher = createBuiltinMcpToolWatcher();
+  // Runtime failure monitor (#1353). Lives next to builtinMcpToolWatcher
   // because they share the same event stream — the watcher feeds the
   // "MCP never invoked" check, the monitor spots the
   // "MCP invoked but consistently failing" pattern.
@@ -222,7 +231,7 @@ async function* readAgentEvents(proc: ClaudeProc, turn: TurnMcpContext, abortSig
         continue;
       }
       for (const agentEvent of parser.parse(event)) {
-        mcpToolWatcher.track(agentEvent);
+        builtinMcpToolWatcher.track(agentEvent);
         mcpFailureMonitor.track(agentEvent);
         yield agentEvent;
       }
@@ -233,7 +242,7 @@ async function* readAgentEvents(proc: ClaudeProc, turn: TurnMcpContext, abortSig
 
   if (stderrBuffer.trim()) logAgentStderr(stderrBuffer);
   log.info("agent", "claude exited", { exitCode, signal });
-  logIfMcpUnavailable(turn, mcpToolWatcher.count());
+  logIfMcpUnavailable(turn, builtinMcpToolWatcher.count());
 
   const errorEvent = buildExitErrorEvent(exitCode, signal, abortSignal, stderrOutput) ?? brokerNotReadyErrorEvent(stderrOutput);
   if (errorEvent) yield errorEvent;

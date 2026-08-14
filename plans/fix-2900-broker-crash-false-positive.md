@@ -30,7 +30,12 @@ npm パッケージの `files` に `test/` が入らないため、`npx mulmocla
 1. `mcpConfigured` — このターンが MCP 付きで構成された（`input.mcpConfigPath !== undefined`）。
    MCP 無しのターンで「MCP が来ない」と言っても意味がない。
 2. `!brokerEverReady` — 現在の spawn の beacon が一度も届いていない（`getBrokerReady() === null`）。
-3. `mcpToolsCalled === 0` — `mcp__*` ツールが1回も呼ばれなかった。
+3. `builtinMcpToolsCalled === 0` — **組み込みブローカーの**ツール（`mcp__mulmoclaude__*`）が1回も呼ばれなかった。
+
+`mcp__*` 全体ではなく組み込み限定にするのが要点。`buildMcpConfig()` はユーザー定義 MCP サーバや
+claude.ai コネクタを同じ config に登録するので、`mcp__github__*` が成功しただけで
+「うちのブローカーは上がった」と誤って判定してしまう。beacon が語るのは組み込みブローカーだけ
+（Codex review on #2906）。
 
 ### 3 を残す理由（新しい誤検知を作らないため）
 
@@ -52,8 +57,8 @@ beacon が届いているので 2 で落ちる。**旧ヒューリスティッ�
 
 | ファイル | 変更 |
 |---|---|
-| `server/agent/backend/claude-code.ts` | `createMcpTracker` を廃止し、`mcp__*` の呼び出しだけ数える watcher + 純粋な判定関数 `shouldWarnMcpUnavailable()` に置き換え。警告文を npm 版でも実行できる案内に差し替え |
-| `server/agent/mcpFailureMonitor.ts` | `MCP_PREFIX` を export（プレフィックス literal の重複を作らない） |
+| `server/agent/backend/claude-code.ts` | `createMcpTracker` を廃止し、組み込みブローカーの呼び出しだけ数える watcher + 純粋な判定関数 `shouldWarnMcpUnavailable()` に置き換え。警告文を npm 版でも実行できる案内に差し替え |
+| `server/agent/activeTools.ts` | `BUILTIN_MCP_TOOL_PREFIX`（`mcp__mulmoclaude__`）を export |
 
 `readAgentEvents()` に `chatSessionId` と `mcpConfigured` を渡す必要がある
 （呼び出し元 `runClaudeAgent` は `input.sessionId` / `input.mcpConfigPath` を持っている）。
@@ -69,7 +74,9 @@ designing-for-testability に従う）。
 - beacon あり / ツール0 → 警告しない（**#2886 の回帰ケース**: ToolSearch で組み込みを引いた健全なターン）
 - beacon なし / ツールあり → 警告しない（beacon が落ちる環境の保護）
 - beacon なし / ツール0 → 警告する
-- watcher が `mcp__*` だけを数え、`WebFetch` / `ToolSearch` / `PushNotification` を数えないこと
+- watcher が `mcp__mulmoclaude__*` だけを数え、`WebFetch` / `ToolSearch` / `PushNotification` も
+  `mcp__github__*` / `mcp__claude_ai_Gmail__*` も数えないこと
+- 非組み込み MCP だけが応答 + beacon なし → **警告する**
 
 ## 検証
 
