@@ -23,7 +23,13 @@ import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
 import { abortableSleep, BROKER_RECONNECT_WAIT_MS, detectRecovery, type RecoveryKind, type RetryBudgets } from "../../agent/retryPolicy.js";
 import { getBrokerReady } from "../../agent/brokerReadiness.js";
-import { splitSkillAndReply, updatePendingSkillOnToolCall, updatePendingSkillOnToolCallResult, type PendingSkill } from "../../agent/skillEvents.js";
+import {
+  recordPushReply,
+  splitSkillAndReply,
+  updatePendingSkillOnToolCall,
+  updatePendingSkillOnToolCallResult,
+  type PendingSkill,
+} from "../../agent/skillEvents.js";
 import { decorateMessageForCli, sanitiseOriginalFilename, type AttachedFile } from "../../agent/messageDecorate.js";
 import { getOrCreateSession, beginRun, endRun, cancelRun, pushSessionEvent, pushToolResult, getActiveSessionIds } from "../../events/session-store/index.js";
 import { workspacePath } from "../../workspace/workspace.js";
@@ -776,12 +782,12 @@ async function flushTextAccumulator(ctx: EventContext): Promise<void> {
   const fullText = ctx.textAccumulator.join("");
   ctx.textAccumulator.length = 0;
   if (!fullText) return;
-  ctx.lastAssistantText = fullText;
 
   // Empty-string flushes (already handled above) don't consume
   // pendingSkill — only the actual skill body should clear it.
   const skill = ctx.pendingSkill;
   ctx.pendingSkill = null;
+  recordPushReply(ctx, fullText, skill !== null);
 
   if (skill) {
     await writeSkillEntry(ctx, skill.skillName, fullText);

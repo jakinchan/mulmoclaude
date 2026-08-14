@@ -69,3 +69,22 @@ export function splitSkillAndReply(message: string, skillBody: string | null): {
   const replyPart = message.slice(cursor).replace(/^\s+/, "");
   return { skillPart, replyPart };
 }
+
+/** Slot for the reply the completion push will quote. */
+export interface PushReplySlot {
+  lastAssistantText: string;
+}
+
+/** Record a flushed text burst as the reply the completion push quotes — but
+ *  only when it is a genuine assistant reply.
+ *
+ *  A SKILL.md body that reaches us as ASSISTANT text (the degradation path
+ *  `flushTextAccumulator` documents) is instruction content for the model, not
+ *  an answer for the user. Quoting it would put a skill's whole prompt on a
+ *  lock screen. The guard lives here rather than in the caller's branch order
+ *  so it is the function, not the line placement, that holds the invariant
+ *  (Codex review on #2909). */
+export function recordPushReply(slot: PushReplySlot, text: string, isSkillBody: boolean): void {
+  if (isSkillBody) return;
+  slot.lastAssistantText = text;
+}

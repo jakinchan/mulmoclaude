@@ -28,11 +28,11 @@ export interface TaskFinishedPush {
   body: string;
 }
 
-// Fenced code, then inline-code backticks, then `[text](url)` → `text`. Each is
-// a single lazy span between literals, so matching stays linear — this repo has
-// had polynomial-ReDoS findings, and a push body is model-authored text.
-const FENCED_CODE = /```[\s\S]*?```/g;
+// The markup this strips. Every pattern here is kept linear on purpose: the
+// input is model-authored text and this repo has had polynomial-ReDoS findings,
+// so each is either a lazy span between literals or explicitly bounded.
 const FENCE = "```";
+const FENCED_CODE = /```[\s\S]*?```/g;
 const INLINE_CODE = /`([^`]*)`/g;
 // Bounded, and the label excludes `[` as well as `]`: an unbounded label lets
 // `[[[[[…` restart a full scan at every bracket, which is the super-linear
@@ -58,13 +58,15 @@ function dropUnclosedFence(text: string): string {
   return open === -1 ? text : text.slice(0, open);
 }
 
-/** Reduce an assistant reply to one plain line fit for a notification.
+/** Reduce model-authored text to one plain line fit for a notification field —
+ *  both the reply that becomes the body and the AI title that becomes the
+ *  title go through it, since a newline or a code fence ruins either.
  *
- *  Deliberately not a markdown parser — a notification shows one line, so the
+ *  Deliberately not a markdown parser: a notification shows one line, so the
  *  goal is only to stop the markup itself from being what the user reads.
  *  Returns "" when nothing survives (a turn that only ran tools), which the
- *  caller turns into the generic body. */
-export function condenseReplyForPush(reply: string | undefined): string {
+ *  caller turns into its own fallback. */
+export function condenseForPush(reply: string | undefined): string {
   return dropUnclosedFence((reply ?? "").replace(FENCED_CODE, " "))
     .replace(INLINE_CODE, "$1")
     .replace(MARKDOWN_LINK, "$1")
@@ -78,7 +80,7 @@ export function condenseReplyForPush(reply: string | undefined): string {
  *  (`buildSessionSummary`): the AI title, else the first user message. */
 function pushTitleFor(sessionTitle: string | undefined, didError: boolean): string {
   const mark = didError ? ERROR_MARK : DONE_MARK;
-  const name = condenseReplyForPush(sessionTitle) || APP_NAME;
+  const name = condenseForPush(sessionTitle) || APP_NAME;
   return truncate(`${mark} ${name}`, PUSH_TITLE_MAX);
 }
 
@@ -92,7 +94,7 @@ function pushTitleFor(sessionTitle: string | undefined, didError: boolean): stri
 export function buildTaskFinishedPush(input: { sessionTitle: string | undefined; replyText: string | undefined; didError: boolean }): TaskFinishedPush {
   return {
     title: pushTitleFor(input.sessionTitle, input.didError),
-    body: truncate(condenseReplyForPush(input.replyText) || DEFAULT_BODY, PUSH_BODY_MAX),
+    body: truncate(condenseForPush(input.replyText) || DEFAULT_BODY, PUSH_BODY_MAX),
   };
 }
 

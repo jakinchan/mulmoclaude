@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import {
   updatePendingSkillOnToolCall as onToolCall,
   updatePendingSkillOnToolCallResult as onToolCallResult,
+  recordPushReply,
   type PendingSkillSlot as MinimalCtx,
 } from "../../server/agent/skillEvents.js";
 
@@ -62,5 +63,30 @@ describe("pendingSkill state machine (#1218)", () => {
     assert.ok(ctx.pendingSkill, "matching result keeps the flag — body still expected");
     onToolCall(ctx, { toolName: "Bash", toolUseId: "tu_B", args: {} });
     assert.equal(ctx.pendingSkill, null, "Bash interrupted — flag cleared");
+  });
+});
+
+// The completion push (#2901) quotes the turn's last assistant text. A SKILL.md
+// body can reach the flush as ASSISTANT text — the degradation path
+// `flushTextAccumulator` documents — and quoting that would put a skill's whole
+// instruction prompt on a lock screen (Codex review on #2909).
+describe("recordPushReply — what the completion push may quote", () => {
+  it("records a genuine assistant reply", () => {
+    const slot = { lastAssistantText: "" };
+    recordPushReply(slot, "Wrote 42 rows.", false);
+    assert.equal(slot.lastAssistantText, "Wrote 42 rows.");
+  });
+
+  it("ignores a skill body entirely", () => {
+    const slot = { lastAssistantText: "" };
+    recordPushReply(slot, "Base directory for this skill: /skills/shiritori\n# Rules…", true);
+    assert.equal(slot.lastAssistantText, "");
+  });
+
+  it("leaves an earlier reply intact when a skill body follows it", () => {
+    const slot = { lastAssistantText: "" };
+    recordPushReply(slot, "Starting the game.", false);
+    recordPushReply(slot, "Base directory for this skill: /skills/shiritori", true);
+    assert.equal(slot.lastAssistantText, "Starting the game.");
   });
 });

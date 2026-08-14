@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildTaskFinishedPush, condenseReplyForPush } from "../../server/agent/webPush.js";
+import { buildTaskFinishedPush, condenseForPush } from "../../server/agent/webPush.js";
 
 const push = (input: { sessionTitle?: string | undefined; replyText?: string | undefined; didError?: boolean }) =>
   buildTaskFinishedPush({ sessionTitle: input.sessionTitle, replyText: input.replyText, didError: input.didError ?? false });
@@ -64,9 +64,9 @@ describe("buildTaskFinishedPush body — WHAT it did", () => {
   });
 });
 
-describe("condenseReplyForPush", () => {
+describe("condenseForPush", () => {
   it("drops fenced code blocks entirely", () => {
-    assert.equal(condenseReplyForPush("Done.\n\n```ts\nconst a = 1;\n```\n\nNext up: tests."), "Done. Next up: tests.");
+    assert.equal(condenseForPush("Done.\n\n```ts\nconst a = 1;\n```\n\nNext up: tests."), "Done. Next up: tests.");
   });
 
   // A reply cut short mid-block — an abort, or an error turn (which still
@@ -74,45 +74,45 @@ describe("condenseReplyForPush", () => {
   // rule cannot touch it, so the raw fence reached the lock screen.
   // (Codex review on #2909.)
   it("drops an unterminated fence and everything after it", () => {
-    assert.equal(condenseReplyForPush("Here you go:\n\n```ts\nconst a = 1;"), "Here you go:");
-    assert.equal(condenseReplyForPush("```"), "");
-    assert.equal(condenseReplyForPush("Wrote the file.\n\n```"), "Wrote the file.");
+    assert.equal(condenseForPush("Here you go:\n\n```ts\nconst a = 1;"), "Here you go:");
+    assert.equal(condenseForPush("```"), "");
+    assert.equal(condenseForPush("Wrote the file.\n\n```"), "Wrote the file.");
   });
 
   it("keeps a complete block's trailing prose when a later fence is unclosed", () => {
     const reply = "Step one.\n\n```sh\nyarn build\n```\n\nStep two.\n\n```sh\nyarn test";
-    assert.equal(condenseReplyForPush(reply), "Step one. Step two.");
+    assert.equal(condenseForPush(reply), "Step one. Step two.");
   });
 
   it("keeps inline code content without the backticks", () => {
-    assert.equal(condenseReplyForPush("Updated `webPush.ts`."), "Updated webPush.ts.");
+    assert.equal(condenseForPush("Updated `webPush.ts`."), "Updated webPush.ts.");
   });
 
   it("keeps link text and drops the URL", () => {
-    assert.equal(condenseReplyForPush("See [the plan](https://example.com/a?b=c)."), "See the plan.");
+    assert.equal(condenseForPush("See [the plan](https://example.com/a?b=c)."), "See the plan.");
   });
 
   it("strips heading, quote, bullet and ordered-list markers", () => {
-    assert.equal(condenseReplyForPush("## Summary\n- one\n* two\n+ three\n1. four\n> quoted"), "Summary one two three four quoted");
+    assert.equal(condenseForPush("## Summary\n- one\n* two\n+ three\n1. four\n> quoted"), "Summary one two three four quoted");
   });
 
   it("strips bold markers", () => {
-    assert.equal(condenseReplyForPush("**Done** and __dusted__"), "Done and dusted");
+    assert.equal(condenseForPush("**Done** and __dusted__"), "Done and dusted");
   });
 
   it("collapses newlines and runs of whitespace into single spaces", () => {
-    assert.equal(condenseReplyForPush("line one\n\n\nline   two\t\tend"), "line one line two end");
+    assert.equal(condenseForPush("line one\n\n\nline   two\t\tend"), "line one line two end");
   });
 
   it("returns an empty string for nothing, blanks, or markup-only input", () => {
-    assert.equal(condenseReplyForPush(undefined), "");
-    assert.equal(condenseReplyForPush("\n\n   \t"), "");
-    assert.equal(condenseReplyForPush("```\nx\n```"), "");
+    assert.equal(condenseForPush(undefined), "");
+    assert.equal(condenseForPush("\n\n   \t"), "");
+    assert.equal(condenseForPush("```\nx\n```"), "");
   });
 
   // A hyphen mid-sentence is not a list marker, and snake_case is not emphasis
   // — only the leading marker and the doubled form are markup.
   it("leaves ordinary punctuation alone", () => {
-    assert.equal(condenseReplyForPush("well-formed input_name stays intact"), "well-formed input_name stays intact");
+    assert.equal(condenseForPush("well-formed input_name stays intact"), "well-formed input_name stays intact");
   });
 });
