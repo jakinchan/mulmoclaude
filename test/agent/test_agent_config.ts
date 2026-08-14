@@ -1183,6 +1183,19 @@ describe("MCP child wiring (regression guard for #2052)", () => {
     }
   });
 
+  // Codex review on #2898: the turn resolves the broker ONCE and passes it to
+  // both the MCP config and the spawn log. If the config re-probed instead, the
+  // two could straddle a concurrent `yarn build:mcp-broker` and describe
+  // different brokers — a `broker=` field that contradicts what actually ran is
+  // worse than no field. Passing the tsx spawn while the bundle may well exist
+  // on disk is exactly the case a re-probe would get wrong.
+  it("spawns the broker the caller resolved, not one it re-probes", () => {
+    const resolved = brokerSpawn(true, false);
+    const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker: true, broker: resolved });
+    assert.equal(spec.command, resolved.command);
+    assert.equal(spec.args.at(-1), resolved.scriptPath);
+  });
+
   it("leaves the native child alone: no NODE_PATH, no --import", () => {
     const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker: false });
     assert.equal(spec.env.NODE_PATH, undefined);

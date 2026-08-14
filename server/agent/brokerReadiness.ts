@@ -9,7 +9,6 @@
 // merely slow and one that never came up produce identical symptoms otherwise,
 // which is exactly the ambiguity #2842 was filed against.
 
-import { resolveBrokerKind } from "./config.js";
 import { ONE_SECOND_MS } from "../utils/time.js";
 
 /** How slow a cold boot has to be before it is worth a warn rather than an
@@ -71,15 +70,20 @@ export function getBrokerReady(sessionId: string): BrokerReady | null {
 }
 
 /** Everything a broker spawn owes the readiness state: forget the previous
- *  broker's beacon, and report which path this one takes for the spawn log.
+ *  broker's beacon, and hand back the spawn log's `broker` value.
  *
- *  One function rather than two calls at the call site, because they are the
- *  same event — a new broker is starting for this session — and two statements
- *  is how the reset gets dropped. It also means the `broker` field cannot
- *  appear in a log line unless the reset ran to produce it. */
-export function beginBrokerSpawn(sessionId: string, options: { hasMcp: boolean; useDocker: boolean }): BrokerReady["kind"] | "none" {
+ *  One function rather than two statements at the call site, because they are
+ *  the same event — a new broker is starting for this session — and two
+ *  statements is how the reset gets dropped by a later edit. It also means the
+ *  `broker` field cannot appear in a log line unless the reset ran to produce
+ *  it.
+ *
+ *  `kind` is the turn's ALREADY-RESOLVED broker (null when the turn runs
+ *  without MCP), never re-probed here: re-probing is what let the log and the
+ *  spawned command disagree. */
+export function beginBrokerSpawn(sessionId: string, kind: BrokerReady["kind"] | null): BrokerReady["kind"] | "none" {
   clearBrokerReady(sessionId);
-  return options.hasMcp ? resolveBrokerKind(options.useDocker) : "none";
+  return kind ?? "none";
 }
 
 /** Test seam — the map is module state shared across cases. */

@@ -159,14 +159,13 @@ describe("POST /api/mcp/broker-ready", () => {
     await post("chat-1", fastBoot);
     assert.ok(getBrokerReady("chat-1"), "precondition: turn 1 recorded a beacon");
 
-    const kind = beginBrokerSpawn("chat-1", { hasMcp: true, useDocker: true });
+    assert.equal(beginBrokerSpawn("chat-1", "bundle"), "bundle");
     assert.equal(getBrokerReady("chat-1"), null, "turn 2's spawn must start with no beacon on record");
-    assert.ok(kind === "bundle" || kind === "tsx", `spawn should still report a broker path, got ${kind}`);
   });
 
   it("reports no broker, and still resets, when the turn runs without MCP", async () => {
     await post("chat-2", fastBoot);
-    assert.equal(beginBrokerSpawn("chat-2", { hasMcp: false, useDocker: false }), "none");
+    assert.equal(beginBrokerSpawn("chat-2", null), "none");
     assert.equal(getBrokerReady("chat-2"), null);
   });
 });

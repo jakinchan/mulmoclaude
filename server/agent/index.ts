@@ -8,7 +8,16 @@ import type { Role } from "../../src/config/roles.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { loadMemorySnapshot } from "../workspace/memory/snapshot.js";
 import { beginBrokerSpawn } from "./brokerReadiness.js";
-import { CONTAINER_WORKSPACE_PATH, buildMcpConfig, getActivePlugins, prepareUserServers, resolveMcpConfigPaths, userServerAllowedToolNames } from "./config.js";
+import {
+  CONTAINER_WORKSPACE_PATH,
+  buildMcpConfig,
+  getActivePlugins,
+  prepareUserServers,
+  resolveBrokerSpawn,
+  resolveMcpConfigPaths,
+  userServerAllowedToolNames,
+  type BrokerSpawn,
+} from "./config.js";
 import { validateStdioPackages } from "./mcpHealth.js";
 import type { Attachment } from "@mulmobridge/protocol";
 import type { AgentEvent } from "./stream.js";
@@ -114,8 +123,13 @@ async function prepareAgentRun(input: RunAgentInput, deps: AgentRunDeps): Promis
   }
 
   const systemPrompt = await buildFullSystemPrompt(input, useDocker);
-  const { mcpPaths, mcpServerNames } = await writeMcpConfig(input, deps, hasMcp);
-  const { backend, agentInput } = buildAgentInput(input, deps, { systemPrompt, hasMcp, mcpPaths, mcpServerNames });
+  // Probed once for the turn. The MCP config and the `broker=` log line must
+  // describe the SAME broker; two probes can straddle a concurrent
+  // `yarn build:mcp-broker` and disagree, and a diagnostic that contradicts
+  // what actually ran is worse than none (Codex review on #2898).
+  const broker = hasMcp ? resolveBrokerSpawn(useDocker) : null;
+  const { mcpPaths, mcpServerNames } = await writeMcpConfig(input, deps, hasMcp, broker);
+  const { backend, agentInput } = buildAgentInput(input, deps, { systemPrompt, hasMcp, mcpPaths, mcpServerNames, broker });
   return { backend, agentInput, hasMcp, hostMcpPath: mcpPaths.hostPath };
 }
 
@@ -147,7 +161,12 @@ async function buildFullSystemPrompt(input: RunAgentInput, useDocker: boolean): 
 // Resolve the per-session MCP config paths and, when any MCP server is
 // active, write the config file the backend will load. Returns the
 // server names for the --debug spawn log.
-async function writeMcpConfig(input: RunAgentInput, deps: AgentRunDeps, hasMcp: boolean): Promise<{ mcpPaths: McpPaths; mcpServerNames: string[] }> {
+async function writeMcpConfig(
+  input: RunAgentInput,
+  deps: AgentRunDeps,
+  hasMcp: boolean,
+  broker: BrokerSpawn | null,
+): Promise<{ mcpPaths: McpPaths; mcpServerNames: string[] }> {
   const { workspacePath, sessionId, port } = input;
   const { activePlugins, useDocker, userServers } = deps;
 
@@ -169,6 +188,7 @@ async function writeMcpConfig(input: RunAgentInput, deps: AgentRunDeps, hasMcp: 
       activePlugins,
       useDocker,
       userServers,
+      ...(broker ? { broker } : {}),
     });
     mcpServerNames = Object.keys(mcpConfig.mcpServers).sort();
     // Atomic so a concurrent claude spawn can't pick up a half-written file (they share the path under the session dir).
@@ -183,11 +203,11 @@ async function writeMcpConfig(input: RunAgentInput, deps: AgentRunDeps, hasMcp: 
 function buildAgentInput(
   input: RunAgentInput,
   deps: AgentRunDeps,
-  args: { systemPrompt: string; hasMcp: boolean; mcpPaths: McpPaths; mcpServerNames: string[] },
+  args: { systemPrompt: string; hasMcp: boolean; mcpPaths: McpPaths; mcpServerNames: string[]; broker: BrokerSpawn | null },
 ): { backend: LLMBackend; agentInput: AgentInput } {
   const { message, role, workspacePath, sessionId, port, claudeSessionId, abortSignal, attachments, userTimezone } = input;
   const { activePlugins, useDocker, userServers } = deps;
-  const { systemPrompt, hasMcp, mcpPaths, mcpServerNames } = args;
+  const { systemPrompt, hasMcp, mcpPaths, mcpServerNames, broker } = args;
 
   // Per-invocation read so allowedTools / MCP-server changes apply without a server restart.
   const settings = loadSettings();
@@ -202,11 +222,12 @@ function buildAgentInput(
     hasMcp,
     resumed: Boolean(claudeSessionId),
     hasSessionId: Boolean(sessionId),
-    // Which broker this install spawns. On the log line that already marks the
+    // Which broker this turn spawns — the same object the MCP config was built
+    // from, so the two cannot disagree. On the log line that already marks the
     // start of a turn, so the cold-boot cost of a `tsx` install is attributable
     // from the log alone rather than by inspecting the filesystem (#2842).
     // Also resets this session's readiness — see `beginBrokerSpawn`.
-    broker: beginBrokerSpawn(sessionId, { hasMcp, useDocker }),
+    broker: beginBrokerSpawn(sessionId, broker?.kind ?? null),
   };
   // --debug only: kept off the default log to avoid leaking user MCP server names into long-lived sinks.
   if (process.argv.includes("--debug") && hasMcp) {
