@@ -121,6 +121,20 @@ Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`,
 
 ### Fixed
 
+#### An embed whose optional `idField` is empty reads as unset, not as a broken link (#2863)
+
+`embedTargetId()` resolves an absent or empty `idField` to `""`, and the schema
+contract calls that a fail-soft "no record". The detail panel had only two
+branches — `found` and everything else — so a reference the author simply had
+not filled in got the red "missing" card, with the id blank in the message
+(「projects に「」のレコードが見つかりません」). An optional link that is
+normally empty (task → project, task → goal) therefore made every healthy record
+look broken, one red card per embed.
+
+An embed with no target id now renders the same em-dash the panel's other empty
+fields use. The card stays for the case it was written for: an `idField` naming
+a record the target collection does not have.
+
 #### A shared record's identity is its document id, not a field a submitter can name
 
 The security rules can pin the DOCUMENT ID of a submission — `idFrom` ties it to
