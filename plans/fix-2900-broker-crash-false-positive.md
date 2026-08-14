@@ -29,15 +29,22 @@ npm パッケージの `files` に `test/` が入らないため、`npx mulmocla
 
 1. `mcpConfigured` — このターンが MCP 付きで構成された（`input.mcpConfigPath !== undefined`）。
    MCP 無しのターンで「MCP が来ない」と言っても意味がない。
-2. `!brokerEverReady` — 現在の spawn の beacon が一度も届いていない（`getBrokerReady() === null`）。
-3. `builtinMcpToolsCalled === 0` — **組み込みブローカーの**ツール（`mcp__mulmoclaude__*`）が1回も呼ばれなかった。
+2. `!aborted` — ユーザーがターンを止めていない。停止ボタンを押した直後は
+   「MCP 構成あり・beacon なし・ツール0」が必ず成立するので、これが無いと
+   **ごく普通のキャンセル操作で毎回誤検知する**（Codex review on #2906）。
+   判定に使うのは `isAbortCausedExit` ではなく abort シグナルそのもの。
+   ここで問うているのは「ターンが途中で切られたか」であって
+   「この exit code が我々由来か」ではない。キャンセル後に CLI が exit 0 で
+   きれいに終わるケースを `isAbortCausedExit` は通常終了として扱ってしまう。
+3. `!brokerEverReady` — 現在の spawn の beacon が一度も届いていない（`getBrokerReady() === null`）。
+4. `builtinMcpToolsCalled === 0` — **組み込みブローカーの**ツール（`mcp__mulmoclaude__*`）が1回も呼ばれなかった。
 
 `mcp__*` 全体ではなく組み込み限定にするのが要点。`buildMcpConfig()` はユーザー定義 MCP サーバや
 claude.ai コネクタを同じ config に登録するので、`mcp__github__*` が成功しただけで
 「うちのブローカーは上がった」と誤って判定してしまう。beacon が語るのは組み込みブローカーだけ
 （Codex review on #2906）。
 
-### 3 を残す理由（新しい誤検知を作らないため）
+### 4 を残す理由（新しい誤検知を作らないため）
 
 beacon はブローカー → ホストへの POST なので、**beacon 自体が届かない環境がありうる**
 （#2842 の報告者の socat リレー、firewalld 等）。beacon の不在だけで警告すると、
@@ -74,6 +81,7 @@ designing-for-testability に従う）。
 - beacon あり / ツール0 → 警告しない（**#2886 の回帰ケース**: ToolSearch で組み込みを引いた健全なターン）
 - beacon なし / ツールあり → 警告しない（beacon が落ちる環境の保護）
 - beacon なし / ツール0 → 警告する
+- **キャンセルされたターン → 警告しない**（他の条件が全て揃っていても）
 - watcher が `mcp__mulmoclaude__*` だけを数え、`WebFetch` / `ToolSearch` / `PushNotification` も
   `mcp__github__*` / `mcp__claude_ai_Gmail__*` も数えないこと
 - 非組み込み MCP だけが応答 + beacon なし → **警告する**

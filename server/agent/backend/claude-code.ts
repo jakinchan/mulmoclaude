@@ -92,6 +92,10 @@ export function createBuiltinMcpToolWatcher() {
  *    resolves CLI built-ins (`WebFetch`, `PushNotification`), so a perfectly
  *    healthy turn satisfied it — which is how #2886 came to be filed against a
  *    working MCP server.
+ *  - `!aborted` — a turn the user stopped never got the chance to use its
+ *    tools. Hitting the stop button straight away produces "configured, no
+ *    beacon, no calls" every time, so without this the diagnostic fires on an
+ *    ordinary cancellation (Codex review on #2906).
  *  - `builtinMcpToolsCalled === 0` — the beacon is a POST from the broker back
  *    to the host, so a relay or firewall can swallow it (#2842's socat setup is
  *    exactly that). Built-in tools that ran prove the broker delivered whether
@@ -100,8 +104,8 @@ export function createBuiltinMcpToolWatcher() {
  *    broker's tools count — a user-configured MCP server answering says nothing
  *    about ours.
  */
-export function shouldWarnMcpUnavailable(turn: { mcpConfigured: boolean; brokerEverReady: boolean; builtinMcpToolsCalled: number }): boolean {
-  return turn.mcpConfigured && !turn.brokerEverReady && turn.builtinMcpToolsCalled === 0;
+export function shouldWarnMcpUnavailable(turn: { mcpConfigured: boolean; aborted: boolean; brokerEverReady: boolean; builtinMcpToolsCalled: number }): boolean {
+  return turn.mcpConfigured && !turn.aborted && !turn.brokerEverReady && turn.builtinMcpToolsCalled === 0;
 }
 
 // Exit codes the claude CLI reports when it is terminated by one of the
@@ -174,9 +178,13 @@ interface TurnMcpContext {
   mcpConfigured: boolean;
 }
 
-function logIfMcpUnavailable(turn: TurnMcpContext, builtinMcpToolsCalled: number): void {
+// `aborted` is the abort SIGNAL, not `isAbortCausedExit`: the question here is
+// whether the turn was cut short, not whether this particular exit code was
+// ours. A cancel that lets the CLI exit 0 cleanly is still a turn that never got
+// to use its tools, and `isAbortCausedExit` reads that one as a normal finish.
+function logIfMcpUnavailable(turn: TurnMcpContext, builtinMcpToolsCalled: number, aborted: boolean): void {
   const brokerEverReady = getBrokerReady(turn.chatSessionId) !== null;
-  if (!shouldWarnMcpUnavailable({ mcpConfigured: turn.mcpConfigured, brokerEverReady, builtinMcpToolsCalled })) return;
+  if (!shouldWarnMcpUnavailable({ mcpConfigured: turn.mcpConfigured, aborted, brokerEverReady, builtinMcpToolsCalled })) return;
   log.warn("agent", "MCP tools were unavailable this turn — the broker never reported ready and none of its tools ran", {
     chatSessionId: turn.chatSessionId,
     brokerEverReady,
@@ -242,7 +250,7 @@ async function* readAgentEvents(proc: ClaudeProc, turn: TurnMcpContext, abortSig
 
   if (stderrBuffer.trim()) logAgentStderr(stderrBuffer);
   log.info("agent", "claude exited", { exitCode, signal });
-  logIfMcpUnavailable(turn, builtinMcpToolWatcher.count());
+  logIfMcpUnavailable(turn, builtinMcpToolWatcher.count(), abortSignal?.aborted === true);
 
   const errorEvent = buildExitErrorEvent(exitCode, signal, abortSignal, stderrOutput) ?? brokerNotReadyErrorEvent(stderrOutput);
   if (errorEvent) yield errorEvent;
