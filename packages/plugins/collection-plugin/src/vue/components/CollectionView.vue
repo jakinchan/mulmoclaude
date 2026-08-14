@@ -1068,27 +1068,30 @@ function generateUniqueItemId(primaryKey: string): string {
   return nextUniqueItemId(items.value, primaryKey, newItemId);
 }
 
+/** The draft slots for one kind of field, built through `Object.fromEntries`
+ *  rather than by assigning into an accumulator: a field may be named
+ *  `__proto__` (JSON.parse hands that over as an own key), and `draft[key] = v`
+ *  would run the prototype setter for that one name — the field would silently
+ *  have no slot. `fromEntries` defines an own property whatever the name is
+ *  (Codex review on #2910). */
+function draftSlots<T>(fields: [string, FieldSpec][], keep: (field: FieldSpec) => boolean, valueOf: (field: FieldSpec) => T): Record<string, T> {
+  return Object.fromEntries(fields.filter(([, field]) => keep(field)).map(([key, field]): [string, T] => [key, valueOf(field)]));
+}
+
 function openCreate(): void {
   if (!collection.value) return;
-  const text: Record<string, string> = {};
-  const bool: Record<string, boolean> = {};
-  const boolOriginallyPresent: Record<string, boolean> = {};
-  const boolTouched: Record<string, boolean> = {};
-  const table: Record<string, TableRowDraft[]> = {};
-  for (const [key, field] of Object.entries(collection.value.schema.fields)) {
-    if (field.type === "boolean") {
-      bool[key] = false;
-      // New record — no boolean was originally present.
-      boolOriginallyPresent[key] = false;
-      boolTouched[key] = false;
-    } else if (field.type === "table") {
-      table[key] = [];
-    } else if (!COMPUTED_TYPES.has(field.type)) {
-      text[key] = fieldDefaultValue(field) ?? "";
-    }
-    // The computed/projected kinds (COMPUTED_TYPES: derived, embed,
-    // backlinks, rollup, toggle) have no draft slot.
-  }
+  // The computed/projected kinds (COMPUTED_TYPES: derived, embed, backlinks,
+  // rollup, toggle) have no draft slot.
+  const fields = Object.entries(collection.value.schema.fields);
+  const isBool = (field: FieldSpec) => field.type === "boolean";
+  const isTable = (field: FieldSpec) => field.type === "table";
+  const isText = (field: FieldSpec) => !isBool(field) && !isTable(field) && !COMPUTED_TYPES.has(field.type);
+  const text = draftSlots(fields, isText, (field) => fieldDefaultValue(field) ?? "");
+  const bool = draftSlots(fields, isBool, () => false);
+  // New record — no boolean was originally present.
+  const boolOriginallyPresent = draftSlots(fields, isBool, () => false);
+  const boolTouched = draftSlots(fields, isBool, () => false);
+  const table = draftSlots(fields, isTable, (): TableRowDraft[] => []);
   // Singleton collections fix the primary key to the schema-declared
   // value (e.g. "me") so the first Add can't pick an arbitrary id.
   // Otherwise pre-fill a unique, editable id so the user doesn't have to
@@ -1098,10 +1101,12 @@ function openCreate(): void {
   const { singleton, primaryKey } = collection.value.schema;
   if (singleton) {
     text[primaryKey] = singleton;
-  } else if (primaryKey in text && !text[primaryKey]) {
+  } else if (Object.hasOwn(text, primaryKey) && !text[primaryKey]) {
     // Only when nothing filled it: an `enum` is a legal primary key, and a
     // generated UUID is not one of its `values` — the form would open blank on
-    // a field that cannot be saved (Codex review on #2910).
+    // a field that cannot be saved. `hasOwn` rather than `in`, so a primary key
+    // named after something on Object.prototype reads its own slot rather than
+    // an inherited one (Codex review on #2910).
     text[primaryKey] = generateUniqueItemId(primaryKey);
   }
   viewing.value = null; // one panel open at a time

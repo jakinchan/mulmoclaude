@@ -124,3 +124,42 @@ test.describe("enum primary key", () => {
     await expect(page.getByTestId("collections-input-phase")).toHaveValue("intake");
   });
 });
+
+// A field may be named `__proto__` — JSON.parse gives it as an own key, so it
+// reaches the form like any other. Building the draft by assignment would run
+// the prototype setter for that one name and the field would have no slot at
+// all: blank, and un-typeable (Codex review on #2910).
+test("a field named __proto__ gets its default like any other", async ({ page }) => {
+  const PROTO_KEY = "__proto__";
+  const detail = {
+    collection: {
+      slug: "odd",
+      title: "Odd",
+      icon: "list",
+      source: "user",
+      schema: {
+        title: "Odd",
+        icon: "list",
+        dataPath: "data/odd/items",
+        primaryKey: "id",
+        fields: {
+          id: { type: "string", label: "ID", primary: true, required: true },
+          [PROTO_KEY]: { type: "enum", label: "Proto", values: ["todo", "done"], default: "todo" },
+        },
+      },
+    },
+    items: [{ id: "o1" }],
+  };
+  await mockAllApis(page);
+  await page.route(
+    (url) => url.pathname === "/api/collections/odd",
+    (route) => route.fulfill({ json: detail }),
+  );
+  await page.goto("/collections/odd");
+  await page.getByTestId("collections-row-o1").waitFor();
+
+  await page.getByTestId("collections-add-item").click();
+  await expect(page.getByTestId(`collections-input-${PROTO_KEY}`)).toHaveValue("todo");
+  // The ordinary primary key still gets its generated id.
+  await expect(page.getByTestId("collections-input-id")).not.toHaveValue("");
+});
