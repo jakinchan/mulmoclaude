@@ -56,6 +56,7 @@ const jaMessages: CollectionMessages = {
     readonlyChip: "読み取り専用",
     itemsEmptyReadonly: "データファイルにまだ行がありません。ファイルに行を追加するとここに表示されます。",
     filter: { all: "すべて", editable: "編集可能", data: "データ" },
+    sort: { label: "並び順", slug: "Slug", title: "表示名" },
     mapTab: "マップ",
     mapEmpty: "まだ表示するものがありません。コレクションとその間のリンクが増えると、マップが自動的に描かれます。",
     mapRecordCount: "{count} 件のレコード",

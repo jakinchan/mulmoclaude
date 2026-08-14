@@ -56,6 +56,7 @@ const koMessages: CollectionMessages = {
     readonlyChip: "읽기 전용",
     itemsEmptyReadonly: "데이터 파일에 아직 행이 없습니다. 파일에 행을 추가하면 여기에 표시됩니다.",
     filter: { all: "전체", editable: "편집 가능", data: "데이터" },
+    sort: { label: "정렬", slug: "Slug", title: "이름" },
     mapTab: "맵",
     mapEmpty: "아직 표시할 내용이 없습니다. 컬렉션과 그 사이의 링크가 생기면 맵이 자동으로 그려집니다.",
     mapRecordCount: "레코드 {count}개",
