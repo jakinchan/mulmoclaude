@@ -469,7 +469,7 @@ function openItemsFileRefusal(err: unknown, shown: string): string {
  *  descriptor's inode is the one reachable at a contained path. A hardlink
  *  would satisfy it, but the agent cannot create one across the mount boundary
  *  — only the workspace is mounted, and a hardlink cannot cross filesystems. */
-async function verifyOpenedItemsFile(handle: FileHandle, hostPath: string, root: string, shown: string): Promise<string | null> {
+async function verifyOpenedItemsFile(handle: FileHandle, hostPath: string, root: string, shown: string): Promise<{ size: number } | string> {
   const opened = await handle.stat();
   if (!opened.isFile()) return `manageCollection: \`itemsFile\` '${shown}' is not a regular file. It must be a JSON file holding an array of record objects.`;
   if (opened.size > MAX_ITEMS_FILE_BYTES) {
@@ -487,24 +487,44 @@ async function verifyOpenedItemsFile(handle: FileHandle, hostPath: string, root:
   if (atPath.ino !== opened.ino || atPath.dev !== opened.dev) {
     return `manageCollection: \`itemsFile\` '${shown}' changed while it was being opened. Nothing was read; write the file, then call putItems.`;
   }
-  return null;
+  return { size: opened.size };
 }
 
 /** Open the file ONCE, then prove that descriptor is the contained file.
  *  `O_NOFOLLOW` refuses a symlink outright rather than resolving it, and
  *  `O_NONBLOCK` keeps a fifo from parking this call on `open` itself — the
  *  descriptor is what `verifyOpenedItemsFile` then judges. */
-async function openContainedItemsFile(hostPath: string, root: string, shown: string): Promise<FileHandle | string> {
+async function openContainedItemsFile(hostPath: string, root: string, shown: string): Promise<{ handle: FileHandle; size: number } | string> {
   let handle: FileHandle;
   try {
     handle = await open(hostPath, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
   } catch (err) {
     return openItemsFileRefusal(err, shown);
   }
-  const refusal = await verifyOpenedItemsFile(handle, hostPath, root, shown);
-  if (refusal === null) return handle;
+  const verified = await verifyOpenedItemsFile(handle, hostPath, root, shown);
+  if (typeof verified !== "string") return { handle, size: verified.size };
   await handle.close();
-  return refusal;
+  return verified;
+}
+
+/** Read the descriptor into a buffer bounded by the size that was CHECKED,
+ *  rather than to EOF.
+ *
+ *  `FileHandle.readFile()` reads until end-of-file, which the size check cannot
+ *  bound: the agent can hold the same file open and append to it after the
+ *  `stat` and before the read, and because appending does not change the inode,
+ *  the identity check cannot see it either. A 2-byte file that passed the gate
+ *  can hand back gigabytes. Allocating `size + 1` makes the cap hold on the
+ *  bytes actually taken, whatever the file does meanwhile — and that one extra
+ *  byte is what detects the growth, so a file being written under us is refused
+ *  rather than parsed as the truncated half it would otherwise look like. */
+async function readItemsBytes(handle: FileHandle, size: number, shown: string): Promise<{ raw: string } | string> {
+  const buffer = Buffer.allocUnsafe(size + 1);
+  const { bytesRead } = await handle.read(buffer, 0, size + 1, 0);
+  if (bytesRead > size) {
+    return `manageCollection: \`itemsFile\` '${shown}' grew while it was being read. Nothing was written; finish writing the file, then call putItems.`;
+  }
+  return { raw: buffer.subarray(0, bytesRead).toString("utf-8") };
 }
 
 function parseItemsJson(raw: string, shown: string): CollectionItem[] | string {
@@ -528,15 +548,15 @@ async function readItemsFile(itemsFile: string, deps: ManageCollectionDeps): Pro
   if (typeof resolved === "string") return resolved;
   const opened = await openContainedItemsFile(resolved.hostPath, resolveBase(deps), shown);
   if (typeof opened === "string") return opened;
-  let raw: string;
+  let read: { raw: string } | string;
   try {
-    raw = await opened.readFile("utf-8");
+    read = await readItemsBytes(opened.handle, opened.size, shown);
   } catch (err) {
     return openItemsFileRefusal(err, shown);
   } finally {
-    await opened.close();
+    await opened.handle.close();
   }
-  return parseItemsJson(raw, shown);
+  return typeof read === "string" ? read : parseItemsJson(read.raw, shown);
 }
 
 /** The rows this call will write, from whichever source it named. The cap is

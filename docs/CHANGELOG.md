@@ -57,6 +57,15 @@ Refusals keep the new door from failing quietly, or opening too wide:
   the first `await` was pending. `realpath` + a `dev`/`ino` comparison against
   the open descriptor is what ties the checked path and the read bytes together;
   a mismatch refuses rather than reads.
+- **A bounded read, not a read to EOF.** The size check bounds nothing on its
+  own: `FileHandle.readFile()` runs to end-of-file, and appending does not
+  change the inode, so a file that grows between the `stat` and the read slips
+  past both the byte cap and the identity check. Measured on a real descriptor,
+  a 2-byte file that passed the gate handed back 9,437,186 bytes. The read is
+  therefore into a buffer of the CHECKED size plus one — the cap holds on the
+  bytes actually taken, and that extra byte is what detects the growth, so a
+  file still being written is refused rather than parsed as the truncated half
+  it would otherwise resemble.
 - **`items` and `itemsFile` are mutually exclusive.** Two row sets in one call
   has no correct reading: honouring one silently discards the other, and
   concatenating them writes rows nobody asked to write together.

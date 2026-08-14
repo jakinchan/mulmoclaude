@@ -9,7 +9,7 @@ import "../../server/workspace/collections/configure.js"; // configure @mulmocla
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -463,6 +463,23 @@ describe("manageCollection — putItems from itemsFile", () => {
     const fat = path.join(workdir, "fat.json");
     writeFileSync(fat, `[${" ".repeat(MAX_ITEMS_FILE_BYTES)}]`);
     assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: fat }), new RegExp(`over the limit of ${MAX_ITEMS_FILE_BYTES}`));
+  });
+
+  // A size check bounds nothing if the read then runs to EOF: appending keeps
+  // the same inode, so neither the cap nor the identity check would notice a
+  // 2-byte file turning into gigabytes between the stat and the read.
+  it("reads no further than the size it checked, when the file grows underneath", async () => {
+    const growing = writeItemsFile("growing.json", [record("small")]);
+    const inFlight = run({ action: "putItems", slug: "portfolio", itemsFile: growing });
+    appendFileSync(growing, " ".repeat(MAX_ITEMS_FILE_BYTES));
+    const result = await inFlight;
+    // Which gate catches it depends on whether the append lands before the
+    // stat or after; all three outcomes are bounded reads. What must never
+    // happen is the call taking the grown file as its rows.
+    assert.ok(
+      /over the limit of/.test(result) || /grew while it was being read/.test(result) || /"written":\["small"\]/.test(result),
+      `expected a bounded read, got: ${result}`,
+    );
   });
 
   it("refuses an over-cap file WHOLE, leaving nothing written", async () => {

@@ -1062,6 +1062,7 @@ Reading the refusal you got:
 | `must be inside the workspace` | The file is outside the workspace (or a symlink out of it). Regenerate it under the workspace. |
 | `is a symbolic link` | Symlinks are never followed. Pass the real path. |
 | `changed while it was being opened` | The file was replaced mid-call. Finish writing it, then call putItems. |
+| `grew while it was being read` | The file was still being written. Wait for the script to finish, then call putItems. |
 | `could not read \`itemsFile\`` | The host cannot see that path — the usual cause is a file written to a temp dir outside the mount. Write it under the workspace. |
 | `is not a regular file` | The path is a directory, device, or fifo. |
 | `could not be read as JSON` | The file exists and was read, but does not parse. This is YOUR file's shape, not a host problem — check the script that wrote it (a truncated write, a trailing comma, log output mixed into the file). |
