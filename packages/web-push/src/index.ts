@@ -134,12 +134,19 @@ export async function sendWebPush(title: string, body: string, options: SendWebP
       signal: controller.signal,
     });
     if (!res.ok) return reportFailure(options.onFailure, { reason: "http-error", status: res.status });
-    const result = parseSendPushResult(await res.json());
-    return result ?? reportFailure(options.onFailure, { reason: "bad-response" });
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch (error) {
+      // A 2xx whose body will not parse is the endpoint answering something
+      // unexpected — the request itself completed, so it is not a transport
+      // failure. Unless the timeout fired while the body was still streaming:
+      // that abort IS the transport, so let the outer catch name it.
+      if (controller.signal.aborted) throw error;
+      return reportFailure(options.onFailure, { reason: "bad-response" });
+    }
+    return parseSendPushResult(json) ?? reportFailure(options.onFailure, { reason: "bad-response" });
   } catch (error) {
-    // The JSON parse above lands here too: a 2xx whose body isn't JSON at all
-    // is the endpoint answering something else, which reads as a transport
-    // problem more than a shape one.
     return reportFailure(options.onFailure, { reason: "network", message: error instanceof Error ? error.message : String(error) });
   } finally {
     clearTimeout(timer);

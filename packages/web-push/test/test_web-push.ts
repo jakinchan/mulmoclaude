@@ -208,7 +208,9 @@ test("sendWebPush reports bad-response for a 2xx that isn't a result envelope", 
   assert.deepEqual(failures, [{ reason: "bad-response" }]);
 });
 
-test("sendWebPush reports network when the body isn't JSON at all", async () => {
+// The request completed with a 2xx — only the body is unusable — so this is a
+// shape failure, not a transport one (Codex review on #2907).
+test("sendWebPush reports bad-response when the body isn't JSON at all", async () => {
   const { failures, onFailure } = collectFailures();
   const { fetchImpl } = makeFetch(() => ({
     ok: true,
@@ -217,6 +219,22 @@ test("sendWebPush reports network when the body isn't JSON at all", async () => 
     },
   }));
   const result = await sendWebPush("t", "b", okOpts({ fetchImpl, onFailure }));
+  assert.equal(result, null);
+  assert.deepEqual(failures, [{ reason: "bad-response" }]);
+});
+
+// ...but a timeout that fires while the body is still streaming is the
+// transport, and must keep saying so rather than blaming the payload.
+test("sendWebPush reports network when the timeout aborts mid-body", async () => {
+  const { failures, onFailure } = collectFailures();
+  const { fetchImpl } = makeFetch(() => ({
+    ok: true,
+    json: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      throw new Error("The operation was aborted");
+    },
+  }));
+  const result = await sendWebPush("t", "b", okOpts({ fetchImpl, onFailure, timeoutMs: 1 }));
   assert.equal(result, null);
   assert.equal(failures.length, 1);
   assert.equal(failures[0]?.reason, "network");
