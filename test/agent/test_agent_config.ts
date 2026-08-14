@@ -1149,23 +1149,38 @@ describe("MCP child wiring (regression guard for #2052)", () => {
   // ~5 s connect wait — the #2201 race. The fallback exists because the bundle
   // is a build artifact: a fresh checkout must still spawn a working broker.
   it("spawns the bundled broker in the container when it has been built", () => {
-    assert.deepEqual(brokerSpawn(true, true), { command: "node", scriptPath: "/app/server/build/mcp-server.mjs" });
+    assert.deepEqual(brokerSpawn(true, true), { kind: "bundle", command: "node", scriptPath: "/app/server/build/mcp-server.mjs" });
   });
 
   it("falls back to tsx in the container when the bundle was never built", () => {
-    assert.deepEqual(brokerSpawn(true, false), { command: "tsx", scriptPath: "/app/server/agent/mcp-server.ts" });
+    assert.deepEqual(brokerSpawn(true, false), { kind: "tsx", command: "tsx", scriptPath: "/app/server/agent/mcp-server.ts" });
   });
 
   it("runs the native bundled broker on this node, not a PATH lookup", () => {
     const spawn = brokerSpawn(false, true);
+    assert.equal(spawn.kind, "bundle");
     assert.equal(spawn.command, process.execPath);
     assert.match(spawn.scriptPath, /server[/\\]build[/\\]mcp-server\.mjs$/);
   });
 
   it("falls back to the repo-local tsx binary natively", () => {
     const spawn = brokerSpawn(false, false);
+    assert.equal(spawn.kind, "tsx");
     assert.match(spawn.command, /node_modules[/\\]\.bin[/\\]tsx$/);
     assert.match(spawn.scriptPath, /server[/\\]agent[/\\]mcp-server\.ts$/);
+  });
+
+  // The silent fallback is what made #2842 unreadable: an install on the slow
+  // path looked exactly like one on the fast path, so a 50 s cold boot got
+  // diagnosed as "the connect-wait gate is too small". `kind` is the field that
+  // makes the two distinguishable from a log line alone, so it must never
+  // report the fast path for a spawn that is actually running tsx.
+  it("never labels a tsx spawn as the bundle", () => {
+    for (const useDocker of [false, true]) {
+      const spawn = brokerSpawn(useDocker, false);
+      assert.equal(spawn.kind, "tsx");
+      assert.match(spawn.scriptPath, /\.ts$/, `useDocker=${String(useDocker)}`);
+    }
   });
 
   it("leaves the native child alone: no NODE_PATH, no --import", () => {

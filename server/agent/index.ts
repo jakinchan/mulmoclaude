@@ -7,7 +7,15 @@ import { loadMcpConfig, loadSettings } from "../system/config.js";
 import type { Role } from "../../src/config/roles.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { loadMemorySnapshot } from "../workspace/memory/snapshot.js";
-import { CONTAINER_WORKSPACE_PATH, buildMcpConfig, getActivePlugins, prepareUserServers, resolveMcpConfigPaths, userServerAllowedToolNames } from "./config.js";
+import {
+  CONTAINER_WORKSPACE_PATH,
+  buildMcpConfig,
+  getActivePlugins,
+  prepareUserServers,
+  resolveBrokerKind,
+  resolveMcpConfigPaths,
+  userServerAllowedToolNames,
+} from "./config.js";
 import { validateStdioPackages } from "./mcpHealth.js";
 import type { Attachment } from "@mulmobridge/protocol";
 import type { AgentEvent } from "./stream.js";
@@ -201,6 +209,10 @@ function buildAgentInput(
     hasMcp,
     resumed: Boolean(claudeSessionId),
     hasSessionId: Boolean(sessionId),
+    // Which broker this install spawns. On the log line that already marks the
+    // start of a turn, so the cold-boot cost of a `tsx` install is attributable
+    // from the log alone rather than by inspecting the filesystem (#2842).
+    broker: hasMcp ? resolveBrokerKind(useDocker) : "none",
   };
   // --debug only: kept off the default log to avoid leaking user MCP server names into long-lived sinks.
   if (process.argv.includes("--debug") && hasMcp) {

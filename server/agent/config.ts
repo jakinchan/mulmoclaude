@@ -309,7 +309,13 @@ const BUNDLED_MCP_SERVER_PATH = join(dirname(dirname(fileURLToPath(import.meta.u
 const CONTAINER_BUNDLED_MCP_SERVER_PATH = "/app/server/build/mcp-server.mjs";
 const CONTAINER_MCP_SERVER_PATH = "/app/server/agent/mcp-server.ts";
 
+/** Which of the two spawn paths was taken. Names the CAUSE of the cold-boot
+ *  cost, so a log line carrying it answers "is this install on the 20-50 s
+ *  path?" without the reader having to know what a bundle is (#2842). */
+export type BrokerKind = "bundle" | "tsx";
+
 export interface BrokerSpawn {
+  kind: BrokerKind;
   command: string;
   scriptPath: string;
 }
@@ -321,11 +327,13 @@ export interface BrokerSpawn {
 export function brokerSpawn(useDocker: boolean, hasBundle: boolean): BrokerSpawn {
   if (hasBundle) {
     return {
+      kind: "bundle",
       command: useDocker ? "node" : process.execPath,
       scriptPath: useDocker ? CONTAINER_BUNDLED_MCP_SERVER_PATH : BUNDLED_MCP_SERVER_PATH,
     };
   }
   return {
+    kind: "tsx",
     command: useDocker ? "tsx" : join(resolveProjectRoot(), "node_modules/.bin/tsx"),
     scriptPath: useDocker ? CONTAINER_MCP_SERVER_PATH : LOCAL_MCP_SERVER_PATH,
   };
@@ -339,6 +347,37 @@ export function brokerSpawn(useDocker: boolean, hasBundle: boolean): BrokerSpawn
  *  bind-mounted wholesale, so what exists here exists at `/app/server` there. */
 function resolveBrokerCommand(useDocker: boolean): BrokerSpawn {
   return brokerSpawn(useDocker, existsSync(BUNDLED_MCP_SERVER_PATH));
+}
+
+// One warn per process, not per turn: the condition is a property of the
+// install, so repeating it every agent run would bury the rest of the log.
+const warnedBrokerKinds = new Set<BrokerKind>();
+
+/** Which spawn path this install will take, for the `spawning agent` log.
+ *
+ *  Exists because the fallback used to be silent: an install missing the
+ *  bundle sat on the 20-50 s tsx cold boot with nothing anywhere saying so,
+ *  which is how #2842 was diagnosed as "the connect-wait gate is too small"
+ *  when the real answer was "this build never ran `yarn build:mcp-broker`".
+ *  Re-probes rather than reusing `resolveBrokerCommand`'s result so the
+ *  caller needs no plumbing; one `existsSync` per turn is free. */
+export function resolveBrokerKind(useDocker: boolean): BrokerKind {
+  const { kind } = resolveBrokerCommand(useDocker);
+  if (kind === "tsx" && !warnedBrokerKinds.has(kind)) {
+    warnedBrokerKinds.add(kind);
+    log.warn("mcp", "broker bundle missing — falling back to tsx, which transcodes the whole import graph on every spawn", {
+      expectedBundle: BUNDLED_MCP_SERVER_PATH,
+      cost: "seconds to tens of seconds per turn over a Windows/macOS bind mount; may exceed the CLI connect wait and surface as `handlePermission not found`",
+      fix: "run `yarn build:mcp-broker` (dev), or update the mulmoclaude package (npm installs ship the bundle since 1.9.0)",
+    });
+  }
+  return kind;
+}
+
+/** Test seam — the warn is once per process, so a test asserting it has to be
+ *  able to reset that. */
+export function _resetBrokerKindWarnings(): void {
+  warnedBrokerKinds.clear();
 }
 
 /** The `mcpServers.mulmoclaude` entry Claude Code spawns over stdio.
