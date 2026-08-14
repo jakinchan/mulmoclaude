@@ -89,7 +89,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       less \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @anthropic-ai/claude-code tsx
+# Resolved on the host at build time and recorded as an image label, so "which
+# CLI is in this image" is answerable without running it (#2842). Naming the
+# exact version also invalidates this layer when the CLI moves, which a bare
+# `latest` does not — a rebuild would otherwise reuse a cached CLI. The default
+# keeps a plain `docker build -f Dockerfile.sandbox .` working.
+ARG CLAUDE_CODE_VERSION=latest
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} tsx
 
 COPY sandbox-entrypoint.sh /sandbox-entrypoint.sh
 RUN chmod +x /sandbox-entrypoint.sh
