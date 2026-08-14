@@ -41,6 +41,12 @@
     </div>
   </a>
 
+  <!-- Unset: an optional `idField` whose value is empty, which the schema
+       contract resolves fail-soft to "no record" — nothing is broken, so it
+       reads as an empty field, not as the dangling reference below. -->
+  <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "—" empty-value glyph, same treatment as the other read-only detail branches. -->
+  <span v-else-if="!view.recordId" class="text-slate-300" :data-testid="`collections-embed-unset-${fieldKey}`">—</span>
+
   <div v-else class="relative rounded-xl border border-red-100 bg-red-50/30 p-4 pl-5 shadow-sm" :data-testid="`collections-embed-${fieldKey}`">
     <!-- Left Accent Stripe for Error/Missing -->
     <div class="absolute left-0 top-0 bottom-0 w-1 bg-red-400 rounded-l-xl"></div>
