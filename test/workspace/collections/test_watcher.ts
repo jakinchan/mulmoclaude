@@ -649,13 +649,51 @@ type FakeDocs = FirestoreDocs & { emit: (ids: string[], initial?: boolean) => vo
  *  bell, write the notifier file — is not, and the watcher deliberately does
  *  not await it (a slow reconcile must not stall the snapshot). Polling rather
  *  than a fixed sleep: the number of turns is an implementation detail, and a
- *  sleep long enough to be safe is long enough to be slow. */
+ *  sleep long enough to be safe is long enough to be slow.
+ *
+ *  The budget is a DEADLINE, not a number of attempts (#2890). An attempt costs
+ *  the sleep plus whatever `done()` reads, so a counted budget silently means a
+ *  different amount of time per platform — the Windows runner, where this went
+ *  red once, was in fact waiting LONGER in wall-clock terms than Linux, which
+ *  is not what a reader of `attempt < 200` would assume.
+ *
+ *  The deadline is deliberately far above any plausible normal case rather than
+ *  tuned near the observed worst one. A generous ceiling cannot hide a broken
+ *  listener — the assertion still fails, just later — and ten seconds of a CI
+ *  job spent only on a genuine failure is a price worth paying to stop a red
+ *  that means nothing. */
+const WAIT_UNTIL_DEADLINE_MS = 10_000;
+const WAIT_UNTIL_POLL_MS = 5;
+const EXPIRED = Symbol("deadline expired");
+
+/** One timer for the whole wait, raced against every step. Checking the clock
+ *  only between steps would leave the deadline unenforced for as long as
+ *  `done()` runs — a check that never settles would hang the job rather than
+ *  fail it, which is the failure mode this budget exists to prevent (Codex
+ *  review on #2908). `cancel` keeps a finished wait from leaving a live timer. */
+function deadlineSignal(budget_ms: number): { expired: Promise<typeof EXPIRED>; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout>;
+  const expired = new Promise<typeof EXPIRED>((resolve) => {
+    timer = setTimeout(() => resolve(EXPIRED), budget_ms);
+  });
+  return { expired, cancel: () => clearTimeout(timer) };
+}
+
 async function waitUntil(done: () => Promise<boolean>, what: string): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    if (await done()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
+  const startedAt = Date.now();
+  const { expired, cancel } = deadlineSignal(WAIT_UNTIL_DEADLINE_MS);
+  try {
+    for (;;) {
+      const checked = await Promise.race([done(), expired]);
+      if (checked === true) return;
+      if (checked === EXPIRED) break;
+      const slept = await Promise.race([new Promise((resolve) => setTimeout(resolve, WAIT_UNTIL_POLL_MS)), expired]);
+      if (slept === EXPIRED) break;
+    }
+  } finally {
+    cancel();
   }
-  assert.fail(`timed out waiting for ${what}`);
+  assert.fail(`timed out waiting for ${what} after ${Date.now() - startedAt}ms`);
 }
 
 function connectFake(docs: FakeDocs): void {
