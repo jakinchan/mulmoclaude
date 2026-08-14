@@ -46,8 +46,9 @@
 
 - unit: `buildEmbedViews` に空 `idField` のケース。既存は `"ghost"`（リンク切れ）だけで、
   「`found: false` かつ `recordId: ""`」＝描画が分岐する状態を押さえていない
-- e2e: `collection-embed-unset.spec.ts`。1コレクション3レコード（解決する / ghost / 未設定）で
-  ①未設定は em-dash で赤カードが出ない ②ghost は今までどおり赤カード、を実ブラウザで確認する
+- e2e: `collection-embed-unset.spec.ts`。1コレクション4レコード（解決する / `idField` のキーが無い /
+  `idField` が空文字 / ghost）で ①未設定の2つは em-dash で赤カードが出ない ②ghost は今までどおり
+  赤カード ③解決するものは今までどおりカード、を実ブラウザで確認する
   （Vue コンポーネントの単体テストはこのリポジトリに無いので、描画分岐の ground truth は e2e）
 
 ## 影響範囲
