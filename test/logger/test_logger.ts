@@ -93,3 +93,51 @@ describe("createLogger level filtering", () => {
     }
   });
 });
+
+describe("createLogger source stamping (#2904)", () => {
+  function captureJsonRecords(config: Parameters<typeof createLogger>[0]): { source?: string; message: string }[] {
+    const originalOut = process.stdout.write.bind(process.stdout);
+    const originalErr = process.stderr.write.bind(process.stderr);
+    const lines: string[] = [];
+    const recordWrite = (chunk: string | Uint8Array) => {
+      lines.push(typeof chunk === "string" ? chunk : chunk.toString());
+      return true;
+    };
+    process.stdout.write = recordWrite as typeof process.stdout.write;
+    process.stderr.write = recordWrite as typeof process.stderr.write;
+    try {
+      const logger = createLogger(config);
+      logger.info("plugins/preset", "loaded");
+      logger.error("plugins/preset", "boom");
+    } finally {
+      process.stdout.write = originalOut;
+      process.stderr.write = originalErr;
+    }
+    return lines.map((line) => JSON.parse(line.trim()));
+  }
+
+  const consoleOnlyJson = (source?: string): Parameters<typeof createLogger>[0] => ({
+    ...(source ? { source } : {}),
+    sinks: {
+      console: { enabled: true, level: "debug", format: "json", stream: "split" },
+      file: { enabled: false, level: "debug", format: "json", dir: "/tmp", rotation: { kind: "daily", maxFiles: 1 } },
+      telemetry: { enabled: false, level: "error", format: "json" },
+    },
+  });
+
+  it("stamps every record, at every level", () => {
+    const records = captureJsonRecords(consoleOnlyJson("mcp-broker"));
+    assert.equal(records.length, 2);
+    for (const rec of records) {
+      assert.equal(rec.source, "mcp-broker");
+    }
+  });
+
+  it("leaves records unstamped when no source is configured", () => {
+    const records = captureJsonRecords(consoleOnlyJson());
+    assert.equal(records.length, 2);
+    for (const rec of records) {
+      assert.equal(rec.source, undefined);
+    }
+  });
+});

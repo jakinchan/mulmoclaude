@@ -35,6 +35,8 @@ export interface TelemetrySinkConfig {
 }
 
 export interface LoggerConfig {
+  // Stamped onto every record this logger emits. See `LogRecord.source`.
+  source?: string;
   sinks: {
     console: ConsoleSinkConfig;
     file: FileSinkConfig;
@@ -91,6 +93,16 @@ function parseBool(raw: string | undefined): boolean | undefined {
   return undefined;
 }
 
+// Returns a spreadable fragment rather than `string | undefined` so the branch
+// lives here instead of in `resolveConfig`, which is already at its complexity
+// ceiling. A whitespace-only value is a shell accident (`LOG_SOURCE=$UNSET`),
+// not a process claiming to be called " " — treat it as unset so the record
+// stays untagged rather than gaining an empty bracket.
+function sourceField(raw: string | undefined): { source?: string } {
+  const trimmed = raw?.trim();
+  return trimmed ? { source: trimmed } : {};
+}
+
 function parsePositiveInt(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
   const num = Number(raw);
@@ -105,6 +117,7 @@ export function resolveConfig(env: Env): LoggerConfig {
   const fileLevel = parseLevel(env.LOG_FILE_LEVEL) ?? coarseLevel;
 
   return {
+    ...sourceField(env.LOG_SOURCE),
     sinks: {
       console: {
         enabled: parseBool(env.LOG_CONSOLE_ENABLED) ?? DEFAULT_CONFIG.sinks.console.enabled,

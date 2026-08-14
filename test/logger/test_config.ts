@@ -107,4 +107,19 @@ describe("resolveConfig", () => {
     assert.equal(config.sinks.telemetry.enabled, true);
     assert.equal(config.sinks.telemetry.level, "warn");
   });
+
+  it("reads LOG_SOURCE and leaves it unset by default (#2904)", () => {
+    assert.equal(resolveConfig({ LOG_SOURCE: "mcp-broker" }).source, "mcp-broker");
+    assert.equal(resolveConfig({}).source, undefined);
+  });
+
+  it("treats an empty or whitespace-only LOG_SOURCE as unset", () => {
+    // `LOG_SOURCE=$UNSET_VAR` is a shell accident, not a process named " ".
+    assert.equal(resolveConfig({ LOG_SOURCE: "" }).source, undefined);
+    assert.equal(resolveConfig({ LOG_SOURCE: "   " }).source, undefined);
+  });
+
+  it("trims surrounding whitespace off a real LOG_SOURCE", () => {
+    assert.equal(resolveConfig({ LOG_SOURCE: "  mcp-broker\n" }).source, "mcp-broker");
+  });
 });

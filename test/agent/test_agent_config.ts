@@ -9,6 +9,7 @@ import {
   buildDockerSpawnArgs,
   brokerSpawn,
   buildMulmoclaudeServer,
+  BROKER_LOG_SOURCE,
   dockerUserCapArgs,
   dockerBindMountArgs,
   buildMcpConfig,
@@ -1209,6 +1210,16 @@ describe("MCP child wiring (regression guard for #2052)", () => {
     for (const useDocker of [false, true]) {
       const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker });
       assert.equal(spec.env.LOG_CONSOLE_STREAM, "stderr", `missing for useDocker=${useDocker}`);
+    }
+  });
+
+  // The broker shares the parent's log FILE and respawns once per turn, so
+  // untagged lines read as server restarts — 34 "plugins/preset loaded" a day
+  // was filed as a reload loop (#2904). Only the parent can name the child.
+  it("names the broker as the log source in both modes", () => {
+    for (const useDocker of [false, true]) {
+      const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker });
+      assert.equal(spec.env.LOG_SOURCE, BROKER_LOG_SOURCE, `missing for useDocker=${useDocker}`);
     }
   });
 

@@ -15,6 +15,11 @@ export interface LogRecord {
   level: LogLevel;
   prefix: string;
   message: string;
+  // Which process emitted this. Absent for the main server; set by processes
+  // that share its log file and would otherwise be indistinguishable from it
+  // — the MCP broker respawns once per turn, so its lines read as server
+  // restarts to anyone holding only the log (#2904).
+  source?: string;
   data?: Record<string, unknown>;
 }
 
