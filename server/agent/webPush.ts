@@ -7,17 +7,20 @@ import { sendWebPush } from "@mulmobridge/web-push";
 import { currentIdToken } from "../remoteHost/session.js";
 import { loadSettings, isPushEnabled } from "../system/config.js";
 import { readSessionMeta } from "../utils/files/session-io.js";
+import { readIndexTitle } from "../workspace/chat-index/indexer.js";
+import { workspacePath } from "../workspace/paths.js";
 import { truncate } from "../utils/text.js";
 import { log } from "../system/logger/index.js";
 
 const PUSH_TITLE_MAX = 80;
 const PUSH_BODY_MAX = 160;
-const DONE_TITLE = "✅ MulmoClaude";
-const ERROR_TITLE = "⚠️ MulmoClaude";
-// Neutral English fallback (the app's fallback locale) for the rare turn with no
-// user message — a fixed Japanese string here would give non-JA users a
-// mixed-language push. Locale-aware bodies are a follow-up (needs the user's
-// locale plumbed server-side).
+const DONE_MARK = "✅";
+const ERROR_MARK = "⚠️";
+const APP_NAME = "MulmoClaude";
+// Neutral English fallback (the app's fallback locale) for the rare turn that
+// produced no assistant text at all — a fixed Japanese string here would give
+// non-JA users a mixed-language push. Locale-aware bodies are a follow-up
+// (needs the user's locale plumbed server-side).
 const DEFAULT_BODY = "Task complete";
 
 export interface TaskFinishedPush {
@@ -25,22 +28,67 @@ export interface TaskFinishedPush {
   body: string;
 }
 
-// Pure: derive the push title/body from the turn outcome and the session's
-// first user message (identifies the task). Falls back to a generic body when
-// there's no message. Both fields are length-capped.
-export function buildTaskFinishedPush(firstUserMessage: string | undefined, didError: boolean): TaskFinishedPush {
+// Fenced code, then inline-code backticks, then `[text](url)` → `text`. Each is
+// a single lazy span between literals, so matching stays linear — this repo has
+// had polynomial-ReDoS findings, and a push body is model-authored text.
+const FENCED_CODE = /```[\s\S]*?```/g;
+const INLINE_CODE = /`([^`]*)`/g;
+// Bounded, and the label excludes `[` as well as `]`: an unbounded label lets
+// `[[[[[…` restart a full scan at every bracket, which is the super-linear
+// shape sonarjs rejects. A link longer than these caps simply keeps its markup
+// — acceptable for a one-line preview that gets truncated anyway.
+const MARKDOWN_LINK = /\[([^[\]]{0,200})\]\([^)]{0,500}\)/g;
+// Leading block markers: heading, quote, bullet, ordered item.
+const LINE_MARKER = /^[ \t]*(?:#{1,6}|>|[-*+]|\d+\.)[ \t]+/gm;
+const BOLD_MARKER = /\*\*|__/g;
+const WHITESPACE_RUN = /\s+/g;
+
+/** Reduce an assistant reply to one plain line fit for a notification.
+ *
+ *  Deliberately not a markdown parser — a notification shows one line, so the
+ *  goal is only to stop the markup itself from being what the user reads.
+ *  Returns "" when nothing survives (a turn that only ran tools), which the
+ *  caller turns into the generic body. */
+export function condenseReplyForPush(reply: string | undefined): string {
+  return (reply ?? "")
+    .replace(FENCED_CODE, " ")
+    .replace(INLINE_CODE, "$1")
+    .replace(MARKDOWN_LINK, "$1")
+    .replace(LINE_MARKER, "")
+    .replace(BOLD_MARKER, "")
+    .replace(WHITESPACE_RUN, " ")
+    .trim();
+}
+
+/** The chat this push belongs to, in the same words the session list uses
+ *  (`buildSessionSummary`): the AI title, else the first user message. */
+function pushTitleFor(sessionTitle: string | undefined, didError: boolean): string {
+  const mark = didError ? ERROR_MARK : DONE_MARK;
+  const name = condenseReplyForPush(sessionTitle) || APP_NAME;
+  return truncate(`${mark} ${name}`, PUSH_TITLE_MAX);
+}
+
+// Pure: the title says WHICH chat finished, the body says WHAT it did.
+//
+// The body used to be the session's FIRST user message, which is the session's
+// identity rather than the turn's outcome — so every turn in a session pushed
+// the same text forever (#2901). The turn's own user message is no better: a
+// turn is often driven by "はい" / "OK" / "続けて", which carries nothing. Only
+// the assistant's reply knows what actually happened, so that is the body.
+export function buildTaskFinishedPush(input: { sessionTitle: string | undefined; replyText: string | undefined; didError: boolean }): TaskFinishedPush {
   return {
-    title: truncate(didError ? ERROR_TITLE : DONE_TITLE, PUSH_TITLE_MAX),
-    body: truncate((firstUserMessage ?? "").trim() || DEFAULT_BODY, PUSH_BODY_MAX),
+    title: pushTitleFor(input.sessionTitle, input.didError),
+    body: truncate(condenseReplyForPush(input.replyText) || DEFAULT_BODY, PUSH_BODY_MAX),
   };
 }
 
 // Notify the user's registered devices that a visible agent turn finished.
 // No-op when push is disabled or RemoteHost isn't connected. Never throws.
-export async function notifyTaskFinished(chatSessionId: string, didError: boolean): Promise<void> {
+export async function notifyTaskFinished(chatSessionId: string, didError: boolean, replyText?: string): Promise<void> {
   if (!isPushEnabled(loadSettings())) return;
-  const meta = await readSessionMeta(chatSessionId);
-  const { title, body } = buildTaskFinishedPush(meta?.firstUserMessage, didError);
+  const [meta, indexTitle] = await Promise.all([readSessionMeta(chatSessionId), readIndexTitle(workspacePath, chatSessionId)]);
+  const sessionTitle = indexTitle ?? meta?.firstUserMessage;
+  const { title, body } = buildTaskFinishedPush({ sessionTitle, replyText, didError });
   const result = await sendWebPush(title, body, { getIdToken: currentIdToken });
   if (result?.targets === 0) {
     log.info("web-push", "sendPush reached no registered devices", { chatSessionId });

@@ -142,6 +142,26 @@ export async function removeSessionFromIndex(workspaceRoot: string, sessionId: s
 // missing, unreadable, JSON parse error, wrong shape, unparseable
 // timestamp) so callers can each pick their own "no entry" semantic
 // (skip vs reindex vs throttle) without duplicating the read.
+/** One session's cached AI title, or null when it has never been indexed (or
+ *  the file is unreadable / malformed / titleless).
+ *
+ *  Reads the per-session file rather than the manifest: the session LIST wants
+ *  every title and goes through the manifest, while a single push needs exactly
+ *  one (#2901). Same shape as `readIndexedAtMs` — one field, never throws. */
+export async function readIndexTitle(workspaceRoot: string, sessionId: string): Promise<string | null> {
+  const safeId = safeSessionIdOrNull(sessionId);
+  if (safeId === null) return null;
+  try {
+    const raw = await readFile(indexEntryPathFor(workspaceRoot, safeId), "utf-8");
+    const entry: unknown = JSON.parse(raw);
+    if (!isRecord(entry)) return null;
+    const { title } = entry;
+    return typeof title === "string" && title.length > 0 ? title : null;
+  } catch {
+    return null;
+  }
+}
+
 // Exported so `isFresh` / `sessionJsonlChangedSinceIndex` share one
 // canonical parse — CodeRabbit review on #1930.
 export async function readIndexedAtMs(workspaceRoot: string, sessionId: string): Promise<number | null> {
