@@ -57,6 +57,7 @@ const esMessages: CollectionMessages = {
     readonlyChip: "Solo lectura",
     itemsEmptyReadonly: "El archivo de datos aún no tiene filas. Añádelas al archivo y aparecerán aquí.",
     filter: { all: "Todas", editable: "Editables", data: "Datos" },
+    sort: { label: "Orden", slug: "Slug", title: "Nombre" },
     mapTab: "Mapa",
     mapEmpty: "Nada que mostrar todavía: el mapa se dibuja solo a medida que aparecen colecciones y los enlaces entre ellas.",
     mapRecordCount: "{count} registros",

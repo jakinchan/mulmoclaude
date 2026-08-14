@@ -55,6 +55,7 @@ const zhMessages: CollectionMessages = {
     readonlyChip: "只读",
     itemsEmptyReadonly: "数据文件中还没有行。在文件中添加行后会显示在这里。",
     filter: { all: "全部", editable: "可编辑", data: "数据" },
+    sort: { label: "排序", slug: "Slug", title: "名称" },
     mapTab: "地图",
     mapEmpty: "暂无可显示的内容。随着集合及其之间的链接增多，地图会自动绘制。",
     mapRecordCount: "{count} 条记录",

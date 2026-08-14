@@ -70,29 +70,50 @@
         </div>
 
         <div v-else>
-          <!-- Data filter chips: only shown when the workspace actually has
-               read-only (dataSource-backed) collections to separate out. -->
-          <div v-if="hasReadonlyCollections" class="flex items-center gap-1.5 mb-4" data-testid="collections-filter-chips">
-            <button
-              v-for="chip in FILTER_CHIPS"
-              :key="chip"
-              type="button"
-              class="px-3 h-7 rounded-full text-xs font-semibold border transition-colors"
-              :class="
-                filter === chip
-                  ? 'bg-indigo-600 border-indigo-600 text-white'
-                  : 'bg-white border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-              "
-              :data-testid="`collections-filter-${chip}`"
-              @click="filter = chip"
-            >
-              {{ t(`collectionsView.filter.${chip}`) }}
-            </button>
+          <!-- Data filter chips (only when the workspace actually has read-only
+               dataSource-backed collections to separate out) and the display-order
+               toggle, which sits on the right of the same row either way. -->
+          <div v-if="hasReadonlyCollections || canSort" class="flex items-center gap-3 mb-4">
+            <div v-if="hasReadonlyCollections" class="flex items-center gap-1.5" data-testid="collections-filter-chips">
+              <button
+                v-for="chip in FILTER_CHIPS"
+                :key="chip"
+                type="button"
+                class="px-3 h-7 rounded-full text-xs font-semibold border transition-colors"
+                :class="
+                  filter === chip
+                    ? 'bg-indigo-600 border-indigo-600 text-white'
+                    : 'bg-white border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                "
+                :data-testid="`collections-filter-${chip}`"
+                @click="filter = chip"
+              >
+                {{ t(`collectionsView.filter.${chip}`) }}
+              </button>
+            </div>
+
+            <div v-if="canSort" class="ml-auto flex items-center gap-2" data-testid="collections-sort">
+              <span class="text-xs font-medium text-slate-400">{{ t("collectionsView.sort.label") }}</span>
+              <div class="flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5">
+                <button
+                  v-for="key in INDEX_SORT_KEYS"
+                  :key="key"
+                  type="button"
+                  class="px-3 h-7 rounded-md text-xs font-semibold transition-colors"
+                  :class="sort === key ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+                  :data-testid="`collections-sort-${key}`"
+                  :aria-pressed="sort === key"
+                  @click="setSort(key)"
+                >
+                  {{ t(`collectionsView.sort.${key}`) }}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="grid gap-4 sm:grid-cols-2">
             <div
-              v-for="collection in filteredCollections"
+              v-for="collection in visibleCollections"
               :key="collection.slug"
               class="group relative rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all duration-300 cursor-pointer flex items-center gap-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               role="button"
@@ -177,9 +198,10 @@ import { useCollectionUi } from "../scopedUi";
 import DiscoverPanel from "./DiscoverPanel.vue";
 import CollectionOntologyGraphView from "./CollectionOntologyGraphView.vue";
 import NewCollectionModal from "./NewCollectionModal.vue";
+import { INDEX_SORT_KEYS, readCollectionIndexSort, sortCollectionsForIndex, writeCollectionIndexSort, type CollectionIndexSort } from "../collectionIndexSort";
 import type { CollectionSummary } from "@mulmoclaude/core/collection";
 
-const { t } = useCollectionI18n();
+const { t, locale } = useCollectionI18n();
 // Host couplings (list/navigate/chat/shortcuts/pin) via the injected binding.
 const cui = useCollectionUi();
 const { pinToggle, reconcileShortcuts } = cui;
@@ -204,6 +226,20 @@ const filteredCollections = computed<CollectionSummary[]>(() => {
   if (filter.value === "data") return collections.value.filter((collection) => collection.readonly === true);
   return collections.value;
 });
+
+// Display order (#2836). A UI-local preference layered over the fetched list —
+// the server's discovery order stays slug-ascending for the watchers, the
+// ontology and the mobile remote, which all read the same call. Sorting title-
+// first gives the user a way to arrange the index by renaming a title, which is
+// safe, instead of renaming a slug, which means migrating the data.
+const sort = ref<CollectionIndexSort>(readCollectionIndexSort());
+const canSort = computed<boolean>(() => collections.value.length > 1);
+const visibleCollections = computed<CollectionSummary[]>(() => sortCollectionsForIndex(filteredCollections.value, sort.value, locale.value));
+
+function setSort(key: CollectionIndexSort): void {
+  sort.value = key;
+  writeCollectionIndexSort(key);
+}
 
 async function loadCollections(): Promise<void> {
   loading.value = true;

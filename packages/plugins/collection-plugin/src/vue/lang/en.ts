@@ -54,6 +54,7 @@ const enMessages = {
     readonlyChip: "Read-only",
     itemsEmptyReadonly: "No rows in the data file yet. Add rows to the file and they appear here.",
     filter: { all: "All", editable: "Editable", data: "Data" },
+    sort: { label: "Order", slug: "Slug", title: "Name" },
     mapTab: "Map",
     mapEmpty: "Nothing to map yet — the map draws itself as collections and the links between them appear.",
     mapRecordCount: "{count} records",

@@ -57,6 +57,7 @@ const deMessages: CollectionMessages = {
     readonlyChip: "Schreibgeschützt",
     itemsEmptyReadonly: "Noch keine Zeilen in der Datendatei. Füge der Datei Zeilen hinzu, dann erscheinen sie hier.",
     filter: { all: "Alle", editable: "Bearbeitbar", data: "Daten" },
+    sort: { label: "Sortierung", slug: "Slug", title: "Name" },
     mapTab: "Karte",
     mapEmpty: "Noch nichts zu zeigen — die Karte entsteht von selbst, sobald Sammlungen und ihre Verknüpfungen entstehen.",
     mapRecordCount: "{count} Einträge",
