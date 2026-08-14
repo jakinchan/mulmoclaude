@@ -606,7 +606,7 @@ const brokerReadyBeacon = { sent: false };
 function reportBrokerReady(): void {
   if (brokerReadyBeacon.sent) return;
   brokerReadyBeacon.sent = true;
-  const body = { bootMs: BOOT_MS, initializeMs: Math.round(performance.now()), kind: BROKER_KIND };
+  const body = { bootMs: BOOT_MS, initializeMs: Math.round(performance.now()), kind: BROKER_KIND, spawnId: env.mcpSpawnId };
   postJson(API_ROUTES.mcp.brokerReady, body, { timeoutMs: BROKER_READY_TIMEOUT_MS }).catch(() => {});
 }
 

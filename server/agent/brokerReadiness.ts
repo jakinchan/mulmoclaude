@@ -33,44 +33,39 @@ export interface BrokerReady {
   kind: "bundle" | "tsx";
 }
 
-const readyBySession = new Map<string, BrokerReady>();
-
-export function recordBrokerReady(sessionId: string, ready: BrokerReady): void {
-  readyBySession.delete(sessionId);
-  readyBySession.set(sessionId, ready);
-  // Insertion order is oldest-first, so the first key is the one to drop.
-  const oldest = readyBySession.keys().next();
-  if (readyBySession.size > MAX_TRACKED_SESSIONS && !oldest.done) {
-    readyBySession.delete(oldest.value);
-  }
+interface SessionReadiness {
+  /** The broker the host is currently waiting on. A beacon carrying anything
+   *  else belongs to an attempt that has already been replaced. */
+  spawnId: string;
+  ready: BrokerReady | null;
 }
 
-/** Drop the session's reading, called at every spawn.
+const readinessBySession = new Map<string, SessionReadiness>();
+
+/** Record a beacon, unless it belongs to a superseded broker.
  *
- *  Load-bearing, not tidiness. The key is the CHAT session id, which is stable
- *  for the life of a conversation, while each turn spawns its own broker. Left
- *  alone, turn 1's successful beacon would still be sitting there when turn 5's
- *  broker fails to start, and the diagnostic would report `brokerEverReady:
- *  true` for a broker that never ran — the exact wrong answer, in the exact
- *  case the field exists to answer.
- *
- *  Residual window, knowingly left: a previous broker that answers `initialize`
- *  only AFTER its CLI gave up could land its beacon under the next spawn. The
- *  CLI kills its MCP children on exit and the beacon times out after 2 s, so
- *  this needs a >3 s straggler; it would overstate readiness on a diagnostic
- *  line, which is not worth a per-spawn token to close. */
-export function clearBrokerReady(sessionId: string): void {
-  readyBySession.delete(sessionId);
+ *  Returns whether it was accepted, so the caller can log the discard rather
+ *  than swallow it. Attribution by chat session alone is not enough: the key is
+ *  stable for the whole conversation, and the failure this feature diagnoses is
+ *  "the broker was too slow" — so a straggler from the failed attempt arriving
+ *  after the 3 s retry has already respawned is not a remote possibility, it is
+ *  correlated with the very case that matters (Codex review on #2898). */
+export function recordBrokerReady(sessionId: string, spawnId: string, ready: BrokerReady): boolean {
+  const current = readinessBySession.get(sessionId);
+  if (current === undefined || current.spawnId !== spawnId) return false;
+  current.ready = ready;
+  return true;
 }
 
 /** `null` means no beacon arrived for the CURRENT spawn — either the broker
  *  never got far enough to send one, or it is still booting. */
 export function getBrokerReady(sessionId: string): BrokerReady | null {
-  return readyBySession.get(sessionId) ?? null;
+  return readinessBySession.get(sessionId)?.ready ?? null;
 }
 
-/** Everything a broker spawn owes the readiness state: forget the previous
- *  broker's beacon, and hand back the spawn log's `broker` value.
+/** Everything a broker spawn owes the readiness state: make this broker the one
+ *  the host is waiting on (dropping any earlier reading), and hand back the
+ *  spawn log's `broker` value.
  *
  *  One function rather than two statements at the call site, because they are
  *  the same event — a new broker is starting for this session — and two
@@ -81,12 +76,18 @@ export function getBrokerReady(sessionId: string): BrokerReady | null {
  *  `kind` is the turn's ALREADY-RESOLVED broker (null when the turn runs
  *  without MCP), never re-probed here: re-probing is what let the log and the
  *  spawned command disagree. */
-export function beginBrokerSpawn(sessionId: string, kind: BrokerReady["kind"] | null): BrokerReady["kind"] | "none" {
-  clearBrokerReady(sessionId);
+export function beginBrokerSpawn(sessionId: string, spawnId: string, kind: BrokerReady["kind"] | null): BrokerReady["kind"] | "none" {
+  readinessBySession.delete(sessionId);
+  readinessBySession.set(sessionId, { spawnId, ready: null });
+  // Insertion order is oldest-first, so the first key is the one to drop.
+  const oldest = readinessBySession.keys().next();
+  if (readinessBySession.size > MAX_TRACKED_SESSIONS && !oldest.done) {
+    readinessBySession.delete(oldest.value);
+  }
   return kind ?? "none";
 }
 
 /** Test seam — the map is module state shared across cases. */
 export function _resetBrokerReadiness(): void {
-  readyBySession.clear();
+  readinessBySession.clear();
 }

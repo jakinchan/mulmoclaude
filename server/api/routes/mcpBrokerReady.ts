@@ -27,6 +27,7 @@ interface BrokerReadyBody {
   bootMs?: unknown | undefined;
   initializeMs?: unknown | undefined;
   kind?: unknown | undefined;
+  spawnId?: unknown | undefined;
 }
 
 const router = Router();
@@ -38,8 +39,13 @@ const isBrokerKind = (value: unknown): value is BrokerReady["kind"] => value ===
 const MAX_PLAUSIBLE_BOOT_MS = 10 * ONE_MINUTE_MS;
 const isDuration = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_PLAUSIBLE_BOOT_MS;
 
-function validate(body: BrokerReadyBody | undefined, res: Response): BrokerReady | null {
-  const { bootMs, initializeMs, kind } = body ?? {};
+interface ValidatedBeacon {
+  spawnId: string;
+  ready: BrokerReady;
+}
+
+function validate(body: BrokerReadyBody | undefined, res: Response): ValidatedBeacon | null {
+  const { bootMs, initializeMs, kind, spawnId } = body ?? {};
   if (!isDuration(bootMs) || !isDuration(initializeMs)) {
     badRequest(res, "bootMs and initializeMs must be durations in ms");
     return null;
@@ -48,7 +54,11 @@ function validate(body: BrokerReadyBody | undefined, res: Response): BrokerReady
     badRequest(res, "kind must be 'bundle' or 'tsx'");
     return null;
   }
-  return { bootMs, initializeMs, kind };
+  if (typeof spawnId !== "string" || spawnId.length === 0) {
+    badRequest(res, "spawnId required");
+    return null;
+  }
+  return { spawnId, ready: { bootMs, initializeMs, kind } };
 }
 
 // Slow enough to be worth a warn: the same turn on a heavier mount is the one
@@ -70,10 +80,20 @@ router.post(API_ROUTES.mcp.brokerReady, (req: Request<object, unknown, BrokerRea
     badRequest(res, "session query parameter required");
     return;
   }
-  const ready = validate(req.body, res);
-  if (ready === null) return;
-  recordBrokerReady(sessionId, ready);
-  logBrokerReady(sessionId, ready);
+  const beacon = validate(req.body, res);
+  if (beacon === null) return;
+  // 204 either way: a straggler from a replaced attempt is not the sender's
+  // fault, and it is still worth a line — "the broker DID come up, just too
+  // late to be the one we ran" is a distinct diagnosis from both alternatives.
+  if (!recordBrokerReady(sessionId, beacon.spawnId, beacon.ready)) {
+    log.info("mcp", "broker ready, but from a superseded spawn — not counted for the current attempt", {
+      chatSessionId: sessionId,
+      ...beacon.ready,
+    });
+    res.status(204).end();
+    return;
+  }
+  logBrokerReady(sessionId, beacon.ready);
   res.status(204).end();
 });
 

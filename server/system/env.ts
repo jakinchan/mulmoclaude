@@ -157,6 +157,10 @@ export const env = Object.freeze({
   // mcp-server.ts. The MCP process reads them via this same module —
   // OS-level env vars are shared across both processes.
   mcpSessionId: process.env.SESSION_ID ?? "",
+  /** Identity of THIS broker process, set by the parent per spawn. Lets the
+   *  host discard a startup beacon from an attempt it has already replaced
+   *  (#2842). Empty when the broker was launched outside a real turn. */
+  mcpSpawnId: process.env.MCP_SPAWN_ID ?? "",
   mcpHost: process.env.MCP_HOST ?? "localhost",
   mcpPluginNames: asCsv(process.env.PLUGIN_NAMES),
 });

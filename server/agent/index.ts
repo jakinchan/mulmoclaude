@@ -19,6 +19,7 @@ import {
   type BrokerSpawn,
 } from "./config.js";
 import { validateStdioPackages } from "./mcpHealth.js";
+import { makeUuid } from "../utils/id.js";
 import type { Attachment } from "@mulmobridge/protocol";
 import type { AgentEvent } from "./stream.js";
 import { log } from "../system/logger/index.js";
@@ -128,8 +129,12 @@ async function prepareAgentRun(input: RunAgentInput, deps: AgentRunDeps): Promis
   // `yarn build:mcp-broker` and disagree, and a diagnostic that contradicts
   // what actually ran is worse than none (Codex review on #2898).
   const broker = hasMcp ? resolveBrokerSpawn(useDocker) : null;
-  const { mcpPaths, mcpServerNames } = await writeMcpConfig(input, deps, hasMcp, broker);
-  const { backend, agentInput } = buildAgentInput(input, deps, { systemPrompt, hasMcp, mcpPaths, mcpServerNames, broker });
+  // Identity of the broker this turn is about to spawn. Goes into its env and
+  // is what the host waits on, so a beacon from a replaced attempt (the 3 s
+  // broker retry) cannot be credited to the attempt that replaced it.
+  const spawnId = makeUuid();
+  const { mcpPaths, mcpServerNames } = await writeMcpConfig(input, deps, hasMcp, broker, spawnId);
+  const { backend, agentInput } = buildAgentInput(input, deps, { systemPrompt, hasMcp, mcpPaths, mcpServerNames, broker, spawnId });
   return { backend, agentInput, hasMcp, hostMcpPath: mcpPaths.hostPath };
 }
 
@@ -166,6 +171,7 @@ async function writeMcpConfig(
   deps: AgentRunDeps,
   hasMcp: boolean,
   broker: BrokerSpawn | null,
+  spawnId: string,
 ): Promise<{ mcpPaths: McpPaths; mcpServerNames: string[] }> {
   const { workspacePath, sessionId, port } = input;
   const { activePlugins, useDocker, userServers } = deps;
@@ -188,6 +194,7 @@ async function writeMcpConfig(
       activePlugins,
       useDocker,
       userServers,
+      spawnId,
       ...(broker ? { broker } : {}),
     });
     mcpServerNames = Object.keys(mcpConfig.mcpServers).sort();
@@ -203,11 +210,11 @@ async function writeMcpConfig(
 function buildAgentInput(
   input: RunAgentInput,
   deps: AgentRunDeps,
-  args: { systemPrompt: string; hasMcp: boolean; mcpPaths: McpPaths; mcpServerNames: string[]; broker: BrokerSpawn | null },
+  args: { systemPrompt: string; hasMcp: boolean; mcpPaths: McpPaths; mcpServerNames: string[]; broker: BrokerSpawn | null; spawnId: string },
 ): { backend: LLMBackend; agentInput: AgentInput } {
   const { message, role, workspacePath, sessionId, port, claudeSessionId, abortSignal, attachments, userTimezone } = input;
   const { activePlugins, useDocker, userServers } = deps;
-  const { systemPrompt, hasMcp, mcpPaths, mcpServerNames, broker } = args;
+  const { systemPrompt, hasMcp, mcpPaths, mcpServerNames, broker, spawnId } = args;
 
   // Per-invocation read so allowedTools / MCP-server changes apply without a server restart.
   const settings = loadSettings();
@@ -227,7 +234,7 @@ function buildAgentInput(
     // start of a turn, so the cold-boot cost of a `tsx` install is attributable
     // from the log alone rather than by inspecting the filesystem (#2842).
     // Also resets this session's readiness — see `beginBrokerSpawn`.
-    broker: beginBrokerSpawn(sessionId, broker?.kind ?? null),
+    broker: beginBrokerSpawn(sessionId, spawnId, broker?.kind ?? null),
   };
   // --debug only: kept off the default log to avoid leaking user MCP server names into long-lived sinks.
   if (process.argv.includes("--debug") && hasMcp) {

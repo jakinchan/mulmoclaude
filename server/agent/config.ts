@@ -131,6 +131,9 @@ export interface McpConfigParams {
   /** The turn's already-resolved broker, so this config and the turn's
    *  `broker=` log line describe the same one. See `resolveBrokerSpawn`. */
   broker?: BrokerSpawn;
+  /** Identity of the broker this config will spawn, echoed back by its
+   *  startup beacon so a superseded attempt's reading can be discarded. */
+  spawnId?: string;
 }
 
 // In Docker mode the sandbox container can't reach the host's
@@ -426,8 +429,11 @@ export function buildMulmoclaudeServer(params: {
    *  spawned, so the config and the log cannot describe different brokers.
    *  Omitted (tests, `print-mcp-container-spec`) means resolve here. */
   broker?: BrokerSpawn;
+  /** Identity of this particular broker, for the startup beacon. Omitted by
+   *  callers that only inspect the spec and never spawn it. */
+  spawnId?: string;
 }): McpStdioServerSpec {
-  const { chatSessionId, port, activePlugins, useDocker } = params;
+  const { chatSessionId, port, activePlugins, useDocker, spawnId = "" } = params;
   const { command, scriptPath: mcpServerPath } = params.broker ?? resolveBrokerSpawn(useDocker);
 
   const dockerEnv: Record<string, string> = useDocker
@@ -463,6 +469,11 @@ export function buildMulmoclaudeServer(params: {
     args: useDocker ? ["--import", CONTAINER_ESM_BOOTSTRAP_URL, mcpServerPath] : [mcpServerPath],
     env: {
       SESSION_ID: chatSessionId,
+      // Identifies THIS broker, where SESSION_ID identifies the conversation.
+      // The startup beacon echoes it so the host can drop a reading from a
+      // superseded attempt instead of crediting it to the retry that replaced
+      // it (#2842, Codex review on #2898).
+      MCP_SPAWN_ID: spawnId,
       PORT: String(port),
       PLUGIN_NAMES: activePlugins.join(","),
       // The broker's stdout carries JSON-RPC. The shared `log` helper
@@ -499,6 +510,7 @@ export function buildMcpConfig(params: McpConfigParams): { mcpServers: Record<st
         activePlugins,
         useDocker,
         ...(params.broker ? { broker: params.broker } : {}),
+        ...(params.spawnId ? { spawnId: params.spawnId } : {}),
       }),
       ...excludeReservedKeys(userServers),
     },
