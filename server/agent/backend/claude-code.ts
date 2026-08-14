@@ -83,19 +83,20 @@ export function createBuiltinMcpToolWatcher() {
 
 /** Did this turn look like the broker never delivered its tools?
  *
- *  All three conditions are required, and each rules out a way of being wrong:
+ *  All four conditions are required, and each rules out a way of being wrong.
+ *  They are listed in the order the predicate reads them:
  *
  *  - `mcpConfigured` — a turn that was never given MCP cannot be missing it.
+ *  - `!aborted` — a turn the user stopped never got the chance to use its
+ *    tools. Hitting the stop button straight away produces "configured, no
+ *    beacon, no calls" every time, so without this the diagnostic fires on an
+ *    ordinary cancellation (Codex review on #2906).
  *  - `!brokerEverReady` — the startup beacon (#2898) is direct evidence, where
  *    the old check inferred a crash from the SHAPE of the tool names: it fired
  *    whenever ToolSearch ran without a following `mcp__*` call. ToolSearch also
  *    resolves CLI built-ins (`WebFetch`, `PushNotification`), so a perfectly
  *    healthy turn satisfied it — which is how #2886 came to be filed against a
  *    working MCP server.
- *  - `!aborted` — a turn the user stopped never got the chance to use its
- *    tools. Hitting the stop button straight away produces "configured, no
- *    beacon, no calls" every time, so without this the diagnostic fires on an
- *    ordinary cancellation (Codex review on #2906).
  *  - `builtinMcpToolsCalled === 0` — the beacon is a POST from the broker back
  *    to the host, so a relay or firewall can swallow it (#2842's socat setup is
  *    exactly that). Built-in tools that ran prove the broker delivered whether

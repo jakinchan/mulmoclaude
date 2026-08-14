@@ -25,7 +25,7 @@ npm パッケージの `files` に `test/` が入らないため、`npx mulmocla
 推測（ツール名の形）ではなく、**ブローカーが ready を報告したかどうか**で判定する。
 #2898 が入れた startup beacon（`server/agent/brokerReadiness.ts`）がその信号。
 
-警告条件を次の3つの **AND** にする。
+警告条件を次の4つの **AND** にする。
 
 1. `mcpConfigured` — このターンが MCP 付きで構成された（`input.mcpConfigPath !== undefined`）。
    MCP 無しのターンで「MCP が来ない」と言っても意味がない。
