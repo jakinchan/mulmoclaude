@@ -1000,18 +1000,32 @@ a JSON file holding the array of record objects, read by the host:
   "itemsFile": "/absolute/path/to/generated-slots.json" }
 ```
 
+Write the generated file **under the workspace** — that is the one place both
+you and the host can see (it is what the sandbox mounts), and paths outside it
+are refused for exactly that reason.
+
 Rules that make it fail cleanly rather than silently:
 
 - **Absolute paths only.** The tool runs in the host's SERVER process, whose
   working directory is not yours; a relative path is refused rather than
   resolved against some unrelated directory.
+- **Inside the workspace only.** A path outside it — or a symlink under it that
+  points out — is refused.
 - **`items` or `itemsFile`, never both** — passing both is refused, not merged.
-- **1000 rows per call, max.** Over that the call is refused WHOLE with nothing
-  written; split the file and call again, so you never meet a half-filled
-  collection.
-- `could not read \`itemsFile\`` on a path you know exists means the file is not
-  on the server process's filesystem — a file written inside the sandbox is not.
-  Write it somewhere the host can read, or pass the rows in capped batches.
+- **1000 rows per call, max**, and the file itself at most 8 MiB. Over either,
+  the call is refused WHOLE with nothing written; split the file and call again,
+  so you never meet a half-filled collection.
+
+Reading the refusal you got:
+
+| Message | What it means |
+| --- | --- |
+| `must be an ABSOLUTE path` | You passed a relative path. Pass the full one. |
+| `must be inside the workspace` | The file is outside the workspace (or a symlink out of it). Regenerate it under the workspace. |
+| `could not read \`itemsFile\`` | The host cannot see that path — the usual cause is a file written to a temp dir outside the mount. Write it under the workspace. |
+| `is not a regular file` | The path is a directory, device, or fifo. |
+| `could not be read as JSON` | The file exists and was read, but does not parse. This is YOUR file's shape, not a host problem — check the script that wrote it (a truncated write, a trailing comma, log output mixed into the file). |
+| `must hold a non-empty JSON array of record objects` | It parsed, but is `[]`, an object, or an array of scalars. The file must be `[{…}, {…}]` — the same row objects you would have passed as `items`. |
 
 Do NOT spawn the MCP bridge yourself. A hand-written JSON-RPC client fails
 invisibly and can leave a partially written collection that nothing reports.

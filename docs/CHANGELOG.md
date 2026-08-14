@@ -25,23 +25,39 @@ a hand-written MCP client fails invisibly and can leave a half-written
 collection. The skill telling it to "let the script do the counting, then pass
 the output to putItems" was asking for something the tool could not do.
 
-Three refusals keep the new door from failing quietly:
+The path is resolved against the one region the agent and the host actually
+share. Under Docker the sandbox mounts the workspace and nothing else
+(`server/agent/config.ts`), so the agent's absolute paths are CONTAINER paths
+(`/home/node/mulmoclaude/…`) while this tool body runs on the host. A verbatim
+read would ENOENT on every host whose workspace is not literally that directory
+— i.e. all of them — so the mount prefix is translated back to the workspace
+root, injected as `ManageCollectionDeps.sandboxWorkspacePath`.
+
+Refusals keep the new door from failing quietly, or opening too wide:
 
 - **Absolute paths only.** The tool body runs in the HOST'S SERVER PROCESS
   (`server/agent/mcp-server.ts` POSTs to `/api/mcp-tools/<name>`), whose working
-  directory is not the agent's — and under a sandbox, not even the same
-  filesystem. A relative path would not reliably error; it would resolve against
-  an unrelated directory and either miss or read a different file of the same
-  name. So it is refused, with the reason, rather than resolved.
+  directory is not the agent's. A relative path would not reliably error; it
+  would resolve against an unrelated directory and either miss or read a
+  different file of the same name. So it is refused, with the reason.
+- **Inside the workspace only**, checked through `isContainedInRoot` so a
+  symlink out of it is refused as well. `manageCollection` is always available
+  to the sandboxed agent, so an unconstrained absolute path would make this
+  host-side handler a read primitive for the whole host filesystem: point it at
+  any JSON array, store the rows, read them back with `getItems`. Confinement
+  costs the feature nothing, because a path outside the mount was never
+  readable from the agent's side either.
 - **`items` and `itemsFile` are mutually exclusive.** Two row sets in one call
   has no correct reading: honouring one silently discards the other, and
   concatenating them writes rows nobody asked to write together.
-- **1000 rows per call.** `putOneItem` validates and writes one record at a
-  time, so an unbounded file holds the call open for minutes. Over the cap the
-  call is refused WHOLE, before the first write — a truncating write that
-  reported success would leave a half-filled collection nobody knows is
-  half-filled. The cap is checked on the resolved rows, so it holds for `items`
-  too.
+- **1000 rows per call, and 8 MiB per file.** `putOneItem` validates and writes
+  one record at a time, so an unbounded file holds the call open for minutes.
+  Over the cap the call is refused WHOLE, before the first write — a truncating
+  write that reported success would leave a half-filled collection nobody knows
+  is half-filled. The row cap is checked on the resolved rows, so it holds for
+  `items` too; the byte cap comes from `stat` before any read, because the row
+  count only exists after the file has been read and parsed whole. A
+  non-regular file (`/dev/zero`, a fifo) is refused at the same gate.
 
 Everything else is unchanged: same per-row schema validation, same `mode`, same
 `{ written, rejected }`. `collection-skills.md` documents the file route and

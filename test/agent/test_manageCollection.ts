@@ -13,7 +13,13 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { makeManageCollectionTool, MAX_UNSELECTIVE_ITEMS, MAX_SCHEMA_ISSUES, MAX_PUT_ITEMS } from "../../server/agent/mcp-tools/manageCollection.js";
+import {
+  makeManageCollectionTool,
+  MAX_UNSELECTIVE_ITEMS,
+  MAX_SCHEMA_ISSUES,
+  MAX_PUT_ITEMS,
+  MAX_ITEMS_FILE_BYTES,
+} from "../../server/agent/mcp-tools/manageCollection.js";
 import { mcpTools } from "../../server/agent/mcp-tools/index.js";
 
 let workdir: string;
@@ -387,13 +393,47 @@ describe("manageCollection — putItems from itemsFile", () => {
     assert.match(result, /must be an ABSOLUTE path/);
   });
 
-  it("reports an unreadable file and bad JSON as fixable text, not a throw", async () => {
+  // Unconstrained, this handler would be a host-filesystem read primitive for a
+  // sandboxed agent: any JSON array on the host, stored and then read back out
+  // with getItems. The workspace is also the only region the sandbox shares.
+  it("refuses a path outside the workspace, and a symlink that leaves it", async () => {
+    const outside = path.join(emptyUserDir, "elsewhere.json");
+    writeFileSync(outside, JSON.stringify([record("smuggled")]));
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: outside }), /must be inside the workspace/);
+
+    const bridge = path.join(workdir, "bridge.json");
+    symlinkSync(outside, bridge);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: bridge }), /must be inside the workspace/);
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/smuggled.json")), "nothing outside the workspace may be read in");
+  });
+
+  // A sandboxed agent's absolute paths are CONTAINER paths; the host mounts the
+  // workspace elsewhere. Read verbatim they ENOENT on every real host.
+  it("translates a sandbox mount prefix back to the workspace root", async () => {
+    const sandboxed = makeManageCollectionTool({ workspaceRoot: workdir, userSkillsDir: emptyUserDir, sandboxWorkspacePath: "/home/node/mulmoclaude" });
+    writeItemsFile("from-sandbox.json", [record("boxed")]);
+    const result = JSON.parse(
+      await sandboxed.handler({ action: "putItems", slug: "portfolio", itemsFile: "/home/node/mulmoclaude/from-sandbox.json" }),
+    ) as Record<string, unknown>;
+    assert.deepEqual(result.written, ["boxed"], "the container path must resolve to the same bytes on the host");
+  });
+
+  it("reports an unreadable file, a non-regular file and bad JSON as fixable text, not a throw", async () => {
     assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: path.join(workdir, "ghost.json") }), /could not read `itemsFile`/);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: path.join(workdir, "data") }), /is not a regular file/);
     const notJson = path.join(workdir, "bad.json");
     writeFileSync(notJson, "{not json");
-    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: notJson }), /is not valid JSON/);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: notJson }), /could not be read as JSON/);
     assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: writeItemsFile("empty.json", []) }), /non-empty JSON array/);
     assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: writeItemsFile("scalars.json", [1, 2]) }), /non-empty JSON array/);
+  });
+
+  // The row cap cannot bound this: the file is read and parsed WHOLE before
+  // there are rows to count, so an oversized blob is paid for in full first.
+  it("refuses an oversized file from stat, before reading it", async () => {
+    const fat = path.join(workdir, "fat.json");
+    writeFileSync(fat, `[${" ".repeat(MAX_ITEMS_FILE_BYTES)}]`);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: fat }), new RegExp(`over the limit of ${MAX_ITEMS_FILE_BYTES}`));
   });
 
   it("refuses an over-cap file WHOLE, leaving nothing written", async () => {

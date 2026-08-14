@@ -14,9 +14,12 @@
 
 import { makeManageCollectionTool as makeCoreTool, type ManageCollectionDeps } from "@mulmoclaude/core/collection/server";
 import { helpsAssetDir } from "@mulmoclaude/core/workspace-setup";
+// The leaf module, NOT `../config.js` — that one imports this directory's
+// `index.js`, so reaching into it from a tool closes an import cycle.
+import { CONTAINER_WORKSPACE_PATH } from "../containerPaths.js";
 import { isAblated } from "../../system/env.js";
 
-export { MAX_UNSELECTIVE_ITEMS, MAX_SCHEMA_ISSUES, MAX_PUT_ITEMS, type ManageCollectionDeps } from "@mulmoclaude/core/collection/server";
+export { MAX_UNSELECTIVE_ITEMS, MAX_SCHEMA_ISSUES, MAX_PUT_ITEMS, MAX_ITEMS_FILE_BYTES, type ManageCollectionDeps } from "@mulmoclaude/core/collection/server";
 
 /** Best-effort post-write refresh. Discovery re-reads schema.json from
  *  disk on every call, so a failed refresh only delays the live UI
@@ -34,10 +37,15 @@ async function defaultRefresh(): Promise<void> {
   await Promise.all([refreshScheduledSkills(), refreshUserTasks()]);
 }
 
-/** The core factory with this host's bundled-docs dir pre-bound (still
- *  overridable via deps, like every other injection). */
+/** The core factory with this host's bundled-docs dir and sandbox mount point
+ *  pre-bound (both still overridable via deps, like every other injection).
+ *
+ *  `sandboxWorkspacePath` is bound unconditionally rather than from the sandbox
+ *  env: when Docker is off the agent's paths are host paths and the prefix
+ *  simply never matches, so reading the flag here would only add a way for the
+ *  two to disagree. */
 export function makeManageCollectionTool(deps: ManageCollectionDeps = {}): ReturnType<typeof makeCoreTool> {
-  return makeCoreTool({ bundledHelpsDir: helpsAssetDir, ...deps });
+  return makeCoreTool({ bundledHelpsDir: helpsAssetDir, sandboxWorkspacePath: CONTAINER_WORKSPACE_PATH, ...deps });
 }
 
 export const manageCollection = makeManageCollectionTool({

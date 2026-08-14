@@ -958,15 +958,22 @@ records through **`manageCollection`**, not raw file I/O:
 - **Rows a script generated — `putItems` with `itemsFile`.** When the rows
   already exist as data rather than in your head (a generated schedule, an
   imported set — anything past a few dozen records), have the script write
-  them to a JSON file and pass its **absolute** path as `itemsFile` instead of
-  `items`. The host reads the file, so the rows never pass through your
-  context: a 540-row batch is one short tool call, not 80 KB you transcribe.
-  `items` and `itemsFile` are mutually exclusive (passing both is refused, not
-  merged), the path must be absolute (the tool runs in the host's server
-  process, whose working directory is not yours), and one call writes at most
-  1000 rows — over that it is refused whole, with nothing written, so split
-  the file and call again. Everything else is identical: same per-row
-  validation, same `mode`, same `{ written, rejected }` result.
+  them to a JSON file **under the workspace** and pass its **absolute** path as
+  `itemsFile` instead of `items`. The host reads the file, so the rows never
+  pass through your context: a 540-row batch is one short tool call, not 80 KB
+  you transcribe. The rules:
+  - `items` and `itemsFile` are mutually exclusive — passing both is refused,
+    not merged.
+  - The path must be **absolute** (the tool runs in the host's server process,
+    whose working directory is not yours) and **inside the workspace** — which
+    is also the only place the host can reach when you are sandboxed, so write
+    the generated file there rather than to a system temp dir.
+  - The file must hold a **non-empty JSON array of objects**, at most 8 MiB.
+  - One call writes at most **1000 rows** — over that it is refused whole,
+    with nothing written, so split the file and call again.
+
+  Everything else is identical: same per-row validation, same `mode`, same
+  `{ written, rejected }` result.
 - **Read / list — `getItems`.** The only way to see host-computed `derived` /
   `toggle` / `embed` values (the stored JSON never contains them). Pass `ids`
   / `fields` on large collections to keep the result small — e.g.
