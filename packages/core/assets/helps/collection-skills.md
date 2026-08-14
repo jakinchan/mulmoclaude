@@ -200,7 +200,12 @@ Every field spec needs a `type` and a `label`. Extra keys by type:
   "date column + separate time column" shape, keep `date` and point
   `calendarTimeField` at the time string instead.
 - **`enum`** — `values: ["draft", "sent", "paid"]` (non-empty strings). Renders
-  a `<select>`; stored as a plain string.
+  a `<select>`; stored as a plain string. Optional `default: "draft"` pre-fills
+  a NEW record — the Add form opens on it, and a `putItems` row in `create` mode
+  that omits the field gets it. The value must be one of `values` (`putSchema`
+  refuses otherwise). `default` pairs with `required: true`: the requirement is
+  already satisfied, so the user just saves. It is NOT re-applied by `upsert` or
+  `merge` — those edit a record that already carries an answer.
 - **`money`** — `currency: "USD"` (ISO 4217, defaults to USD). Stored as a plain
   decimal; currency is display-only.
 - **`ref`** — `to: "<target-slug>"`. Stores the target record's primary-key

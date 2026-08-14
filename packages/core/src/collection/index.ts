@@ -13,6 +13,7 @@ export type { CollectionQuery, CollectionQueryAggregate, CollectionQueryOrder, C
 export * from "./core/ids";
 export * from "./core/collectionKey";
 export * from "./core/fieldText";
+export * from "./core/fieldDefaults";
 export * from "./core/project";
 export * from "./core/uiTypes";
 export * from "./core/presentCollection";

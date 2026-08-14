@@ -51,6 +51,7 @@ import type { CollectionItem, CollectionSchema } from "../core/schema";
 import { CollectionSchemaZ } from "../core/schemaZ";
 import { CollectionQueryZ } from "../core/queryZ";
 import { defangForPrompt } from "../core/promptSafety";
+import { firstUnknownDefault, schemaDefaults } from "../core/fieldDefaults";
 import { loadCollection, resolvePrimaryField, type DiscoveryOptions } from "./discovery";
 import type { LoadedCollection } from "./discoveredCollection";
 import { resolveCreateItemId } from "./io";
@@ -323,14 +324,22 @@ async function putOneItem(
   deps: ManageCollectionDeps,
 ): Promise<{ written?: string; rejected?: RejectedRow }> {
   const { schema } = collection;
-  const itemId = resolveCreateItemId(schema, record);
+  // Schema defaults fill only what the row left out, and only on create:
+  // "upsert" and "merge" edit a record that already answered this question, so
+  // re-applying a default there would overwrite the answer (#2839). Applied
+  // BEFORE the id is resolved — an `enum` is a legal primary key, so a default
+  // can be what supplies the id (Codex review on #2910).
+  const created = mode === "create" ? { ...schemaDefaults(schema), ...record } : record;
+  const itemId = resolveCreateItemId(schema, created);
   const reject = (about: string, problem: string): { rejected: RejectedRow } => ({
     rejected: { id: defangForPrompt(about), problem: defangForPrompt(problem) },
   });
   if (itemId === null) return reject("(no id)", `record has no '${schema.primaryKey}' value — set it (it doubles as the filename)`);
+  // Against the row as the caller wrote it: a default never introduces a
+  // computed key, and the message should name what they sent.
   const computed = computedKeyProblem(record, schema);
   if (computed) return reject(itemId, computed);
-  let toWrite = record;
+  let toWrite = created;
   if (mode === "merge") {
     const merged = await mergeWithExisting(collection, store, record, itemId);
     if (typeof merged === "string") return reject(itemId, merged);
@@ -587,6 +596,20 @@ async function handlePutSchema(slug: string, schemaArg: unknown, deps: ManageCol
   if (refusal) return refusal;
   const parsed = CollectionSchemaZ.safeParse(schemaArg);
   if (!parsed.success) return formatSchemaIssues(parsed.error.issues);
+  // Write-only, and deliberately not part of the parse: discovery runs that on
+  // every load, and rejecting there would drop the whole collection out of the
+  // index over one bad key. Refusing the WRITE is strictly narrower than what
+  // discovery accepts, so it cannot hide a collection (#2839).
+  const unknownDefault = firstUnknownDefault(parsed.data);
+  if (unknownDefault) {
+    // Every piece of this message came from the submitted schema, so it is
+    // caller-controlled text on its way back into the agent's context — defanged
+    // like every other echo in this file (CodeRabbit on #2910).
+    const key = defangForPrompt(unknownDefault.key);
+    const value = defangForPrompt(unknownDefault.value);
+    const values = unknownDefault.values.map(defangForPrompt).join(", ");
+    return `manageCollection: schema rejected — field '${key}' has default '${value}', which is not one of its values (${values}).`;
+  }
   // Run the SAME post-Zod gates discovery applies, so a write can't pass
   // here yet be silently skipped on the next load (hiding the collection).
   const gate = schemaDiscoveryGate(parsed.data, resolveBase(deps));
