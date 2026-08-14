@@ -99,9 +99,15 @@ async function resolveIdToken(getIdToken: () => Promise<string | null>): Promise
 
 // A reporter that cannot itself fail the send. `sendWebPush` promises never to
 // throw, and that promise must survive a host handler that does.
+//
+// Both shapes of "the handler failed" have to be absorbed. TypeScript accepts
+// an `async` function where a `void` return is declared, so a handler can hand
+// back a Promise this call never awaits — and its rejection would surface as an
+// unhandled rejection, which Node's default terminates the process on. That is
+// a worse outcome than the undelivered push it was reporting.
 function reportFailure(onFailure: SendWebPushOptions["onFailure"], failure: SendPushFailure): null {
   try {
-    onFailure?.(failure);
+    void Promise.resolve(onFailure?.(failure)).catch(() => {});
   } catch {
     // Nothing to escalate to — this IS the error path.
   }

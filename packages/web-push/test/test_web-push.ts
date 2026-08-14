@@ -246,3 +246,21 @@ test("sendWebPush works with no onFailure supplied (back-compat)", async () => {
   const { fetchImpl } = makeFetch(() => ({ ok: false, status: 500, json: async () => ({}) }));
   assert.equal(await sendWebPush("t", "b", okOpts({ fetchImpl })), null);
 });
+
+// TypeScript accepts an `async` handler where `void` is declared, so this is a
+// shape a host will pass eventually. Its rejection is not observed by the
+// synchronous try/catch, and an unhandled rejection terminates the process
+// under Node's default — the opposite of what the never-throw guarantee is for.
+// node:test fails the run on an unhandled rejection, so this case IS the assert
+// (Codex review on #2907).
+test("sendWebPush survives an async onFailure that rejects", async () => {
+  const result = await sendWebPush("t", "b", {
+    getIdToken: async () => null,
+    onFailure: (async () => {
+      throw new Error("async logger exploded");
+    }) as () => void,
+  });
+  assert.equal(result, null);
+  // Give the rejected promise a turn to surface if it were unhandled.
+  await new Promise((resolve) => setTimeout(resolve, 10));
+});
