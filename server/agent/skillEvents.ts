@@ -75,16 +75,19 @@ export interface PushReplySlot {
   lastAssistantText: string;
 }
 
-/** Record a flushed text burst as the reply the completion push quotes — but
- *  only when it is a genuine assistant reply.
+/** Record the user-facing part of a flushed text burst as the reply the
+ *  completion push quotes.
  *
- *  A SKILL.md body that reaches us as ASSISTANT text (the degradation path
- *  `flushTextAccumulator` documents) is instruction content for the model, not
- *  an answer for the user. Quoting it would put a skill's whole prompt on a
- *  lock screen. The guard lives here rather than in the caller's branch order
- *  so it is the function, not the line placement, that holds the invariant
- *  (Codex review on #2909). */
-export function recordPushReply(slot: PushReplySlot, text: string, isSkillBody: boolean): void {
-  if (isSkillBody) return;
-  slot.lastAssistantText = text;
+ *  Callers pass only what the user actually sees: a plain burst is all reply,
+ *  while a Skill burst passes the part AFTER the SKILL.md body. Two failures
+ *  either side of that line, both found on #2909 — quoting the body would put
+ *  a skill's whole instruction prompt on a lock screen, and quoting nothing
+ *  would drop a genuine answer the CLI emitted in the same burst.
+ *
+ *  An empty string means this burst had nothing user-facing, so the previous
+ *  reply stands rather than being cleared: a push saying the last real thing
+ *  that happened beats one saying "Task complete". */
+export function recordPushReply(slot: PushReplySlot, userFacingText: string): void {
+  if (!userFacingText) return;
+  slot.lastAssistantText = userFacingText;
 }

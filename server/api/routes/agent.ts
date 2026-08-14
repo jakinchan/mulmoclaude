@@ -787,12 +787,14 @@ async function flushTextAccumulator(ctx: EventContext): Promise<void> {
   // pendingSkill — only the actual skill body should clear it.
   const skill = ctx.pendingSkill;
   ctx.pendingSkill = null;
-  recordPushReply(ctx, fullText, skill !== null);
 
   if (skill) {
-    await writeSkillEntry(ctx, skill.skillName, fullText);
+    // Only the part after the SKILL.md body is something the user said to
+    // them; the body itself is instruction content for the model.
+    recordPushReply(ctx, await writeSkillEntry(ctx, skill.skillName, fullText));
     return;
   }
+  recordPushReply(ctx, fullText);
   await appendSessionLine(
     ctx.chatSessionId,
     JSON.stringify({
@@ -818,7 +820,11 @@ async function flushTextAccumulator(ctx: EventContext): Promise<void> {
 // the SKILL.md body on disk as a structural delimiter; the reply
 // portion gets persisted as a SECOND entry of `type: "text"` so it
 // stays visible after the user collapses the skill card.
-async function writeSkillEntry(ctx: EventContext, skillName: string, body: string): Promise<void> {
+/** Writes the skill entry and, when the CLI emitted a genuine reply in the same
+ *  burst, that reply too. Returns the reply so the caller can decide what the
+ *  completion push quotes — it is the only user-facing part of a Skill burst
+ *  (Codex review on #2909). */
+async function writeSkillEntry(ctx: EventContext, skillName: string, body: string): Promise<string> {
   const resolved = await resolveSkillMetadata(skillName);
   // Canary: skill detection is sequence-based (not body-prefix based),
   // but we still cross-check the prefix as a format-drift signal.
@@ -861,6 +867,7 @@ async function writeSkillEntry(ctx: EventContext, skillName: string, body: strin
     pushSessionEvent(ctx.chatSessionId, textPayload);
     await appendSessionLine(ctx.chatSessionId, JSON.stringify(textPayload));
   }
+  return replyPart;
 }
 
 interface SkillMetadata {
