@@ -420,6 +420,9 @@ export interface McpStdioServerSpec {
   alwaysLoad: boolean;
 }
 
+/** What broker lines call themselves in the shared log file (`LOG_SOURCE`). */
+export const BROKER_LOG_SOURCE = "mcp-broker";
+
 export function buildMulmoclaudeServer(params: {
   chatSessionId: string;
   port: number;
@@ -481,6 +484,11 @@ export function buildMulmoclaudeServer(params: {
       // line lands between protocol messages — or, once a response is
       // large enough to be split across writes, inside one.
       LOG_CONSOLE_STREAM: "stderr",
+      // The broker writes to the SAME log file as the parent server and
+      // respawns once per turn, so its untagged lines read as server restarts
+      // — "plugins/preset loaded" 34x/day was reported as a reload loop
+      // (#2904). Tagging the source is what separates the two.
+      LOG_SOURCE: BROKER_LOG_SOURCE,
       ...authEnv,
       ...dockerEnv,
     },

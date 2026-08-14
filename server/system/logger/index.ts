@@ -24,6 +24,7 @@ export function createLogger(config: LoggerConfig): Logger {
       level,
       prefix,
       message,
+      ...(config.source ? { source: config.source } : {}),
       ...(data ? { data } : {}),
     };
     const recordPriority = LEVEL_PRIORITY[level];
