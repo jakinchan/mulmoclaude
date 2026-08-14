@@ -46,6 +46,8 @@ const frMessages: CollectionMessages = {
     title: "Collections",
     backToIndex: "Retour aux collections",
     indexEmpty: "Aucune collection installée. Mettez une étoile sur une compétence avec un schema depuis la page Skills pour la voir ici.",
+    indexSearchPlaceholder: "Rechercher des collections…",
+    indexNoMatches: "Aucune collection correspondante",
     editItem: "Modifier",
     openItem: "Ouvrir {id}",
     confirmDelete: "Supprimer cet élément ? Cette action est irréversible.",

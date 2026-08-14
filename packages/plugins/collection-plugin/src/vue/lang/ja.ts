@@ -45,6 +45,8 @@ const jaMessages: CollectionMessages = {
     title: "コレクション",
     backToIndex: "コレクション一覧に戻る",
     indexEmpty: "インストール済みのコレクションがありません。スキーマを含むスキルを Skills ページからスター付けすると、ここに表示されます。",
+    indexSearchPlaceholder: "コレクションを検索…",
+    indexNoMatches: "一致するコレクションがありません",
     editItem: "編集",
     openItem: "{id} を開く",
     confirmDelete: "この項目を削除しますか？元に戻せません。",

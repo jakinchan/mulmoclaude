@@ -70,13 +70,38 @@
         </div>
 
         <div v-else>
-          <!-- Data filter chips (only when the workspace actually has read-only
-               dataSource-backed collections to separate out) and the display-order
-               toggle, which sits on the right of the same row either way. -->
-          <div v-if="hasReadonlyCollections || canSort" class="flex items-center gap-3 mb-4">
+          <!-- The chrome row: search (always — it is the narrowing that works
+               before anything is classified), the Editable/Data chips (only when
+               the workspace has read-only dataSource-backed collections to
+               separate out), and the display-order toggle on the right. -->
+          <div class="flex items-center flex-wrap gap-x-3 gap-y-2 mb-4">
+            <div class="relative flex-1 min-w-[12rem] max-w-xs">
+              <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 pointer-events-none">
+                <span class="material-icons text-lg">search</span>
+              </span>
+              <input
+                v-model="searchQuery"
+                type="text"
+                :placeholder="t('collectionsView.indexSearchPlaceholder')"
+                :aria-label="t('collectionsView.indexSearchPlaceholder')"
+                class="w-full bg-white border border-slate-200/80 rounded-xl pl-9 pr-8 py-1.5 text-xs placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium"
+                data-testid="collections-index-search"
+              />
+              <button
+                v-if="searchQuery"
+                type="button"
+                :aria-label="t('collectionsView.clearSearch')"
+                class="absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-400 hover:text-slate-600"
+                data-testid="collections-index-search-clear"
+                @click="searchQuery = ''"
+              >
+                <span class="material-icons text-sm">close</span>
+              </button>
+            </div>
+
             <div v-if="hasReadonlyCollections" class="flex items-center gap-1.5" data-testid="collections-filter-chips">
               <button
-                v-for="chip in FILTER_CHIPS"
+                v-for="chip in INDEX_FILTER_CHIPS"
                 :key="chip"
                 type="button"
                 class="px-3 h-7 rounded-full text-xs font-semibold border transition-colors"
@@ -111,7 +136,19 @@
             </div>
           </div>
 
-          <div class="grid gap-4 sm:grid-cols-2">
+          <div
+            v-if="visibleCollections.length === 0"
+            class="flex flex-col items-center justify-center py-20 text-sm text-slate-400 gap-2"
+            data-testid="collections-index-no-matches"
+          >
+            <span class="material-icons text-4xl text-slate-300">search_off</span>
+            <p class="font-semibold text-slate-600">{{ t("collectionsView.indexNoMatches") }}</p>
+            <button type="button" class="text-xs text-indigo-600 font-semibold hover:underline" @click="clearNarrowing">
+              {{ t("collectionsView.clearSearch") }}
+            </button>
+          </div>
+
+          <div v-else class="grid gap-4 sm:grid-cols-2">
             <div
               v-for="collection in visibleCollections"
               :key="collection.slug"
@@ -198,6 +235,7 @@ import { useCollectionUi } from "../scopedUi";
 import DiscoverPanel from "./DiscoverPanel.vue";
 import CollectionOntologyGraphView from "./CollectionOntologyGraphView.vue";
 import NewCollectionModal from "./NewCollectionModal.vue";
+import { INDEX_FILTER_CHIPS, filterIndexCollections, type CollectionIndexFilter } from "../collectionsIndexFilter";
 import { INDEX_SORT_KEYS, readCollectionIndexSort, sortCollectionsForIndex, writeCollectionIndexSort, type CollectionIndexSort } from "../collectionIndexSort";
 import type { CollectionSummary } from "@mulmoclaude/core/collection";
 
@@ -215,17 +253,21 @@ const collections = ref<CollectionSummary[]>([]);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
 
-// Editable / Data facet over the installed list. Chips render only when a
-// read-only (dataSource) collection exists — the facet is noise otherwise.
-const FILTER_CHIPS = ["all", "editable", "data"] as const;
-type CollectionFilter = (typeof FILTER_CHIPS)[number];
-const filter = ref<CollectionFilter>("all");
+// Chips render only when a read-only (dataSource) collection exists — the
+// facet is noise otherwise. The search box has no such condition: it is the
+// narrowing that works before anyone has classified anything.
+const filter = ref<CollectionIndexFilter>("all");
+const searchQuery = ref("");
 const hasReadonlyCollections = computed<boolean>(() => collections.value.some((collection) => collection.readonly === true));
-const filteredCollections = computed<CollectionSummary[]>(() => {
-  if (filter.value === "editable") return collections.value.filter((collection) => collection.readonly !== true);
-  if (filter.value === "data") return collections.value.filter((collection) => collection.readonly === true);
-  return collections.value;
-});
+const filteredCollections = computed<CollectionSummary[]>(() => filterIndexCollections(collections.value, filter.value, searchQuery.value));
+
+// The empty state clears the chip as well as the query: either narrowing can be
+// the one that emptied the grid, and the reader can't tell which from an empty
+// grid.
+function clearNarrowing(): void {
+  searchQuery.value = "";
+  filter.value = "all";
+}
 
 // Display order (#2836). A UI-local preference layered over the fetched list —
 // the server's discovery order stays slug-ascending for the watchers, the

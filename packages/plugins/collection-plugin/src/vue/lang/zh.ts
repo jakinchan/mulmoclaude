@@ -44,6 +44,8 @@ const zhMessages: CollectionMessages = {
     title: "集合",
     backToIndex: "返回集合列表",
     indexEmpty: "尚未安装任何集合。在「技能」页面对带有 schema 的技能加星即可在此显示。",
+    indexSearchPlaceholder: "搜索集合…",
+    indexNoMatches: "没有匹配的集合",
     editItem: "编辑",
     openItem: "打开 {id}",
     confirmDelete: "删除此项？此操作无法撤销。",

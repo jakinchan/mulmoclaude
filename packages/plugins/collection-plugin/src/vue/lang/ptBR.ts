@@ -46,6 +46,8 @@ const ptBRMessages: CollectionMessages = {
     title: "Coleções",
     backToIndex: "Voltar para coleções",
     indexEmpty: "Nenhuma coleção instalada. Marque com estrela uma skill que inclua um schema na página Skills para vê-la aqui.",
+    indexSearchPlaceholder: "Buscar coleções…",
+    indexNoMatches: "Nenhuma coleção correspondente",
     editItem: "Editar",
     openItem: "Abrir {id}",
     confirmDelete: "Excluir este item? Esta ação não pode ser desfeita.",
