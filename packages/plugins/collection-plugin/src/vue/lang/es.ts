@@ -46,6 +46,8 @@ const esMessages: CollectionMessages = {
     title: "Colecciones",
     backToIndex: "Volver a colecciones",
     indexEmpty: "No hay colecciones instaladas. Marca con estrella una skill que incluya un schema desde la página Skills para verla aquí.",
+    indexSearchPlaceholder: "Buscar colecciones…",
+    indexNoMatches: "No hay colecciones coincidentes",
     editItem: "Editar",
     openItem: "Abrir {id}",
     confirmDelete: "¿Eliminar este elemento? Esta acción no se puede deshacer.",

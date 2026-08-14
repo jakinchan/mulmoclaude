@@ -10,6 +10,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
+#### The collections index has a search box (#2837)
+
+A substring over title and slug, case-insensitive, ANDed with the existing
+Editable/Data chips. No match shows the same empty state the record list uses,
+and its link clears both narrowings — either one can be the reason the grid went
+empty.
+
+The issue proposed user-defined tags with chips. Search goes first because tags
+start empty on every collection that already exists: the filter only works once
+someone (or the agent, at creation time) has classified things, and until then a
+tag chip row narrows nothing. A search box works on the first workspace it meets,
+needs no schema field, no agent-facing documentation, and no registry export — the
+summary the index already fetches carries both searched values.
+
+What it deliberately does not do is hide anything by default, so the "human vs
+internal collection" half of the request is untouched and stays open.
+
 #### The projection says what each audience may CHANGE, and who may change it (#2891)
 
 `{tier}/config` gains `write[]`: per collection, the status field a transition

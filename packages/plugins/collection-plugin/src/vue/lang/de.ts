@@ -46,6 +46,8 @@ const deMessages: CollectionMessages = {
     title: "Sammlungen",
     backToIndex: "Zurück zu Sammlungen",
     indexEmpty: "Keine Sammlungen installiert. Markiere auf der Skills-Seite eine Skill mit Schema, um sie hier zu sehen.",
+    indexSearchPlaceholder: "Sammlungen suchen…",
+    indexNoMatches: "Keine passenden Sammlungen",
     editItem: "Bearbeiten",
     openItem: "{id} öffnen",
     confirmDelete: "Diesen Eintrag löschen? Das kann nicht rückgängig gemacht werden.",
