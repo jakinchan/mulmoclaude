@@ -31,7 +31,7 @@
     "@mulmobridge/chat-service": "^1.0.3",
     "@mulmobridge/client": "^1.0.2",
     "@mulmobridge/protocol": "^1.0.1",
-    "@mulmobridge/web-push": "^1.0.1",
+    "@mulmobridge/web-push": "^1.1.0",
     "@mulmocast/types": "^2.9.0",
     "@mulmochat-plugin/quiz": "^2.0.0",
     "@mulmochat-plugin/ui-image": "^0.4.1",

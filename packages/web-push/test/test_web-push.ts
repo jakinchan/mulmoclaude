@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSendPushBody, parseSendPushResult, sendWebPush, DEFAULT_SEND_PUSH_URL, type SendWebPushOptions } from "../src/index.js";
+import { buildSendPushBody, parseSendPushResult, sendWebPush, DEFAULT_SEND_PUSH_URL, type SendPushFailure, type SendWebPushOptions } from "../src/index.js";
 
 // A fetch stub that records its call and returns a scripted Response-like object.
-const makeFetch = (impl: (url: string, init: RequestInit) => { ok: boolean; json: () => Promise<unknown> }) => {
+const makeFetch = (impl: (url: string, init: RequestInit) => { ok: boolean; status?: number; json: () => Promise<unknown> }) => {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   const fetchImpl = (async (url: string, init: RequestInit) => {
     calls.push({ url, init });
@@ -146,4 +146,103 @@ test("sendWebPush omits data when the caller passes none (back-compat)", async (
   await sendWebPush("done", "ok", okOpts({ fetchImpl }));
   const sent = JSON.parse(String(calls[0].init.body)) as { data: Record<string, unknown> };
   assert.ok(!("data" in sent.data), `no routing block expected, got: ${JSON.stringify(sent)}`);
+});
+
+// ── onFailure: why a push was not delivered (#2903) ──────────────────
+//
+// Returning null for every failure made "tried and failed" and "never tried"
+// the same observation from outside — so a missing push could only be
+// diagnosed by reading this file. Each case below is one of the answers a
+// reader needs, and the return value stays null throughout: the reason is
+// reported, never thrown.
+
+const collectFailures = () => {
+  const failures: SendPushFailure[] = [];
+  return { failures, onFailure: (failure: SendPushFailure) => failures.push(failure) };
+};
+
+test("sendWebPush reports not-signed-in when there is no id token", async () => {
+  const { failures, onFailure } = collectFailures();
+  const result = await sendWebPush("t", "b", { getIdToken: async () => null, onFailure });
+  assert.equal(result, null);
+  assert.deepEqual(failures, [{ reason: "not-signed-in" }]);
+});
+
+test("sendWebPush reports not-signed-in when the auth SDK throws", async () => {
+  const { failures, onFailure } = collectFailures();
+  const result = await sendWebPush("t", "b", {
+    getIdToken: async () => {
+      throw new Error("auth/internal-error");
+    },
+    onFailure,
+  });
+  assert.equal(result, null);
+  assert.deepEqual(failures, [{ reason: "not-signed-in" }]);
+});
+
+test("sendWebPush reports http-error with the status", async () => {
+  const { failures, onFailure } = collectFailures();
+  const { fetchImpl } = makeFetch(() => ({ ok: false, status: 503, json: async () => ({}) }));
+  const result = await sendWebPush("t", "b", okOpts({ fetchImpl, onFailure }));
+  assert.equal(result, null);
+  assert.deepEqual(failures, [{ reason: "http-error", status: 503 }]);
+});
+
+test("sendWebPush reports network with the thrown message (offline / timeout abort)", async () => {
+  const { failures, onFailure } = collectFailures();
+  const fetchImpl = (async () => {
+    throw new Error("fetch failed");
+  }) as unknown as typeof fetch;
+  const result = await sendWebPush("t", "b", okOpts({ fetchImpl, onFailure }));
+  assert.equal(result, null);
+  assert.deepEqual(failures, [{ reason: "network", message: "fetch failed" }]);
+});
+
+// A 2xx whose body parses but isn't the onCall envelope: the endpoint answered
+// something, so this is a shape problem, not a transport one.
+test("sendWebPush reports bad-response for a 2xx that isn't a result envelope", async () => {
+  const { failures, onFailure } = collectFailures();
+  const { fetchImpl } = makeFetch(() => ({ ok: true, json: async () => ({ unexpected: true }) }));
+  const result = await sendWebPush("t", "b", okOpts({ fetchImpl, onFailure }));
+  assert.equal(result, null);
+  assert.deepEqual(failures, [{ reason: "bad-response" }]);
+});
+
+test("sendWebPush reports network when the body isn't JSON at all", async () => {
+  const { failures, onFailure } = collectFailures();
+  const { fetchImpl } = makeFetch(() => ({
+    ok: true,
+    json: async () => {
+      throw new Error("Unexpected token < in JSON");
+    },
+  }));
+  const result = await sendWebPush("t", "b", okOpts({ fetchImpl, onFailure }));
+  assert.equal(result, null);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]?.reason, "network");
+});
+
+test("sendWebPush does not report a failure on a delivered push", async () => {
+  const { failures, onFailure } = collectFailures();
+  const { fetchImpl } = makeFetch(() => ({ ok: true, json: async () => ({ result: { sent: 1, failed: 0, targets: 1 } }) }));
+  const result = await sendWebPush("t", "b", okOpts({ fetchImpl, onFailure }));
+  assert.deepEqual(result, { sent: 1, failed: 0, targets: 1 });
+  assert.deepEqual(failures, []);
+});
+
+// The never-throws contract is the reason this package can be called from a
+// turn-end hook. A host handler that throws must not take that away.
+test("sendWebPush still resolves null when onFailure itself throws", async () => {
+  const result = await sendWebPush("t", "b", {
+    getIdToken: async () => null,
+    onFailure: () => {
+      throw new Error("logger exploded");
+    },
+  });
+  assert.equal(result, null);
+});
+
+test("sendWebPush works with no onFailure supplied (back-compat)", async () => {
+  const { fetchImpl } = makeFetch(() => ({ ok: false, status: 500, json: async () => ({}) }));
+  assert.equal(await sendWebPush("t", "b", okOpts({ fetchImpl })), null);
 });
