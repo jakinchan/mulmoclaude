@@ -44,7 +44,7 @@
 // whole tool at a tmpdir workspace via the same deps.
 
 import { errorMessage, isErrorWithCode, isRecord, isStringArray, isUnknownArray } from "@mulmoclaude/common";
-import { open, readFile, realpath, stat, type FileHandle } from "node:fs/promises";
+import { lstat, open, readFile, realpath, stat, type FileHandle } from "node:fs/promises";
 import { constants as FS_CONSTANTS, type Stats } from "node:fs";
 import path from "node:path";
 import { COMPUTED_TYPES } from "../core/schema";
@@ -95,8 +95,14 @@ export const MAX_PUT_ITEMS = 1000;
  *  first. 8 MiB is far past what 1000 records need and far short of trouble. */
 export const MAX_ITEMS_FILE_BYTES = 8 * 1024 * 1024;
 /** `itemsFile` is opened read-only, without following a symlink, and without
- *  blocking on a fifo — see `openContainedItemsFile`. */
-const { O_RDONLY, O_NOFOLLOW, O_NONBLOCK } = FS_CONSTANTS;
+ *  blocking on a fifo — see `openContainedItemsFile`.
+ *
+ *  `O_NOFOLLOW` and `O_NONBLOCK` are POSIX-only: on Windows they are absent, and
+ *  `x | undefined` is `x`, so the flags silently soften to a plain read-only
+ *  open. They are hardening where they exist, never the guarantee — the symlink
+ *  refusal is an explicit `lstat` (`verifyOpenedItemsFile`) so it holds on every
+ *  platform. `?? 0` states that rather than leaving it to coercion. */
+const OPEN_ITEMS_FILE_FLAGS = FS_CONSTANTS.O_RDONLY | (FS_CONSTANTS.O_NOFOLLOW ?? 0) | (FS_CONSTANTS.O_NONBLOCK ?? 0);
 /** The workspace help-docs dir both hosts seed (`@mulmoclaude/core/workspace-setup`
  *  syncs the bundled assets here) — the user-editable copy schemaDocs prefers. */
 const HELPS_DIR = "config/helps";
@@ -447,10 +453,12 @@ function outsideWorkspaceRefusal(shown: string): string {
   return `manageCollection: \`itemsFile\` must be inside the workspace — '${shown}' is not, and the host reads this file on your behalf. Write the generated rows under the workspace and pass that path.`;
 }
 
+function symlinkRefusal(shown: string): string {
+  return `manageCollection: \`itemsFile\` '${shown}' is a symbolic link. Pass the real path of a regular file inside the workspace.`;
+}
+
 function openItemsFileRefusal(err: unknown, shown: string): string {
-  if (isErrorWithCode(err) && (err.code === "ELOOP" || err.code === "EMLINK")) {
-    return `manageCollection: \`itemsFile\` '${shown}' is a symbolic link. Pass the real path of a regular file inside the workspace.`;
-  }
+  if (isErrorWithCode(err) && (err.code === "ELOOP" || err.code === "EMLINK")) return symlinkRefusal(shown);
   return `manageCollection: could not read \`itemsFile\` '${shown}' — ${defangForPrompt(errorMessage(err))}. It must exist inside the workspace and be readable by the host.`;
 }
 
@@ -477,12 +485,19 @@ async function verifyOpenedItemsFile(handle: FileHandle, hostPath: string, root:
   }
   let real: string;
   let atPath: Stats;
+  let link: Stats;
   try {
+    link = await lstat(hostPath);
     real = await realpath(hostPath);
     atPath = await stat(real);
   } catch (err) {
     return openItemsFileRefusal(err, shown);
   }
+  // The platform-independent half of the symlink refusal: `O_NOFOLLOW` above
+  // does not exist on Windows, where the open would follow the link instead —
+  // and a link resolving back INSIDE the workspace passes both the containment
+  // and the inode check, so nothing else here would catch it.
+  if (link.isSymbolicLink()) return symlinkRefusal(shown);
   if (!isContainedInRoot(real, root)) return outsideWorkspaceRefusal(shown);
   if (atPath.ino !== opened.ino || atPath.dev !== opened.dev) {
     return `manageCollection: \`itemsFile\` '${shown}' changed while it was being opened. Nothing was read; write the file, then call putItems.`;
@@ -497,7 +512,7 @@ async function verifyOpenedItemsFile(handle: FileHandle, hostPath: string, root:
 async function openContainedItemsFile(hostPath: string, root: string, shown: string): Promise<{ handle: FileHandle; size: number } | string> {
   let handle: FileHandle;
   try {
-    handle = await open(hostPath, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+    handle = await open(hostPath, OPEN_ITEMS_FILE_FLAGS);
   } catch (err) {
     return openItemsFileRefusal(err, shown);
   }
