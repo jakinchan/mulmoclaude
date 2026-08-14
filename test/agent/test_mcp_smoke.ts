@@ -11,10 +11,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
 import path from "node:path";
 
 import { ONE_SECOND_MS } from "../../server/utils/time.ts";
 import { buildMulmoclaudeServer } from "../../server/agent/config.ts";
+import { API_ROUTES } from "../../src/config/apiRoutes.ts";
 import { TOOL_NAMES } from "../../src/config/toolNames.ts";
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, "../..");
@@ -125,6 +129,10 @@ const initializeRequest = JSON.stringify({
 });
 const initializedNotification = JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
 const toolsListRequest = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+
+// Distinctive so a mismatch names itself in the assertion message rather than
+// reading as an empty-string coincidence.
+const BEACON_SPAWN_ID = "spawn-smoke-7f3a";
 
 function isJsonLine(line: string): boolean {
   try {
@@ -290,4 +298,87 @@ describe("MCP server subprocess smoke test", () => {
     );
     assert.match(stderr, /advertised but NOT published[^\n]*noSuchPlugin/, `expected the missing-tool diagnostic: ${stderr.slice(-600)}`);
   });
+
+  // #2842: the broker's own stderr belongs to Claude CLI, so this beacon is the
+  // only way its cold-boot timing reaches the host. The route's unit test covers
+  // the receiving half; what it cannot show is that the broker actually SENDS
+  // one — and a beacon that silently stopped firing would restore exactly the
+  // blindness the issue was filed about, with every other test still green.
+  it("POSTs a startup beacon to the host once it answers initialize", async () => {
+    const received: { path: string; body: string }[] = [];
+    const host = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        received.push({ path: req.url ?? "", body: Buffer.concat(chunks).toString() });
+        res.statusCode = 204;
+        res.end();
+      });
+    });
+    host.listen(0, "127.0.0.1");
+    await once(host, "listening");
+    const port = listeningPort(host);
+
+    try {
+      await runBroker([initializeRequest, initializedNotification], {
+        SESSION_ID: "test-beacon",
+        MCP_SPAWN_ID: BEACON_SPAWN_ID,
+        PORT: String(port),
+        MCP_HOST: "127.0.0.1",
+        PLUGIN_NAMES: TOOL_NAMES.manageSkills,
+        LOG_CONSOLE_STREAM: "stderr",
+      });
+    } finally {
+      await closeServer(host);
+    }
+
+    const beacon = received.find((entry) => entry.path.startsWith(API_ROUTES.mcp.brokerReady));
+    assert.ok(beacon, `no beacon on ${API_ROUTES.mcp.brokerReady}; got: ${received.map((entry) => entry.path).join(", ") || "nothing"}`);
+    assert.match(beacon.path, /[?&]session=test-beacon\b/, `beacon must carry the session it belongs to: ${beacon.path}`);
+
+    const payload: unknown = JSON.parse(beacon.body);
+    assert.ok(isBeaconPayload(payload), `unexpected beacon body: ${beacon.body}`);
+    // `tsx` here because the test drives the source broker, not the bundle —
+    // the field has to report the path actually taken, which is the whole point
+    // of it existing.
+    assert.equal(payload.kind, "tsx");
+    assert.ok(payload.bootMs > 0, `bootMs should measure real startup, got ${payload.bootMs}`);
+    assert.ok(payload.initializeMs >= payload.bootMs, `initialize cannot precede module load: ${JSON.stringify(payload)}`);
+    // The half no unit test can reach: the id the parent puts in the broker's
+    // env has to come back out in the beacon body. Without that round-trip the
+    // host cannot tell a straggler from the current attempt, and the failure is
+    // silent — every beacon would simply be discarded as superseded.
+    assert.equal(payload.spawnId, BEACON_SPAWN_ID, "the beacon must echo MCP_SPAWN_ID so the host can attribute it");
+  });
 });
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve) => server.close(() => resolve()));
+}
+
+/** `address()` is `string | AddressInfo | null` — a pipe path or a not-yet-
+ *  listening socket both type-check as the TCP shape under a cast, and would
+ *  hand the broker a bogus BASE_URL that fails as "no beacon". */
+function listeningPort(server: Server): number {
+  const address: string | AddressInfo | null = server.address();
+  if (address === null || typeof address === "string") throw new Error(`expected a TCP address, got ${JSON.stringify(address)}`);
+  return address.port;
+}
+
+interface BeaconPayload {
+  bootMs: number;
+  initializeMs: number;
+  kind: string;
+  spawnId: string;
+}
+
+function isBeaconPayload(value: unknown): value is BeaconPayload {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate: Record<string, unknown> = { ...value };
+  return (
+    typeof candidate.bootMs === "number" &&
+    typeof candidate.initializeMs === "number" &&
+    typeof candidate.kind === "string" &&
+    typeof candidate.spawnId === "string"
+  );
+}

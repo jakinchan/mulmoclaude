@@ -63,6 +63,54 @@ Everything else is unchanged: same per-row schema validation, same `mode`, same
 `{ written, rejected }`. `collection-skills.md` documents the file route and
 `error-recovery.md` names the bridge-spawning workaround so the agent meets the
 answer before it improvises one.
+#### An `enum` field can declare the value a new record starts on (#2839)
+
+```jsonc
+"status": { "type": "enum", "values": ["todo","doing","done"], "required": true, "default": "todo" }
+```
+
+The Add form opens on it, and a `putItems` row in `create` mode that omits the
+field gets it — both paths, because a default the form fills but the tool
+ignores is worse than none. `required: true` and a `default` go together: the
+requirement is already satisfied, so the user just saves. `upsert` and `merge`
+do NOT re-apply it; those edit a record that already carries an answer.
+
+Only `enum` for now. Literals for the scalar types and `today` / `now`
+sentinels for dates are the same request's later tiers, deliberately left until
+this one has been used.
+
+**Note for anyone who already wrote `default`.** The key parsed but did nothing
+before this change, so a schema may carry one that is not among its `values`.
+Two deliberate choices keep that harmless:
+
+- **Nothing that loads today stops loading.** Membership is checked when
+  `putSchema` WRITES a schema, not when discovery parses one. Rejecting at parse
+  time would drop the whole collection out of the index over one cosmetic key —
+  it would vanish from the UI with a log line as the only clue.
+- **A stale value is treated as no default.** The Add form starts blank rather
+  than on a value the `<select>` cannot offer, which would otherwise fail the
+  save for a reason nothing on screen explains.
+
+So a pre-existing `default` either starts working as written, or goes on being
+ignored exactly as before. The only new refusal is at authoring time, where the
+error names the offending field and lists the allowed values.
+
+#### The collections index has a search box (#2837)
+
+A substring over title and slug, case-insensitive, ANDed with the existing
+Editable/Data chips. No match shows the same empty state the record list uses,
+and its link clears both narrowings — either one can be the reason the grid went
+empty.
+
+The issue proposed user-defined tags with chips. Search goes first because tags
+start empty on every collection that already exists: the filter only works once
+someone (or the agent, at creation time) has classified things, and until then a
+tag chip row narrows nothing. A search box works on the first workspace it meets,
+needs no schema field, no agent-facing documentation, and no registry export — the
+summary the index already fetches carries both searched values.
+
+What it deliberately does not do is hide anything by default, so the "human vs
+internal collection" half of the request is untouched and stays open.
 
 #### The projection says what each audience may CHANGE, and who may change it (#2891)
 
@@ -171,9 +219,48 @@ Design: mulmoterminal `plans/refactor-shared-app-module.md`.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@3.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@3.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ### Fixed
+
+#### A Web Push that does not arrive now says why in the log (#2903)
+
+`sendWebPush` answered `null` for every failure — not signed in, non-2xx,
+offline, timeout, unparseable body — and wrote nothing. Its caller logged only
+the case where the push succeeded and reached zero devices. So the two answers a
+reader actually needs, "tried and failed" and "never tried", were the same
+observation from outside: #2886's reporter grepped the log for `web-push` and
+got no lines at all, and settling it took reading the source.
+
+Never throwing is the right design for a push fired from a turn-end hook, and
+that has not changed. What changed is that failing is no longer invisible:
+`SendWebPushOptions` takes an `onFailure` callback carrying a typed reason
+(`not-signed-in` / `http-error` with its status / `network` with the thrown
+message / `bad-response`), and the host logs it. The return type is untouched,
+so this is not a breaking change for anything already calling it.
+
+The caller now accounts for all three outcomes rather than one: a warn when the
+push did not deliver, an info with the delivery counts when it did, and a debug
+line when push is simply disabled in settings. That last one is deliberately
+debug — the file sink records debug while the console starts at info, so it
+lands in `server/system/logs/` where the search was run, without a line per turn
+on anyone's terminal.
+
+Ships as `@mulmobridge/web-push@1.1.0`.
+
+#### An embed whose optional `idField` is empty reads as unset, not as a broken link (#2863)
+
+`embedTargetId()` resolves an absent or empty `idField` to `""`, and the schema
+contract calls that a fail-soft "no record". The detail panel had only two
+branches — `found` and everything else — so a reference the author simply had
+not filled in got the red "missing" card, with the id blank in the message
+(「projects に「」のレコードが見つかりません」). An optional link that is
+normally empty (task → project, task → goal) therefore made every healthy record
+look broken, one red card per embed.
+
+An embed with no target id now renders the same em-dash the panel's other empty
+fields use. The card stays for the case it was written for: an `idField` naming
+a record the target collection does not have.
 
 #### A shared record's identity is its document id, not a field a submitter can name
 

@@ -17,6 +17,8 @@ import { resolveSandboxAuth } from "../sandboxMounts.js";
 import { getCachedReferenceDirs, referenceDirMountArgs } from "../../workspace/reference-dirs.js";
 import { createStreamParser, type AgentEvent, type RawStreamEvent } from "../stream.js";
 import { createMcpFailureMonitor } from "../mcpFailureMonitor.js";
+import { getBrokerReady } from "../brokerReadiness.js";
+import { BUILTIN_MCP_TOOL_PREFIX } from "../activeTools.js";
 import { isMcpBrokerNotReadyError } from "../mcpBrokerFailover.js";
 import { log } from "../../system/logger/index.js";
 import { errorMessage } from "../../utils/errors.js";
@@ -59,30 +61,52 @@ function spawnClaude(useDocker: boolean, workspacePath: string, cliArgs: string[
   return spawn("docker", dockerArgs, { stdio: ["pipe", "pipe", "pipe"] });
 }
 
-// Track MCP tool usage to detect silent MCP server failures.
-// If ToolSearch was called but no mcp__* tool was ever invoked,
-// the MCP server likely crashed on startup (e.g. module resolution
-// failure inside Docker). See #430.
-function createMcpTracker() {
-  let toolSearchCalled = false;
-  let mcpToolCalled = false;
+// Counts the tools a turn ran FROM THE BUILT-IN BROKER. Scoped to
+// `mcp__mulmoclaude__` rather than `mcp__`, because the beacon only speaks for
+// that broker: a working `mcp__github__…` call says nothing about whether OUR
+// broker loaded, and counting it would hide the very startup failure this
+// feeds (Codex review on #2906).
+//
+// A Set rather than a boolean so the state stays `const` and the count can go
+// into the log line. Which names count is the half of #2886 that went wrong,
+// so this is exported and pinned by tests.
+export function createBuiltinMcpToolWatcher() {
+  const called = new Set<string>();
   return {
-    track(event: AgentEvent) {
+    track(event: AgentEvent): void {
       if (event.type !== EVENT_TYPES.toolCall) return;
-      if (event.toolName === "ToolSearch") toolSearchCalled = true;
-      if (event.toolName.startsWith("mcp__")) mcpToolCalled = true;
+      if (event.toolName.startsWith(BUILTIN_MCP_TOOL_PREFIX)) called.add(event.toolName);
     },
-    logIfSuspicious() {
-      if (toolSearchCalled && !mcpToolCalled) {
-        log.warn(
-          "agent",
-          "ToolSearch was used but no MCP tool was called — the MCP server may have crashed. " +
-            "Check Docker volume mounts and package.json exports. " +
-            "Run: npx tsx --test test/agent/test_mcp_docker_smoke.ts",
-        );
-      }
-    },
+    count: (): number => called.size,
   };
+}
+
+/** Did this turn look like the broker never delivered its tools?
+ *
+ *  All four conditions are required, and each rules out a way of being wrong.
+ *  They are listed in the order the predicate reads them:
+ *
+ *  - `mcpConfigured` — a turn that was never given MCP cannot be missing it.
+ *  - `!aborted` — a turn the user stopped never got the chance to use its
+ *    tools. Hitting the stop button straight away produces "configured, no
+ *    beacon, no calls" every time, so without this the diagnostic fires on an
+ *    ordinary cancellation (Codex review on #2906).
+ *  - `!brokerEverReady` — the startup beacon (#2898) is direct evidence, where
+ *    the old check inferred a crash from the SHAPE of the tool names: it fired
+ *    whenever ToolSearch ran without a following `mcp__*` call. ToolSearch also
+ *    resolves CLI built-ins (`WebFetch`, `PushNotification`), so a perfectly
+ *    healthy turn satisfied it — which is how #2886 came to be filed against a
+ *    working MCP server.
+ *  - `builtinMcpToolsCalled === 0` — the beacon is a POST from the broker back
+ *    to the host, so a relay or firewall can swallow it (#2842's socat setup is
+ *    exactly that). Built-in tools that ran prove the broker delivered whether
+ *    or not its beacon arrived; without this the fix would re-create the false
+ *    positive in the very environment that reported it. Only the BUILT-IN
+ *    broker's tools count — a user-configured MCP server answering says nothing
+ *    about ours.
+ */
+export function shouldWarnMcpUnavailable(turn: { mcpConfigured: boolean; aborted: boolean; brokerEverReady: boolean; builtinMcpToolsCalled: number }): boolean {
+  return turn.mcpConfigured && !turn.aborted && !turn.brokerEverReady && turn.builtinMcpToolsCalled === 0;
 }
 
 // Exit codes the claude CLI reports when it is terminated by one of the
@@ -147,7 +171,30 @@ function logAgentStderr(line: string): void {
   else log.error("agent-stderr", line);
 }
 
-async function* readAgentEvents(proc: ClaudeProc, abortSignal?: AbortSignal): AsyncGenerator<AgentEvent> {
+// What the turn's tool availability is judged against once the CLI exits. The
+// readiness lookup needs the session key, and "was MCP configured at all" is
+// the orchestrator's decision, not something to re-derive here.
+interface TurnMcpContext {
+  chatSessionId: string;
+  mcpConfigured: boolean;
+}
+
+// `aborted` is the abort SIGNAL, not `isAbortCausedExit`: the question here is
+// whether the turn was cut short, not whether this particular exit code was
+// ours. A cancel that lets the CLI exit 0 cleanly is still a turn that never got
+// to use its tools, and `isAbortCausedExit` reads that one as a normal finish.
+function logIfMcpUnavailable(turn: TurnMcpContext, builtinMcpToolsCalled: number, aborted: boolean): void {
+  const brokerEverReady = getBrokerReady(turn.chatSessionId) !== null;
+  if (!shouldWarnMcpUnavailable({ mcpConfigured: turn.mcpConfigured, aborted, brokerEverReady, builtinMcpToolsCalled })) return;
+  log.warn("agent", "MCP tools were unavailable this turn — the broker never reported ready and none of its tools ran", {
+    chatSessionId: turn.chatSessionId,
+    brokerEverReady,
+    builtinMcpToolsCalled,
+    hint: "Look for `[mcp] broker ready` in server/system/logs/; on Docker also check the sandbox volume mounts.",
+  });
+}
+
+async function* readAgentEvents(proc: ClaudeProc, turn: TurnMcpContext, abortSignal?: AbortSignal): AsyncGenerator<AgentEvent> {
   let stderrOutput = "";
   let stderrBuffer = "";
   proc.stderr.on("data", (chunk: Buffer) => {
@@ -166,10 +213,10 @@ async function* readAgentEvents(proc: ClaudeProc, abortSignal?: AbortSignal): As
   // text is suppressed. See createStreamParser() in stream.ts.
   const parser = createStreamParser();
 
-  const mcpTracker = createMcpTracker();
-  // Runtime failure monitor (#1353). Lives next to mcpTracker
-  // because they share the same event stream — the tracker spots
-  // the "MCP never invoked" pattern, the monitor spots the
+  const builtinMcpToolWatcher = createBuiltinMcpToolWatcher();
+  // Runtime failure monitor (#1353). Lives next to builtinMcpToolWatcher
+  // because they share the same event stream — the watcher feeds the
+  // "MCP never invoked" check, the monitor spots the
   // "MCP invoked but consistently failing" pattern.
   const mcpFailureMonitor = createMcpFailureMonitor();
 
@@ -193,7 +240,7 @@ async function* readAgentEvents(proc: ClaudeProc, abortSignal?: AbortSignal): As
         continue;
       }
       for (const agentEvent of parser.parse(event)) {
-        mcpTracker.track(agentEvent);
+        builtinMcpToolWatcher.track(agentEvent);
         mcpFailureMonitor.track(agentEvent);
         yield agentEvent;
       }
@@ -204,7 +251,7 @@ async function* readAgentEvents(proc: ClaudeProc, abortSignal?: AbortSignal): As
 
   if (stderrBuffer.trim()) logAgentStderr(stderrBuffer);
   log.info("agent", "claude exited", { exitCode, signal });
-  mcpTracker.logIfSuspicious();
+  logIfMcpUnavailable(turn, builtinMcpToolWatcher.count(), abortSignal?.aborted === true);
 
   const errorEvent = buildExitErrorEvent(exitCode, signal, abortSignal, stderrOutput) ?? brokerNotReadyErrorEvent(stderrOutput);
   if (errorEvent) yield errorEvent;
@@ -307,7 +354,7 @@ async function* runClaudeAgent(input: AgentInput): AsyncGenerator<AgentEvent> {
   input.abortSignal?.addEventListener("abort", onAbort, { once: true });
 
   try {
-    yield* readAgentEvents(proc, input.abortSignal);
+    yield* readAgentEvents(proc, { chatSessionId: input.sessionId, mcpConfigured: input.mcpConfigPath !== undefined }, input.abortSignal);
   } finally {
     input.abortSignal?.removeEventListener("abort", onAbort);
     if (!proc.killed) proc.kill();

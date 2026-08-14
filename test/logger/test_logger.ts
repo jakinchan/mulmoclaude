@@ -93,3 +93,59 @@ describe("createLogger level filtering", () => {
     }
   });
 });
+
+describe("createLogger source stamping (#2904)", () => {
+  // Both console streams are captured because `stream: "split"` sends
+  // info to stdout and error to stderr.
+  function withCapturedStreams(run: () => void): string[] {
+    const originals = { out: process.stdout.write.bind(process.stdout), err: process.stderr.write.bind(process.stderr) };
+    const lines: string[] = [];
+    const recordWrite = (chunk: string | Uint8Array) => {
+      lines.push(typeof chunk === "string" ? chunk : chunk.toString());
+      return true;
+    };
+    process.stdout.write = recordWrite as typeof process.stdout.write;
+    process.stderr.write = recordWrite as typeof process.stderr.write;
+    try {
+      run();
+    } finally {
+      process.stdout.write = originals.out;
+      process.stderr.write = originals.err;
+    }
+    return lines;
+  }
+
+  function captureJsonRecords(config: Parameters<typeof createLogger>[0]): { source?: string; message: string }[] {
+    const lines = withCapturedStreams(() => {
+      const logger = createLogger(config);
+      logger.info("plugins/preset", "loaded");
+      logger.error("plugins/preset", "boom");
+    });
+    return lines.map((line) => JSON.parse(line.trim()));
+  }
+
+  const consoleOnlyJson = (source?: string): Parameters<typeof createLogger>[0] => ({
+    ...(source ? { source } : {}),
+    sinks: {
+      console: { enabled: true, level: "debug", format: "json", stream: "split" },
+      file: { enabled: false, level: "debug", format: "json", dir: "/tmp", rotation: { kind: "daily", maxFiles: 1 } },
+      telemetry: { enabled: false, level: "error", format: "json" },
+    },
+  });
+
+  it("stamps every record, at every level", () => {
+    const records = captureJsonRecords(consoleOnlyJson("mcp-broker"));
+    assert.equal(records.length, 2);
+    for (const rec of records) {
+      assert.equal(rec.source, "mcp-broker");
+    }
+  });
+
+  it("leaves records unstamped when no source is configured", () => {
+    const records = captureJsonRecords(consoleOnlyJson());
+    assert.equal(records.length, 2);
+    for (const rec of records) {
+      assert.equal(rec.source, undefined);
+    }
+  });
+});

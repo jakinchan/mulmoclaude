@@ -59,16 +59,24 @@ export const formatText: Formatter = (record: LogRecord): string => formatTextLi
  */
 export const formatTextColor: Formatter = (record: LogRecord): string => formatTextLine(record, true);
 
+// Its own bracket ahead of the prefix, so a reader scanning the left edge sees
+// which process wrote the line before reading what the line says. Empty for the
+// main server, keeping its lines byte-identical to before.
+function formatSource(source: string | undefined): string {
+  return source ? `[${source}] ` : "";
+}
+
 function formatTextLine(record: LogRecord, color: boolean): string {
   const levelText = record.level.toUpperCase().padEnd(5);
   const colorCode = LEVEL_COLOR[record.level];
+  const source = formatSource(record.source);
   if (color && WHOLE_LINE_COLOR.has(record.level)) {
     // Whole-row wrap. Avoid double-wrapping the level slot — one
     // colour code at the start + reset at the end is enough.
-    return `${colorCode}${record.time} ${levelText} [${record.prefix}] ${record.message}${formatData(record.data)}${ANSI_RESET}`;
+    return `${colorCode}${record.time} ${levelText} ${source}[${record.prefix}] ${record.message}${formatData(record.data)}${ANSI_RESET}`;
   }
   const level = color ? `${colorCode}${levelText}${ANSI_RESET}` : levelText;
-  return `${record.time} ${level} [${record.prefix}] ${record.message}${formatData(record.data)}`;
+  return `${record.time} ${level} ${source}[${record.prefix}] ${record.message}${formatData(record.data)}`;
 }
 
 export const formatJson: Formatter = (record: LogRecord): string => {
@@ -78,6 +86,7 @@ export const formatJson: Formatter = (record: LogRecord): string => {
     prefix: record.prefix,
     message: record.message,
   };
+  if (record.source) payload.source = record.source;
   if (record.data) payload.data = record.data;
   return JSON.stringify(payload);
 };

@@ -22,7 +22,14 @@ import { INJECTED_TEXT } from "../../agent/stream.js";
 import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
 import { abortableSleep, BROKER_RECONNECT_WAIT_MS, detectRecovery, type RecoveryKind, type RetryBudgets } from "../../agent/retryPolicy.js";
-import { splitSkillAndReply, updatePendingSkillOnToolCall, updatePendingSkillOnToolCallResult, type PendingSkill } from "../../agent/skillEvents.js";
+import { getBrokerReady } from "../../agent/brokerReadiness.js";
+import {
+  recordPushReply,
+  splitSkillAndReply,
+  updatePendingSkillOnToolCall,
+  updatePendingSkillOnToolCallResult,
+  type PendingSkill,
+} from "../../agent/skillEvents.js";
 import { decorateMessageForCli, sanitiseOriginalFilename, type AttachedFile } from "../../agent/messageDecorate.js";
 import { getOrCreateSession, beginRun, endRun, cancelRun, pushSessionEvent, pushToolResult, getActiveSessionIds } from "../../events/session-store/index.js";
 import { workspacePath } from "../../workspace/workspace.js";
@@ -658,6 +665,12 @@ interface EventContext {
   toolArgsCache: ReturnType<typeof createArgsCache>;
   textAccumulator: string[];
   pendingSkill: PendingSkill | null;
+  // The most recent assistant burst, kept for the turn-end Web Push. Each flush
+  // overwrites it, so at run-end it holds the reply the user is waiting on —
+  // the only thing that knows WHAT finished (#2901). Held here rather than
+  // re-read from the jsonl, which would mean reading a whole long session back
+  // just to quote its last paragraph.
+  lastAssistantText: string;
 }
 
 const CLAUDE_CLI_SKILL_BODY_PREFIX = "Base directory for this skill: ";
@@ -776,9 +789,12 @@ async function flushTextAccumulator(ctx: EventContext): Promise<void> {
   ctx.pendingSkill = null;
 
   if (skill) {
-    await writeSkillEntry(ctx, skill.skillName, fullText);
+    // Only the part after the SKILL.md body is something the user said to
+    // them; the body itself is instruction content for the model.
+    recordPushReply(ctx, await writeSkillEntry(ctx, skill.skillName, fullText));
     return;
   }
+  recordPushReply(ctx, fullText);
   await appendSessionLine(
     ctx.chatSessionId,
     JSON.stringify({
@@ -804,7 +820,11 @@ async function flushTextAccumulator(ctx: EventContext): Promise<void> {
 // the SKILL.md body on disk as a structural delimiter; the reply
 // portion gets persisted as a SECOND entry of `type: "text"` so it
 // stays visible after the user collapses the skill card.
-async function writeSkillEntry(ctx: EventContext, skillName: string, body: string): Promise<void> {
+/** Writes the skill entry and, when the CLI emitted a genuine reply in the same
+ *  burst, that reply too. Returns the reply so the caller can decide what the
+ *  completion push quotes — it is the only user-facing part of a Skill burst
+ *  (Codex review on #2909). */
+async function writeSkillEntry(ctx: EventContext, skillName: string, body: string): Promise<string> {
   const resolved = await resolveSkillMetadata(skillName);
   // Canary: skill detection is sequence-based (not body-prefix based),
   // but we still cross-check the prefix as a format-drift signal.
@@ -847,6 +867,7 @@ async function writeSkillEntry(ctx: EventContext, skillName: string, body: strin
     pushSessionEvent(ctx.chatSessionId, textPayload);
     await appendSessionLine(ctx.chatSessionId, JSON.stringify(textPayload));
   }
+  return replyPart;
 }
 
 interface SkillMetadata {
@@ -920,7 +941,16 @@ async function recoverStaleSession(chatSessionId: string, decoratedMessage: stri
 // Wait for the broker to connect, then let the caller replay the same turn
 // unchanged (#2057). Surfaces a status event so the pause isn't read as a hang.
 async function recoverBrokerNotReady(chatSessionId: string, abortSignal: AbortSignal): Promise<void> {
-  log.warn("agent", "mulmoclaude MCP broker not ready — retrying after a short wait", { chatSessionId });
+  // Whether a startup beacon ever arrived separates the two failures that look
+  // alike here: a broker that connected and lost the race by a moment (a replay
+  // fixes it) from one that never came up at all, where the replay only doubles
+  // the time to the same error (#2842).
+  const ready = getBrokerReady(chatSessionId);
+  log.warn("agent", "mulmoclaude MCP broker not ready — retrying after a short wait", {
+    chatSessionId,
+    brokerEverReady: ready !== null,
+    ...(ready ?? {}),
+  });
   pushSessionEvent(chatSessionId, {
     type: EVENT_TYPES.status,
     message: "Tools are still starting up — retrying…",
@@ -982,6 +1012,9 @@ async function streamOnce(
 function discardAbortedPass(eventCtx: EventContext): void {
   eventCtx.textAccumulator.length = 0;
   eventCtx.pendingSkill = null;
+  // Same reason as the accumulator: the abandoned pass's text must not become
+  // the replayed pass's push body.
+  eventCtx.lastAssistantText = "";
 }
 
 // Drive `runAgent` for one turn, recovering once from a stale `--resume` id
@@ -1042,6 +1075,7 @@ async function runAgentInBackground(params: BackgroundRunParams): Promise<void> 
     resultsFilePath,
     toolArgsCache,
     textAccumulator: [],
+    lastAssistantText: "",
     pendingSkill: null,
   };
 
@@ -1073,7 +1107,7 @@ async function runAgentInBackground(params: BackgroundRunParams): Promise<void> 
       message: String(err),
     });
   } finally {
-    await finalizeRun(chatSessionId, params.origin, didError, requestStartedAt);
+    await finalizeRun(chatSessionId, params.origin, didError, requestStartedAt, eventCtx.lastAssistantText);
   }
 }
 
@@ -1081,7 +1115,13 @@ async function runAgentInBackground(params: BackgroundRunParams): Promise<void> 
 // a hidden worker session or fire the normal post-turn side effects.
 // Split out of `runAgentInBackground` to keep that function under the
 // cognitive-complexity threshold.
-async function finalizeRun(chatSessionId: string, origin: SessionOrigin | undefined, didError: boolean, requestStartedAt: number): Promise<void> {
+async function finalizeRun(
+  chatSessionId: string,
+  origin: SessionOrigin | undefined,
+  didError: boolean,
+  requestStartedAt: number,
+  replyText: string,
+): Promise<void> {
   endRun(chatSessionId);
 
   if (origin === SESSION_ORIGINS.system) {
@@ -1112,7 +1152,7 @@ async function finalizeRun(chatSessionId: string, origin: SessionOrigin | undefi
   // excluded — those aren't the user waiting in the browser; missing origin means
   // "human" by convention). No-op unless enabled AND RemoteHost is connected.
   if (origin === undefined || origin === SESSION_ORIGINS.human) {
-    notifyTaskFinished(chatSessionId, didError).catch(logBackgroundError("web-push"));
+    notifyTaskFinished(chatSessionId, didError, replyText).catch(logBackgroundError("web-push"));
   }
 }
 

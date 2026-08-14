@@ -50,13 +50,13 @@ describe("formatText", () => {
   });
 });
 
-describe("formatTextColor", () => {
-  // Build the ANSI patterns from String.fromCharCode so the lint rule
-  // `no-control-regex` doesn't trip on a literal ESC byte in the source.
-  const ESC = String.fromCharCode(27);
-  const ANY_ANSI = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
-  const FIRST_CODE = new RegExp(`${ESC}\\[([0-9;]+)m`);
+// Build the ANSI patterns from String.fromCharCode so the lint rule
+// `no-control-regex` doesn't trip on a literal ESC byte in the source.
+const ESC = String.fromCharCode(27);
+const ANY_ANSI = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
+const FIRST_CODE = new RegExp(`${ESC}\\[([0-9;]+)m`);
 
+describe("formatTextColor", () => {
   it("wraps the entire line for error and warn (whole-row colour)", () => {
     for (const level of ["error", "warn"] as const) {
       const colored = formatTextColor(record({ level }));
@@ -92,6 +92,47 @@ describe("formatTextColor", () => {
       seen.add(match[1] ?? "");
     }
     assert.equal(seen.size, 4, "every level should map to a distinct ANSI code");
+  });
+});
+
+describe("source tagging (#2904)", () => {
+  it("puts the source in its own bracket ahead of the prefix", () => {
+    assert.equal(formatText(record({ source: "mcp-broker" })), "2026-04-13T07:12:45.123Z INFO  [mcp-broker] [agent] request received");
+  });
+
+  it("leaves an untagged line byte-identical to before", () => {
+    assert.equal(formatText(record()), "2026-04-13T07:12:45.123Z INFO  [agent] request received");
+  });
+
+  it("keeps a tagged line greppable per process, which is the point", () => {
+    const broker = formatText(record({ source: "mcp-broker", prefix: "plugins/preset", message: "loaded" }));
+    const parent = formatText(record({ prefix: "plugins/preset", message: "loaded" }));
+    // The exact pair that read as a server restart in #2886.
+    assert.notEqual(broker, parent);
+    assert.ok(broker.includes("[mcp-broker]"));
+    assert.ok(!parent.includes("[mcp-broker]"));
+  });
+
+  it("survives the whole-row colour wrap without extra escapes", () => {
+    for (const level of ["error", "warn"] as const) {
+      const colored = formatTextColor(record({ level, source: "mcp-broker" }));
+      const escapeCount = (colored.match(ANY_ANSI) ?? []).length;
+      assert.equal(escapeCount, 2, `expected exactly two SGR codes for ${level}, got ${escapeCount}`);
+      assert.equal(colored.replaceAll(ANY_ANSI, ""), formatText(record({ level, source: "mcp-broker" })));
+    }
+  });
+
+  it("survives the level-only colour wrap", () => {
+    for (const level of ["info", "debug"] as const) {
+      const colored = formatTextColor(record({ level, source: "mcp-broker" }));
+      assert.equal(colored.replaceAll(ANY_ANSI, ""), formatText(record({ level, source: "mcp-broker" })));
+    }
+  });
+
+  it("emits source as a JSON field, omitted when absent", () => {
+    const tagged: { source?: string } = JSON.parse(formatJson(record({ source: "mcp-broker" })));
+    assert.equal(tagged.source, "mcp-broker");
+    assert.ok(!formatJson(record()).includes('"source"'));
   });
 });
 

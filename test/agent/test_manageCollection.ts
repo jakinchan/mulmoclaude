@@ -769,3 +769,118 @@ describe("manageCollection — deleteItems", () => {
     assert.match(await run({ action: "deleteItems", slug: "students", ids: ["s1"] }), /read-only/);
   });
 });
+
+// Field-level `default` (#2839): a starting value for a NEW record, so the
+// same two values don't have to be typed on every add.
+describe("manageCollection — enum field defaults", () => {
+  const TASKS = {
+    title: "Tasks",
+    icon: "task_alt",
+    dataPath: "data/tasks/items",
+    primaryKey: "id",
+    fields: {
+      id: { type: "string", label: "ID", primary: true, required: true },
+      title: { type: "string", label: "Title", required: true },
+      status: { type: "enum", label: "Status", values: ["todo", "doing", "done"], required: true, default: "todo" },
+      priority: { type: "enum", label: "Priority", values: ["high", "low"], default: "low" },
+    },
+  };
+  const storedTask = (itemId: string) => JSON.parse(readFileSync(path.join(workdir, `data/tasks/items/${itemId}.json`), "utf-8")) as Record<string, unknown>;
+
+  beforeEach(() => writeSkill("tasks", TASKS));
+
+  it("fills the fields a create row omits, satisfying a required enum on its own", async () => {
+    const result = await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t1", title: "Write it" }], mode: "create" });
+    assert.deepEqual(result.rejected, []);
+    assert.equal(storedTask("t1").status, "todo");
+    assert.equal(storedTask("t1").priority, "low");
+  });
+
+  // An `enum` is a legal primary key (`primary` lives on every field type), so
+  // a default can be what supplies the record id — which means the merge has to
+  // happen before the id is resolved, not after (Codex review on #2910).
+  it("supplies the id when the primary key is an enum with a default", async () => {
+    writeSkill("phases", {
+      title: "Phases",
+      icon: "list",
+      dataPath: "data/phases/items",
+      primaryKey: "phase",
+      fields: {
+        phase: { type: "enum", label: "Phase", values: ["intake", "review"], primary: true, required: true, default: "intake" },
+        note: { type: "string", label: "Note" },
+      },
+    });
+    const result = await runJson({ action: "putItems", slug: "phases", items: [{ note: "no id given" }], mode: "create" });
+    assert.deepEqual(result.rejected, []);
+    assert.deepEqual(result.written, ["intake"]);
+    const stored = JSON.parse(readFileSync(path.join(workdir, "data/phases/items/intake.json"), "utf-8")) as Record<string, unknown>;
+    assert.equal(stored.phase, "intake");
+  });
+
+  it("never overrides a value the row carries", async () => {
+    await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t2", title: "Urgent", status: "doing", priority: "high" }], mode: "create" });
+    assert.equal(storedTask("t2").status, "doing");
+    assert.equal(storedTask("t2").priority, "high");
+  });
+
+  // An edit is not a create: the record already answered this question, and
+  // re-applying the default would put the answer back to the starting value.
+  it("does not apply on upsert or merge", async () => {
+    await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t3", title: "Done one", status: "done", priority: "high" }], mode: "create" });
+
+    const merged = await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t3", title: "Renamed" }], mode: "merge" });
+    assert.deepEqual(merged.rejected, []);
+    assert.equal(storedTask("t3").status, "done", "merge must keep the stored answer");
+    assert.equal(storedTask("t3").priority, "high");
+
+    const upserted = await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t3", title: "Replaced", status: "doing" }] });
+    assert.deepEqual(upserted.rejected, []);
+    assert.equal(storedTask("t3").status, "doing");
+    assert.equal(storedTask("t3").priority, undefined, "upsert replaces WHOLE — no default sneaks back in");
+  });
+});
+
+describe("manageCollection — putSchema and a stale default", () => {
+  let putTool: ReturnType<typeof makeManageCollectionTool>;
+  const putRun = (args: Record<string, unknown>) => putTool.handler(args);
+  const withStatus = (status: Record<string, unknown>) => ({
+    title: "Tasks",
+    icon: "task_alt",
+    dataPath: "data/tasks/items",
+    primaryKey: "id",
+    fields: { id: { type: "string", label: "ID", primary: true, required: true }, status },
+  });
+
+  beforeEach(() => {
+    putTool = makeManageCollectionTool({ workspaceRoot: workdir, userSkillsDir: emptyUserDir, refreshAfterWrite: async () => {} });
+    writeSkill("tasks", withStatus({ type: "enum", label: "Status", values: ["todo", "done"] }));
+  });
+
+  it("accepts a default that is one of the values", async () => {
+    const schema = withStatus({ type: "enum", label: "Status", values: ["todo", "done"], default: "todo" });
+    const result = JSON.parse(await putRun({ action: "putSchema", slug: "tasks", schema })) as Record<string, unknown>;
+    assert.equal(result.written, true);
+  });
+
+  it("refuses a default the values do not offer, naming what was allowed", async () => {
+    const schema = withStatus({ type: "enum", label: "Status", values: ["todo", "done"], default: "未着手" });
+    const msg = await putRun({ action: "putSchema", slug: "tasks", schema });
+    assert.match(msg, /schema rejected/);
+    assert.match(msg, /未着手/);
+    assert.match(msg, /todo, done/);
+    assert.ok(!existsSync(path.join(workdir, "data/skills/tasks/schema.json")), "no staging file on rejection");
+  });
+
+  // The compatibility guarantee. `default` was silently ignored before #2839,
+  // so a file may already carry one the values no longer offer. Refusing it at
+  // PARSE time would drop the collection out of discovery's index entirely —
+  // the collection would vanish from the UI with only a log line. It must keep
+  // loading, and simply start blank.
+  it("keeps loading a collection whose stored default is not a member", async () => {
+    writeSkill("tasks", withStatus({ type: "enum", label: "Status", values: ["todo", "done"], default: "未着手" }));
+    const created = await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t9" }], mode: "create" });
+    assert.deepEqual(created.rejected, [], "the collection is still discoverable and writable");
+    const stored = JSON.parse(readFileSync(path.join(workdir, "data/tasks/items/t9.json"), "utf-8")) as Record<string, unknown>;
+    assert.equal(stored.status, undefined, "an impossible default is not handed to the record");
+  });
+});

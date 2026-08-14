@@ -198,11 +198,23 @@ const MoneyFieldZ = z
   .refine(hasCurrencySource, currencyMessage);
 
 /** A closed set of allowed string values. The form renders a `<select>`
- *  populated from `values`; storage is a plain string. */
+ *  populated from `values`; storage is a plain string.
+ *
+ *  `default` pre-fills a NEW record — the Add form starts on it, and a
+ *  `putItems` row in `create` mode that omits the field gets it. Never applied
+ *  on `merge` / `upsert`: those edit a record that already answered this.
+ *
+ *  Membership in `values` is NOT checked here on purpose. This schema is what
+ *  discovery parses on every load, and a rejection there drops the whole
+ *  collection out of the index (`discovery.ts`) — too steep a price for a
+ *  cosmetic key, and the key was silently ignored before #2839, so a stale one
+ *  may already sit in someone's file. `putSchema` refuses a non-member instead,
+ *  where the author is present to read the reason. */
 const EnumFieldZ = z.object({
   type: z.literal("enum"),
   ...fieldBase,
   values: z.array(z.string().trim().min(1)).min(1),
+  default: z.string().trim().min(1).optional(),
 });
 
 // Sub-fields inside a `table.of` map: the regular field types minus `table`

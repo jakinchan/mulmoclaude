@@ -131,6 +131,12 @@ export interface McpConfigParams {
   // Keys become the server id in the generated --mcp-config file;
   // values are the standard Claude CLI server spec (HTTP or stdio).
   userServers?: Record<string, McpServerSpec>;
+  /** The turn's already-resolved broker, so this config and the turn's
+   *  `broker=` log line describe the same one. See `resolveBrokerSpawn`. */
+  broker?: BrokerSpawn;
+  /** Identity of the broker this config will spawn, echoed back by its
+   *  startup beacon so a superseded attempt's reading can be discarded. */
+  spawnId?: string;
 }
 
 // In Docker mode the sandbox container can't reach the host's
@@ -312,7 +318,13 @@ const BUNDLED_MCP_SERVER_PATH = join(dirname(dirname(fileURLToPath(import.meta.u
 const CONTAINER_BUNDLED_MCP_SERVER_PATH = "/app/server/build/mcp-server.mjs";
 const CONTAINER_MCP_SERVER_PATH = "/app/server/agent/mcp-server.ts";
 
+/** Which of the two spawn paths was taken. Names the CAUSE of the cold-boot
+ *  cost, so a log line carrying it answers "is this install on the 20-50 s
+ *  path?" without the reader having to know what a bundle is (#2842). */
+export type BrokerKind = "bundle" | "tsx";
+
 export interface BrokerSpawn {
+  kind: BrokerKind;
   command: string;
   scriptPath: string;
 }
@@ -324,24 +336,58 @@ export interface BrokerSpawn {
 export function brokerSpawn(useDocker: boolean, hasBundle: boolean): BrokerSpawn {
   if (hasBundle) {
     return {
+      kind: "bundle",
       command: useDocker ? "node" : process.execPath,
       scriptPath: useDocker ? CONTAINER_BUNDLED_MCP_SERVER_PATH : BUNDLED_MCP_SERVER_PATH,
     };
   }
   return {
+    kind: "tsx",
     command: useDocker ? "tsx" : join(resolveProjectRoot(), "node_modules/.bin/tsx"),
     scriptPath: useDocker ? CONTAINER_MCP_SERVER_PATH : LOCAL_MCP_SERVER_PATH,
   };
 }
 
-/** The bundle is a build artifact and deliberately not committed, so a fresh
- *  checkout / `yarn dev` before any build still has to work — hence a fallback
- *  rather than a hard requirement.
+// One warn per process, not per turn: the condition is a property of the
+// install, so repeating it every agent run would bury the rest of the log.
+const warnedBrokerKinds = new Set<BrokerKind>();
+
+/** Probe for the bundle and decide the spawn.
  *
- *  The probe runs on the HOST even for the container command: `server/` is
- *  bind-mounted wholesale, so what exists here exists at `/app/server` there. */
-function resolveBrokerCommand(useDocker: boolean): BrokerSpawn {
-  return brokerSpawn(useDocker, existsSync(BUNDLED_MCP_SERVER_PATH));
+ *  The bundle is a build artifact and deliberately not committed, so a fresh
+ *  checkout / `yarn dev` before any build still has to work — hence a fallback
+ *  rather than a hard requirement. The probe runs on the HOST even for the
+ *  container command: `server/` is bind-mounted wholesale, so what exists here
+ *  exists at `/app/server` there.
+ *
+ *  Call this ONCE per turn and pass the result to everything that needs it.
+ *  Probing separately for the config and for the log lets the two straddle a
+ *  concurrent `yarn build:mcp-broker` and disagree — and a `broker=` field that
+ *  can contradict the command actually spawned is worse than no field at all,
+ *  given this whole diagnostic exists to be trusted.
+ *
+ *  The warn lives here because the fallback used to be silent: an install
+ *  missing the bundle sat on the 20-50 s tsx cold boot with nothing anywhere
+ *  saying so, which is how #2842 was diagnosed as "the connect-wait gate is too
+ *  small" when the real answer was "this build never ran
+ *  `yarn build:mcp-broker`". */
+export function resolveBrokerSpawn(useDocker: boolean): BrokerSpawn {
+  const spawn = brokerSpawn(useDocker, existsSync(BUNDLED_MCP_SERVER_PATH));
+  if (spawn.kind === "tsx" && !warnedBrokerKinds.has(spawn.kind)) {
+    warnedBrokerKinds.add(spawn.kind);
+    log.warn("mcp", "broker bundle missing — falling back to tsx, which transcodes the whole import graph on every spawn", {
+      expectedBundle: BUNDLED_MCP_SERVER_PATH,
+      cost: "seconds to tens of seconds per turn over a Windows/macOS bind mount; may exceed the CLI connect wait and surface as `handlePermission not found`",
+      fix: "run `yarn build:mcp-broker` (dev), or update the mulmoclaude package (npm installs ship the bundle since 1.9.0)",
+    });
+  }
+  return spawn;
+}
+
+/** Test seam — the warn is once per process, so a test asserting it has to be
+ *  able to reset that. */
+export function _resetBrokerKindWarnings(): void {
+  warnedBrokerKinds.clear();
 }
 
 /** The `mcpServers.mulmoclaude` entry Claude Code spawns over stdio.
@@ -377,9 +423,24 @@ export interface McpStdioServerSpec {
   alwaysLoad: boolean;
 }
 
-export function buildMulmoclaudeServer(params: { chatSessionId: string; port: number; activePlugins: string[]; useDocker: boolean }): McpStdioServerSpec {
-  const { chatSessionId, port, activePlugins, useDocker } = params;
-  const { command, scriptPath: mcpServerPath } = resolveBrokerCommand(useDocker);
+/** What broker lines call themselves in the shared log file (`LOG_SOURCE`). */
+export const BROKER_LOG_SOURCE = "mcp-broker";
+
+export function buildMulmoclaudeServer(params: {
+  chatSessionId: string;
+  port: number;
+  activePlugins: string[];
+  useDocker: boolean;
+  /** Pre-resolved by the caller when the same turn also logs which broker it
+   *  spawned, so the config and the log cannot describe different brokers.
+   *  Omitted (tests, `print-mcp-container-spec`) means resolve here. */
+  broker?: BrokerSpawn;
+  /** Identity of this particular broker, for the startup beacon. Omitted by
+   *  callers that only inspect the spec and never spawn it. */
+  spawnId?: string;
+}): McpStdioServerSpec {
+  const { chatSessionId, port, activePlugins, useDocker, spawnId = "" } = params;
+  const { command, scriptPath: mcpServerPath } = params.broker ?? resolveBrokerSpawn(useDocker);
 
   const dockerEnv: Record<string, string> = useDocker
     ? {
@@ -414,6 +475,11 @@ export function buildMulmoclaudeServer(params: { chatSessionId: string; port: nu
     args: useDocker ? ["--import", CONTAINER_ESM_BOOTSTRAP_URL, mcpServerPath] : [mcpServerPath],
     env: {
       SESSION_ID: chatSessionId,
+      // Identifies THIS broker, where SESSION_ID identifies the conversation.
+      // The startup beacon echoes it so the host can drop a reading from a
+      // superseded attempt instead of crediting it to the retry that replaced
+      // it (#2842, Codex review on #2898).
+      MCP_SPAWN_ID: spawnId,
       PORT: String(port),
       PLUGIN_NAMES: activePlugins.join(","),
       // The broker's stdout carries JSON-RPC. The shared `log` helper
@@ -421,6 +487,11 @@ export function buildMulmoclaudeServer(params: { chatSessionId: string; port: nu
       // line lands between protocol messages — or, once a response is
       // large enough to be split across writes, inside one.
       LOG_CONSOLE_STREAM: "stderr",
+      // The broker writes to the SAME log file as the parent server and
+      // respawns once per turn, so its untagged lines read as server restarts
+      // — "plugins/preset loaded" 34x/day was reported as a reload loop
+      // (#2904). Tagging the source is what separates the two.
+      LOG_SOURCE: BROKER_LOG_SOURCE,
       ...authEnv,
       ...dockerEnv,
     },
@@ -449,6 +520,8 @@ export function buildMcpConfig(params: McpConfigParams): { mcpServers: Record<st
         port,
         activePlugins,
         useDocker,
+        ...(params.broker ? { broker: params.broker } : {}),
+        ...(params.spawnId ? { spawnId: params.spawnId } : {}),
       }),
       ...excludeReservedKeys(userServers),
     },

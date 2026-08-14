@@ -146,6 +146,21 @@ describe("buildEmbedViews", () => {
     assert.equal(billTo.recordId, "ghost");
   });
 
+  // An UNSET optional embed: `found` is false like the ghost case above, but
+  // `recordId` is empty — that pair is what the renderer branches on to show an
+  // empty field instead of the dangling-reference card.
+  it("leaves recordId empty when the idField itself is empty", () => {
+    const schema = makeSchema({ billTo: field("embed", { to: "profiles", idField: "customerId" }) });
+    for (const record of [{ customerId: "" }, {}]) {
+      const { billTo } = buildEmbedViews(schema, embedCache, record, "en-US");
+      assert.ok(billTo);
+      assert.equal(billTo.found, false);
+      assert.equal(billTo.recordId, "");
+      assert.deepEqual(billTo.rows, []);
+      assert.equal(billTo.targetSlug, "profiles");
+    }
+  });
+
   it("returns an empty object when the schema is null (no collection loaded)", () => {
     assert.deepEqual(buildEmbedViews(null, embedCache, null, "en-US"), {});
   });
