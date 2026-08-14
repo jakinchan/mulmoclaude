@@ -42,11 +42,14 @@ export interface SandboxImageInfo {
 // output when `.Config.Labels` is nil rather than an empty map.
 const ABSENT_LABEL_VALUES: ReadonlySet<string> = new Set(["", "<no value>"]);
 
-// Additionally for the version label only: a build that could not reach npm
-// passes the literal `latest` through, which names no version. Kept separate
-// from the set above because it is meaningless for the sha label — a rule that
-// applies to one field should not be reachable from the other.
-const UNRESOLVED_VERSION = "latest";
+/** What the build passes when it could not resolve a real version — it names
+ *  no version, so the reader must not see it as one. Exported so the side that
+ *  WRITES it and the side that reads it back can't drift apart.
+ *
+ *  Kept out of `ABSENT_LABEL_VALUES` because it is meaningless for the sha
+ *  label: a rule that applies to one field should not be reachable from the
+ *  other. */
+export const UNRESOLVED_CLAUDE_CODE_VERSION = "latest";
 
 const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)/;
 
@@ -72,6 +75,19 @@ export function isAtLeastVersion(version: string, minimum: string): boolean | nu
   return leftPatch >= rightPatch;
 }
 
+// Characters an npm version can contain. Everything else is rejected before
+// the value reaches a build arg, because the Dockerfile interpolates it into
+// `npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}`, which the
+// builder runs through a SHELL inside the image. `execFile`/`spawn` protect the
+// host side, not that one. Anchored both ends on purpose — a prefix match would
+// accept `1.2.3; …`, which is the whole problem.
+const SAFE_VERSION_PATTERN = /^[0-9A-Za-z.+-]{1,64}$/;
+
+/** Whether a resolved version is safe to hand to `docker build --build-arg`. */
+export function isSafeVersionArg(raw: string): boolean {
+  return SAFE_VERSION_PATTERN.test(raw);
+}
+
 function labelOrNull(raw: string | undefined): string | null {
   const value = raw?.trim() ?? "";
   return ABSENT_LABEL_VALUES.has(value) ? null : value;
@@ -79,7 +95,7 @@ function labelOrNull(raw: string | undefined): string | null {
 
 function versionLabelOrNull(raw: string | undefined): string | null {
   const value = labelOrNull(raw);
-  return value === UNRESOLVED_VERSION ? null : value;
+  return value === UNRESOLVED_CLAUDE_CODE_VERSION ? null : value;
 }
 
 function ageDaysFrom(created: string | undefined, nowMs: number): number | null {

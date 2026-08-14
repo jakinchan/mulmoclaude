@@ -52,7 +52,13 @@ export function recordBrokerReady(sessionId: string, ready: BrokerReady): void {
  *  alone, turn 1's successful beacon would still be sitting there when turn 5's
  *  broker fails to start, and the diagnostic would report `brokerEverReady:
  *  true` for a broker that never ran — the exact wrong answer, in the exact
- *  case the field exists to answer. */
+ *  case the field exists to answer.
+ *
+ *  Residual window, knowingly left: a previous broker that answers `initialize`
+ *  only AFTER its CLI gave up could land its beacon under the next spawn. The
+ *  CLI kills its MCP children on exit and the beacon times out after 2 s, so
+ *  this needs a >3 s straggler; it would overstate readiness on a diagnostic
+ *  line, which is not worth a per-spawn token to close. */
 export function clearBrokerReady(sessionId: string): void {
   readyBySession.delete(sessionId);
 }

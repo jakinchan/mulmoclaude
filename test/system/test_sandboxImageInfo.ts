@@ -10,6 +10,7 @@ import {
   MIN_CLAUDE_CODE_VERSION,
   SANDBOX_IMAGE_STALE_DAYS,
   isAtLeastVersion,
+  isSafeVersionArg,
   parseSandboxImageInfo,
   sandboxImageWarnings,
 } from "../../server/system/sandboxImageInfo.ts";
@@ -41,6 +42,23 @@ describe("isAtLeastVersion", () => {
     assert.equal(isAtLeastVersion("latest", "2.1.121"), null);
     assert.equal(isAtLeastVersion("", "2.1.121"), null);
     assert.equal(isAtLeastVersion("2.1.121", "not-a-version"), null);
+  });
+});
+
+// The value reaches `docker build --build-arg`, and the Dockerfile interpolates
+// it into an `npm install -g …@${CLAUDE_CODE_VERSION}` that the builder runs
+// through a shell inside the image. `execFile` guards the host side only.
+describe("isSafeVersionArg", () => {
+  it("accepts the version shapes npm actually publishes", () => {
+    ["2.1.232", "2.1.121-beta.1", "1.0.0+build.5", "latest"].forEach((version) => {
+      assert.equal(isSafeVersionArg(version), true, version);
+    });
+  });
+
+  it("rejects anything carrying shell syntax, whitespace, or unbounded length", () => {
+    ["2.1.232; rm -rf /", "2.1.232 && echo pwned", "$(id)", "`id`", "2.1.232\nrm -rf /", "a|b", "", "1".repeat(65)].forEach((version) => {
+      assert.equal(isSafeVersionArg(version), false, JSON.stringify(version));
+    });
   });
 });
 

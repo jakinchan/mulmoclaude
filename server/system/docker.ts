@@ -11,6 +11,8 @@ import {
   CLAUDE_CODE_LABEL,
   DOCKERFILE_SHA_LABEL,
   IMAGE_INSPECT_FORMAT,
+  UNRESOLVED_CLAUDE_CODE_VERSION,
+  isSafeVersionArg,
   parseSandboxImageInfo,
   sandboxImageWarnings,
   type SandboxImageInfo,
@@ -87,10 +89,14 @@ async function resolveClaudeCodeVersion(): Promise<string> {
   try {
     const { stdout } = await execFileAsync("npm", ["view", CLAUDE_CODE_PACKAGE, "version"], { timeout: SUBPROCESS_PROBE_TIMEOUT_MS });
     const version = stdout.trim();
-    return version.length > 0 ? version : "latest";
+    // Falling back to `latest` on anything unexpected keeps the build working
+    // while refusing to interpolate an unvetted string into a shell command
+    // that runs inside the image.
+    if (!isSafeVersionArg(version)) return UNRESOLVED_CLAUDE_CODE_VERSION;
+    return version;
   } catch (err) {
     log.warn("sandbox", `could not resolve the latest ${CLAUDE_CODE_PACKAGE} version; building with @latest and leaving it unrecorded: ${String(err)}`);
-    return "latest";
+    return UNRESOLVED_CLAUDE_CODE_VERSION;
   }
 }
 
