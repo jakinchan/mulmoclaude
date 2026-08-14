@@ -1149,23 +1149,51 @@ describe("MCP child wiring (regression guard for #2052)", () => {
   // ~5 s connect wait — the #2201 race. The fallback exists because the bundle
   // is a build artifact: a fresh checkout must still spawn a working broker.
   it("spawns the bundled broker in the container when it has been built", () => {
-    assert.deepEqual(brokerSpawn(true, true), { command: "node", scriptPath: "/app/server/build/mcp-server.mjs" });
+    assert.deepEqual(brokerSpawn(true, true), { kind: "bundle", command: "node", scriptPath: "/app/server/build/mcp-server.mjs" });
   });
 
   it("falls back to tsx in the container when the bundle was never built", () => {
-    assert.deepEqual(brokerSpawn(true, false), { command: "tsx", scriptPath: "/app/server/agent/mcp-server.ts" });
+    assert.deepEqual(brokerSpawn(true, false), { kind: "tsx", command: "tsx", scriptPath: "/app/server/agent/mcp-server.ts" });
   });
 
   it("runs the native bundled broker on this node, not a PATH lookup", () => {
     const spawn = brokerSpawn(false, true);
+    assert.equal(spawn.kind, "bundle");
     assert.equal(spawn.command, process.execPath);
     assert.match(spawn.scriptPath, /server[/\\]build[/\\]mcp-server\.mjs$/);
   });
 
   it("falls back to the repo-local tsx binary natively", () => {
     const spawn = brokerSpawn(false, false);
+    assert.equal(spawn.kind, "tsx");
     assert.match(spawn.command, /node_modules[/\\]\.bin[/\\]tsx$/);
     assert.match(spawn.scriptPath, /server[/\\]agent[/\\]mcp-server\.ts$/);
+  });
+
+  // The silent fallback is what made #2842 unreadable: an install on the slow
+  // path looked exactly like one on the fast path, so a 50 s cold boot got
+  // diagnosed as "the connect-wait gate is too small". `kind` is the field that
+  // makes the two distinguishable from a log line alone, so it must never
+  // report the fast path for a spawn that is actually running tsx.
+  it("never labels a tsx spawn as the bundle", () => {
+    for (const useDocker of [false, true]) {
+      const spawn = brokerSpawn(useDocker, false);
+      assert.equal(spawn.kind, "tsx");
+      assert.match(spawn.scriptPath, /\.ts$/, `useDocker=${String(useDocker)}`);
+    }
+  });
+
+  // Codex review on #2898: the turn resolves the broker ONCE and passes it to
+  // both the MCP config and the spawn log. If the config re-probed instead, the
+  // two could straddle a concurrent `yarn build:mcp-broker` and describe
+  // different brokers — a `broker=` field that contradicts what actually ran is
+  // worse than no field. Passing the tsx spawn while the bundle may well exist
+  // on disk is exactly the case a re-probe would get wrong.
+  it("spawns the broker the caller resolved, not one it re-probes", () => {
+    const resolved = brokerSpawn(true, false);
+    const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker: true, broker: resolved });
+    assert.equal(spec.command, resolved.command);
+    assert.equal(spec.args.at(-1), resolved.scriptPath);
   });
 
   it("leaves the native child alone: no NODE_PATH, no --import", () => {
