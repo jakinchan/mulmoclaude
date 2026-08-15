@@ -8,6 +8,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Fixed
+
+#### `@mulmoclaude/core@4.1.0` on npm is not the 4.1.0 in this tree — republished as 4.1.1
+
+npm's 4.1.0 was published at 2026-08-14 18:56 UTC. PR #2915 merged at 23:16 UTC
+and added `putItems`' `itemsFile` to the SAME version number, so two different
+builds of `@mulmoclaude/core` now answer to 4.1.0: the published one has zero
+occurrences of `itemsFile` in `dist/`, and zero in `assets/` — neither the code
+nor the `collection-skills.md` / `error-recovery.md` text that documents it.
+The tree's 4.1.0 carries 345 more lines across those three files.
+
+A version is a promise about bits, so the repair is a new number rather than a
+re-publish of the old one: nothing that already resolved 4.1.0 would fetch it
+again, and a `^` range that picked up the drifted copy would keep it forever.
+4.1.1 gives every consumer one copy to converge on.
+
+Only `core`'s version and the launcher's DEP RANGE move. The plugins keep
+`^4.1.0` — a caret floats across patches, so they resolve 4.1.1 on their own,
+and ratcheting them here would force a publish cascade for no gain. The
+launcher's own `version` stays at 1.13.2: that field is the `/publish-mulmoclaude`
+flow's to move, and 1.13.2 already declares `^4.1.0`, which floats to 4.1.1 too.
+
+Note for whoever publishes: this delivers the core half only. The host half of
+#2915 — `server/agent/containerPaths.ts` and the `mcp-tools` binding that
+supplies `sandboxWorkspacePath` — lives under `server/`, which reaches npm users
+ONLY through a `mulmoclaude` publish. Until that happens, an npm-installed
+sandboxed agent gets the `itemsFile` argument without the container-path
+translation behind it.
+
+### Package releases
+
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.1.1`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@3.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
 ## [1.13.2] - 2026-08-15
 
 **Google sign-in on the remote host works again, and the plugin family that had
