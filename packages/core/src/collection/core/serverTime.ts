@@ -147,8 +147,7 @@ export function serverTimeMillis(value: unknown): number | null {
 /** Every canonical instant in a record, replaced by its string; everything else
  *  untouched. One level deep, which is where a stamped field lives — a `table`
  *  row cannot hold one, because nothing writes a server time into an array. */
-export function decodeRecordTimes(record: unknown): unknown {
-  if (!isRecord(record)) return record;
+export function decodeRecordTimes(record: Record<string, unknown>): Record<string, unknown> {
   let changed = false;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
