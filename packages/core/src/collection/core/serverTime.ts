@@ -221,18 +221,41 @@ export function decodeRecordTimes(record: Record<string, unknown>, schema: Decla
   return changed ? out : record;
 }
 
-/** The write half. `toStored` builds whatever the backend wants for an instant
- *  — a Firestore `Timestamp` — and is injected so this module stays free of the
- *  SDK: it also runs in a browser, where importing that would be a bundle. */
+/** The write half, and it encodes ONLY what was stored as an instant.
+ *
+ *  `previous` is the document as Firestore holds it right now. That is the only
+ *  honest source of provenance here: a decoded stamp is a plain string by the
+ *  time it comes back, indistinguishable from one an author typed or an import
+ *  produced, and no amount of looking at the string can tell them apart. The
+ *  declaration that pins the field lives in `app.json` under
+ *  `public.submit.<cid>`, which this package reads only for `aid`
+ *  (`../server/appManifest`, "SCOPE") — so the stored value is what is left, and
+ *  it answers exactly the right question: was this field an instant before?
+ *
+ *  What that buys, concretely: the frozen stamp goes back unchanged, so a
+ *  whole-record write survives the rules; and a `datetime` field holding a
+ *  canonical-looking string that was NEVER an instant — imported data, a value
+ *  somebody typed — stays the string it is. The format alone would have
+ *  re-typed it.
+ *
+ *  `previous` is null for a create, where nothing was stored and nothing can
+ *  therefore be preserved. That is correct rather than a gap: the rules require
+ *  a created stamp to equal `request.time`, which no client can construct, so a
+ *  create through this store never carries a valid one.
+ *
+ *  `toStored` builds whatever the backend wants for an instant — a Firestore
+ *  `Timestamp` — and is injected so this module stays free of the SDK: it also
+ *  runs in a browser, where importing that would be a bundle. */
 export function encodeRecordTimes(
   record: Record<string, unknown>,
-  schema: DeclaredFields,
+  previous: Record<string, unknown> | null,
   toStored: (parts: ServerTimeParts) => unknown,
 ): Record<string, unknown> {
   let changed = false;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
-    const parts = isDateTimeField(schema, key) ? encodeServerTime(value) : null;
+    const wasInstant = previous !== null && isTimestampLike(previous[key]);
+    const parts = wasInstant ? encodeServerTime(value) : null;
     if (parts !== null) changed = true;
     out[key] = parts === null ? value : toStored(parts);
   }

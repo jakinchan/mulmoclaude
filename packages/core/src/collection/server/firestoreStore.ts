@@ -241,11 +241,26 @@ async function firestoreWrite(
     () => Promise.resolve({ kind: "invalid-id", itemId }),
     async (safeId, { docs, email }) => {
       const collectionPath = sharedItemsPath(key);
-      const stored = encodeRecordTimes(item, schema, (parts) => new Timestamp(parts.seconds, parts.nanoseconds));
+      const asTimestamp = (parts: { seconds: number; nanoseconds: number }): unknown => new Timestamp(parts.seconds, parts.nanoseconds);
       if (opts.refuseOverwrite) {
-        const created = await guarded(key, email, () => docs.create(collectionPath, safeId, stored));
+        // Nothing is stored yet, so there is no instant to preserve — and the
+        // rules make a created stamp equal `request.time`, which no client can
+        // construct, so one cannot arrive this way either.
+        const created = await guarded(key, email, () => docs.create(collectionPath, safeId, encodeRecordTimes(item, null, asTimestamp)));
         if (!created) return { kind: "conflict", itemId: safeId };
       } else {
+        // THE STORED DOCUMENT IS READ FIRST, and it is the only place the
+        // provenance survives: a decoded stamp comes back as a plain string,
+        // indistinguishable from one an author typed. Reading answers the
+        // question that matters — was this field an instant before? — so the
+        // frozen stamp goes back unchanged while a `datetime` that merely holds
+        // a canonical-looking string stays a string.
+        //
+        // One extra round trip per update of a shared record. Paid knowingly:
+        // the alternative is guessing from the format, and a wrong guess
+        // silently changes the stored type of somebody's data.
+        const previous = await guarded(key, email, () => docs.get(collectionPath, safeId));
+        const stored = encodeRecordTimes(item, isRecord(previous) ? previous : null, asTimestamp);
         await guarded(key, email, () => docs.set(collectionPath, safeId, stored));
       }
       if (opts.slug) publishShared(key, [safeId], "upsert");

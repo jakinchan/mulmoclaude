@@ -129,19 +129,30 @@ test("a value that merely LOOKS like an instant is left alone", () => {
   assert.equal(decodeRecordTimes(row, SCHEMA), row);
 });
 
-test("the write half puts the instant back, and re-types nothing else", () => {
+test("the write half puts back only what WAS an instant", () => {
   const stored = (parts: { seconds: number; nanoseconds: number }): unknown => ({ kind: "timestamp", ...parts });
-  const read = decodeRecordTimes({ id: "r1", submittedAt: { seconds: EARLY.seconds, nanoseconds: EARLY.nanoseconds } }, SCHEMA);
-  // What a whole-record write does with a record that was read and edited: the
-  // stamp goes back as an instant, so the rules see a field that has not moved.
-  assert.deepEqual(encodeRecordTimes({ ...read, note: "edited" }, SCHEMA, stored), {
+  // What Firestore holds right now: `submittedAt` is an instant, `note` is a string that happens
+  // to look exactly like one (imported data, or somebody typed it).
+  const previous = { id: "r1", submittedAt: { seconds: EARLY.seconds, nanoseconds: EARLY.nanoseconds }, note: serverTimeOf(EARLY) ?? "" };
+  const read = decodeRecordTimes(previous, SCHEMA);
+  // A record read, edited and written back WHOLE: the stamp returns as the instant it was, so the
+  // rules see a field that has not moved...
+  assert.deepEqual(encodeRecordTimes({ ...read, note: previous.note }, previous, stored), {
     id: "r1",
     submittedAt: { kind: "timestamp", ...EARLY },
-    note: "edited",
+    note: previous.note,
   });
-  // A STRING field holding a canonical-looking value stays a string.
-  const lookalike = { id: "r1", note: serverTimeOf(EARLY) ?? "" };
-  assert.equal(encodeRecordTimes(lookalike, SCHEMA, stored), lookalike);
+  // ...and the look-alike stays the string it always was. The FORMAT cannot tell the two apart;
+  // only what was stored can.
+  assert.equal(typeof encodeRecordTimes(read, previous, stored).note, "string");
+});
+
+test("a create preserves nothing, because nothing was stored", () => {
+  const stored = (parts: { seconds: number; nanoseconds: number }): unknown => ({ kind: "timestamp", ...parts });
+  const fresh = { id: "r1", submittedAt: serverTimeOf(EARLY) ?? "" };
+  // Unchanged, and the same object. The rules make a created stamp equal `request.time`, which no
+  // client can construct, so a valid one cannot arrive this way in the first place.
+  assert.equal(encodeRecordTimes(fresh, null, stored), fresh);
 });
 
 test("an impossible date is not canonical, so it is never stored as a different instant", () => {
