@@ -10,6 +10,85 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Fixed
 
+#### `@mulmoclaude/core@4.2.0` / `@mulmoclaude/collection-plugin@4.2.0` — a server-stamped datetime reaches a page as a string
+
+A shared collection can pin a `datetime` to the server's clock:
+`public.submit.<cid>.stampField` makes the rules require
+`request.resource.data[field] == request.time` on create and freeze it
+afterwards. What is stored is therefore a Firestore `Timestamp` — and that is
+what stops somebody writing yesterday into the field that decides who was
+first.
+
+A `Timestamp` does not survive the trip to a page. Structured clone drops the
+CLASS and leaves `{ seconds, nanoseconds }`; JSON leaves
+`{ type: "firestore/timestamp/1.0", … }`. `String()` of either is
+`"[object Object]"`, so a page sorting by that field compares every row equal
+and a stable sort leaves them in the order they were read — document id order.
+MulmoTerminal's bundled first-come template ships exactly that sort, so its
+queue ranked by id rather than by time. Nothing errored, and the ranks looked
+plausible.
+
+`core` now normalises at the store's read boundary, to one form:
+
+```text
+2026-08-15T23:05:54.605987654Z
+```
+
+UTC, nine fractional digits, `Z`, and each of those is load-bearing. RFC3339
+allows offsets, and two strings with different offsets do not sort in time
+order. Rounding to milliseconds makes two submissions in the same millisecond
+compare equal — the burst a first-come app exists for. Fixed WIDTH matters as
+much as the precision, for a reason easy to get backwards: trimming trailing
+zeros is order-preserving, but MIXING widths is not (`…605Z` and `…605987654Z`
+compare at the fourth fraction character, where `Z` outranks any digit). The
+upshot is that lexicographic order IS chronological order, so an author's page
+sorts with a plain string compare and is right.
+
+Both halves are needed. A record is read, edited and written back WHOLE, so a
+decoded stamp would return as a string; the rules freeze that field by
+comparing `diff().affectedKeys()`, which refuses the write and every later one.
+Dropping the key does not help — a removed key is affected too. So the write
+puts the instant back, and it decides by PROVENANCE rather than by format: the
+stored document is read first, and only a field that WAS an instant is
+converted. A `datetime` holding a canonical-looking string that was never an
+instant (imported data, a value somebody typed) stays the string it is. That
+costs one extra round trip per update of a shared record, paid knowingly — the
+alternative is guessing from the format, and a wrong guess silently changes the
+stored type of somebody's data.
+
+Decoding is scoped the other way, by DECLARATION: only fields the schema calls
+`datetime`. Records may carry keys the schema never mentions, and rewriting one
+because it happens to have `seconds` and `nanoseconds` would re-type live data
+on a guess. Two concerns, two mechanisms.
+
+Also in `core`: the record lint accepts the canonical instant for a `datetime`
+(and nothing looser); the calendar converts an instant to LOCAL civil time at
+the point of placement, leaving `parseIsoDateTime` civil and strict, because
+that strictness is what stops an instant being placed on a civil grid with no
+zone; and canonical validation is semantic, so `2026-02-30T…` (which the shape
+alone accepted, and `Date.parse` then moved to March 2) and year `0000`
+(outside Firestore's range, an exception at the write) are refused.
+
+`collection-plugin` stops offering a stamped value for editing. A
+`datetime-local` control cannot hold that string, so it rendered EMPTY — and
+saving the record then wrote the empty value over a field the rules refuse to
+see move, failing the whole update with a permission error that names nothing.
+It is recognised by the value, because the declaration that pins it lives in
+the app's `app.json`, which no UI reads.
+
+Only `core` and `collection-plugin` move, plus the LAUNCHER's ranges for both —
+`workspace-lockstep` requires the launcher's lower bound to match a bumped
+workspace package, so that ratchet is not optional. The other plugins keep
+`^4.1.0` on core: a caret floats across minors, so they resolve 4.2.0 on their
+own, and ratcheting them would force a publish cascade for no gain. The one
+that imports the new `isCanonicalServerTime` goes to `^4.2.0` because it needs
+it. npm publish is a follow-up (`/publish`), and the two hosts bump after it:
+mulmoserver (receptron/mulmoserver#188) applies the same decode at its own
+Firestore read — it never goes through this store — and MulmoTerminal
+(receptron/mulmoterminal#1747) carries the template and skill text plus the
+ranking regression test. Design: mulmoterminal `plans/fix-shared-app-server-time.md`.
+
+
 #### `@mulmoclaude/core@4.1.0` on npm is not the 4.1.0 in this tree — republished as 4.1.1
 
 npm's 4.1.0 was published at 2026-08-14 18:56 UTC. PR #2915 merged at 23:16 UTC
@@ -39,7 +118,7 @@ translation behind it.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.1.1`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@3.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.2.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.2.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@3.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ## [1.13.2] - 2026-08-15
 
