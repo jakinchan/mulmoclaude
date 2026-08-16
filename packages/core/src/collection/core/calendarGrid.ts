@@ -4,6 +4,14 @@
 // function takes its inputs explicitly so the logic is unit-testable
 // without faking the clock. All internal arithmetic runs in UTC (which
 // has no DST), so fixed 86_400_000 ms steps never skip or double a day.
+//
+// ONE deliberate exception, `localCivilOf`: a server-stamped instant is a point
+// in time rather than a wall clock, so asking which day it lands on is a
+// question about the reader's zone and cannot be answered in UTC without
+// answering it wrongly for most readers. It is the only function here whose
+// result depends on the environment, and its tests pin TZ.
+
+import { serverTimeMillis } from "./serverTime";
 
 const MS_PER_DAY = 86_400_000;
 const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -102,15 +110,39 @@ export function parseIsoDateTime(value: unknown): { ymd: Ymd; minutes: number } 
   return { ymd, minutes };
 }
 
-/** Civil date from either a `YYYY-MM-DD` or a `YYYY-MM-DDTHH:MM` value, so the
- *  month grid buckets date-only and datetime anchors alike. */
+/** A server-stamped instant as the civil time it happened at HERE.
+ *
+ *  `parseIsoDateTime` stays strict and stays civil: it is what the grid, the
+ *  trigger and the spawn code parse, and teaching it to swallow an absolute
+ *  instant would mean placing an instant on a civil grid with no zone — the
+ *  thing its strictness prevents. So the conversion happens at the placement
+ *  instead, and it happens ONCE.
+ *
+ *  LOCAL rather than UTC, deliberately. An instant is a point in time, and the
+ *  question the grid answers is "which of MY days was that". A Tokyo evening
+ *  booking sits on the correct day for the person in Tokyo and on the previous
+ *  one in UTC. The cost is that two people in different zones can see the same
+ *  record on different days — which is what an absolute instant honestly means,
+ *  where a civil `YYYY-MM-DDTHH:MM` means the same wall clock for everyone. */
+function localCivilOf(value: unknown): { ymd: Ymd; minutes: number } | null {
+  const millis = serverTimeMillis(value);
+  if (millis === null) return null;
+  const at = new Date(millis);
+  return {
+    ymd: { year: at.getFullYear(), month: at.getMonth() + 1, day: at.getDate() },
+    minutes: at.getHours() * 60 + at.getMinutes(),
+  };
+}
+
+/** Civil date from a `YYYY-MM-DD`, a `YYYY-MM-DDTHH:MM`, or a server-stamped
+ *  instant, so the month grid buckets all three alike. */
 export function dateOf(value: unknown): Ymd | null {
-  return parseIsoDate(value) ?? parseIsoDateTime(value)?.ymd ?? null;
+  return parseIsoDate(value) ?? parseIsoDateTime(value)?.ymd ?? localCivilOf(value)?.ymd ?? null;
 }
 
 /** Minutes-of-day from a datetime value, or null for date-only / invalid. */
 function timeOf(value: unknown): number | null {
-  return parseIsoDateTime(value)?.minutes ?? null;
+  return parseIsoDateTime(value)?.minutes ?? localCivilOf(value)?.minutes ?? null;
 }
 
 /** Parse a free-form time-string field into start/end minutes-of-day.
