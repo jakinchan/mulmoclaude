@@ -27,6 +27,7 @@ import {
   hasTableRows,
   inputTypeFor,
   isExternalUrl,
+  isServerStamped,
   resolveCurrency,
   sortedRefOptions,
   stepForFieldType,
@@ -70,6 +71,21 @@ describe("inputTypeFor", () => {
     assert.equal(inputTypeFor("datetime"), "datetime-local");
     assert.equal(inputTypeFor("email"), "email");
     assert.equal(inputTypeFor("date"), "date");
+  });
+  it("does not offer a datetime-local for a value it cannot hold", () => {
+    // A shared collection can pin a `datetime` to the server's clock, and what reaches the UI is
+    // the canonical instant. `datetime-local` cannot hold that string, so the control would render
+    // EMPTY — and saving the record would then write the empty value over a field the rules refuse
+    // to see move, failing the whole update with a permission error that names nothing.
+    const stamped = "2026-08-15T23:05:54.605987654Z";
+    assert.equal(isServerStamped(stamped), true);
+    assert.equal(inputTypeFor("datetime", stamped), "text");
+    // A civil value an author typed is still edited as a datetime.
+    assert.equal(isServerStamped("2026-08-15T10:00"), false);
+    assert.equal(inputTypeFor("datetime", "2026-08-15T10:00"), "datetime-local");
+    assert.equal(inputTypeFor("datetime", ""), "datetime-local");
+    // And nothing else is affected by the value.
+    assert.equal(inputTypeFor("date", stamped), "date");
   });
   it("falls back to text for everything else", () => {
     assert.equal(inputTypeFor("markdown"), "text");
