@@ -39,7 +39,14 @@
 
 import { isRecord } from "@mulmoclaude/common";
 import { sharedCollectionKey, type SharedCollectionKey } from "../core/collectionKey";
-import type { CollectionItem } from "../core/schema";
+// `Timestamp` is the one SDK VALUE this module needs: the write half of the
+// server-time codec has to hand Firestore its own type back. Importing the
+// class costs nothing at runtime (no app, no connection) and keeps the codec
+// itself free of the SDK, which matters because it also runs in a browser.
+import { Timestamp } from "firebase/firestore";
+
+import type { CollectionItem, CollectionSchema } from "../core/schema";
+import { decodeRecordTimes, encodeRecordTimes } from "../core/serverTime";
 import { BackendUnavailableError } from "./backendAvailability";
 import type { LoadedCollection } from "./discoveredCollection";
 import { backoffDelayMs, classifyListenerError } from "../../firestore/listen";
@@ -147,8 +154,21 @@ async function guarded<T>(key: SharedCollectionKey, email: string, run: () => Pr
  *  It also removes the reason a submit path would have had to accept the
  *  primary key as a `createField` at all — a submission that cannot name its
  *  own id is exactly right when the id is the thing being assigned. */
-function toItem(data: unknown, docId: string, primaryKey: string): CollectionItem | null {
-  return isRecord(data) ? { ...data, [primaryKey]: docId } : null;
+function toItem(data: unknown, docId: string, schema: CollectionSchema): CollectionItem | null {
+  // A `datetime` field of a SHARED collection can be pinned to the server's
+  // clock — the rules require `request.time` there — so what comes back is a
+  // Firestore timestamp, not a string. It must not leave this store as one.
+  //
+  // Above here everything assumes the DSL's string: the record lint, the
+  // migration gate, the table, and a page — which is handed its records by
+  // structured clone or as JSON, both of which reduce a timestamp to an object
+  // whose `String()` is `"[object Object]"`. A page sorting by that field then
+  // compares every row equal and keeps the order it was read in, which is how
+  // the bundled first-come template came to rank its queue by document id.
+  //
+  // HERE rather than in `firestoreDocs`, because the conversion is scoped by
+  // the SCHEMA and that seam does not have one. See `../core/serverTime`.
+  return isRecord(data) ? { ...decodeRecordTimes(data, schema), [schema.primaryKey]: docId } : null;
 }
 
 /** Record ids are validated with the SAME helper every other backend uses.
@@ -161,10 +181,10 @@ function withSafeId<T>(itemId: string, onInvalid: () => T, run: (safeId: string,
   return run(safeId, requireHandle());
 }
 
-async function firestoreList(key: SharedCollectionKey, primaryKey: string): Promise<CollectionItem[]> {
+async function firestoreList(key: SharedCollectionKey, schema: CollectionSchema): Promise<CollectionItem[]> {
   const { docs, email } = requireHandle();
   const entries = await guarded(key, email, () => docs.list(sharedItemsPath(key)));
-  return entries.map((entry) => toItem(entry.data, entry.id, primaryKey)).filter((item): item is CollectionItem => item !== null);
+  return entries.map((entry) => toItem(entry.data, entry.id, schema)).filter((item): item is CollectionItem => item !== null);
 }
 
 /** Paging is emulated over a full ordered read rather than pushed into
@@ -172,18 +192,18 @@ async function firestoreList(key: SharedCollectionKey, primaryKey: string): Prom
  *  preceding document, which a stateless offset/limit call doesn't have), and
  *  `total` needs the full count anyway. Hence `nativePaging: false` — the
  *  capability is honest about the cost. */
-async function firestorePage(key: SharedCollectionKey, primaryKey: string, opts: ListOptions): Promise<ListPage> {
-  const items = await firestoreList(key, primaryKey);
+async function firestorePage(key: SharedCollectionKey, schema: CollectionSchema, opts: ListOptions): Promise<ListPage> {
+  const items = await firestoreList(key, schema);
   const offset = Math.max(0, opts.offset ?? 0);
   const sliced = opts.limit === undefined ? items.slice(offset) : items.slice(offset, offset + Math.max(0, opts.limit));
-  return { items: projectItemFields(sliced, opts.fields, primaryKey), total: items.length, truncated: false };
+  return { items: projectItemFields(sliced, opts.fields, schema.primaryKey), total: items.length, truncated: false };
 }
 
-async function firestoreRead(key: SharedCollectionKey, itemId: string, primaryKey: string): Promise<CollectionItem | null> {
+async function firestoreRead(key: SharedCollectionKey, itemId: string, schema: CollectionSchema): Promise<CollectionItem | null> {
   return withSafeId(
     itemId,
     () => Promise.resolve(null),
-    async (safeId, { docs, email }) => toItem(await guarded(key, email, () => docs.get(sharedItemsPath(key), safeId)), safeId, primaryKey),
+    async (safeId, { docs, email }) => toItem(await guarded(key, email, () => docs.get(sharedItemsPath(key), safeId)), safeId, schema),
   );
 }
 
@@ -197,10 +217,23 @@ function publishShared(key: SharedCollectionKey, ids: string[], operation: "upse
   publishCollectionChange(sharedCollectionChangePayload({ slug: key.cid, ids, op: operation }, key.aid));
 }
 
+/** The write half of the decode above, and it is not optional.
+ *
+ *  A record is read, edited and written back WHOLE — `putItems`' upsert
+ *  replaces the document — so a decoded stamp would return to Firestore as a
+ *  string. The rules freeze that field by comparing `diff().affectedKeys()`, so
+ *  that write is refused and so is every later one: the record becomes
+ *  permanently unupdatable. Dropping the key instead does not help, because a
+ *  removed key is an affected key too.
+ *
+ *  Only a `datetime` field carrying the exact canonical form is converted, and
+ *  that form is only ever produced by the decode — so the pair is closed over
+ *  its own output and cannot re-type a value somebody else wrote. */
 async function firestoreWrite(
   key: SharedCollectionKey,
   itemId: string,
   item: CollectionItem,
+  schema: CollectionSchema,
   opts: IoOptions & { refuseOverwrite?: boolean | undefined },
 ): Promise<WriteItemResult> {
   return withSafeId<Promise<WriteItemResult>>(
@@ -208,11 +241,12 @@ async function firestoreWrite(
     () => Promise.resolve({ kind: "invalid-id", itemId }),
     async (safeId, { docs, email }) => {
       const collectionPath = sharedItemsPath(key);
+      const stored = encodeRecordTimes(item, schema, (parts) => new Timestamp(parts.seconds, parts.nanoseconds));
       if (opts.refuseOverwrite) {
-        const created = await guarded(key, email, () => docs.create(collectionPath, safeId, item));
+        const created = await guarded(key, email, () => docs.create(collectionPath, safeId, stored));
         if (!created) return { kind: "conflict", itemId: safeId };
       } else {
-        await guarded(key, email, () => docs.set(collectionPath, safeId, item));
+        await guarded(key, email, () => docs.set(collectionPath, safeId, stored));
       }
       if (opts.slug) publishShared(key, [safeId], "upsert");
       return { kind: "ok", itemId: safeId, item };
@@ -356,7 +390,7 @@ function armSharedWatch(key: SharedCollectionKey, onChange: StoreChangeListener)
 /** The store factory registered for `storage.type === "firestore"`.
  *  Synchronous and connection-agnostic by contract — see the header. */
 export function firestoreStoreFor(collection: LoadedCollection, opts: IoOptions): CollectionStore {
-  const { primaryKey } = collection.schema;
+  const { schema } = collection;
   const ioOpts: IoOptions = { ...opts, slug: opts.slug ?? collection.slug };
   // Every method is `async` and resolves the key INSIDE itself, so a bad
   // identity rejects the one call instead of throwing out of the factory. The
@@ -364,11 +398,11 @@ export function firestoreStoreFor(collection: LoadedCollection, opts: IoOptions)
   // collections; one that throws there takes an unrelated screen down with it.
   return {
     capabilities: { writable: true, nativeQuery: false, nativePaging: false },
-    list: async () => firestoreList(keyOf(collection), primaryKey),
-    page: async (pageOpts = {}) => firestorePage(keyOf(collection), primaryKey, pageOpts),
-    read: async (itemId: string) => firestoreRead(keyOf(collection), itemId, primaryKey),
+    list: async () => firestoreList(keyOf(collection), schema),
+    page: async (pageOpts = {}) => firestorePage(keyOf(collection), schema, pageOpts),
+    read: async (itemId: string) => firestoreRead(keyOf(collection), itemId, schema),
     write: async (itemId: string, item: CollectionItem, writeOpts: WriteOptions = {}) =>
-      firestoreWrite(keyOf(collection), itemId, item, { ...ioOpts, refuseOverwrite: writeOpts.refuseOverwrite }),
+      firestoreWrite(keyOf(collection), itemId, item, schema, { ...ioOpts, refuseOverwrite: writeOpts.refuseOverwrite }),
     delete: async (itemId: string) => firestoreDelete(keyOf(collection), itemId, ioOpts),
     // Having a `watch` at all is what takes this backend out of the watcher's
     // clock-tick fallback: `cannotReportChanges()` asks the store whether it

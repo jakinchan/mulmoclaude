@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 
 import {
   decodeRecordTimes,
+  encodeRecordTimes,
   decodeServerTime,
   encodeServerTime,
   isCanonicalServerTime,
@@ -19,6 +20,7 @@ import {
   serverTimeOf,
 } from "../../src/collection/core/serverTime.ts";
 import { dateOf } from "../../src/collection/core/calendarGrid.ts";
+import type { CollectionSchema } from "../../src/collection/core/schema.ts";
 import { recordFieldProblem } from "../../src/collection/core/recordZ.ts";
 
 // The instant observed in a real app, and one 987654 nanoseconds later inside
@@ -27,6 +29,22 @@ const SECONDS = 1786835154;
 const EARLY = { seconds: SECONDS, nanoseconds: 605000000 };
 const SAME_MS = { seconds: SECONDS, nanoseconds: 605987654 };
 const LATER = { seconds: SECONDS + 6, nanoseconds: 0 };
+
+/** A schema that DECLARES which field may hold an instant. The codec is scoped
+ *  by this and not by the value's shape: a record may carry keys the schema
+ *  never mentions, and rewriting one of those because it happens to have
+ *  `seconds` and `nanoseconds` would be re-typing somebody's data on a guess. */
+const SCHEMA: CollectionSchema = {
+  title: "Bookings",
+  icon: "event",
+  dataPath: "data/bookings/items",
+  primaryKey: "id",
+  fields: {
+    id: { type: "string", label: "ID", primary: true },
+    submittedAt: { type: "datetime", label: "When" },
+    note: { type: "string", label: "Note" },
+  },
+};
 
 test("the canonical form is UTC, nine digits, Z", () => {
   assert.equal(serverTimeOf(EARLY), "2026-08-15T23:05:54.605000000Z");
@@ -95,12 +113,47 @@ test("encode is the exact inverse, and only of its own output", () => {
   assert.equal(isCanonicalServerTime("2026-08-15T23:05:54.605987654+09:00"), false);
 });
 
-test("a record is decoded field by field, and untouched when nothing is stamped", () => {
-  const row = { id: "r1", submittedAt: { seconds: EARLY.seconds, nanoseconds: EARLY.nanoseconds }, note: "hello", count: 3 };
-  assert.deepEqual(decodeRecordTimes(row), { id: "r1", submittedAt: serverTimeOf(EARLY), note: "hello", count: 3 });
+test("a declared datetime field is decoded, and an untouched record keeps its identity", () => {
+  const row = { id: "r1", submittedAt: { seconds: EARLY.seconds, nanoseconds: EARLY.nanoseconds }, note: "hello" };
+  assert.deepEqual(decodeRecordTimes(row, SCHEMA), { id: "r1", submittedAt: serverTimeOf(EARLY), note: "hello" });
   const plain = { id: "r2", note: "hello" };
   // The SAME object, so a reference comparison upstream keeps its meaning.
-  assert.equal(decodeRecordTimes(plain), plain);
+  assert.equal(decodeRecordTimes(plain, SCHEMA), plain);
+});
+
+test("a value that merely LOOKS like an instant is left alone", () => {
+  // The shape is not the proof. `note` is a declared string, and `duration` is
+  // not declared at all — records may carry keys the schema never mentions, and
+  // re-typing one of those would be corrupting live data on a guess.
+  const row = { id: "r1", note: { seconds: 30, nanoseconds: 0 }, duration: { seconds: 30, nanoseconds: 0 } };
+  assert.equal(decodeRecordTimes(row, SCHEMA), row);
+});
+
+test("the write half puts the instant back, and re-types nothing else", () => {
+  const stored = (parts: { seconds: number; nanoseconds: number }): unknown => ({ kind: "timestamp", ...parts });
+  const read = decodeRecordTimes({ id: "r1", submittedAt: { seconds: EARLY.seconds, nanoseconds: EARLY.nanoseconds } }, SCHEMA);
+  // What a whole-record write does with a record that was read and edited: the
+  // stamp goes back as an instant, so the rules see a field that has not moved.
+  assert.deepEqual(encodeRecordTimes({ ...read, note: "edited" }, SCHEMA, stored), {
+    id: "r1",
+    submittedAt: { kind: "timestamp", ...EARLY },
+    note: "edited",
+  });
+  // A STRING field holding a canonical-looking value stays a string.
+  const lookalike = { id: "r1", note: serverTimeOf(EARLY) ?? "" };
+  assert.equal(encodeRecordTimes(lookalike, SCHEMA, stored), lookalike);
+});
+
+test("an impossible date is not canonical, so it is never stored as a different instant", () => {
+  // Shape-only validation accepted this, the lint reported nothing, and
+  // `Date.parse` then moved it to March 2.
+  assert.equal(isCanonicalServerTime("2026-02-30T00:00:00.000000000Z"), false);
+  assert.equal(encodeServerTime("2026-02-30T00:00:00.000000000Z"), null);
+  // A real leap day is fine.
+  assert.equal(isCanonicalServerTime("2024-02-29T00:00:00.000000000Z"), true);
+  assert.equal(isCanonicalServerTime("2026-02-29T00:00:00.000000000Z"), false);
+  // And a clock that does not exist.
+  assert.equal(isCanonicalServerTime("2026-08-15T24:00:00.000000000Z"), false);
 });
 
 test("the record lint accepts a stamped instant, and still refuses a stray offset", () => {

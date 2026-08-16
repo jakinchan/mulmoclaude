@@ -26,10 +26,8 @@ import {
   onSnapshot,
   runTransaction,
   setDoc,
-  Timestamp,
   type Firestore,
 } from "firebase/firestore";
-import { decodeRecordTimes, encodeServerTime } from "../core/serverTime";
 
 /** One stored record document. `data` is the document's own fields — the
  *  record itself, not a wrapper around it; see `set` below. The store
@@ -86,52 +84,25 @@ export interface FirestoreDocs {
  *  `remote-host/server/hostRunner.ts:158-169` documents), turning a read into a
  *  partial one; the document id is always present and gives the stable order
  *  the store contract requires. */
-/** The server-time codec, applied where Firestore's own types enter and leave.
- *
- *  HERE and nowhere above, because this module is the seam that owns the SDK —
- *  a `Timestamp` is an SDK type, and every read and write of a shared record
- *  goes through one of the four calls below. Above this line a record is plain
- *  data, which is what the lint, the table, the migration gate and a page's
- *  payload all assume; see `../core/serverTime` for why the string form is
- *  what it is.
- *
- *  SYMMETRIC on purpose. Decoding alone would break the next write: a record is
- *  read, edited and written back WHOLE, so a decoded stamp would return as a
- *  string, and the rules — which freeze that field — would refuse that write
- *  and every later one. Encoding only the exact canonical form keeps the pair
- *  closed over its own output.
- *
- *  The in-memory fake the tests inject is unaffected and should stay that way:
- *  it never holds a `Timestamp`, so it is already speaking the language
- *  everything above this seam speaks. */
-function encodeRecordTimes(data: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(data)) {
-    const parts = encodeServerTime(value);
-    out[key] = parts === null ? value : new Timestamp(parts.seconds, parts.nanoseconds);
-  }
-  return out;
-}
-
 export function createFirestoreDocs(database: Firestore): FirestoreDocs {
   return {
     list: async (collectionPath) => {
       const snapshot = await getDocs(firestoreQuery(firestoreCollection(database, collectionPath), orderBy("__name__")));
-      return snapshot.docs.map((entry) => ({ id: entry.id, data: decodeRecordTimes(entry.data()) }));
+      return snapshot.docs.map((entry) => ({ id: entry.id, data: entry.data() }));
     },
     get: async (collectionPath, docId) => {
       const snapshot = await getDoc(doc(database, collectionPath, docId));
-      return snapshot.exists() ? decodeRecordTimes(snapshot.data()) : null;
+      return snapshot.exists() ? snapshot.data() : null;
     },
     set: async (collectionPath, docId, data) => {
-      await setDoc(doc(database, collectionPath, docId), encodeRecordTimes(data));
+      await setDoc(doc(database, collectionPath, docId), data);
     },
     create: (collectionPath, docId, data) =>
       runTransaction(database, async (transaction) => {
         const ref = doc(database, collectionPath, docId);
         const existing = await transaction.get(ref);
         if (existing.exists()) return false;
-        transaction.set(ref, encodeRecordTimes(data));
+        transaction.set(ref, data);
         return true;
       }),
     // Firestore's deleteDoc succeeds on a missing document, so an existence

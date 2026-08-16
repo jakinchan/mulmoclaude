@@ -80,9 +80,19 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
  *  document another client wrote. */
 const isTimestampLike = (value: unknown): value is ServerTimeParts => isRecord(value) && isFiniteInteger(value.seconds) && isFiniteInteger(value.nanoseconds);
 
-/** Is this the canonical form? Used by the record lint, so it must not accept
- *  anything a plain string compare would order wrongly. */
-export const isCanonicalServerTime = (value: unknown): value is string => typeof value === "string" && CANONICAL_RE.test(value);
+/** Is this the canonical form, and a real instant?
+ *
+ *  The shape check alone is not enough, and the gap is not theoretical: with it,
+ *  `2026-02-30T00:00:00.000000000Z` passes, the record lint reports nothing, and
+ *  `Date.parse` then normalises it to March 2 — so a write/read round trip
+ *  silently moves the value. The round trip below is the check: a string is
+ *  canonical only when re-formatting what it parses to gives it back. */
+export const isCanonicalServerTime = (value: unknown): value is string => {
+  if (typeof value !== "string" || !CANONICAL_RE.test(value)) return false;
+  const millis = Date.parse(`${value.slice(0, 19)}Z`);
+  if (Number.isNaN(millis)) return false;
+  return new Date(millis).toISOString().slice(0, 19) === value.slice(0, 19);
+};
 
 /** The canonical string for a (seconds, nanoseconds) pair, or null when the
  *  pair is not a real instant.
@@ -96,7 +106,11 @@ export function serverTimeOf(parts: ServerTimeParts): string | null {
   if (nanoseconds < 0 || nanoseconds >= NANOS_PER_SECOND) return null;
   const whole = new Date(seconds * MILLIS_PER_SECOND);
   if (Number.isNaN(whole.getTime())) return null;
-  return `${whole.toISOString().slice(0, 19)}.${String(nanoseconds).padStart(9, "0")}Z`;
+  const formatted = `${whole.toISOString().slice(0, 19)}.${String(nanoseconds).padStart(9, "0")}Z`;
+  // A year outside the four-digit range formats as `+275760-…`, which is not
+  // this form. Checked rather than assumed, because a caller that stored the
+  // result would be storing something nothing downstream recognises.
+  return isCanonicalServerTime(formatted) ? formatted : null;
 }
 
 /** A stored server time in any of the shapes it reaches us in, as the
@@ -144,18 +158,63 @@ export function serverTimeMillis(value: unknown): number | null {
   return parts.seconds * MILLIS_PER_SECOND + Math.floor(parts.nanoseconds / NANOS_PER_MILLI);
 }
 
-/** Every canonical instant in a record, replaced by its string; everything else
- *  untouched. One level deep, which is where a stamped field lives — a `table`
- *  row cannot hold one, because nothing writes a server time into an array. */
-export function decodeRecordTimes(record: Record<string, unknown>): Record<string, unknown> {
+/** The only part of a schema this codec reads.
+ *
+ *  Structural rather than `CollectionSchema`, because the OTHER host has its own
+ *  type for the same document (mulmoserver reads these records without going
+ *  through this package's store) and neither side should have to adopt the
+ *  other's declaration to call one function. */
+export interface DeclaredFields {
+  fields: Record<string, { type: string } | undefined>;
+}
+
+/** Which fields of a record may hold an instant: the ones the SCHEMA calls
+ *  `datetime`, and no others.
+ *
+ *  DECLARATION, not shape. Recognising `{ seconds, nanoseconds }` wherever it
+ *  appears would rewrite an ordinary value that happens to have those two keys
+ *  — a duration, an offset, somebody's own metadata — into a datetime string,
+ *  and then into a Firestore timestamp on the next whole-record write. Records
+ *  are allowed to carry keys the schema never mentions, so that is live user
+ *  data being re-typed on a guess. The same argument runs the other way on the
+ *  write: a `string` field whose value happens to look canonical must stay a
+ *  string.
+ *
+ *  A `datetime` field is the one place where both readings mean the same
+ *  thing, which is what makes this scope the honest one. */
+const isDateTimeField = (schema: DeclaredFields, key: string): boolean => schema.fields[key]?.type === "datetime";
+
+/** Every stored instant in a `datetime` field, as its canonical string; every
+ *  other value untouched. One level deep, which is where a stamped field
+ *  lives — the rules stamp a top-level key and nothing writes a server time
+ *  into a table row. */
+export function decodeRecordTimes(record: Record<string, unknown>, schema: DeclaredFields): Record<string, unknown> {
   let changed = false;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
-    const decoded = decodeServerTime(value);
+    const decoded = isDateTimeField(schema, key) ? decodeServerTime(value) : null;
     if (decoded !== null) changed = true;
     out[key] = decoded ?? value;
   }
   // The SAME object when nothing was stamped, so a reference comparison
   // upstream keeps meaning what it meant.
+  return changed ? out : record;
+}
+
+/** The write half. `toStored` builds whatever the backend wants for an instant
+ *  — a Firestore `Timestamp` — and is injected so this module stays free of the
+ *  SDK: it also runs in a browser, where importing that would be a bundle. */
+export function encodeRecordTimes(
+  record: Record<string, unknown>,
+  schema: DeclaredFields,
+  toStored: (parts: ServerTimeParts) => unknown,
+): Record<string, unknown> {
+  let changed = false;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    const parts = isDateTimeField(schema, key) ? encodeServerTime(value) : null;
+    if (parts !== null) changed = true;
+    out[key] = parts === null ? value : toStored(parts);
+  }
   return changed ? out : record;
 }
