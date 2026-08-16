@@ -84,8 +84,11 @@ describe("inputTypeFor", () => {
     assert.equal(isServerStamped("2026-08-15T10:00"), false);
     assert.equal(inputTypeFor("datetime", "2026-08-15T10:00"), "datetime-local");
     assert.equal(inputTypeFor("datetime", ""), "datetime-local");
-    // And nothing else is affected by the value.
+    // And nothing else is affected by the value. The lock is read alongside the field's TYPE
+    // where it is rendered, because this input is shared with string / email / ref / image / file
+    // — a string field whose value happens to look canonical must stay editable.
     assert.equal(inputTypeFor("date", stamped), "date");
+    assert.equal(inputTypeFor("string", stamped), "text");
   });
   it("falls back to text for everything else", () => {
     assert.equal(inputTypeFor("markdown"), "text");

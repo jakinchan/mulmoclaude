@@ -299,7 +299,9 @@
               :type="render.inputTypeFor(field.type, editing.text[key])"
               :step="render.stepFor(field.type)"
               :required="isFieldRequiredInUi(field)"
-              :disabled="(field.primary === true && (editing.mode === 'edit' || isSingleton)) || render.isServerStamped(editing.text[key])"
+              :disabled="
+                (field.primary === true && (editing.mode === 'edit' || isSingleton)) || (field.type === 'datetime' && render.isServerStamped(editing.text[key]))
+              "
               class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-medium text-slate-700 transition-all"
               :data-testid="`collections-input-${key}`"
             />
