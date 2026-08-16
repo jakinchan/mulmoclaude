@@ -30,6 +30,7 @@ import { isRecord } from "@mulmoclaude/common";
 import { z } from "zod";
 import { coerceNumeric } from "./backlinks";
 import { parseIsoDate, parseIsoDateTime } from "./calendarGrid";
+import { isCanonicalServerTime } from "./serverTime";
 import { COMPUTED_TYPES } from "./schema";
 import type { CollectionFieldSpec, CollectionItem, CollectionSchema, CollectionSubFieldSpec } from "./schema";
 
@@ -66,6 +67,10 @@ function enforcedProblem(key: string, spec: AnyFieldSpec, value: unknown): strin
  *  outside the canonical `YYYY-MM-DDTHH:MM[:SS]` shape (e.g. a `Z` suffix,
  *  which the day view can't place). `string`-backed types accept anything
  *  stringifiable; `ref` existence is out of scope. */
+/** Named in the lint's own message, so the shape is shown rather than
+ *  described. */
+const CANONICAL_SERVER_TIME_EXAMPLE = "2026-08-15T01:45:54.605987654Z";
+
 function strictTypeProblem(key: string, spec: AnyFieldSpec, value: unknown): string | null {
   switch (spec.type) {
     case "number":
@@ -76,9 +81,17 @@ function strictTypeProblem(key: string, spec: AnyFieldSpec, value: unknown): str
     case "date":
       return parseIsoDate(value) !== null ? null : `'${key}' = '${String(value)}' is not a real YYYY-MM-DD date`;
     case "datetime":
-      return parseIsoDateTime(value) !== null
+      // Two shapes, and the second one is not a loosening of the first. A
+      // SHARED collection can pin a field to the server's clock, and what is
+      // stored there is a Firestore timestamp the rules require; by the time it
+      // reaches here it is the canonical instant string (`../core/serverTime`).
+      // Only that exact form is accepted — RFC3339 in general is not, because
+      // two values with different offsets do not sort in time order, and the
+      // order is the whole reason the field exists.
+      return parseIsoDateTime(value) !== null || isCanonicalServerTime(value)
         ? null
-        : `'${key}' = '${String(value)}' is not a YYYY-MM-DDTHH:MM datetime (seconds optional, no timezone suffix — the shape the calendar parses)`;
+        : `'${key}' = '${String(value)}' is not a YYYY-MM-DDTHH:MM datetime (seconds optional, no timezone suffix — the shape the calendar parses), ` +
+            `nor a server-stamped instant (${CANONICAL_SERVER_TIME_EXAMPLE})`;
     default:
       return null;
   }

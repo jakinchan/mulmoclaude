@@ -36,6 +36,7 @@ import {
   formatMoney,
   hasTableRows,
   inputTypeFor,
+  isServerStamped,
   isExternalUrl,
   resolveCurrency,
   stepForFieldType,
@@ -81,7 +82,8 @@ export interface CollectionRendering {
   tableRows: (value: unknown) => Record<string, unknown>[];
   hasTableRows: (value: unknown) => boolean;
   formatSubCell: (subField: FieldSpec, value: unknown, record: CollectionItem | null) => string;
-  inputTypeFor: (type: FieldType) => string;
+  inputTypeFor: (type: FieldType, value?: unknown) => string;
+  isServerStamped: (value: unknown) => boolean;
   stepFor: (type: FieldType) => string | undefined;
   deriveAll: (schema: CollectionSchema, base: CollectionItem, refRecords: RefRecordCache) => CollectionItem;
   evaluateDerivedAgainstItem: (field: FieldSpec, fieldKey: string, item: CollectionItem) => number | null;
@@ -105,6 +107,7 @@ const STATELESS_RENDERERS = {
   tableRows,
   hasTableRows,
   inputTypeFor,
+  isServerStamped,
   stepFor: stepForFieldType,
   deriveAll,
 };

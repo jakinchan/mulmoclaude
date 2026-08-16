@@ -61,6 +61,10 @@ const EXPECTED_MEMBERS = [
   "hasTableRows",
   "formatSubCell",
   "inputTypeFor",
+  // A `datetime` whose value the SERVER stamped must not be offered for editing: the
+  // `datetime-local` control cannot hold that string, so it renders empty and saving writes the
+  // empty value over a field the rules refuse to see move.
+  "isServerStamped",
   "stepFor",
   "deriveAll",
   "evaluateDerivedAgainstItem",

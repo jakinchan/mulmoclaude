@@ -4,7 +4,7 @@
 // function of its arguments. The composable imports these and calls them
 // from inside its computed/watch closures; behaviour is identical.
 
-import { deriveAll, fieldText } from "@mulmoclaude/core/collection";
+import { deriveAll, fieldText, isCanonicalServerTime } from "@mulmoclaude/core/collection";
 import type {
   CollectionDetailResponse,
   CollectionItem,
@@ -31,12 +31,29 @@ export function stepForFieldType(type: FieldType): string | undefined {
   return undefined;
 }
 
-export function inputTypeFor(type: FieldType): string {
+/** A value the SERVER stamped and the rules froze.
+ *
+ *  A shared collection can pin a `datetime` to the server's clock, and what
+ *  reaches the UI is the canonical instant string. It must not be offered for
+ *  editing, and the reason is not tidiness: `datetime-local` cannot hold that
+ *  string, so the control renders EMPTY, and saving the record then writes the
+ *  empty (or a re-typed civil) value over a field the rules refuse to see move.
+ *  The whole update fails, with a permission error that names nothing.
+ *
+ *  Recognised by the value rather than by the schema because the declaration
+ *  that pins it lives in the app's `app.json`, which no UI reads. */
+export function isServerStamped(value: unknown): boolean {
+  return isCanonicalServerTime(value);
+}
+
+export function inputTypeFor(type: FieldType, value?: unknown): string {
   if (type === "email") return "email";
   if (type === "number") return "number";
   if (type === "money") return "number";
   if (type === "date") return "date";
-  if (type === "datetime") return "datetime-local";
+  // A server-stamped instant is shown as text, because `datetime-local` would
+  // show nothing at all. It is also disabled where it is rendered.
+  if (type === "datetime") return isServerStamped(value) ? "text" : "datetime-local";
   return "text";
 }
 

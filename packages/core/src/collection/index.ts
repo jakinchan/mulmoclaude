@@ -21,6 +21,12 @@ export * from "./core/enumColors";
 export * from "./core/draft";
 export * from "./core/actionVisible";
 export * from "./core/backlinks";
+// The server-time codec. Exported from the PUBLIC subpath because both hosts
+// need the decode half: a page's payload is assembled by each host from its own
+// read (mulmoserver reads Firestore directly and never passes through
+// `collection/server`), and a second implementation of this is the drift this
+// module exists to remove.
+export * from "./core/serverTime";
 export * from "./core/linkTargets";
 export * from "./core/where";
 export * from "./core/completion";
