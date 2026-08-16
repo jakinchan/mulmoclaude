@@ -30,7 +30,7 @@ plausible.
 
 `core` now normalises at the store's read boundary, to one form:
 
-```
+```text
 2026-08-15T23:05:54.605987654Z
 ```
 
@@ -76,9 +76,12 @@ see move, failing the whole update with a permission error that names nothing.
 It is recognised by the value, because the declaration that pins it lives in
 the app's `app.json`, which no UI reads.
 
-Only `core` and `collection-plugin` move. The other plugins keep `^4.1.0` — a
-caret floats across minors, so they resolve 4.2.0 on their own; the plugin that
-imports the new `isCanonicalServerTime` ratchets to `^4.2.0` because it needs
+Only `core` and `collection-plugin` move, plus the LAUNCHER's ranges for both —
+`workspace-lockstep` requires the launcher's lower bound to match a bumped
+workspace package, so that ratchet is not optional. The other plugins keep
+`^4.1.0` on core: a caret floats across minors, so they resolve 4.2.0 on their
+own, and ratcheting them would force a publish cascade for no gain. The one
+that imports the new `isCanonicalServerTime` goes to `^4.2.0` because it needs
 it. npm publish is a follow-up (`/publish`), and the two hosts bump after it:
 mulmoserver (receptron/mulmoserver#188) applies the same decode at its own
 Firestore read — it never goes through this store — and MulmoTerminal
