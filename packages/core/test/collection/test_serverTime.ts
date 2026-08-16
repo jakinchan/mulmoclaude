@@ -154,6 +154,10 @@ test("an impossible date is not canonical, so it is never stored as a different 
   assert.equal(isCanonicalServerTime("2026-02-29T00:00:00.000000000Z"), false);
   // And a clock that does not exist.
   assert.equal(isCanonicalServerTime("2026-08-15T24:00:00.000000000Z"), false);
+  // Year zero parses in JS and is outside Firestore's range, so it would fail
+  // at the write with an exception instead of being refused here.
+  assert.equal(isCanonicalServerTime("0000-01-01T00:00:00.000000000Z"), false);
+  assert.equal(isCanonicalServerTime("0001-01-01T00:00:00.000000000Z"), true);
 });
 
 test("the record lint accepts a stamped instant, and still refuses a stray offset", () => {

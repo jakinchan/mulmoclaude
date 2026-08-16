@@ -89,6 +89,10 @@ const isTimestampLike = (value: unknown): value is ServerTimeParts => isRecord(v
  *  canonical only when re-formatting what it parses to gives it back. */
 export const isCanonicalServerTime = (value: unknown): value is string => {
   if (typeof value !== "string" || !CANONICAL_RE.test(value)) return false;
+  // Firestore's own range starts at 0001-01-01; the four digits above already
+  // bound the other end. Year zero parses in JS and would only fail later, when
+  // the SDK is handed it — an exception at the write instead of a refusal here.
+  if (value.startsWith("0000-")) return false;
   const millis = Date.parse(`${value.slice(0, 19)}Z`);
   if (Number.isNaN(millis)) return false;
   return new Date(millis).toISOString().slice(0, 19) === value.slice(0, 19);
@@ -181,7 +185,23 @@ export interface DeclaredFields {
  *  string.
  *
  *  A `datetime` field is the one place where both readings mean the same
- *  thing, which is what makes this scope the honest one. */
+ *  thing, which is what makes this scope the honest one.
+ *
+ *  WHY NOT NARROWER STILL — scoped to the app's `stampField`, the one field the
+ *  rules pin. It was asked for, and it is not reachable from here: that name
+ *  lives in `app.json` under `public.submit.<cid>`, which core reads only for
+ *  `aid` (see `../server/appManifest`, "SCOPE") and which is the AUTHORED file
+ *  rather than the published document the rules actually read. Getting it would
+ *  mean a file read per write and crossing a boundary that module states
+ *  deliberately.
+ *
+ *  And the narrower scope buys less than it looks. Within this backend a
+ *  `datetime` field's canonical instant has ONE storage form — a timestamp —
+ *  and the pair above is exact, so the value re-reads as the identical string
+ *  for every reader. What changes for a non-stamped field is the stored TYPE,
+ *  which matters only to a rule comparing it as a string; the rules that touch
+ *  a datetime compare it to `request.time`, which is the stamped case and needs
+ *  the timestamp. A field that must stay a string is declared `string`. */
 const isDateTimeField = (schema: DeclaredFields, key: string): boolean => schema.fields[key]?.type === "datetime";
 
 /** Every stored instant in a `datetime` field, as its canonical string; every
