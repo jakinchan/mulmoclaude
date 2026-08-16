@@ -127,10 +127,10 @@ export function parseIsoDateTime(value: unknown): { ymd: Ymd; minutes: number } 
 function localCivilOf(value: unknown): { ymd: Ymd; minutes: number } | null {
   const millis = serverTimeMillis(value);
   if (millis === null) return null;
-  const at = new Date(millis);
+  const instant = new Date(millis);
   return {
-    ymd: { year: at.getFullYear(), month: at.getMonth() + 1, day: at.getDate() },
-    minutes: at.getHours() * 60 + at.getMinutes(),
+    ymd: { year: instant.getFullYear(), month: instant.getMonth() + 1, day: instant.getDate() },
+    minutes: instant.getHours() * 60 + instant.getMinutes(),
   };
 }
 
